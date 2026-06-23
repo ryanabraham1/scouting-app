@@ -4,6 +4,8 @@
 create or replace function msr_bump_meta()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 begin
   new.row_revision := old.row_revision + 1;

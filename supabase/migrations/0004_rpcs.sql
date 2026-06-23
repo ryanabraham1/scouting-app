@@ -116,6 +116,8 @@ $$;
 create or replace function msr_bump_meta()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 begin
   -- When inside upsert_match_report, the function manages revision explicitly.
