@@ -3,8 +3,11 @@ dist
 dist-ssr
 coverage
 *.tsbuildinfo
-*.config.js
-*.config.d.ts
+# tsc -b composite emits these next to the .ts config sources — ignore only those, root-anchored
+/vite.config.js
+/vite.config.d.ts
+/vitest.config.js
+/vitest.config.d.ts
 playwright-report
 test-results
 *.log
