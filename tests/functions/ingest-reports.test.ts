@@ -1,204 +1,269 @@
 // tests/functions/ingest-reports.test.ts
-// Integration test against the DEPLOYED ingest-reports edge function.
-// Seeds FK rows (event/team/match/scout) via the service-role admin client,
-// then POSTs a valid report with HMAC and asserts ingested:1 + row exists.
-// Also asserts tampered HMAC → 401.
-import { describe, it, expect, afterAll } from "vitest";
+// LIVE integration test against the DEPLOYED ingest-reports edge function
+// (JWT event-member auth — the HMAC model is GONE; contracts §5).
+//
+// Setup (mirrors tba-proxy.test.ts for dotenv/supabase-js/skip-when-missing):
+//   - Service-role admin client seeds two events (one the member joins, one
+//     foreign), each with an event_secret join_code, plus a team + match.
+//   - A member scout is created by anon sign-in + join_event; its session
+//     access_token is the JWT the function gates on. get_my_event_keys() for
+//     that JWT returns ONLY the joined event.
+//
+// Cases (Task S Step 1):
+//   - no Authorization header                          → 401
+//   - member JWT + report in their event               → 200 { ingested: 1 } + row exists
+//   - re-POST the SAME report                          → 200 { ingested: 1 } + NO duplicate
+//   - member JWT but report.event_key is a foreign event → 403, nothing written
+//
+// This test FAILS until the controller redeploys the rewritten function.
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { config } from "dotenv";
-import { createHmac } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 config({ path: ".env.local" });
 
-const BASE = `${process.env.VITE_SUPABASE_URL}/functions/v1/ingest-reports`;
-const ANON = process.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-const SECRET = process.env.QR_INGEST_HMAC_SECRET as string;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY as string;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL as string;
+const ANON = process.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY as string;
+const BASE = `${SUPABASE_URL}/functions/v1/ingest-reports`;
 
-// Canonical HMAC: SHA-256 over JSON.stringify(reports) — must match function exactly.
-function sign(reports: unknown[]): string {
-  return createHmac("sha256", SECRET)
-    .update(JSON.stringify(reports))
-    .digest("hex");
-}
+// Gate the whole suite on env (mirrors tba-proxy: skip locally when unset).
+const HAS_ENV = Boolean(SUPABASE_URL && ANON && SERVICE_ROLE_KEY);
+const d = HAS_ENV ? describe : describe.skip;
 
-// Admin client for seeding/cleanup (uses service role key).
+// The member's own event.
+const EVENT_KEY = "2099test_ingest_jwt";
+const EVENT_CODE = "INGSTJWT";
+const MATCH_KEY = "2099test_ingest_jwt_qm1";
+const TEAM_NUMBER = 99992;
+// A separate event the member never joins (the 403-foreign case).
+const FOREIGN_EVENT_KEY = "2099test_ingest_foreign";
+const FOREIGN_CODE = "INGFRGN1";
+const FOREIGN_MATCH_KEY = "2099test_ingest_foreign_qm1";
+
+const REPORT_ID = "00000000-d4d4-d4d4-d4d4-000000000099";
+const FOREIGN_REPORT_ID = "00000000-d4d4-d4d4-d4d4-0000000000fe";
+
+// Admin client for seeding / assertions / cleanup (service role).
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// Unique IDs for this test run to avoid collisions.
-const TEST_EVENT_KEY = "2099test_ingest";
-const TEST_MATCH_KEY = "2099test_ingest_qm1";
-const TEST_TEAM_NUMBER = 99991;
-const TEST_REPORT_ID = "00000000-d4d4-d4d4-d4d4-000000000001";
-let TEST_SCOUT_ID = "";
+let memberJwt = "";
+let memberScoutId = "";
 
 async function seed() {
-  // Insert event
+  // Member's own event + its join code, plus a team and a match.
   await admin.from("event").upsert({
-    event_key: TEST_EVENT_KEY,
-    name: "Ingest Test Event",
+    event_key: EVENT_KEY,
+    name: "Ingest JWT Test Event",
     is_active: true,
-    staged_fuel_per_match: 504,
   });
-  // Insert team
+  await admin.from("event_secret").upsert({
+    event_key: EVENT_KEY,
+    join_code: EVENT_CODE,
+  });
   await admin.from("team").upsert({
-    team_number: TEST_TEAM_NUMBER,
-    nickname: "Test Team Ingest",
+    team_number: TEAM_NUMBER,
+    nickname: "Ingest JWT Team",
   });
-  // Insert match
   await admin.from("match").upsert({
-    match_key: TEST_MATCH_KEY,
-    event_key: TEST_EVENT_KEY,
+    match_key: MATCH_KEY,
+    event_key: EVENT_KEY,
     comp_level: "qm",
     match_number: 1,
   });
-  // Insert scout (auth_uid must be a valid uuid; use a deterministic one)
-  const scoutAuthUid = "00000000-d4d4-d4d4-d4d4-aaaaaaaaaaaa";
-  const { data: scoutData, error: scoutErr } = await admin
-    .from("scout")
-    .upsert({
-      event_key: TEST_EVENT_KEY,
-      display_name: "Test Scout Ingest",
-      auth_uid: scoutAuthUid,
-    })
-    .select("id")
-    .single();
-  if (scoutErr || !scoutData) throw new Error(`Scout seed failed: ${scoutErr?.message}`);
-  TEST_SCOUT_ID = scoutData.id;
+
+  // Foreign event (member never joins it) + a match so a forged event_key is
+  // FK-valid and the 403 is proven to come from the membership gate, not an FK.
+  await admin.from("event").upsert({
+    event_key: FOREIGN_EVENT_KEY,
+    name: "Ingest Foreign Event",
+    is_active: false,
+  });
+  await admin.from("event_secret").upsert({
+    event_key: FOREIGN_EVENT_KEY,
+    join_code: FOREIGN_CODE,
+  });
+  await admin.from("match").upsert({
+    match_key: FOREIGN_MATCH_KEY,
+    event_key: FOREIGN_EVENT_KEY,
+    comp_level: "qm",
+    match_number: 1,
+  });
+
+  // Create the member: anon sign-in + join_event. Its access_token is the JWT
+  // the function gates on; the returned scout id is a valid scout_id for it.
+  const memberClient = createClient(SUPABASE_URL, ANON, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: signin, error: sErr } = await memberClient.auth
+    .signInAnonymously();
+  if (sErr || !signin?.session) {
+    throw new Error(`anon sign-in failed: ${sErr?.message ?? "no session"}`);
+  }
+  memberJwt = signin.session.access_token;
+
+  const { data: scout, error: jErr } = await memberClient.rpc("join_event", {
+    p_code: EVENT_CODE,
+    p_display_name: "Ingest JWT Scout",
+  });
+  if (jErr || !scout) {
+    throw new Error(`join_event failed: ${jErr?.message ?? "no scout"}`);
+  }
+  memberScoutId = scout.id as string;
 }
 
 async function cleanup() {
-  // Delete in FK-safe order
+  // FK-safe order across BOTH events.
   await admin
     .from("match_scouting_report")
     .delete()
-    .eq("event_key", TEST_EVENT_KEY);
-  await admin.from("scout").delete().eq("event_key", TEST_EVENT_KEY);
-  await admin.from("match").delete().eq("event_key", TEST_EVENT_KEY);
-  await admin.from("event").delete().eq("event_key", TEST_EVENT_KEY);
-  await admin.from("team").delete().eq("team_number", TEST_TEAM_NUMBER);
+    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
+  await admin
+    .from("scout")
+    .delete()
+    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
+  await admin
+    .from("match")
+    .delete()
+    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
+  await admin
+    .from("event_secret")
+    .delete()
+    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
+  await admin
+    .from("event")
+    .delete()
+    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
+  await admin.from("team").delete().eq("team_number", TEAM_NUMBER);
 }
 
-describe("ingest-reports (deployed)", () => {
-  it("seed FK rows before test", async () => {
+// A valid report payload (snake_case per contracts §1a). row_revision:1.
+function validReport(): Record<string, unknown> {
+  return {
+    id: REPORT_ID,
+    schema_version: 1,
+    app_version: "test-jwt-1.0.0",
+    device_id: "test-device-jwt",
+    event_key: EVENT_KEY,
+    match_key: MATCH_KEY,
+    scout_id: memberScoutId,
+    target_team_number: TEAM_NUMBER,
+    alliance_color: "red",
+    station: 1,
+    inactive_first: false,
+    fuel_bursts: [{ startMs: 0, endMs: 10000, rate: 2.0, window: "auto" }],
+    row_revision: 1,
+  };
+}
+
+async function reportCount(eventKey: string): Promise<number> {
+  const { count, error } = await admin
+    .from("match_scouting_report")
+    .select("id", { count: "exact", head: true })
+    .eq("event_key", eventKey);
+  if (error) throw new Error(`count failed: ${error.message}`);
+  return count ?? 0;
+}
+
+d("ingest-reports (deployed, JWT event-member auth)", () => {
+  beforeAll(async () => {
     await seed();
-    expect(TEST_SCOUT_ID).toBeTruthy();
+    expect(memberJwt).toBeTruthy();
+    expect(memberScoutId).toBeTruthy();
   }, 30000);
 
-  it("rejects a bad HMAC with 401", async () => {
-    const reports: unknown[] = [];
+  afterAll(async () => {
+    await cleanup();
+  }, 30000);
+
+  it("rejects a request with no Authorization header → 401", async () => {
     const res = await fetch(BASE, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${ANON}`,
         apikey: ANON,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reports, hmac: "deadbeef" }),
+      body: JSON.stringify({ reports: [validReport()] }),
     });
     expect(res.status).toBe(401);
   }, 30000);
 
-  it("accepts a valid HMAC over an empty batch", async () => {
-    const reports: unknown[] = [];
+  it("ingests a member report for their own event → 200 { ingested: 1 } + row exists", async () => {
     const res = await fetch(BASE, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${ANON}`,
+        Authorization: `Bearer ${memberJwt}`,
         apikey: ANON,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reports, hmac: sign(reports) }),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ingested).toBe(0);
-  }, 30000);
-
-  it("ingests a valid report (ingested:1) and row exists with correct recomputed aggregates", async () => {
-    // Use the frozen FuelBurst shape: { startMs, endMs, rate, window }
-    // Known set: auto burst 0..10000ms @2.0/s = 20.0 fuel (auto_fuel=20)
-    //            shift1 burst 10000..20000ms @1.0/s = 10.0 fuel (shift1=10)
-    // inactive_first: false → shift1 is ACTIVE (odd shifts active when inactiveFirst=false)
-    // fuelPoints = auto(20) + shift1(10) = 30 (FUEL_POINTS=1, transition=0, endgame=0, shift2/3/4=0)
-    const report = {
-      id: TEST_REPORT_ID,
-      schema_version: 1,
-      app_version: "test-1.0.0",
-      device_id: "test-device-d4",
-      event_key: TEST_EVENT_KEY,
-      match_key: TEST_MATCH_KEY,
-      scout_id: TEST_SCOUT_ID,
-      target_team_number: TEST_TEAM_NUMBER,
-      alliance_color: "red",
-      station: 1,
-      inactive_first: false,
-      fuel_bursts: [
-        { startMs: 0, endMs: 10000, rate: 2.0, window: "auto" },
-        { startMs: 10000, endMs: 20000, rate: 1.0, window: "shift1" },
-      ],
-      row_revision: 1,
-    };
-    const reports = [report];
-    const hmac = sign(reports);
-
-    const res = await fetch(BASE, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${ANON}`,
-        apikey: ANON,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ reports, hmac }),
+      body: JSON.stringify({ reports: [validReport()] }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ingested).toBe(1);
 
-    // Verify the row exists and recomputed aggregates are correct
     const { data, error } = await admin
       .from("match_scouting_report")
-      .select("id, event_key, match_key, target_team_number, fuel_bursts, auto_fuel, fuel_points")
-      .eq("id", TEST_REPORT_ID)
+      .select("id, event_key, match_key, target_team_number")
+      .eq("id", REPORT_ID)
       .single();
     expect(error).toBeNull();
-    expect(data?.id).toBe(TEST_REPORT_ID);
-    expect(data?.event_key).toBe(TEST_EVENT_KEY);
-    // recomputed aggregates must match the golden values
-    expect(data?.auto_fuel).toBe(20);   // 0..10000ms @2.0/s = 20.0 → rounds to 20
-    expect(data?.fuel_points).toBe(30); // active fuel = auto(20) + shift1(10) = 30
-    expect(Array.isArray(data?.fuel_bursts)).toBe(true);
+    expect(data?.id).toBe(REPORT_ID);
+    expect(data?.event_key).toBe(EVENT_KEY);
   }, 30000);
 
-  it("rejects tampered HMAC over non-empty batch with 401", async () => {
-    const report = {
-      id: TEST_REPORT_ID,
-      schema_version: 1,
-      event_key: TEST_EVENT_KEY,
-      match_key: TEST_MATCH_KEY,
-      scout_id: TEST_SCOUT_ID,
-      target_team_number: TEST_TEAM_NUMBER,
-      alliance_color: "red",
-      station: 1,
-      fuel_bursts: [],
-    };
-    const reports = [report];
+  it("re-POSTing the SAME report → 200 { ingested: 1 } and NO duplicate", async () => {
+    const before = await reportCount(EVENT_KEY);
+
     const res = await fetch(BASE, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${ANON}`,
+        Authorization: `Bearer ${memberJwt}`,
         apikey: ANON,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reports, hmac: "tampered00000000000000000000000000000000000000000000000000000000" }),
+      body: JSON.stringify({ reports: [validReport()] }),
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ingested).toBe(1);
+
+    // Revision guard ⇒ same id+revision is a no-op ⇒ count unchanged.
+    const after = await reportCount(EVENT_KEY);
+    expect(after).toBe(before);
   }, 30000);
 
-  afterAll(async () => {
-    await cleanup();
-  });
+  it("rejects a report whose event_key is outside the member's events → 403, nothing written", async () => {
+    const before = await reportCount(FOREIGN_EVENT_KEY);
+
+    const foreignReport = {
+      ...validReport(),
+      id: FOREIGN_REPORT_ID,
+      event_key: FOREIGN_EVENT_KEY,
+      match_key: FOREIGN_MATCH_KEY,
+    };
+
+    const res = await fetch(BASE, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${memberJwt}`,
+        apikey: ANON,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reports: [foreignReport] }),
+    });
+    expect(res.status).toBe(403);
+
+    // Nothing was written for the foreign event.
+    const after = await reportCount(FOREIGN_EVENT_KEY);
+    expect(after).toBe(before);
+    const { data } = await admin
+      .from("match_scouting_report")
+      .select("id")
+      .eq("id", FOREIGN_REPORT_ID)
+      .maybeSingle();
+    expect(data).toBeNull();
+  }, 30000);
 });
