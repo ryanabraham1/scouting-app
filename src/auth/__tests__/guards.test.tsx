@@ -64,22 +64,33 @@ describe('RequireSession', () => {
 });
 
 describe('RequireRole', () => {
-  it('renders when role sufficient', () => {
-    useSession.mockReturnValue({ loading: false, scout: { id: 's1' }, role: 'admin' });
+  it('renders for an admin with a session and role but NO scout row', () => {
+    // Admins authenticate by email/password: profile (role) but no scout.
+    useSession.mockReturnValue({
+      loading: false,
+      session: { user: { id: 'admin-uid' } },
+      scout: null,
+      role: 'admin',
+    });
     renderRoleAt('/admin', 'admin');
     expect(screen.getByTestId('admin')).toBeInTheDocument();
   });
 
-  it('redirects to /scout when role insufficient', () => {
-    useSession.mockReturnValue({ loading: false, scout: { id: 's1' }, role: 'scouter' });
+  it('redirects to /scout (default) when role insufficient', () => {
+    useSession.mockReturnValue({
+      loading: false,
+      session: { user: { id: 's' } },
+      scout: { id: 's1' },
+      role: 'scouter',
+    });
     renderRoleAt('/admin', 'admin');
     expect(screen.getByTestId('scout')).toBeInTheDocument();
   });
 
-  it('redirects to /join when no scout regardless of role', () => {
-    useSession.mockReturnValue({ loading: false, scout: null, role: null });
+  it('redirects to redirectTo (default /scout) when no session', () => {
+    useSession.mockReturnValue({ loading: false, session: null, scout: null, role: null });
     renderRoleAt('/admin', 'admin');
-    expect(screen.getByTestId('join')).toBeInTheDocument();
+    expect(screen.getByTestId('scout')).toBeInTheDocument();
   });
 });
 
@@ -100,15 +111,20 @@ function renderRoleAtWithRedirect(path: string, role: 'scouter' | 'lead' | 'admi
 }
 
 describe('RequireRole redirectTo', () => {
-  it('redirects to redirectTo when role insufficient', () => {
-    useSession.mockReturnValue({ loading: false, scout: { id: 's1' }, role: 'scouter' });
+  it('redirects to redirectTo (/login) when role insufficient', () => {
+    useSession.mockReturnValue({
+      loading: false,
+      session: { user: { id: 's' } },
+      scout: { id: 's1' },
+      role: 'scouter',
+    });
     renderRoleAtWithRedirect('/admin', 'admin');
     expect(screen.getByTestId('login')).toBeInTheDocument();
   });
 
-  it('still redirects to /join when no scout even with redirectTo', () => {
-    useSession.mockReturnValue({ loading: false, scout: null, role: null });
+  it('redirects to redirectTo (/login) when no session', () => {
+    useSession.mockReturnValue({ loading: false, session: null, scout: null, role: null });
     renderRoleAtWithRedirect('/admin', 'admin');
-    expect(screen.getByTestId('join')).toBeInTheDocument();
+    expect(screen.getByTestId('login')).toBeInTheDocument();
   });
 });

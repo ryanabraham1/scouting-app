@@ -116,6 +116,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             type="button"
             data-testid="auto-generate-btn"
             onClick={onAutoGenerate}
+            disabled={matches.length === 0 || scouts.length === 0}
             className="h-11"
           >
             Auto-generate

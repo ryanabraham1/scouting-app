@@ -3,9 +3,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
-// Force a "no scout" session so guards redirect predictably.
+// Force an unauthenticated state (no session, no scout) so guards redirect predictably.
 vi.mock('../useSession', () => ({
-  useSession: () => ({ loading: false, scout: null, role: null }),
+  useSession: () => ({ loading: false, session: null, scout: null, role: null }),
 }));
 
 import { routes } from '../../routes/router';
@@ -26,9 +26,9 @@ describe('router', () => {
     expect(screen.getByTestId('join-submit')).toBeInTheDocument();
   });
 
-  it('guards /admin -> /join when no scout', () => {
+  it('guards /admin -> /login when unauthenticated (admin area uses email/password)', () => {
     renderAt('/admin');
-    expect(screen.getByTestId('join-submit')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-login-submit')).toBeInTheDocument();
   });
 
   it('redirects / to a guarded route (lands on /join when unauthenticated)', () => {
