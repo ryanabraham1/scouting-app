@@ -31,6 +31,12 @@ vi.mock('@/export/exportReports', () => ({
     Promise.resolve({ count: 0, filename: 'reports.json', blobUrl: 'blob:fake' }),
 }));
 
+// SyncIndicator (mounted in the ScoutHome header) reads the useSync hook; the
+// real hook lands this wave from a sibling agent, so stub it here.
+vi.mock('@/sync/useSync', () => ({
+  useSync: () => ({ online: true, queued: 0, deadLetters: 0, syncing: false, syncNow: () => {} }),
+}));
+
 import ScoutHome from '@/capture/ScoutHome';
 import { db, saveDraft } from '@/db/localStore';
 

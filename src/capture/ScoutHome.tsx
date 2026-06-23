@@ -4,12 +4,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/auth/useSession';
-import { listDrafts, countUnsynced } from '@/db/localStore';
+import { listDrafts } from '@/db/localStore';
 import type { CaptureDraft } from '@/db/types';
 import { CaptureScreen } from '@/capture/CaptureScreen';
 import { ReviewScreen } from '@/capture/ReviewScreen';
 import { useCaptureSession, type CaptureTarget } from '@/capture/useCaptureSession';
 import { exportUnsyncedToFile } from '@/export/exportReports';
+import { SyncIndicator } from '@/sync/SyncIndicator';
 
 interface AssignmentRow {
   match_key: string;
@@ -35,7 +36,6 @@ export default function ScoutHome() {
   const scoutId = scout?.id ?? '';
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
-  const [unsynced, setUnsynced] = useState(0);
   const [active, setActive] = useState<CaptureTarget | null>(null);
 
   const [eventKey, setEventKey] = useState('');
@@ -46,7 +46,6 @@ export default function ScoutHome() {
 
   const refreshLocal = async () => {
     setDrafts(await listDrafts());
-    setUnsynced(await countUnsynced());
   };
 
   useEffect(() => {
@@ -112,10 +111,27 @@ export default function ScoutHome() {
       data-testid="scout-home"
       className="flex min-h-screen flex-col gap-6 bg-background p-4 text-foreground"
     >
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Scout</h1>
-        <span className="text-sm text-muted-foreground">Unsynced: {unsynced}</span>
+        <SyncIndicator />
       </header>
+
+      <nav className="flex flex-wrap gap-3">
+        <a
+          data-testid="nav-qr-send"
+          href="/qr/send"
+          className="inline-flex h-11 min-h-[44px] flex-1 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+        >
+          Send via QR
+        </a>
+        <a
+          data-testid="nav-qr-receive"
+          href="/qr/receive"
+          className="inline-flex h-11 min-h-[44px] flex-1 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
+        >
+          Receive via QR
+        </a>
+      </nav>
 
       <section>
         <h2 className="mb-2 text-lg font-semibold">Your assignments</h2>
