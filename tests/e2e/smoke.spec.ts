@@ -25,5 +25,5 @@ test('join flow reaches /scout', async ({ page }) => {
   await page.getByTestId('join-submit').click();
 
   await expect(page).toHaveURL(/\/scout$/, { timeout: 15_000 });
-  await expect(page.getByTestId('scout-screen')).toBeVisible();
+  await expect(page.getByTestId('scout-home')).toBeVisible();
 });
