@@ -22,6 +22,7 @@ export interface LocalMatchReport {
   endgameFuel: number;
   fuelByShift: [number, number, number, number];
   fuelPoints: number;
+  fuelEstimateConfidence: number;
   climbLevel: 0 | 1 | 2 | 3;
   climbAttempted: boolean;
   climbSuccess: boolean;

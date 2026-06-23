@@ -42,6 +42,7 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
     endgameFuel: 0,
     fuelByShift: [0, 1, 0, 0],
     fuelPoints: 1,
+    fuelEstimateConfidence: 1,
     climbLevel: 0,
     climbAttempted: false,
     climbSuccess: false,
