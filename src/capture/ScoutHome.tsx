@@ -220,7 +220,9 @@ export default function ScoutHome() {
         <Button
           data-testid="scout-start-capture"
           className="mt-3 h-14 min-h-[44px] w-full text-lg"
-          disabled={!matchKey || !team}
+          // Require a loaded scout: a capture started before the scout row
+          // resolves would carry an empty scout_id and fail the server upsert.
+          disabled={!matchKey || !team || !scoutId}
           onClick={startManual}
         >
           Start capture

@@ -59,10 +59,13 @@ export function useSync(): UseSyncResult {
 
   useEffect(() => {
     mountedRef.current = true;
+    // Always reflect the stored queue on mount, even while offline (offline never
+    // runs syncOnce, but the queued/dead-letter counts must still be shown).
+    void refreshCounts();
     return () => {
       mountedRef.current = false;
     };
-  }, []);
+  }, [refreshCounts]);
 
   // Run on mount and on the offline→online reconnect edge: whenever `online`
   // becomes true. Never auto-run while offline.

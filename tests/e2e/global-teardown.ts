@@ -3,7 +3,7 @@
 // (which cascades event_secret). Leaves the live event (2026casnv) untouched.
 import { config as loadEnv } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { E2E_EVENT_KEY } from './global-setup';
+import { E2E_EVENT_KEY, E2E_TEAM } from './global-setup';
 
 export default async function globalTeardown(): Promise<void> {
   loadEnv({ path: '.env.local' });
@@ -15,7 +15,11 @@ export default async function globalTeardown(): Promise<void> {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // FK-safe order: scouts reference event(event_key) with no cascade.
+  // FK-safe order: match_scouting_report references match/team/scout/event;
+  // scout/match reference event; event cascades event_secret.
+  await admin.from('match_scouting_report').delete().eq('event_key', E2E_EVENT_KEY);
   await admin.from('scout').delete().eq('event_key', E2E_EVENT_KEY);
+  await admin.from('match').delete().eq('event_key', E2E_EVENT_KEY);
+  await admin.from('team').delete().eq('team_number', E2E_TEAM);
   await admin.from('event').delete().eq('event_key', E2E_EVENT_KEY);
 }

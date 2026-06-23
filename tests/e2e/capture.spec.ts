@@ -23,12 +23,22 @@ test('scout captures a match offline and it queues as unsynced', async ({ page }
   await expect(page).toHaveURL(/\/scout$/, { timeout: 15_000 });
   await expect(page.getByTestId('scout-home')).toBeVisible();
   // Fresh IndexedDB for this context: nothing queued yet.
-  await expect(page.getByText('Unsynced: 0')).toBeVisible();
+  await expect(page.getByTestId('sync-queued')).toHaveText('↑0');
 
-  // --- Manual pick -> start a capture session. ---
+  // Fill the manual pick while ONLINE and wait for the scout row to load — the
+  // start button stays disabled until scout_id resolves. We must reach that
+  // state before going offline (an offline scout fetch would never resolve).
   await page.locator('#mp-event').fill('_e2etest');
   await page.locator('#mp-match').fill('_e2etest_qm1');
   await page.locator('#mp-team').fill('254');
+  await expect(page.getByTestId('scout-start-capture')).toBeEnabled();
+
+  // Go offline: capture + save must work with no network, and the auto-sync
+  // must NOT drain the queue while offline.
+  await page.context().setOffline(true);
+  await expect(page.getByTestId('sync-indicator').getByLabel('offline')).toBeVisible();
+
+  // --- Start the capture session (offline). ---
   await page.getByTestId('scout-start-capture').click();
 
   // LIVE screen. START the synced clock (idle -> auto).
@@ -58,7 +68,11 @@ test('scout captures a match offline and it queues as unsynced', async ({ page }
   await page.getByTestId('review-climb').getByRole('button', { name: '3', exact: true }).click();
   await page.getByTestId('review-save').click();
 
-  // Save clears the draft and returns to the scout home with the report queued.
+  // Save clears the draft and returns to the scout home with the report queued
+  // locally — still offline, so it stays queued (not synced).
   await expect(page.getByTestId('scout-home')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Unsynced: 1')).toBeVisible();
+  await expect(page.getByTestId('sync-queued')).toHaveText('↑1');
+  await expect(page.getByTestId('sync-deadletters')).toHaveText('⚠0');
+
+  await page.context().setOffline(false);
 });

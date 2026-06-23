@@ -6,6 +6,11 @@ import { config as loadEnv } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
 export const E2E_EVENT_KEY = '_e2etest';
+// FK chain for the online-sync round-trip (sync.spec): a match + team the
+// uploaded report can reference. Synthetic team number avoids colliding with
+// real imported teams.
+export const E2E_MATCH_KEY = '_e2etest_qm1';
+export const E2E_TEAM = 9999;
 
 export default async function globalSetup(): Promise<void> {
   loadEnv({ path: '.env.local' });
@@ -32,4 +37,17 @@ export default async function globalSetup(): Promise<void> {
     .from('event_secret')
     .upsert({ event_key: E2E_EVENT_KEY, join_code: code }, { onConflict: 'event_key' });
   if (sec.error) throw new Error(`seed event_secret failed: ${sec.error.message}`);
+
+  const team = await admin
+    .from('team')
+    .upsert({ team_number: E2E_TEAM, nickname: 'E2E Test Team' }, { onConflict: 'team_number' });
+  if (team.error) throw new Error(`seed team failed: ${team.error.message}`);
+
+  const match = await admin
+    .from('match')
+    .upsert(
+      { match_key: E2E_MATCH_KEY, event_key: E2E_EVENT_KEY, comp_level: 'qm', match_number: 1 },
+      { onConflict: 'match_key' },
+    );
+  if (match.error) throw new Error(`seed match failed: ${match.error.message}`);
 }
