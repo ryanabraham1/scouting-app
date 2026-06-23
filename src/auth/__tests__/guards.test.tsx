@@ -82,3 +82,33 @@ describe('RequireRole', () => {
     expect(screen.getByTestId('join')).toBeInTheDocument();
   });
 });
+
+/** Routes for RequireRole with a custom redirectTo target (/login). */
+function renderRoleAtWithRedirect(path: string, role: 'scouter' | 'lead' | 'admin') {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route element={<RequireRole role={role} redirectTo="/login" />}>
+          <Route path="/admin" element={<div data-testid="admin">ADMIN</div>} />
+        </Route>
+        <Route path="/scout" element={<div data-testid="scout">SCOUT</div>} />
+        <Route path="/login" element={<div data-testid="login">LOGIN</div>} />
+        <Route path="/join" element={<div data-testid="join">JOIN</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('RequireRole redirectTo', () => {
+  it('redirects to redirectTo when role insufficient', () => {
+    useSession.mockReturnValue({ loading: false, scout: { id: 's1' }, role: 'scouter' });
+    renderRoleAtWithRedirect('/admin', 'admin');
+    expect(screen.getByTestId('login')).toBeInTheDocument();
+  });
+
+  it('still redirects to /join when no scout even with redirectTo', () => {
+    useSession.mockReturnValue({ loading: false, scout: null, role: null });
+    renderRoleAtWithRedirect('/admin', 'admin');
+    expect(screen.getByTestId('join')).toBeInTheDocument();
+  });
+});

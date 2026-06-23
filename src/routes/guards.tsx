@@ -20,10 +20,16 @@ export function RequireSession(): JSX.Element {
 }
 
 /** Gate that requires a scout AND a sufficient role; otherwise redirect. */
-export function RequireRole({ role }: { role: Role }): JSX.Element {
+export function RequireRole({
+  role,
+  redirectTo = '/scout',
+}: {
+  role: Role;
+  redirectTo?: string;
+}): JSX.Element {
   const { loading, scout, role: actual } = useSession();
   if (loading) return <AuthLoading />;
   if (!scout) return <Navigate to="/join" replace />;
-  if (!hasRole(actual, role)) return <Navigate to="/scout" replace />;
+  if (!hasRole(actual, role)) return <Navigate to={redirectTo} replace />;
   return <Outlet />;
 }

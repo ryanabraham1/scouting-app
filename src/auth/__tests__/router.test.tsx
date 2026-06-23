@@ -36,3 +36,10 @@ describe('router', () => {
     expect(screen.getByTestId('join-submit')).toBeInTheDocument();
   });
 });
+
+describe('router /login', () => {
+  it('serves /login publicly (AdminLogin)', () => {
+    renderAt('/login');
+    expect(screen.getByTestId('admin-login-submit')).toBeInTheDocument();
+  });
+});
