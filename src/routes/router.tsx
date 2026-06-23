@@ -7,10 +7,11 @@ import {
 } from 'react-router-dom';
 import { RequireSession, RequireRole } from './guards';
 import JoinPlaceholder from './JoinPlaceholder';
-import ScoutPlaceholder from './ScoutPlaceholder';
 import DashboardPlaceholder from './DashboardPlaceholder';
 import AdminLogin from '../auth/AdminLogin';
 import AdminPage from '../admin/AdminPage';
+import ScoutHome from '../capture/ScoutHome';
+import PitRoute from '../pit/PitRoute';
 
 export const routes: RouteObject[] = [
   { path: '/', element: <Navigate to="/scout" replace /> },
@@ -18,7 +19,10 @@ export const routes: RouteObject[] = [
   { path: '/login', element: <AdminLogin /> },
   {
     element: <RequireSession />,
-    children: [{ path: '/scout', element: <ScoutPlaceholder /> }],
+    children: [
+      { path: '/scout', element: <ScoutHome /> },
+      { path: '/pit', element: <PitRoute /> },
+    ],
   },
   {
     element: <RequireRole role="lead" redirectTo="/login" />,
