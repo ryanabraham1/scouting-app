@@ -143,6 +143,14 @@ async function runImport(eventKey: string): Promise<Response> {
   });
   if (evErr) return json({ error: `event upsert: ${evErr.message}` }, 500);
 
+  // Single-team app: exactly one active event. Deactivate any other event so
+  // the admin dashboard never silently switches between multiple active events.
+  const { error: deactErr } = await svc
+    .from("event")
+    .update({ is_active: false })
+    .neq("event_key", eventKey);
+  if (deactErr) return json({ error: `deactivate others: ${deactErr.message}` }, 500);
+
   if (teams.length > 0) {
     const { error: teamErr } = await svc.from("team").upsert(
       teams.map((t) => ({
