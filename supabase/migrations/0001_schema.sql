@@ -118,8 +118,7 @@ create table match_scouting_report (
   tipped boolean default false,
   dropped_fuel boolean default false,
   fed_corral boolean default false,
-  notes text,
-  constraint uq_report_match_scout unique (match_key, scout_id)
+  notes text
 );
 
 create table pit_scouting_report (
@@ -146,9 +145,9 @@ create table pit_report_history (
   created_at timestamptz default now()
 );
 
--- Partial unique index (active reports only); coexists with uq_report_match_scout
--- which guards the hard table-level uniqueness. The partial index documents the
--- soft-delete-aware intent and is the index referenced by upsert ON CONFLICT.
+-- Partial unique index: exactly one ACTIVE report per (match_key, scout_id).
+-- Soft-deleted rows are exempt, so a match can be re-scouted after a delete.
+-- This is the conflict target for upsert_match_report (ON CONFLICT ... WHERE NOT deleted).
 create unique index idx_msr_match_scout_active
   on match_scouting_report (match_key, scout_id) where not deleted;
 

@@ -1,5 +1,7 @@
 # Supabase project config (note only for Phase 0).
 # Linked project ref: oztsfxyfovwnwutrxzmo
 # URL: https://oztsfxyfovwnwutrxzmo.supabase.co
-# Migrations are applied with: npx supabase link --project-ref oztsfxyfovwnwutrxzmo && npx supabase db push
+# Phase 0 migrations are applied via the Supabase Management API helper (the CLI/Docker
+# path is unreliable in this environment): python3 .superpowers/sdd/apply-sql.py supabase/migrations/<file>.sql
+# (The 0001_-style sequential naming is intentional and is NOT the supabase-CLI timestamp format.)
 project_id = "oztsfxyfovwnwutrxzmo"
