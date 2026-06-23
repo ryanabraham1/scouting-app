@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from 'dotenv';
 config({ path: '.env.local' });
@@ -30,13 +30,17 @@ beforeAll(async () => {
   myUid = signin!.user!.id;
 
   // bind a scout row to that uid (membership).
-  const { data: s } = await admin.from('scout')
+  const { data: s, error: sErr2 } = await admin.from('scout')
     .insert({ event_key: EVENT, display_name: 'me', auth_uid: myUid }).select().single();
+  expect(sErr2, sErr2?.message).toBeNull();
+  expect(s?.id, 'scout seed must return an id').toBeTruthy();
   myScoutId = s!.id;
 
   // a foreign scout (different uid) used to prove impersonation is rejected.
-  const { data: fs } = await admin.from('scout')
+  const { data: fs, error: fsErr } = await admin.from('scout')
     .insert({ event_key: EVENT, display_name: 'other', auth_uid: crypto.randomUUID() }).select().single();
+  expect(fsErr, fsErr?.message).toBeNull();
+  expect(fs?.id, 'foreign scout seed must return an id').toBeTruthy();
   foreignScoutId = fs!.id;
 });
 
