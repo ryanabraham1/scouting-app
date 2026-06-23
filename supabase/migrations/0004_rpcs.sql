@@ -146,6 +146,19 @@ declare
 begin
   perform set_config('app.skip_msr_bump', 'on', true);
 
+  -- Ownership gate: when called by a real JWT user (anon or regular),
+  -- verify the scout_id belongs to auth.uid(). The ingest-reports edge function
+  -- uses service-role (auth.uid() is NULL) and is exempt.
+  if auth.uid() is not null then
+    if not exists (
+      select 1 from scout s
+      where s.id = (p->>'scout_id')::uuid
+        and s.auth_uid = auth.uid()
+    ) then
+      raise exception 'not authorized: scout_id not owned by caller' using errcode = '42501';
+    end if;
+  end if;
+
   select row_revision into v_existing_rev
   from match_scouting_report where id = v_id;
 
