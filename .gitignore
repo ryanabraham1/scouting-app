@@ -2,6 +2,9 @@ node_modules
 dist
 dist-ssr
 coverage
+*.tsbuildinfo
+*.config.js
+*.config.d.ts
 playwright-report
 test-results
 *.log
