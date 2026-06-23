@@ -8,9 +8,9 @@ import {
 import { RequireSession, RequireRole } from './guards';
 import JoinPlaceholder from './JoinPlaceholder';
 import ScoutPlaceholder from './ScoutPlaceholder';
-import AdminPlaceholder from './AdminPlaceholder';
 import DashboardPlaceholder from './DashboardPlaceholder';
 import AdminLogin from '../auth/AdminLogin';
+import AdminPage from '../admin/AdminPage';
 
 export const routes: RouteObject[] = [
   { path: '/', element: <Navigate to="/scout" replace /> },
@@ -26,7 +26,7 @@ export const routes: RouteObject[] = [
   },
   {
     element: <RequireRole role="admin" redirectTo="/login" />,
-    children: [{ path: '/admin', element: <AdminPlaceholder /> }],
+    children: [{ path: '/admin', element: <AdminPage /> }],
   },
   { path: '*', element: <Navigate to="/scout" replace /> },
 ];
