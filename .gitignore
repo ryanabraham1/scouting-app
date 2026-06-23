@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+coverage
+playwright-report
+test-results
+*.log
+.DS_Store
+.manual_txt/
+.superpowers/
+.agents/
+.env
+.env.*
+!.env.example
+/FE-2026-_REBUILT_Playing_Field_With_Fuel_With_Background.png
