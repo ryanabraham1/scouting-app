@@ -1,0 +1,5 @@
+# Supabase project config (note only for Phase 0).
+# Linked project ref: oztsfxyfovwnwutrxzmo
+# URL: https://oztsfxyfovwnwutrxzmo.supabase.co
+# Migrations are applied with: npx supabase link --project-ref oztsfxyfovwnwutrxzmo && npx supabase db push
+project_id = "oztsfxyfovwnwutrxzmo"
