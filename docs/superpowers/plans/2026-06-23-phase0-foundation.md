@@ -12,7 +12,7 @@
 
 _Every task's requirements implicitly include this section. Values are copied verbatim from the spec/frozen contracts._
 
-- **Repo:** `/Users/ryanabraham/Downloads/FRC-scouting-app`. **Not yet a git repo — Task A11 runs `git init`.** Conventional Commits; one commit per task minimum.
+- **Repo:** `/Users/ryanabraham/Downloads/FRC-scouting-app`. Git initialized on branch `phase-0-foundation`; `.gitignore` already set. Conventional Commits; one commit per task minimum.
 - **Versions:** Node 20+, npm. React 18.3, Vite 5.4, TypeScript 5.5 (strict, `noUnusedLocals`/`noUnusedParameters`), Tailwind 3.4, vite-plugin-pwa 0.20, `@supabase/supabase-js` 2.45, react-router-dom 6.26, @tanstack/react-query 5.51, zustand 4.5, dexie 4.0, vitest 2.0, @playwright/test 1.46.
 - **Env var names (frozen):** client → `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`; server-only → `SUPABASE_SECRET_KEY`, `TBA_API_KEY`, `QR_INGEST_HMAC_SECRET`. Real values live in gitignored `.env.local`. Supabase project ref `oztsfxyfovwnwutrxzmo`, URL `https://oztsfxyfovwnwutrxzmo.supabase.co`.
 - **Scope:** single team (3256), quals only, 3256 not scouted, offline-first.
@@ -49,25 +49,13 @@ src/auth/{useSession,roles,joinEvent,JoinScreen}.tsx · src/routes/{router,guard
 - Consumes: nothing
 - Produces: a runnable Vite/React/TS scaffold with `npm run dev`, `npm run build`, `npm run test` scripts; `export default function App()` rendering a known heading.
 
-- [ ] **Step 1: Initialize git repo + .gitignore.** Run from repo root.
+- [ ] **Step 1: Verify the repo (already initialized by the controller).** Git is initialized on branch `phase-0-foundation` with a comprehensive `.gitignore` (excludes `node_modules`, `dist`, `coverage`, `.env`/`.env.*` except `.env.example`, `.DS_Store`, `.manual_txt/`, `.superpowers/`, the root field PNG). Do **not** re-init or overwrite `.gitignore`.
 ```bash
 cd /Users/ryanabraham/Downloads/FRC-scouting-app
-git init
-printf '%s\n' \
-  'node_modules' \
-  'dist' \
-  'dist-ssr' \
-  '.env.local' \
-  '.env.*.local' \
-  'coverage' \
-  'playwright-report' \
-  'test-results' \
-  '*.log' \
-  '.DS_Store' > .gitignore
-git add .gitignore
-git status --short
+git branch --show-current   # expect: phase-0-foundation
+git ls-files .gitignore     # expect: .gitignore (already tracked)
 ```
-Expected output: `A  .gitignore` and untracked spec files. Confirms repo initialized.
+Expected output: `phase-0-foundation`, then `.gitignore`. Confirms repo ready — proceed to write scaffold files.
 
 - [ ] **Step 2: Write package.json with FROZEN versions and scripts.**
 ```bash
