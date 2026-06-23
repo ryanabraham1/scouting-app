@@ -112,8 +112,7 @@ Therefore scoring must be **attributed to the active/inactive time window**, not
 - ✅ Project verified live: `https://oztsfxyfovwnwutrxzmo.supabase.co` (empty schema, ready for Phase 0).
 - ✅ Keys stored gitignored in `.env.local`: publishable (client) + secret (server-only) + TBA key.
 - ⚠️ **Roll the secret key** after setup — it was shared in chat. Then update `.env.local`.
-- ⚠️ **Anonymous sign-in** still read `false` via the settings API after the toggle — confirm it's
-  saved; verified for real by an anon sign-in at the start of Phase 0.
+- ✅ **Anonymous sign-in ENABLED** (2026-06-23) via Management API (`external_anonymous_users_enabled=true`); the dashboard toggle hadn't propagated.
 
 ## UI styling (2026-06-23)
 - **shadcn/ui** (new-york style, slate base, CSS-variable tokens, **dark by default**) on Tailwind.

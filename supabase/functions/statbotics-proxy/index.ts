@@ -48,10 +48,13 @@ Deno.serve(async (req) => {
   }
 
   // Test-only hook to simulate an upstream outage deterministically.
-  const forced = url.searchParams.get("_forceUpstreamStatus");
-  if (forced) {
-    const code = Number(forced);
-    if (code >= 500) return unavailable();
+  // Disabled in production to prevent misuse.
+  if (Deno.env.get("DENO_ENV") !== "production") {
+    const forced = url.searchParams.get("_forceUpstreamStatus");
+    if (forced) {
+      const code = Number(forced);
+      if (code >= 500) return unavailable();
+    }
   }
 
   let upstream: Response;
