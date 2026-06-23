@@ -84,7 +84,7 @@ profiles, rankings, and an alliance-selection picklist.
 | QR scan | `@zxing/browser` | Continuous camera scan |
 | Compression | `pako` (deflate) | Shrinks QR payloads |
 | Charts | Recharts | Always paired with a table view (a11y) |
-| Styling | Tailwind CSS | Mobile-first, large targets, WCAG 2.2 AA |
+| Styling | Tailwind CSS + **shadcn/ui** | Radix primitives + CVA copy-in components (`cn()` util, CSS-variable design tokens); mobile-first, large targets, dark theme, WCAG 2.2 AA |
 | Testing | Vitest + RTL + Playwright | Golden-vector tests for scoring/parity |
 
 ## 4. Roles, Auth & RLS

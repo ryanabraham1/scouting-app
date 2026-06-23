@@ -114,3 +114,8 @@ Therefore scoring must be **attributed to the active/inactive time window**, not
 - ⚠️ **Roll the secret key** after setup — it was shared in chat. Then update `.env.local`.
 - ⚠️ **Anonymous sign-in** still read `false` via the settings API after the toggle — confirm it's
   saved; verified for real by an anon sign-in at the start of Phase 0.
+
+## UI styling (2026-06-23)
+- **shadcn/ui** (new-york style, slate base, CSS-variable tokens, **dark by default**) on Tailwind.
+  `cn()` util + `@/*` path alias; base components Button/Input/Label/Card set up in Phase 0 task A2S;
+  all screens (JoinScreen, dashboard, capture) build on these. Mobile-first, ≥44px touch targets.

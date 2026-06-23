@@ -3524,6 +3524,165 @@ Expected: one commit created.
 
 ---
 
+### Task A2S: shadcn/ui foundation (dark theme, base components)
+
+**Files:**
+- Modify: `package.json` (deps), `tailwind.config.js`, `src/index.css`, `index.html`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`
+- Create: `src/lib/utils.ts`, `components.json`, `src/components/ui/button.tsx`, `src/components/ui/input.tsx`, `src/components/ui/label.tsx`, `src/components/ui/card.tsx`
+- Test: `src/components/ui/button.test.tsx`
+
+**Interfaces:**
+- Consumes: Tailwind (A12), the app scaffold (A11).
+- Produces:
+  - `export function cn(...inputs: ClassValue[]): string` from `src/lib/utils.ts`
+  - shadcn base components from `src/components/ui/*`: `Button` (+ `buttonVariants`), `Input`, `Label`, `Card`/`CardHeader`/`CardTitle`/`CardDescription`/`CardContent`/`CardFooter`
+  - `@/*` path alias → `./src/*` (tsconfig + vite + vitest), so later `npx shadcn add <c>` and `@/lib/utils` imports work.
+  - shadcn CSS-variable design tokens, **dark by default** (`<html class="dark">`).
+
+This establishes the shadcn/ui styling system (new-york style, slate base, CSS variables) used by every UI screen (JoinScreen, placeholders, and all Phase 2+ UI). Use the **canonical shadcn/ui (new-york) component source** for the four components — they are standard; import `cn` from `@/lib/utils`.
+
+- [ ] **Step 1: Install dependencies.**
+```bash
+cd /Users/ryanabraham/Downloads/FRC-scouting-app
+npm install class-variance-authority clsx tailwind-merge lucide-react @radix-ui/react-slot @radix-ui/react-label
+npm install -D tailwindcss-animate
+```
+Expected: installs without errors.
+
+- [ ] **Step 2: Add the `@/*` path alias (tsconfig + vite + vitest).**
+In `tsconfig.json` `compilerOptions`, add `"baseUrl": "."` and `"paths": { "@/*": ["./src/*"] }`.
+In `vite.config.ts` and `vitest.config.ts`, add `resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } }` (import `fileURLToPath` from `'node:url'`). Keep the existing plugins.
+Run: `npm run typecheck` → exit 0 (no errors introduced).
+
+- [ ] **Step 3: Create `src/lib/utils.ts`.**
+```ts
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+```
+
+- [ ] **Step 4: Create `components.json`** (so the shadcn CLI can add more components later).
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": { "config": "tailwind.config.js", "css": "src/index.css", "baseColor": "slate", "cssVariables": true },
+  "aliases": { "components": "@/components", "utils": "@/lib/utils", "ui": "@/components/ui" }
+}
+```
+
+- [ ] **Step 5: Replace `tailwind.config.js`** with the shadcn token config (keep the existing `content` globs).
+```js
+/** @type {import('tailwindcss').Config} */
+export default {
+  darkMode: ['class'],
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    container: { center: true, padding: '1rem', screens: { '2xl': '1400px' } },
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))', input: 'hsl(var(--input))', ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))', foreground: 'hsl(var(--foreground))',
+        primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
+        destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive-foreground))' },
+        muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
+        popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
+        card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+      },
+      borderRadius: { lg: 'var(--radius)', md: 'calc(var(--radius) - 2px)', sm: 'calc(var(--radius) - 4px)' },
+      keyframes: {
+        'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
+        'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
+      },
+      animation: { 'accordion-down': 'accordion-down 0.2s ease-out', 'accordion-up': 'accordion-up 0.2s ease-out' },
+    },
+  },
+  plugins: [require('tailwindcss-animate')],
+};
+```
+(Note: `require('tailwindcss-animate')` in an ESM config file works because Vite/PostCSS loads the Tailwind config in a CJS-compatible context; if the build errors on `require`, switch to `import tailwindcssAnimate from 'tailwindcss-animate'` at top and `plugins: [tailwindcssAnimate]`.)
+
+- [ ] **Step 6: Replace `src/index.css`** with Tailwind layers + shadcn design tokens (dark-first app; both palettes defined).
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%; --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%; --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%; --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%; --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%; --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%; --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%; --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%; --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%; --input: 214.3 31.8% 91.4%; --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+  .dark {
+    --background: 222.2 84% 4.9%; --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%; --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%; --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%; --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%; --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%; --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%; --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%; --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%; --input: 217.2 32.6% 17.5%; --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+```
+
+- [ ] **Step 7: Set dark theme by default** — in `index.html`, change `<html lang="en">` to `<html lang="en" class="dark">`.
+
+- [ ] **Step 8: Create the four base components** using the **canonical shadcn/ui (new-york) source**, importing `cn` from `@/lib/utils`:
+  - `src/components/ui/button.tsx` — exports `Button` and `buttonVariants` (CVA: variants `default|destructive|outline|secondary|ghost|link`, sizes `default|sm|lg|icon`), `asChild` via `@radix-ui/react-slot`. Touch-friendly: ensure the `default` size height is at least `h-10` (≈44px) for mobile.
+  - `src/components/ui/input.tsx` — exports `Input`.
+  - `src/components/ui/label.tsx` — exports `Label` (using `@radix-ui/react-label`).
+  - `src/components/ui/card.tsx` — exports `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`.
+
+- [ ] **Step 9: Write a Button smoke test** `src/components/ui/button.test.tsx`.
+```tsx
+import { render, screen } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+import { Button } from '@/components/ui/button';
+
+describe('Button', () => {
+  it('renders its children as a button', () => {
+    render(<Button>Join event</Button>);
+    expect(screen.getByRole('button', { name: 'Join event' })).toBeInTheDocument();
+  });
+  it('applies the destructive variant class', () => {
+    render(<Button variant="destructive">Delete</Button>);
+    expect(screen.getByRole('button', { name: 'Delete' }).className).toMatch(/destructive/);
+  });
+});
+```
+Run: `npm run test -- src/components/ui/button.test.tsx` → PASS.
+
+- [ ] **Step 10: Verify + commit.**
+```bash
+cd /Users/ryanabraham/Downloads/FRC-scouting-app
+npm run typecheck && npm run test && npm run build
+git add -A
+git commit -m "feat: shadcn/ui foundation — cn util, design tokens, Button/Input/Label/Card, @ alias"
+```
+Expected: typecheck/test/build all green; one commit.
+
 ### Task A24: JoinScreen component
 
 **Files:**
