@@ -23,7 +23,6 @@ test.beforeAll(async () => {
   // The open (no-login) dashboard depends on migration 0009 (open RLS + scouter_roster).
   const probe = await admin.from('scouter_roster').select('id').limit(1);
   test.skip(!!probe.error, 'Apply migration 0009 (open RLS) to run the login-less dashboard flows.');
-  await setActiveEvent(admin, eventKey);
   await admin.from('picklist').delete().eq('event_key', eventKey);
 });
 test.afterAll(async () => {
@@ -32,6 +31,9 @@ test.afterAll(async () => {
 
 test('lead sees a next-match prediction and builds a persisted picklist (no login)', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
+
+  // Set active immediately before navigating (shared flag — avoid cross-spec races).
+  await setActiveEvent(admin, eventKey);
 
   // Dashboard is open — no login gate.
   await page.goto('/dashboard');

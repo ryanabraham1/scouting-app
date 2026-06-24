@@ -31,7 +31,9 @@ export default async function globalSetup(): Promise<void> {
   // hasn't had migration 0009 applied yet (table absent) — the roster-dependent
   // specs skip themselves in that case.
   for (const name of E2E_ROSTER_NAMES) {
-    const r = await admin.from('scouter_roster').upsert({ name }, { onConflict: 'name' });
+    // The unique index is on lower(name) (expression index), so on_conflict can't
+    // target it — plain insert, ignore the duplicate (23505), like the app does.
+    const r = await admin.from('scouter_roster').insert({ name });
     if (r.error && r.error.code !== '23505') {
       const missingTable = r.error.code === '42P01' || /scouter_roster/.test(r.error.message);
       if (!missingTable) throw new Error(`seed roster failed: ${r.error.message}`);

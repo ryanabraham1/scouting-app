@@ -10,12 +10,12 @@ export async function setActiveEvent(admin: SupabaseClient, eventKey: string): P
   if (error) throw new Error(`setActiveEvent failed: ${error.message}`);
 }
 
-/** Ensure a roster name exists (idempotent — ignores duplicates). */
+/** Ensure a roster name exists (idempotent — ignores duplicate 23505). */
 export async function ensureRosterName(admin: SupabaseClient, name: string): Promise<void> {
-  const { error } = await admin.from('scouter_roster').upsert({ name }, { onConflict: 'name' });
-  // A unique index on lower(name) may reject case-variant dupes; that's fine.
+  // Unique index is on lower(name) (expression index) — on_conflict can't target it;
+  // plain insert and tolerate the duplicate, mirroring the app's addScouter.
+  const { error } = await admin.from('scouter_roster').insert({ name });
   if (error && error.code !== '23505') {
-    // Non-fatal for the test seed; surface only unexpected errors.
     throw new Error(`ensureRosterName failed: ${error.message}`);
   }
 }

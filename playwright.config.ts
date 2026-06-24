@@ -8,6 +8,9 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
+  // Single worker: the live specs share one remote DB and mutate a global
+  // singleton (event.is_active). Parallel files would stomp it — serialize them.
+  workers: 1,
   retries: 0,
   globalSetup: './tests/e2e/global-setup.ts',
   globalTeardown: './tests/e2e/global-teardown.ts',

@@ -64,7 +64,13 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (disabled) return;
-      e.currentTarget.setPointerCapture?.(e.pointerId);
+      // setPointerCapture throws InvalidStateError for an inactive pointer id
+      // (e.g. synthetic events); capture is a nice-to-have, never block the gesture.
+      try {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      } catch {
+        /* ignore — proceed without pointer capture */
+      }
       activeRef.current = true;
       setActive(true);
       setFromPointer(e.clientY);

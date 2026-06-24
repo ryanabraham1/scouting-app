@@ -162,10 +162,13 @@ describe('staff read policies', () => {
     expect(m.data?.length).toBe(2);
   });
 
-  it('returns no rows for a brand-new anon with no membership and no role', async () => {
+  // Auth was removed (2026-06-23 overhaul): migration 0009 added open SELECT so the
+  // login-less lead/drive-coach dashboard (an anonymous session with no membership /
+  // role) can read event data. Previously this returned 0 rows.
+  it('lets a brand-new anon read events (open dashboard RLS)', async () => {
     const ev = await anonClient.from('event').select('event_key').eq('event_key', EVENT_KEY);
     expect(ev.error).toBeNull();
-    expect(ev.data?.length).toBe(0);
+    expect(ev.data?.length).toBe(1);
   });
 });
 
@@ -238,12 +241,15 @@ describe('set_assignments RPC', () => {
     expect(rows.data?.length).toBe(1);
   });
 
-  it('rejects a non-admin caller with 42501', async () => {
+  // Auth was removed: migration 0009 dropped the admin gate on set_assignments so the
+  // open lead view can publish. A non-admin (anon) caller now SUCCEEDS (empty payload
+  // → 0 rows inserted) instead of being rejected with 42501.
+  it('allows a non-admin caller now that the lead view is open', async () => {
     const res = await anonClient.rpc('set_assignments', {
       p_event_key: EVENT_KEY,
       p_assignments: [],
     });
-    expect(res.error).not.toBeNull();
-    expect(res.error?.code).toBe('42501');
+    expect(res.error).toBeNull();
+    expect(res.data).toBe(0);
   });
 });

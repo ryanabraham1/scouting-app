@@ -25,12 +25,15 @@ test.beforeAll(async () => {
   // the target DB. Skip gracefully if it hasn't been applied to this deployment.
   const probe = await admin.from('scouter_roster').select('id').limit(1);
   test.skip(!!probe.error, 'Apply migration 0009 (scouter_roster/select_scouter) to run this flow.');
-  await setActiveEvent(admin, E2E_EVENT_KEY);
   await ensureRosterName(admin, SCOUTER);
 });
 
 test('scouter captures a match offline and it queues as unsynced', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
+
+  // Set active immediately before picking (shared flag — the scouter binds to the
+  // active event at pick time, so set it last to avoid cross-spec races).
+  await setActiveEvent(admin, E2E_EVENT_KEY);
 
   // Pick a name (online: binds this device to a scout row for the active event).
   await pickScouter(page, SCOUTER);
@@ -74,6 +77,6 @@ test('scouter captures a match offline and it queues as unsynced', async ({ page
   await expect(page.getByTestId('scout-home')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('sync-queued')).toHaveText('↑1');
   await expect(page.getByTestId('sync-deadletters')).toHaveText('⚠0');
-
-  await page.context().setOffline(false);
+  // Stay offline: this spec verifies the OFFLINE queue only. Reconnecting here
+  // would sync a row for the same _e2etest match/team and collide with sync.spec.
 });

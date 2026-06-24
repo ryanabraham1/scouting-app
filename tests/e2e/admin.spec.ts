@@ -23,8 +23,6 @@ test.beforeAll(async () => {
   // The open (no-login) dashboard depends on migration 0009 (open RLS + scouter_roster).
   const probe = await admin.from('scouter_roster').select('id').limit(1);
   test.skip(!!probe.error, 'Apply migration 0009 (open RLS) to run the login-less dashboard flows.');
-  // Make the imported event active so the Setup tab loads its schedule + scouts.
-  await setActiveEvent(admin, EVENT);
   // Seed 3 scouts for the active event so auto-generate has a pool.
   for (let i = 1; i <= 3; i++) {
     const { data, error } = await admin
@@ -44,6 +42,10 @@ test.afterAll(async () => {
 
 test('lead auto-generates assignments and publishes (no login)', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
+
+  // Set active immediately before navigating (the active event is a single shared
+  // flag; other specs mutate it, so set it last to avoid cross-spec races).
+  await setActiveEvent(admin, EVENT);
 
   // /admin folds into the dashboard Setup tab — no login gate.
   await page.goto('/admin');

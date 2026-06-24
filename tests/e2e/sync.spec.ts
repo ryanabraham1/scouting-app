@@ -45,7 +45,6 @@ test.beforeAll(async () => {
   // Needs migration 0009 (scouter_roster + select_scouter) on the target DB.
   const probe = await admin.from('scouter_roster').select('id').limit(1);
   test.skip(!!probe.error, 'Apply migration 0009 (scouter_roster/select_scouter) to run this flow.');
-  await setActiveEvent(admin, E2E_EVENT_KEY);
   await ensureRosterName(admin, SCOUTER);
   await clearReports();
 });
@@ -53,6 +52,9 @@ test.afterAll(clearReports);
 
 test('captured report syncs to the server on reconnect with no duplicate', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
+
+  // Set active immediately before picking (shared flag — avoid cross-spec races).
+  await setActiveEvent(admin, E2E_EVENT_KEY);
 
   // --- Pick a name (no login), then capture against the seeded match/team. ---
   await pickScouter(page, SCOUTER);
