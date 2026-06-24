@@ -60,7 +60,13 @@ Deno.serve(async (req) => {
   const { data: myEvents, error: eventsErr } = await caller.rpc(
     "get_my_event_keys",
   );
-  if (eventsErr || !Array.isArray(myEvents) || myEvents.length === 0) {
+  // Distinguish a transient lookup failure (retryable) from a genuine
+  // non-member (terminal). A DB/network error must NOT be reported as 403, or
+  // the receiver would treat a recoverable blip as "you're not allowed".
+  if (eventsErr) {
+    return json({ error: "membership lookup failed" }, 503);
+  }
+  if (!Array.isArray(myEvents) || myEvents.length === 0) {
     return json({ error: "forbidden: not an event member" }, 403);
   }
   const memberEvents = new Set<string>(myEvents as string[]);
@@ -87,18 +93,26 @@ Deno.serve(async (req) => {
   }
 
   // (4) Service-role upsert loop (ownership gate exempt; revision-guarded).
+  //     Continue-on-error: attempt EVERY report so a single bad row never
+  //     partial-commits-then-400 and strands the rest. The revision guard makes
+  //     re-sending the whole batch idempotent, so the receiver can safely re-send
+  //     to retry only the failures.
   const svc = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   let ingested = 0;
-  for (const report of payload.reports) {
-    const { error } = await svc.rpc("upsert_match_report", { p: report });
+  const failed: { index: number; error: string }[] = [];
+  for (let index = 0; index < payload.reports.length; index++) {
+    const { error } = await svc.rpc("upsert_match_report", {
+      p: payload.reports[index],
+    });
     if (error) {
-      return json({ error: error.message, ingested }, 400);
+      failed.push({ index, error: error.message });
+    } else {
+      ingested++;
     }
-    ingested++;
   }
 
-  return json({ ingested }, 200);
+  return json({ ingested, failed }, 200);
 });

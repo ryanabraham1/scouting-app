@@ -10,11 +10,10 @@ vi.mock('@/lib/env', () => ({
 }));
 
 import { postIngest } from '../ingestClient';
+import { sampleUpsertPayloads } from './fixtures';
 
-const reports = [
-  { id: 'r1', event_key: '2026casnv', match_key: 'qm1' },
-  { id: 'r2', event_key: '2026casnv', match_key: 'qm2' },
-];
+// The exact snake_case wire payloads the QR hand-off carries (shared fixture).
+const reports = sampleUpsertPayloads();
 
 beforeEach(() => {
   getSession.mockReset();
@@ -22,16 +21,19 @@ beforeEach(() => {
 });
 
 describe('postIngest', () => {
-  it('POSTs to ingest-reports with bearer + apikey headers and a { reports } body, returns { ingested }', async () => {
+  it('POSTs to ingest-reports with bearer + apikey headers and a snake_case { reports } body, returns { ingested, failed }', async () => {
     getSession.mockResolvedValue({ data: { session: { access_token: 'tok-abc' } } });
     const fetchMock = vi
       .fn()
-      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ingested: 2 }) });
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ingested: 2, failed: [] }) });
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await postIngest(reports);
 
-    expect(result).toEqual({ ingested: 2 });
+    expect(result).toEqual({ ingested: 2, failed: [] });
+    // The body carries the snake_case wire payloads verbatim (event_key, etc.).
+    expect(reports[0]).toHaveProperty('event_key');
+    expect(reports[0]).not.toHaveProperty('eventKey');
     expect(fetchMock).toHaveBeenCalledWith(
       'https://x.supabase.co/functions/v1/ingest-reports',
       expect.objectContaining({

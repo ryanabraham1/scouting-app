@@ -11,8 +11,8 @@
 //
 // Cases (Task S Step 1):
 //   - no Authorization header                          → 401
-//   - member JWT + report in their event               → 200 { ingested: 1 } + row exists
-//   - re-POST the SAME report                          → 200 { ingested: 1 } + NO duplicate
+//   - member JWT + report in their event               → 200 { ingested: 1, failed: [] } + row exists
+//   - re-POST the SAME report                          → 200 { ingested: 1, failed: [] } + NO duplicate
 //   - member JWT but report.event_key is a foreign event → 403, nothing written
 //
 // This test FAILS until the controller redeploys the rewritten function.
@@ -203,6 +203,7 @@ d("ingest-reports (deployed, JWT event-member auth)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ingested).toBe(1);
+    expect(body.failed).toEqual([]);
 
     const { data, error } = await admin
       .from("match_scouting_report")
@@ -229,6 +230,7 @@ d("ingest-reports (deployed, JWT event-member auth)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ingested).toBe(1);
+    expect(body.failed).toEqual([]);
 
     // Revision guard ⇒ same id+revision is a no-op ⇒ count unchanged.
     const after = await reportCount(EVENT_KEY);

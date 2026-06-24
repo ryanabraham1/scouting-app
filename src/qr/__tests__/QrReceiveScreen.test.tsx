@@ -43,17 +43,19 @@ vi.mock('@zxing/browser', () => ({
 const postIngest = vi.fn();
 vi.mock('@/qr/ingestClient', () => ({ postIngest: (...a: unknown[]) => postIngest(...a) }));
 
+// The receiver is INGEST-ONLY: it must NOT persist foreign reports locally.
+// We still mock the store so an accidental import would surface as a spy call.
 const saveReport = vi.fn();
 vi.mock('@/db/localStore', () => ({ saveReport: (...a: unknown[]) => saveReport(...a) }));
 
 import QrReceiveScreen from '@/qr/QrReceiveScreen';
 import { buildFrames, frameToString } from '@/qr/envelope';
+import { sampleUpsertPayloads } from './fixtures';
 
-// Build a multi-frame hand-off of real reports so reassembly exercises >1 frame.
-const sourceReports = [
-  { id: 'a1', event_key: '2026casnv', match_key: 'qm1', notes: 'x'.repeat(900) },
-  { id: 'a2', event_key: '2026casnv', match_key: 'qm2', notes: 'y'.repeat(900) },
-];
+// Build a multi-frame hand-off of the SAME snake_case wire payloads the sender
+// emits (shared fixture) so reassembly exercises >1 frame and the two sides of
+// the hand-off can never drift back to camelCase.
+const sourceReports = sampleUpsertPayloads();
 const frames = buildFrames(sourceReports, 'sid-test');
 const frameStrings = frames.map(frameToString);
 
@@ -69,7 +71,7 @@ beforeEach(() => {
   saveReport.mockReset();
   captured = null;
   state.rejectMode = false;
-  postIngest.mockResolvedValue({ ingested: sourceReports.length });
+  postIngest.mockResolvedValue({ ingested: sourceReports.length, failed: [] });
   saveReport.mockResolvedValue(undefined);
 });
 
@@ -102,12 +104,16 @@ describe('QrReceiveScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('qr-receive-done')).toBeTruthy());
 
-    // postIngest called with the reconstructed reports.
+    // postIngest called with the reconstructed SNAKE_CASE reports.
     expect(postIngest).toHaveBeenCalledTimes(1);
     expect(postIngest).toHaveBeenCalledWith(sourceReports);
+    const posted = postIngest.mock.calls[0][0] as Record<string, unknown>[];
+    expect(posted[0]).toHaveProperty('event_key', '2026casnv');
+    expect(posted[0]).toHaveProperty('scout_id', 'scout1');
+    expect(posted[0]).not.toHaveProperty('eventKey');
 
-    // Each report persisted locally (best-effort).
-    expect(saveReport).toHaveBeenCalledTimes(sourceReports.length);
+    // INGEST-ONLY: foreign reports must NOT be written to this device's store.
+    expect(saveReport).not.toHaveBeenCalled();
 
     // Stream stopped on completion.
     expect(stop).toHaveBeenCalled();

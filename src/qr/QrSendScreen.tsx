@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
 import { getSyncQueue } from '@/db/localStore';
+import { toUpsertPayload } from '@/sync/mapReport';
 import { buildFrames, frameToString, type QrFrame } from '@/qr/envelope';
 import { QR_FRAME_MS } from '@/sync/constants';
 
@@ -10,18 +11,30 @@ import { QR_FRAME_MS } from '@/sync/constants';
 // QR_FRAME_MS cadence so a receiver's camera can re-assemble the whole batch.
 export default function QrSendScreen() {
   const [frames, setFrames] = useState<QrFrame[] | null>(null);
+  const [isEmpty, setIsEmpty] = useState(false);
   const [frameIndex, setFrameIndex] = useState(0);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
 
-  // Build frames once from the backlog. sid is a fresh per-hand-off random id;
-  // crypto.randomUUID() is the runtime source (envelope.ts stays pure).
+  // Build frames once from the backlog. The wire payload is the SAME snake_case
+  // object the online outbox sends (toUpsertPayload) — NOT the camelCase
+  // LocalMatchReport — so the receiver's ingest path reads the right keys.
+  // sid is a fresh per-hand-off random id; crypto.randomUUID() is the runtime
+  // source (envelope.ts stays pure).
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const queue = await getSyncQueue();
+      const queue = (await getSyncQueue()).map(toUpsertPayload);
       if (cancelled) return;
+      // Branch on the mapped backlog BEFORE building frames — no decode-time
+      // sentinel. An empty backlog has nothing to hand off.
+      if (queue.length === 0) {
+        setIsEmpty(true);
+        setFrames(null);
+        return;
+      }
       const sid = crypto.randomUUID();
+      setIsEmpty(false);
       setFrames(buildFrames(queue, sid));
       setFrameIndex(0);
     })();
@@ -58,8 +71,6 @@ export default function QrSendScreen() {
     };
   }, [frames, frameIndex]);
 
-  const isEmpty = frames !== null && frames.length === 1 && isEmptyBacklog(frames[0]);
-
   return (
     <div
       data-testid="qr-send"
@@ -73,12 +84,12 @@ export default function QrSendScreen() {
         </p>
       </header>
 
-      {frames === null ? (
-        <p className="text-sm text-muted-foreground">Loading backlog…</p>
-      ) : isEmpty ? (
+      {isEmpty ? (
         <p data-testid="qr-send-empty" className="mt-8 text-center text-lg text-muted-foreground">
           Nothing to send — your reports are all synced.
         </p>
+      ) : frames === null ? (
+        <p className="text-sm text-muted-foreground">Loading backlog…</p>
       ) : (
         <>
           <div className="flex flex-col items-center gap-3">
@@ -107,11 +118,4 @@ export default function QrSendScreen() {
       )}
     </div>
   );
-}
-
-// An empty backlog still yields one frame whose decoded payload is `[]`.
-// buildFrames base64-encodes "[]" (4 chars) so the single frame's `d` is "W10="
-// — we treat that as the empty state without re-decoding here.
-function isEmptyBacklog(frame: QrFrame): boolean {
-  return frame.d === 'W10=';
 }

@@ -97,8 +97,8 @@ describe('useSync', () => {
     const { result } = renderHook(() => useSync());
 
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
-    // queued = getUnsynced() (includes dead-letters): q1, q2, d1 → 3
-    await waitFor(() => expect(result.current.queued).toBe(3));
+    // queued = getSyncQueue() (dirty + pending, EXCLUDES dead-letters): q1, q2 → 2
+    await waitFor(() => expect(result.current.queued).toBe(2));
     expect(result.current.deadLetters).toBe(1);
   });
 

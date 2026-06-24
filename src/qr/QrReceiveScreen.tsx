@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import { FrameAccumulator, parseFrame } from '@/qr/envelope';
 import { postIngest } from '@/qr/ingestClient';
-import { saveReport } from '@/db/localStore';
-import type { LocalMatchReport } from '@/db/types';
 
 type Phase = 'scanning' | 'ingesting' | 'done' | 'error';
 
 // Live camera receiver (contracts §6/§7). Scans animated QR frames via the
 // device camera, reassembles the chunked backlog with FrameAccumulator, then
-// persists each report locally (best-effort) and POSTs the batch to the
-// `ingest-reports` Edge Function under the receiver's session JWT.
+// POSTs the batch to the `ingest-reports` Edge Function under the receiver's
+// session JWT. INGEST-ONLY: the reassembled payloads are snake_case raw reports
+// authored by OTHER scouts. They must NOT be written into THIS device's local
+// store — doing so would later make this device's own outbox call
+// upsert_match_report with a foreign scout_id → ownership-gate 42501 →
+// dead-letter. The service-role upsert on the server is ownership-exempt, so
+// landing the data there is exactly what makes a wiped sender recoverable.
 export default function QrReceiveScreen() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const accumulatorRef = useRef(new FrameAccumulator());
@@ -35,17 +38,6 @@ export default function QrReceiveScreen() {
       setPhase('ingesting');
 
       const reports = accumulatorRef.current.reports();
-      // Persist locally first so a wiped sender's data survives even if the
-      // server POST fails. Individual failures are non-fatal.
-      await Promise.all(
-        reports.map(async (r) => {
-          try {
-            await saveReport(r as LocalMatchReport);
-          } catch {
-            // best-effort: ignore individual persistence failures
-          }
-        }),
-      );
 
       try {
         const result = await postIngest(reports);

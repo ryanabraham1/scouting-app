@@ -4,11 +4,12 @@ import { render, screen, waitFor, act, cleanup } from '@testing-library/react';
 // Hoisted mock fns — vi.mock factories run before module-level consts, so the
 // shared spies must come from vi.hoisted().
 const { toDataURL, getSyncQueue } = vi.hoisted(() => ({
-  toDataURL: vi.fn(async () => 'data:image/png;base64,STUB'),
+  toDataURL: vi.fn(async (_text: string) => 'data:image/png;base64,STUB'),
   getSyncQueue: vi.fn(),
 }));
 
 // Mock qrcode so we never touch a canvas in jsdom — toDataURL resolves a stub.
+// It captures the payload string it was asked to render so we can decode it.
 vi.mock('qrcode', () => ({
   default: { toDataURL },
   toDataURL,
@@ -16,6 +17,8 @@ vi.mock('qrcode', () => ({
 
 // getSyncQueue lives in @/db/localStore (added by the MAP cluster). The focused
 // test mocks it so QrSendScreen has a deterministic backlog without IndexedDB.
+// It returns camelCase LocalMatchReports — the screen maps them through
+// toUpsertPayload (the SINGLE wire shape) before chunking into frames.
 vi.mock('@/db/localStore', () => ({
   getSyncQueue: () => getSyncQueue(),
 }));
@@ -28,11 +31,14 @@ if (!globalThis.crypto?.randomUUID) {
 
 import QrSendScreen from '@/qr/QrSendScreen';
 import { QR_FRAME_MS } from '@/sync/constants';
+import { parseFrame, FrameAccumulator } from '@/qr/envelope';
+import { sampleLocalReports, sampleUpsertPayloads } from './fixtures';
 
-const twoReports = [
-  { id: 'r1', matchKey: 'qm1', notes: 'x'.repeat(900) },
-  { id: 'r2', matchKey: 'qm2', notes: 'y'.repeat(900) },
-];
+// The backlog as it lives in the store (camelCase LocalMatchReports).
+const backlog = sampleLocalReports();
+// The snake_case wire payloads the QR frames MUST carry (shared with the
+// receiver/ingest tests so the two sides can never drift).
+const expectedWire = sampleUpsertPayloads();
 
 beforeEach(() => {
   toDataURL.mockClear();
@@ -46,12 +52,54 @@ afterEach(() => {
 
 describe('QrSendScreen', () => {
   it('renders the qr-send screen and a frame image from the backlog', async () => {
-    getSyncQueue.mockResolvedValue(twoReports);
+    getSyncQueue.mockResolvedValue(backlog);
     render(<QrSendScreen />);
     expect(screen.getByTestId('qr-send')).toBeTruthy();
     const img = await screen.findByTestId('qr-frame');
     expect(img.getAttribute('src')).toBe('data:image/png;base64,STUB');
     expect(toDataURL).toHaveBeenCalled();
+  });
+
+  it('emits frames that decode to SNAKE_CASE wire payloads, not camelCase', async () => {
+    vi.useFakeTimers();
+    getSyncQueue.mockResolvedValue(backlog);
+    render(<QrSendScreen />);
+
+    // Flush the async backlog load + first frame render.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The screen only renders the CURRENT frame, so cycle the cadence enough
+    // times that every frame in the hand-off has been rendered (and captured by
+    // the toDataURL spy). Total frame count is shown in qr-send-progress.
+    const total = Number(screen.getByTestId('qr-send-progress').textContent!.split('/')[1]);
+    expect(total).toBeGreaterThan(1); // multi-frame hand-off
+    for (let i = 0; i < total; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => {
+        vi.advanceTimersByTime(QR_FRAME_MS);
+        await Promise.resolve();
+      });
+    }
+
+    // Reassemble every rendered frame back into the original wire payloads.
+    const acc = new FrameAccumulator();
+    for (const c of toDataURL.mock.calls) {
+      const f = parseFrame(c[0] as string);
+      if (f) acc.add(f);
+    }
+    expect(acc.complete).toBe(true);
+    const decoded = acc.reports();
+    expect(decoded).toEqual(expectedWire);
+
+    // Belt-and-braces: the keys are snake_case, NOT camelCase.
+    const first = decoded[0] as Record<string, unknown>;
+    expect(first).toHaveProperty('event_key', '2026casnv');
+    expect(first).toHaveProperty('scout_id', 'scout1');
+    expect(first).not.toHaveProperty('eventKey');
+    expect(first).not.toHaveProperty('scoutId');
   });
 
   it('shows an empty state when the queue is empty', async () => {
@@ -65,7 +113,7 @@ describe('QrSendScreen', () => {
 
   it('advances qr-send-progress over time', async () => {
     vi.useFakeTimers();
-    getSyncQueue.mockResolvedValue(twoReports);
+    getSyncQueue.mockResolvedValue(backlog);
     render(<QrSendScreen />);
 
     // Flush the async backlog load + first frame render.

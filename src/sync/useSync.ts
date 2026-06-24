@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOnline } from '@/sync/useOnline';
 import { syncOnce } from '@/sync/outbox';
-import { getUnsynced, listDeadLetters } from '@/db/localStore';
+import { getSyncQueue, listDeadLetters } from '@/db/localStore';
 import { SYNC_POLL_MS } from '@/sync/constants';
 
 export interface UseSyncResult {
@@ -34,9 +34,11 @@ export function useSync(): UseSyncResult {
   const mountedRef = useRef(true);
 
   const refreshCounts = useCallback(async () => {
-    const [unsynced, dead] = await Promise.all([getUnsynced(), listDeadLetters()]);
+    // `queued` = the retry worklist (dirty + pending), which EXCLUDES dead-letters.
+    // Dead-letters are surfaced separately so the badge never double-counts them.
+    const [queue, dead] = await Promise.all([getSyncQueue(), listDeadLetters()]);
     if (!mountedRef.current) return;
-    setQueued(unsynced.length);
+    setQueued(queue.length);
     setDeadLetters(dead.length);
   }, []);
 
