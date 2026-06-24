@@ -61,23 +61,23 @@ export function ReviewScreen(props: {
   const StepIcon = STEPS[step].icon;
 
   const inputClass =
-    'h-14 rounded-xl border border-border bg-input px-3 text-lg tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-  const labelClass = 'flex flex-col gap-1.5 text-sm font-medium text-muted-foreground';
+    'h-12 rounded-xl border border-border bg-input px-3 text-lg tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring landscape:h-14';
+  const labelClass = 'flex flex-col gap-1 text-sm font-medium text-muted-foreground landscape:gap-1.5';
 
   return (
-    <div className="flex min-h-screen flex-col gap-4 bg-background p-4 text-foreground landscape:gap-3 landscape:p-3">
+    <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background p-3 text-foreground landscape:gap-3 landscape:p-3">
       {/* Stepper / progress */}
-      <header className="flex flex-col gap-2">
+      <header className="flex shrink-0 flex-col gap-1.5 landscape:gap-2">
         <div className="flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-2xl font-bold">
-            <StepIcon className="size-6 text-brand" />
+          <h2 className="flex items-center gap-2 text-xl font-bold landscape:text-2xl">
+            <StepIcon className="size-5 text-brand landscape:size-6" />
             Review
           </h2>
           <span data-testid="review-step" className="text-sm tabular-nums text-muted-foreground">
             Step {step + 1} of {TOTAL_STEPS}
           </span>
         </div>
-        <p className="text-lg font-semibold text-brand">{STEP_TITLES[step]}</p>
+        <p className="text-base font-semibold text-brand landscape:text-lg">{STEP_TITLES[step]}</p>
         <div className="flex gap-1.5">
           {STEP_TITLES.map((title, i) => (
             <span
@@ -90,12 +90,12 @@ export function ReviewScreen(props: {
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto landscape:gap-4">
         {/* Step 1: Climb */}
         {step === 0 && (
-          <section className="flex flex-col gap-4 landscape:grid landscape:grid-cols-2 landscape:gap-4">
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="mb-3 flex items-center gap-2 text-base font-semibold">
+          <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:gap-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+              <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <Mountain className="size-5 text-brand" />
                 Climb level
               </p>
@@ -105,7 +105,7 @@ export function ReviewScreen(props: {
                     key={lvl}
                     size="big"
                     variant={s.climbLevel === lvl ? 'default' : 'outline'}
-                    className="text-2xl tabular-nums"
+                    className="px-2 text-2xl tabular-nums landscape:px-6"
                     onClick={() => s.setClimbLevel(lvl)}
                   >
                     {lvl}
@@ -113,12 +113,13 @@ export function ReviewScreen(props: {
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="mb-3 text-base font-semibold">Outcome</p>
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+              <p className="mb-2 text-base font-semibold landscape:mb-3">Outcome</p>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   size="big"
                   variant={s.climbAttempted ? 'default' : 'outline'}
+                  className="px-2 landscape:px-6"
                   onClick={() => s.setClimbAttempted(!s.climbAttempted)}
                 >
                   {s.climbAttempted && <Check />}
@@ -127,6 +128,7 @@ export function ReviewScreen(props: {
                 <Button
                   size="big"
                   variant={s.climbSuccess ? 'default' : 'outline'}
+                  className="px-2 landscape:px-6"
                   onClick={() => s.setClimbSuccess(!s.climbSuccess)}
                 >
                   {s.climbSuccess && <Check />}
@@ -139,9 +141,9 @@ export function ReviewScreen(props: {
 
         {/* Step 2: Defense & handling */}
         {step === 1 && (
-          <section className="flex flex-col gap-4">
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="mb-3 flex items-center gap-2 text-base font-semibold">
+          <section className="flex flex-col gap-3 landscape:gap-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+              <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <Shield className="size-5 text-brand" />
                 Intake sources
               </p>
@@ -151,17 +153,17 @@ export function ReviewScreen(props: {
                     key={src}
                     size="big"
                     variant={s.intakeSources.includes(src) ? 'default' : 'outline'}
-                    className="text-sm"
+                    className="truncate px-2 text-sm landscape:px-6"
                     onClick={() => toggleIntake(src)}
                   >
                     {s.intakeSources.includes(src) && <Check />}
-                    {src}
+                    <span className="truncate">{src}</span>
                   </Button>
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <div className="grid grid-cols-2 gap-3 landscape:grid-cols-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+              <div className="grid grid-cols-2 gap-2 landscape:grid-cols-4 landscape:gap-3">
                 <label className={labelClass}>
                   Defense played (s)
                   <input
@@ -217,13 +219,13 @@ export function ReviewScreen(props: {
 
         {/* Step 3: Fouls & flags */}
         {step === 2 && (
-          <section className="flex flex-col gap-4 landscape:grid landscape:grid-cols-2 landscape:gap-4">
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="mb-3 flex items-center gap-2 text-base font-semibold">
+          <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:gap-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+              <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <Flag className="size-5 text-warning" />
                 Fouls
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2 landscape:gap-3">
                 <label className={labelClass}>
                   Fouls minor
                   <input
@@ -246,8 +248,8 @@ export function ReviewScreen(props: {
                 </label>
               </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="mb-3 text-base font-semibold">Flags</p>
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+              <p className="mb-2 text-base font-semibold landscape:mb-3">Flags</p>
               <div className="grid grid-cols-2 gap-2 landscape:grid-cols-3">
                 {(
                   [
@@ -277,44 +279,51 @@ export function ReviewScreen(props: {
             step, so it is shown read-only here for reference. Only the auto path
             is editable. */}
         {step === 3 && (
-          <section className="flex flex-col gap-4 landscape:grid landscape:grid-cols-2 landscape:gap-4">
-            <div className="rounded-2xl border border-border bg-card p-4">
+          <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:gap-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <p className="mb-2 flex items-center gap-2 text-base font-semibold">
                 <Route className="size-5 text-brand" />
                 Start position
                 <span className="text-sm font-normal text-muted-foreground">(from placement)</span>
               </p>
-              <FieldDiagram
-                mode="view"
-                startPosition={s.autoStartPosition}
-                data-testid="review-field-start-view"
-              />
+              {/* Field image is ~2.46:1 wide. In portrait, cap the wrapper width
+                  so two stacked diagrams + nav + header fit one viewport; in
+                  landscape let it fill its grid column. */}
+              <div className="mx-auto w-full max-w-[320px] landscape:max-w-none">
+                <FieldDiagram
+                  mode="view"
+                  startPosition={s.autoStartPosition}
+                  data-testid="review-field-start-view"
+                />
+              </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <p className="mb-2 text-base font-semibold">Auto path</p>
-              <FieldDiagram
-                mode="draw-path"
-                startPosition={s.autoStartPosition}
-                path={s.autoPath}
-                onPathChange={(pts: FieldPoint[]) => s.setAutoPath(pts)}
-                data-testid="review-field-path"
-              />
+              <div className="mx-auto w-full max-w-[320px] landscape:max-w-none">
+                <FieldDiagram
+                  mode="draw-path"
+                  startPosition={s.autoStartPosition}
+                  path={s.autoPath}
+                  onPathChange={(pts: FieldPoint[]) => s.setAutoPath(pts)}
+                  data-testid="review-field-path"
+                />
+              </div>
             </div>
           </section>
         )}
 
         {/* Step 5: Review & save */}
         {step === 4 && (
-          <section className="flex flex-col gap-4 landscape:grid landscape:grid-cols-2 landscape:items-start landscape:gap-4">
+          <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:items-start landscape:gap-4">
             <div
               data-testid="review-summary"
-              className="rounded-2xl border border-border bg-card p-4 text-sm"
+              className="rounded-2xl border border-border bg-card p-3 text-sm landscape:p-4"
             >
-              <p className="mb-3 flex items-center gap-2 text-base font-semibold">
+              <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <ClipboardCheck className="size-5 text-brand" />
                 Match summary
               </p>
-              <div className="grid grid-cols-2 gap-y-2">
+              <div className="grid grid-cols-2 gap-y-1.5 landscape:gap-y-2">
                 <span className="text-muted-foreground">Auto fuel</span>
                 <span className="text-right tabular-nums">{agg.autoFuel}</span>
                 <span className="text-muted-foreground">Teleop active</span>
@@ -332,13 +341,13 @@ export function ReviewScreen(props: {
               </div>
             </div>
 
-            <div className="flex flex-col gap-4">
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-muted-foreground">
+            <div className="flex flex-col gap-3 landscape:gap-4">
+              <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground landscape:gap-1.5">
                 Notes
                 <textarea
                   value={s.notes}
                   onChange={(e) => s.setNotes(e.target.value)}
-                  className="min-h-[96px] rounded-xl border border-border bg-input p-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-[72px] rounded-xl border border-border bg-input p-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring landscape:min-h-[96px]"
                 />
               </label>
 
@@ -357,7 +366,7 @@ export function ReviewScreen(props: {
       </div>
 
       {/* Navigation */}
-      <nav className="flex gap-3">
+      <nav className="flex shrink-0 gap-3">
         <Button
           data-testid="review-back"
           size="big"

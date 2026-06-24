@@ -26,6 +26,20 @@ export interface FieldDiagramProps {
   mirror?: boolean;
   /** Read-only routine overlays drawn on top of the primary path/start. */
   overlays?: RoutineOverlay[];
+  /**
+   * Render the (very wide) field rotated 90° so it fills a TALL portrait
+   * container — used on phones held vertically so the diagram is large and easy
+   * to tap (the scout turns the phone sideways to view it upright). Pointer
+   * coordinates are transformed back into canonical (un-rotated) field space, so
+   * the stored {x,y} stay compatible with every other consumer (review/dash).
+   */
+  rotate?: boolean;
+  /**
+   * Size the diagram by the HEIGHT of its container (preserving aspect ratio,
+   * centered) instead of by width. Lets the field fill a flex region without
+   * overflowing vertically. Implied when `rotate` is set.
+   */
+  fillHeight?: boolean;
   ['data-testid']?: string;
 }
 
@@ -44,7 +58,11 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
     onStartChange,
     onPathChange,
     overlays,
+    rotate,
+    fillHeight,
   } = props;
+  const rotated = !!rotate;
+  const heightFit = rotated || !!fillHeight;
   const testid = props['data-testid'] ?? 'field-diagram';
   const containerRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef<FieldPoint[] | null>(null);
@@ -58,9 +76,15 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
   const toNormalized = (clientX: number, clientY: number): FieldPoint => {
     const el = containerRef.current;
     const rect = el!.getBoundingClientRect();
-    const rawX = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
-    const rawY = rect.height > 0 ? (clientY - rect.top) / rect.height : 0;
-    return { x: clamp01(mx(rawX)), y: clamp01(rawY) };
+    const u = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
+    const v = rect.height > 0 ? (clientY - rect.top) / rect.height : 0;
+    // In rotate mode the field image is drawn rotated 90° CW inside a tall box.
+    // The inverse of that rotation maps a pointer at container-normalized (u,v)
+    // back to canonical field space: x = v, y = 1 - u. (Rendering applies the
+    // same rotation, so a placed marker always lands under the finger.)
+    const fx = rotated ? v : u;
+    const fy = rotated ? 1 - u : v;
+    return { x: clamp01(mx(fx)), y: clamp01(fy) };
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -97,18 +121,41 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
       ref={containerRef}
       data-testid={testid}
       data-mode={mode}
+      data-rotated={rotated ? 'true' : 'false'}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       style={{
         position: 'relative',
-        width: '100%',
-        minWidth: 44,
-        minHeight: 44,
         touchAction: 'none',
         userSelect: 'none',
+        margin: heightFit ? '0 auto' : undefined,
+        overflow: rotated ? 'hidden' : undefined,
+        // rotate: tall box (swapped aspect), sized by height; the inner stage is
+        // rotated to fill it via container-query units (100cqh/100cqw).
+        // fillHeight (no rotate): normal aspect, still sized by height.
+        // default: full width, height driven by the image (unchanged).
+        ...(rotated
+          ? { height: '100%', aspectRatio: '1584 / 3902', containerType: 'size' as const }
+          : heightFit
+            ? { height: '100%', aspectRatio: '3902 / 1584' }
+            : { width: '100%', minWidth: 44, minHeight: 44 }),
       }}
     >
+     <div
+      style={
+        rotated
+          ? {
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              width: '100cqh',
+              height: '100cqw',
+              transform: 'translate(-50%, -50%) rotate(90deg)',
+            }
+          : { position: 'relative', width: '100%', height: heightFit ? '100%' : undefined }
+      }
+     >
       <img
         src="/assets/field/field.png"
         alt="field"
@@ -203,6 +250,7 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
           }}
         />
       )}
+     </div>
     </div>
   );
 }

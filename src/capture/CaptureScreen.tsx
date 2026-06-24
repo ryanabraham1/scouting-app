@@ -6,6 +6,28 @@ import { useCaptureEvents, type DefenseIntervalPayload } from '@/capture/useCapt
 import { AUTO_MS, TELEOP_MS, remainingMs } from '@/capture/clock';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
+/**
+ * True when the viewport is in portrait orientation. Drives the pre-match
+ * placement field: portrait → render the field ROTATED 90° (tall + big, so the
+ * scout turns the phone sideways); landscape → render it normally (full-width,
+ * upright). Re-renders on orientation change.
+ */
+function useIsPortrait(): boolean {
+  const [portrait, setPortrait] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return true;
+    return window.matchMedia('(orientation: portrait)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(orientation: portrait)');
+    const onChange = (): void => setPortrait(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return portrait;
+}
+
 function buzz(ms = 15): void {
   try {
     navigator.vibrate?.(ms);
@@ -153,7 +175,7 @@ function HoldSlideLockButton(props: {
       data-locked={locked ? 'true' : 'false'}
       variant={active ? 'default' : 'secondary'}
       size="xl"
-      className={`relative h-full w-full touch-none select-none flex-col gap-1 overflow-hidden rounded-2xl text-lg ${
+      className={`relative h-full w-full touch-none select-none flex-col gap-0.5 overflow-hidden rounded-2xl px-2 text-base ${
         locked
           ? 'bg-energy text-energy-foreground hover:bg-energy'
           : active
@@ -174,8 +196,8 @@ function HoldSlideLockButton(props: {
           style={{ width: `${slideProgress * 100}%` }}
         />
       )}
-      <span className="relative z-10 flex items-center gap-2 font-semibold">
-        {locked ? <Lock className="size-5" /> : icon} {label}
+      <span className="relative z-10 flex flex-wrap items-center justify-center gap-1.5 text-center font-semibold leading-tight">
+        {locked ? <Lock className="size-5 shrink-0" /> : icon} {label}
       </span>
       <span data-testid={`${testid}-timer`} className="relative z-10 text-base tabular-nums">
         {timerText}
@@ -205,6 +227,7 @@ export function CaptureScreen(props: {
   const [showGo, setShowGo] = useState(false);
   // Pre-match placement step gates the live match screen.
   const [placed, setPlaced] = useState(false);
+  const isPortrait = useIsPortrait();
 
   const phase = s.clock.state.phase;
 
@@ -324,41 +347,41 @@ export function CaptureScreen(props: {
   // ---- Pre-match placement step ----
   if (!placed) {
     return (
-      <div className="flex min-h-screen flex-col gap-3 bg-background p-3 text-foreground">
-        <header className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-lg font-semibold">
+      <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background p-3 text-foreground">
+        <header className="flex shrink-0 items-center justify-between gap-3">
+          <span className="flex items-center gap-2 text-base font-semibold">
             <MapPin className="size-5" /> Place the robot
           </span>
-          <span className="text-sm text-muted-foreground">
-            Tap the field where it starts
+          <span className="max-w-[9.5rem] text-right text-xs text-muted-foreground">
+            {isPortrait ? 'Turn phone sideways · tap the start spot' : 'Tap the field where it starts'}
           </span>
         </header>
-        <div className="flex flex-1 flex-col gap-3 landscape:flex-row">
-          <div className="relative landscape:flex-1">
-            <FieldDiagram
-              mode="pick-start"
-              startPosition={s.autoStartPosition}
-              onStartChange={(p: FieldPoint) => {
-                s.setAutoStartPosition(p);
-                buzz();
-              }}
-              data-testid="capture-field"
-            />
-          </div>
-          <div className="flex flex-col justify-end gap-3 landscape:w-72">
-            <Button
-              data-testid="capture-placement-submit"
-              size="big"
-              className="text-2xl"
-              onClick={() => {
-                setPlaced(true);
-                buzz(25);
-              }}
-            >
-              <Play /> Submit / Start match
-            </Button>
-          </div>
+        {/* The field fills all remaining height. In portrait it is rotated 90°
+            (tall + big); the scout turns the phone sideways to view it upright. */}
+        <div className="relative flex min-h-0 flex-1 justify-center">
+          <FieldDiagram
+            mode="pick-start"
+            rotate={isPortrait}
+            fillHeight
+            startPosition={s.autoStartPosition}
+            onStartChange={(p: FieldPoint) => {
+              s.setAutoStartPosition(p);
+              buzz();
+            }}
+            data-testid="capture-field"
+          />
         </div>
+        <Button
+          data-testid="capture-placement-submit"
+          size="big"
+          className="h-14 shrink-0 text-xl"
+          onClick={() => {
+            setPlaced(true);
+            buzz(25);
+          }}
+        >
+          <Play /> Submit / Start match
+        </Button>
       </div>
     );
   }
@@ -415,26 +438,26 @@ export function CaptureScreen(props: {
   const inAuto = phase === 'auto' || phase === 'pause' || phase === 'idle';
 
   return (
-    <div className="flex min-h-screen flex-col gap-3 bg-background p-3 text-foreground">
+    <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background p-3 text-foreground">
       {/* Top bar: phase/window · countdown timer · undo */}
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex shrink-0 items-center justify-between gap-2">
         <span
           data-testid="capture-window"
-          className="text-sm uppercase tracking-wide text-muted-foreground"
+          className="min-w-0 truncate text-xs uppercase tracking-wide text-muted-foreground"
         >
           {phase} · {s.clock.window}
         </span>
         <span
           data-testid="capture-clock"
-          className="flex items-center gap-1 text-2xl font-bold tabular-nums"
+          className="flex shrink-0 items-center gap-1 text-xl font-bold tabular-nums"
         >
-          <Timer className="size-6" /> {mmss(remaining)}
+          <Timer className="size-5" /> {mmss(remaining)}
         </span>
         <Button
           data-testid="capture-undo"
           variant="outline"
           size="icon"
-          className="h-14 w-14"
+          className="size-11 shrink-0"
           aria-label="Undo last action"
           disabled={!events.canUndo}
           onClick={() => {
@@ -442,162 +465,166 @@ export function CaptureScreen(props: {
             buzz();
           }}
         >
-          <Undo2 className="size-6" />
+          <Undo2 className="size-5" />
         </Button>
       </header>
 
-      {/* Body: the field is gone after placement → full width for the controls. */}
-      <div className="flex flex-1 flex-col gap-3">
-        {/* Prominent running ball count. Live total (committed + in-progress)
-            stays big; the committed sub-count makes it clear what's "banked" so
-            the live number never feels like it runs away. */}
-        <div className="flex items-stretch gap-3">
-          <div className="flex flex-1 items-baseline gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-2">
+      {/* Body fills the remaining height; the defense + slider regions flex to
+          absorb slack so EVERYTHING (incl. To Review) stays on-screen — no scroll. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        {/* Running ball counts. Compact so two cards never overflow the right
+            edge on a narrow portrait phone (min-w-0 + truncate). */}
+        <div className="flex shrink-0 items-stretch gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/30 px-3 py-1.5">
             <span
               data-testid="capture-running-fuel"
-              className="text-6xl font-bold leading-none tabular-nums text-energy"
+              className="shrink-0 text-4xl font-bold leading-none tabular-nums text-energy"
             >
               {fuelCount}
             </span>
-            <span className="text-sm uppercase tracking-wide text-muted-foreground">
-              fuel scored
-            </span>
-            <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-              <span className="font-semibold text-success">{s.committedFuelCount}</span> banked
-            </span>
+            <div className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+                fuel scored
+              </span>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                <span className="font-semibold text-success">{s.committedFuelCount}</span> banked
+              </span>
+            </div>
           </div>
-          <div className="flex flex-1 items-baseline gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/30 px-3 py-1.5">
             <span
               data-testid="capture-running-feed"
-              className="text-6xl font-bold leading-none tabular-nums text-brand"
+              className="shrink-0 text-4xl font-bold leading-none tabular-nums text-brand"
             >
               {s.liveFeedingCount}
             </span>
-            <span className="text-sm uppercase tracking-wide text-muted-foreground">
-              fed
-            </span>
-            <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-              <span className="font-semibold text-success">{s.committedFeedingCount}</span> banked
-            </span>
+            <div className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+                fed
+              </span>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                <span className="font-semibold text-success">{s.committedFeedingCount}</span> banked
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col gap-3">
-          {/* Phase-scoped primary action */}
-          {phase === 'idle' && (
-            <Button data-testid="capture-start" size="xl" className="rounded-2xl text-2xl" onClick={() => { s.clock.startAuto(); buzz(25); }}>
-              <Play /> START
-            </Button>
-          )}
-          {(phase === 'auto' || phase === 'pause') && (
-            <Button data-testid="capture-go" size="xl" className="rounded-2xl bg-energy text-energy-foreground hover:bg-energy text-2xl" onClick={() => setShowGo(true)}>
-              <FastForward /> GO (Teleop)
-            </Button>
-          )}
-          {phase === 'teleop' && (
-            <Button data-testid="capture-reanchor" variant="outline" size="big" className="rounded-2xl h-14 text-lg" onClick={() => { s.reAnchorCue(); buzz(); }}>
-              0:30 Endgame cue
-            </Button>
-          )}
-
-          {/* Defense / Getting-defended: whole-button HOLD-SLIDE-LOCK pair */}
-          <div className="flex items-stretch gap-3" style={{ minHeight: 96 }}>
-            <div className="flex-1">
-              <HoldSlideLockButton
-                testid="capture-defense"
-                label="Playing defense"
-                icon={<Shield className="size-5" />}
-                active={defenseActive}
-                locked={defenseLocked}
-                timerText={secs(liveDefenseMs)}
-                onBegin={beginDefense}
-                onCommit={commitDefense}
-                onLock={lockDefense}
-              />
-            </div>
-            <div className="flex-1">
-              <HoldSlideLockButton
-                testid="capture-defended"
-                label="Getting defended"
-                icon={<ShieldAlert className="size-5" />}
-                active={defendedActive}
-                locked={defendedLocked}
-                timerText={secs(liveDefendedMs)}
-                onBegin={beginDefended}
-                onCommit={commitDefended}
-                onLock={lockDefended}
-              />
-            </div>
-          </div>
-
-          {/* Parallel horizontal slider-shoots: SCORING (orange) + FEEDING (cyan).
-              Both are usable side-by-side in landscape, stacked in portrait. */}
-          <div className="flex flex-col gap-3 landscape:flex-row">
-            <div className="landscape:flex-1">
-              <SliderShoot
-                data-testid="capture-hold"
-                tone="energy"
-                unitLabel="BPS"
-                activeLabel="SHOOTING"
-                idleLabel="FUEL · hold + slide →"
-                aria-label="Scoring rate (BPS)"
-                onShootStart={() => { s.holdStart(); buzz(); }}
-                onShootRate={(r) => s.holdSample(r)}
-                onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate }); buzz(20); }}
-              />
-            </div>
-            <div className="landscape:flex-1">
-              <SliderShoot
-                data-testid="capture-feed"
-                tone="brand"
-                unitLabel="BPS"
-                activeLabel="FEEDING"
-                idleLabel="FEED · hold + slide →"
-                aria-label="Feeding rate (BPS)"
-                onShootStart={() => { s.feedHoldStart(); buzz(); }}
-                onShootRate={(r) => s.feedHoldSample(r)}
-                onShootEnd={(rate) => { s.feedHoldEnd(rate); buzz(20); }}
-              />
-            </div>
-          </div>
-
-          {/* Secondary actions */}
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              data-testid="capture-foul"
-              variant="outline"
-              size="big"
-              className="rounded-2xl h-14"
-              onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); buzz(); }}
-            >
-              <Flag /> Foul ({s.foulsMinor})
-            </Button>
-            {inAuto && (
-              <Button
-                variant={s.autoLeftStartingLine ? 'default' : 'outline'}
-                size="big"
-                className="rounded-2xl h-14"
-                onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); buzz(); }}
-              >
-                <MoveUpRight /> Left Line
-              </Button>
-            )}
-            {inAuto && (
-              <Button
-                variant={s.autoClimbLevel1 ? 'default' : 'outline'}
-                size="big"
-                className="rounded-2xl h-14"
-                onClick={() => { const prev = s.autoClimbLevel1; s.setAutoClimbLevel1(!prev); events.recordToggle({ key: 'autoClimbLevel1', value: !prev, prev }); buzz(); }}
-              >
-                <Plane /> Auto Climb
-              </Button>
-            )}
-          </div>
-
-          <Button data-testid="capture-to-review" variant="secondary" size="big" className="mt-auto rounded-2xl h-14" onClick={props.onToReview}>
-            To Review
+        {/* Phase-scoped primary action */}
+        {phase === 'idle' && (
+          <Button data-testid="capture-start" size="xl" className="h-12 shrink-0 rounded-2xl text-xl" onClick={() => { s.clock.startAuto(); buzz(25); }}>
+            <Play /> START
           </Button>
+        )}
+        {(phase === 'auto' || phase === 'pause') && (
+          <Button data-testid="capture-go" size="xl" className="h-12 shrink-0 rounded-2xl bg-energy text-energy-foreground hover:bg-energy text-xl" onClick={() => setShowGo(true)}>
+            <FastForward /> GO (Teleop)
+          </Button>
+        )}
+        {phase === 'teleop' && (
+          <Button data-testid="capture-reanchor" variant="outline" size="big" className="h-11 shrink-0 rounded-2xl text-base" onClick={() => { s.reAnchorCue(); buzz(); }}>
+            0:30 Endgame cue
+          </Button>
+        )}
+
+        {/* Defense / Getting-defended: whole-button HOLD-SLIDE-LOCK pair */}
+        <div className="flex min-h-[76px] flex-1 items-stretch gap-2">
+          <div className="min-w-0 flex-1">
+            <HoldSlideLockButton
+              testid="capture-defense"
+              label="Playing defense"
+              icon={<Shield className="size-5" />}
+              active={defenseActive}
+              locked={defenseLocked}
+              timerText={secs(liveDefenseMs)}
+              onBegin={beginDefense}
+              onCommit={commitDefense}
+              onLock={lockDefense}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <HoldSlideLockButton
+              testid="capture-defended"
+              label="Getting defended"
+              icon={<ShieldAlert className="size-5" />}
+              active={defendedActive}
+              locked={defendedLocked}
+              timerText={secs(liveDefendedMs)}
+              onBegin={beginDefended}
+              onCommit={commitDefended}
+              onLock={lockDefended}
+            />
+          </div>
         </div>
+
+        {/* Parallel horizontal slider-shoots: SCORING (orange) + FEEDING (cyan).
+            Stacked in portrait, side-by-side in landscape. Flex to fill slack. */}
+        <div className="flex min-h-[148px] flex-[1.6] flex-col gap-2 landscape:flex-row">
+          <div className="flex min-h-0 flex-1">
+            <SliderShoot
+              data-testid="capture-hold"
+              tone="energy"
+              unitLabel="BPS"
+              activeLabel="SHOOTING"
+              idleLabel="FUEL · hold + slide →"
+              aria-label="Scoring rate (BPS)"
+              className="h-full"
+              onShootStart={() => { s.holdStart(); buzz(); }}
+              onShootRate={(r) => s.holdSample(r)}
+              onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate }); buzz(20); }}
+            />
+          </div>
+          <div className="flex min-h-0 flex-1">
+            <SliderShoot
+              data-testid="capture-feed"
+              tone="brand"
+              unitLabel="BPS"
+              activeLabel="FEEDING"
+              idleLabel="FEED · hold + slide →"
+              aria-label="Feeding rate (BPS)"
+              className="h-full"
+              onShootStart={() => { s.feedHoldStart(); buzz(); }}
+              onShootRate={(r) => s.feedHoldSample(r)}
+              onShootEnd={(rate) => { s.feedHoldEnd(rate); buzz(20); }}
+            />
+          </div>
+        </div>
+
+        {/* Secondary actions */}
+        <div className="grid shrink-0 grid-cols-2 gap-2">
+          <Button
+            data-testid="capture-foul"
+            variant="outline"
+            size="big"
+            className="h-11 rounded-2xl"
+            onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); buzz(); }}
+          >
+            <Flag /> Foul ({s.foulsMinor})
+          </Button>
+          {inAuto && (
+            <Button
+              variant={s.autoLeftStartingLine ? 'default' : 'outline'}
+              size="big"
+              className="h-11 rounded-2xl"
+              onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); buzz(); }}
+            >
+              <MoveUpRight /> Left Line
+            </Button>
+          )}
+          {inAuto && (
+            <Button
+              variant={s.autoClimbLevel1 ? 'default' : 'outline'}
+              size="big"
+              className="h-11 rounded-2xl"
+              onClick={() => { const prev = s.autoClimbLevel1; s.setAutoClimbLevel1(!prev); events.recordToggle({ key: 'autoClimbLevel1', value: !prev, prev }); buzz(); }}
+            >
+              <Plane /> Auto Climb
+            </Button>
+          )}
+        </div>
+
+        <Button data-testid="capture-to-review" variant="secondary" size="big" className="h-11 shrink-0 rounded-2xl" onClick={props.onToReview}>
+          To Review
+        </Button>
       </div>
     </div>
   );

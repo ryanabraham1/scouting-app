@@ -77,6 +77,8 @@ export interface SliderShootProps {
   idleLabel?: string;
   /** ARIA label for the slider role. */
   ['aria-label']?: string;
+  /** Extra classes merged onto the track (e.g. `h-full` to fill a flex cell). */
+  className?: string;
   ['data-testid']?: string;
 }
 
@@ -187,8 +189,8 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
       onLostPointerCapture={end}
       className={`relative flex w-full select-none items-center overflow-hidden rounded-2xl border-2 transition-colors ${
         active ? `${toneCls.activeBorder} ${toneCls.activeBg}` : 'border-border bg-muted/40'
-      } ${disabled ? 'opacity-50' : ''}`}
-      style={{ touchAction: 'none', minHeight: 96 }}
+      } ${disabled ? 'opacity-50' : ''} ${props.className ?? ''}`}
+      style={{ touchAction: 'none', minHeight: 72 }}
     >
       {/* horizontal fill: left edge → thumb center */}
       <div
