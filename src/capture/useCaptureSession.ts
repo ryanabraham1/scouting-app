@@ -153,7 +153,9 @@ export function useCaptureSession(target: CaptureTarget) {
       clock.state.phase === 'teleop' ? clock.teleopElapsedMs : clock.autoElapsedMs;
   }, [clock.state.phase, clock.teleopElapsedMs, clock.autoElapsedMs]);
 
-  const holdEnd = useCallback(() => {
+  // rateOverride lets the combined slider-shoot control commit a burst at the
+  // exact rate the user dragged to, avoiding a stale-state race with setRate.
+  const holdEnd = useCallback((rateOverride?: number) => {
     const start = holdStartMsRef.current;
     if (start === null) {
       return;
@@ -162,7 +164,8 @@ export function useCaptureSession(target: CaptureTarget) {
     const end =
       clock.state.phase === 'teleop' ? clock.teleopElapsedMs : clock.autoElapsedMs;
     const window = windowForBurst(clock.state.phase, clock.teleopElapsedMs);
-    const burst: FuelBurst = { startMs: start, endMs: Math.max(end, start), rate, window };
+    const effRate = rateOverride ?? rate;
+    const burst: FuelBurst = { startMs: start, endMs: Math.max(end, start), rate: effRate, window };
     const nextBursts = [...bursts, burst];
     setBursts(nextBursts);
     persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred });

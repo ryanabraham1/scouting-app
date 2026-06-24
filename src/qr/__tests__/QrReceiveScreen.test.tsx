@@ -33,6 +33,16 @@ const { decodeFromVideoDevice, stop, reject, state } = vi.hoisted(() => {
 let captured: DecodeCb | null = null;
 vi.mock('@zxing/browser', () => ({
   BrowserQRCodeReader: class {
+    // Mirror the real static helper used to prefer the rear camera. The screen
+    // resolves a /back|rear|environment/ device by label and passes its id to
+    // decodeFromVideoDevice (falling back to undefined → facingMode env).
+    static listVideoInputDevices() {
+      return Promise.resolve([
+        { deviceId: 'front-1', label: 'Front Camera', kind: 'videoinput', groupId: 'g' },
+        { deviceId: 'back-1', label: 'Back Camera (environment)', kind: 'videoinput', groupId: 'g' },
+      ] as MediaDeviceInfo[]);
+    }
+
     decodeFromVideoDevice(deviceId: unknown, video: unknown, callback: DecodeCb) {
       captured = callback;
       return decodeFromVideoDevice(deviceId, video, callback);
@@ -64,6 +74,9 @@ function emit(text: string) {
   captured({ getText: () => text }, undefined, { stop } as { stop: () => void });
 }
 
+// Snapshot of the real mediaDevices so the secure-context test can restore it.
+const realMediaDevices = navigator.mediaDevices;
+
 beforeEach(() => {
   decodeFromVideoDevice.mockClear();
   stop.mockClear();
@@ -73,10 +86,19 @@ beforeEach(() => {
   state.rejectMode = false;
   postIngest.mockResolvedValue({ ingested: sourceReports.length, failed: [] });
   saveReport.mockResolvedValue(undefined);
+  // Default: a working secure context with a camera available.
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia: vi.fn(), enumerateDevices: vi.fn(async () => []) },
+  });
 });
 
 afterEach(() => {
   cleanup();
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: realMediaDevices,
+  });
 });
 
 describe('QrReceiveScreen', () => {
@@ -86,6 +108,14 @@ describe('QrReceiveScreen', () => {
 
     // Wait for the reader to register its callback.
     await waitFor(() => expect(captured).not.toBeNull());
+
+    // Rear camera preferred: the resolved /back|rear|environment/ deviceId is
+    // passed to decodeFromVideoDevice.
+    expect(decodeFromVideoDevice).toHaveBeenCalledWith(
+      'back-1',
+      expect.anything(),
+      expect.any(Function),
+    );
 
     // First frame → progress 1/total.
     await act(async () => emit(frameStrings[0]));
@@ -128,6 +158,26 @@ describe('QrReceiveScreen', () => {
     reject();
     render(<QrReceiveScreen />);
     await waitFor(() => expect(screen.getByTestId('qr-receive-error')).toBeTruthy());
+    expect(postIngest).not.toHaveBeenCalled();
+  });
+
+  it('shows a clear secure-context error when navigator.mediaDevices is unavailable', async () => {
+    // Simulate a non-HTTPS / non-localhost origin: the platform never exposes
+    // mediaDevices, so getUserMedia is unreachable.
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: undefined,
+    });
+
+    render(<QrReceiveScreen />);
+
+    const error = await screen.findByTestId('qr-receive-error');
+    expect(error).toBeTruthy();
+    // The message must point the user at the real fix (HTTPS / localhost).
+    expect(error.textContent).toMatch(/HTTPS|localhost/i);
+
+    // We never even attempt to decode (no camera to talk to) and never ingest.
+    expect(decodeFromVideoDevice).not.toHaveBeenCalled();
     expect(postIngest).not.toHaveBeenCalled();
   });
 });

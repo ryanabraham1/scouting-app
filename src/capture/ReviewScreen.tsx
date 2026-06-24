@@ -113,15 +113,26 @@ export function ReviewScreen(props: {
           />
         </label>
         <label className="flex flex-col gap-1">
-          Defense (0-3)
+          Defense played (s)
           <input
+            data-testid="review-defense-seconds"
             type="number"
             min={0}
-            max={3}
-            value={s.defenseRating}
-            onChange={(e) =>
-              s.setDefenseRating(Math.max(0, Math.min(3, Number(e.target.value))) as 0 | 1 | 2 | 3)
-            }
+            step={0.1}
+            value={(s.defenseDurationMs / 1000).toFixed(1)}
+            onChange={(e) => s.setDefenseDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))}
+            className="h-11 rounded border border-border bg-input px-2"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          Being defended (s)
+          <input
+            data-testid="review-defended-seconds"
+            type="number"
+            min={0}
+            step={0.1}
+            value={(s.defendedDurationMs / 1000).toFixed(1)}
+            onChange={(e) => s.setDefendedDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))}
             className="h-11 rounded border border-border bg-input px-2"
           />
         </label>
