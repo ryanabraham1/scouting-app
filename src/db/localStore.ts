@@ -1,16 +1,42 @@
 import Dexie, { type Table } from 'dexie';
-import type { LocalMatchReport, CaptureDraft } from './types';
+import type {
+  LocalMatchReport,
+  CaptureDraft,
+  CachedMatch,
+  CachedAssignment,
+  CachedRosterScouter,
+  CachedTeam,
+  PreloadMeta,
+} from './types';
 import { isAuthClassError } from '@/sync/classifyError';
 
 export class ScoutingDb extends Dexie {
   reports!: Table<LocalMatchReport, string>;
   drafts!: Table<CaptureDraft, string>;
+  // Offline preload cache — pre-downloaded event data so the scout screens work
+  // with zero wifi. See preloadClient.ts for the read/write helpers.
+  cachedMatches!: Table<CachedMatch, string>;
+  cachedAssignments!: Table<CachedAssignment, string>;
+  cachedRoster!: Table<CachedRosterScouter, string>;
+  cachedTeams!: Table<CachedTeam, string>;
+  preloadMeta!: Table<PreloadMeta, string>;
 
   constructor() {
     super('scouting-db');
     this.version(1).stores({
       reports: 'id, syncState, matchKey, scoutId, targetTeamNumber',
       drafts: 'draftKey, updatedAt',
+    });
+    // v2: add the offline preload cache. Existing stores are redeclared
+    // unchanged so Dexie keeps the upgrade chain intact.
+    this.version(2).stores({
+      reports: 'id, syncState, matchKey, scoutId, targetTeamNumber',
+      drafts: 'draftKey, updatedAt',
+      cachedMatches: 'match_key, event_key',
+      cachedAssignments: 'id, scout_id, event_key, match_key',
+      cachedRoster: 'id, name',
+      cachedTeams: 'id, event_key, team_number',
+      preloadMeta: 'key',
     });
   }
 }

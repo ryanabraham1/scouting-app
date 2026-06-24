@@ -21,6 +21,8 @@ import { getStoredActiveEvent } from '@/dash/activeEventStore';
 import { listRoster, type RosterScouter } from '@/roster/rosterClient';
 import { selectScouter, forgetScouterName } from '@/roster/selectScouter';
 import { UpcomingMatches, matchLabelFromKey } from '@/capture/UpcomingMatches';
+import { getCachedAssignments, getCachedRoster } from '@/db/preloadClient';
+import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
 
 interface AssignmentRow {
   match_key: string;
@@ -74,9 +76,23 @@ function NamePicker(props: { eventKey: string; onPicked: (s: ScoutRow) => void }
     void (async () => {
       try {
         const rows = await listRoster();
-        if (!cancelled) setRoster(rows);
+        if (cancelled) return;
+        if (rows.length) {
+          setRoster(rows);
+          return;
+        }
+        // Network returned an empty roster — try the offline cache before giving up.
+        const cached = await getCachedRoster();
+        if (!cancelled) setRoster(cached);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load roster.');
+        // Network failed (likely offline): fall back to whatever was downloaded.
+        const cached = await getCachedRoster();
+        if (cancelled) return;
+        if (cached.length) {
+          setRoster(cached);
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load roster.');
+        }
       }
     })();
     return () => {
@@ -211,22 +227,35 @@ export default function ScoutHome() {
     const ev = effective?.event_key || activeEvent || '';
     let cancelled = false;
     void (async () => {
-      let res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
-      // No assignments under this device's row — auto-generated assignments are
-      // published against roster-seeded duplicate scout rows. select_scouter
-      // (migration 0014) consolidates those onto this device's row; re-query after.
-      if (!cancelled && res.data && res.data.length === 0 && name && ev) {
-        try {
-          await selectScouter(ev, name);
-          if (!cancelled) {
-            res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
-          }
-        } catch {
-          /* non-fatal: keep whatever the first query returned */
-        }
+      // Local-first: show cached assignments immediately so an offline reload
+      // still surfaces the schedule (CachedAssignment carries an extra `id`
+      // field on top of AssignmentRow — the rest of the shape matches).
+      const cached = await getCachedAssignments(scoutId);
+      if (!cancelled && cached.length) {
+        setAssignments(cached as AssignmentRow[]);
       }
-      if (!cancelled && res.data) {
-        setAssignments(res.data as AssignmentRow[]);
+      // Then refresh from the network. Offline this throws, so guard the whole
+      // block and keep the cached assignments already set.
+      try {
+        let res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
+        // No assignments under this device's row — auto-generated assignments are
+        // published against roster-seeded duplicate scout rows. select_scouter
+        // (migration 0014) consolidates those onto this device's row; re-query after.
+        if (!cancelled && res.data && res.data.length === 0 && name && ev) {
+          try {
+            await selectScouter(ev, name);
+            if (!cancelled) {
+              res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
+            }
+          } catch {
+            /* non-fatal: keep whatever the first query returned */
+          }
+        }
+        if (!cancelled && res.data) {
+          setAssignments(res.data as AssignmentRow[]);
+        }
+      } catch {
+        /* offline / network failure: keep the cached assignments set above */
       }
     })();
     void refreshLocal();
@@ -348,6 +377,7 @@ export default function ScoutHome() {
           <h1 className="truncate text-2xl font-bold">{effective.display_name || 'Scout'}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <OfflineReadyBadge eventKey={activeEvent ?? eventKey ?? null} scoutId={scoutId || undefined} />
           <SyncIndicator />
           <a
             data-testid="nav-home"

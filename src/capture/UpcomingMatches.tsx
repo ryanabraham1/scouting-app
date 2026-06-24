@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { nexusGet } from '@/dash/proxies';
 import { parseNexusEventStatus, type NexusEventStatus } from '@/dash/nexusClient';
+import { getCachedMatches } from '@/db/preloadClient';
 import { cn } from '@/lib/utils';
 
 /** Raw `match` row shape we care about for the scout's match list. */
@@ -172,14 +173,36 @@ export function UpcomingMatches({ eventKey, assignments, onStart }: UpcomingMatc
     }
     let cancelled = false;
     void (async () => {
-      const res = await supabase
-        .from('match')
-        .select(
-          'match_key,event_key,comp_level,match_number,scheduled_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at',
-        )
-        .eq('event_key', eventKey);
+      // Offline-first: show the cached schedule immediately so a reload with no
+      // wifi renders matches instead of spinning on "Loading matches…" forever.
+      // CachedMatch is structurally identical to UpcomingMatchRow.
+      const cached = await getCachedMatches(eventKey);
       if (cancelled) return;
-      setMatches((res.data as UpcomingMatchRow[] | null) ?? []);
+      const hadCache = cached.length > 0;
+      if (hadCache) setMatches(cached as UpcomingMatchRow[]);
+
+      // Then refresh from the network when reachable. If the query throws or
+      // returns nothing/error, keep whatever we already showed from cache.
+      try {
+        const res = await supabase
+          .from('match')
+          .select(
+            'match_key,event_key,comp_level,match_number,scheduled_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at',
+          )
+          .eq('event_key', eventKey);
+        if (cancelled) return;
+        if (!res.error && res.data) {
+          setMatches(res.data as UpcomingMatchRow[]);
+        } else if (!hadCache) {
+          // Genuinely nothing (no cache, network gave nothing): show the empty
+          // state rather than leaving `null` (loading) forever.
+          setMatches([]);
+        }
+      } catch {
+        if (cancelled) return;
+        // Offline / transport error. Only fall to empty if we had no cache.
+        if (!hadCache) setMatches([]);
+      }
     })();
     return () => {
       cancelled = true;

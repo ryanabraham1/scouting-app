@@ -1,18 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { AppRouter } from './routes/router';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-    },
-  },
-});
+import { queryClient, persistOptions } from './lib/queryPersist';
 
 export default function App(): JSX.Element {
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
       <AppRouter />
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }
