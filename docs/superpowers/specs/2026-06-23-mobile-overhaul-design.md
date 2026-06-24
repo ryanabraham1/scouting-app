@@ -79,12 +79,18 @@ end; $$;
 - Requires a unique constraint on `scout (event_key, auth_uid)` (add in `0009` if not
   present). Reuses the existing `scout.id` → reports/assignments pipeline unchanged.
 
-### A4. `defense_duration_ms` column (migration `0009`)
+### A4. Defense duration columns (migration `0009`)
 ```sql
 alter table match_scouting_report add column if not exists defense_duration_ms int not null default 0;
+alter table match_scouting_report add column if not exists defended_duration_ms int not null default 0;
 ```
-- Add to the `upsert_match_report` RPC param list + insert/update (additive; existing
+- `defense_duration_ms` = exact ms the scouted robot **played defense** (on others).
+- `defended_duration_ms` = exact ms the scouted robot **was being defended** (by others).
+- Add BOTH to the `upsert_match_report` RPC param list + insert/update (additive; existing
   columns and recompute logic untouched).
+- **No buckets.** The legacy `defense_rating` column is left at its default (`0`) and is
+  **not** derived from duration. The two exact durations are the source of truth and will
+  be visualized on a match timeline later.
 
 ### A5. Routing changes (`src/routes/router.tsx`)
 - Remove `RequireRole` and the `/login` route. Remove `RequireSession` join gate
@@ -144,11 +150,19 @@ timeline of interactions; on Save it **derives the existing `LocalMatchReport` f
   today's shape; `rate` now ranges 0–30. Verify `scoring/compute.ts` handles arbitrary
   rate (fuel = rate × duration); add a regression test for rate > 5.
 
-### C3. Defense = press-and-hold duration
-- A Defense action button (lucide `Shield`). Pressing starts a timer; releasing adds the
-  elapsed ms to a running `defenseDurationMs` total (supports multiple defense intervals).
-- On Save: `defense_duration_ms = total`; `defense_rating` = derived bucket from total
-  (e.g. 0s→0, ≤10s→1, ≤30s→2, >30s→3) for backward-compatible scoring/dashboards.
+### C3. Defense = press-and-hold duration (exact, no buckets)
+Two independent press-and-hold controls, each accumulating **exact elapsed ms** across
+any number of intervals during the match:
+- **Playing defense** — Defense action button (lucide `Shield`). Hold while the scouted
+  robot is playing defense on opponents. Accumulates `defenseDurationMs`.
+- **Being defended** — a second control (lucide `ShieldAlert`) the scouter holds while
+  the scouted robot **is being defended** by opponents. Accumulates `defendedDurationMs`.
+- On Save: `defense_duration_ms = defenseDurationMs`, `defended_duration_ms =
+  defendedDurationMs`. **Exact totals only — no rating bucket.** `defense_rating` stays 0.
+- Both durations are recorded with per-interval start/end timestamps in the in-memory
+  timeline so a later feature can render them on a match timeline. (Persisted fields are
+  the two totals; the per-interval detail lives in the capture timeline / review.)
+- Both are editable in the Review screen before Save.
 
 ### C4. Other actions (phase-scoped, big icon buttons)
 - Auto: pick start position (tap field), draw auto path (existing `FieldDiagram` modes),
@@ -200,17 +214,19 @@ permission/secure-context error state in the redesigned (landscape, big-button) 
 ## Migrations Summary (`supabase/migrations/0009_overhaul.sql`)
 1. `scouter_roster` table + RLS (A2).
 2. `select_scouter` RPC + `scout (event_key, auth_uid)` unique constraint (A3).
-3. `match_scouting_report.defense_duration_ms` column (A4).
-4. Extend `upsert_match_report` RPC to read/write `defense_duration_ms` (A4).
+3. `match_scouting_report.defense_duration_ms` + `defended_duration_ms` columns (A4).
+4. Extend `upsert_match_report` RPC to read/write both duration columns (A4).
 
 ## Testing Strategy
 
 - **Unit (vitest):** roster client, `select_scouter` client wrapper, active-event
-  persistence (localStorage seed + no-blank-on-refetch), defense-duration→rating
-  derivation, fuel burst at rate > 5, slider-shoot gesture state machine.
+  persistence (localStorage seed + no-blank-on-refetch), defense/defended duration
+  accumulation across multiple intervals (exact ms, no buckets), fuel burst at rate > 5,
+  slider-shoot gesture state machine.
 - **Component (RTL):** capture field-map phase-scoped rendering, slider-shoot
-  press/drag/release → burst committed + springs to 0, hold-defense accumulates,
-  Undo reverses last action, roster manager add/remove, "my data" list filtered by scout.
+  press/drag/release → burst committed + springs to 0, hold-defense + hold-defended each
+  accumulate exact ms, Undo reverses last action, roster manager add/remove, "my data"
+  list filtered by scout.
 - **E2E (Playwright):** open lead view with no login; set event and confirm it persists
   across reload; scouter selects name → capture → save → appears in "my data" and
   dashboard. Landscape viewport.
