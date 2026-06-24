@@ -7,7 +7,7 @@ import {
 } from 'react-router-dom';
 import { RequireSession, RequireRole } from './guards';
 import JoinPlaceholder from './JoinPlaceholder';
-import DashboardPlaceholder from './DashboardPlaceholder';
+import DashboardScreen from '../dash/DashboardScreen';
 import AdminLogin from '../auth/AdminLogin';
 import AdminPage from '../admin/AdminPage';
 import ScoutHome from '../capture/ScoutHome';
@@ -32,7 +32,7 @@ export const routes: RouteObject[] = [
   {
     element: <RequireRole role="lead" redirectTo="/login" />,
     children: [
-      { path: '/dashboard', element: <DashboardPlaceholder /> },
+      { path: '/dashboard', element: <DashboardScreen /> },
       { path: '/sync', element: <SyncStatusScreen /> },
     ],
   },

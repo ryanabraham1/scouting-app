@@ -5,6 +5,18 @@ export interface FieldPoint {
   y: number;
 }
 
+/**
+ * A read-only routine overlay (e.g. another robot's auto path) rendered IN
+ * ADDITION to the diagram's primary `path`/`startPosition`. Used by the
+ * dashboard's multi-robot auto-routines view (contracts §7).
+ */
+export interface RoutineOverlay {
+  startPosition?: FieldPoint | null;
+  path?: FieldPoint[] | null;
+  color: string;
+  label?: string;
+}
+
 export interface FieldDiagramProps {
   mode: 'view' | 'pick-start' | 'draw-path';
   startPosition?: FieldPoint | null;
@@ -12,6 +24,8 @@ export interface FieldDiagramProps {
   onStartChange?: (p: FieldPoint) => void;
   onPathChange?: (pts: FieldPoint[]) => void;
   mirror?: boolean;
+  /** Read-only routine overlays drawn on top of the primary path/start. */
+  overlays?: RoutineOverlay[];
   ['data-testid']?: string;
 }
 
@@ -22,8 +36,15 @@ function clamp01(n: number): number {
 }
 
 export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
-  const { mode, mirror, startPosition, path, onStartChange, onPathChange } =
-    props;
+  const {
+    mode,
+    mirror,
+    startPosition,
+    path,
+    onStartChange,
+    onPathChange,
+    overlays,
+  } = props;
   const testid = props['data-testid'] ?? 'field-diagram';
   const containerRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef<FieldPoint[] | null>(null);
@@ -128,6 +149,34 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
             strokeWidth={0.004}
           />
         )}
+        {overlays?.map((overlay, i) => (
+          <g key={i}>
+            {overlay.path && overlay.path.length >= 2 && (
+              <polyline
+                data-testid={`${testid}-overlay-${i}`}
+                fill="none"
+                stroke={overlay.color}
+                strokeWidth={0.01}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points={overlay.path
+                  .map((p) => `${mx(p.x)},${p.y}`)
+                  .join(' ')}
+              />
+            )}
+            {overlay.startPosition && (
+              <circle
+                data-testid={`${testid}-overlay-start-${i}`}
+                cx={mx(overlay.startPosition.x)}
+                cy={overlay.startPosition.y}
+                r={0.02}
+                fill={overlay.color}
+                stroke="#ffffff"
+                strokeWidth={0.004}
+              />
+            )}
+          </g>
+        ))}
       </svg>
     </div>
   );

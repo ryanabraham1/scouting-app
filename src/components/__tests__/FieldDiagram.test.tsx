@@ -162,3 +162,140 @@ describe('FieldDiagram view', () => {
     expect(polyline?.getAttribute('points')).toBe('0.9,0.1 0.1,0.3');
   });
 });
+
+describe('FieldDiagram overlays', () => {
+  it('renders one polyline per overlay with >= 2 points, in the given colors', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        overlays={[
+          {
+            color: '#ff0000',
+            path: [
+              { x: 0.1, y: 0.1 },
+              { x: 0.5, y: 0.5 },
+            ],
+            startPosition: { x: 0.1, y: 0.1 },
+          },
+          {
+            color: '#00ff00',
+            path: [
+              { x: 0.2, y: 0.2 },
+              { x: 0.4, y: 0.6 },
+              { x: 0.8, y: 0.3 },
+            ],
+          },
+        ]}
+      />
+    );
+    const o0 = container.querySelector(
+      '[data-testid="field-diagram-overlay-0"]'
+    ) as SVGPolylineElement | null;
+    const o1 = container.querySelector(
+      '[data-testid="field-diagram-overlay-1"]'
+    ) as SVGPolylineElement | null;
+    expect(o0).toBeTruthy();
+    expect(o1).toBeTruthy();
+    expect(o0?.getAttribute('stroke')).toBe('#ff0000');
+    expect(o1?.getAttribute('stroke')).toBe('#00ff00');
+    expect(o0?.getAttribute('points')).toBe('0.1,0.1 0.5,0.5');
+    expect(o1?.getAttribute('points')).toBe('0.2,0.2 0.4,0.6 0.8,0.3');
+    // exactly two overlay polylines, no third
+    expect(
+      container.querySelector('[data-testid="field-diagram-overlay-2"]')
+    ).toBeNull();
+  });
+
+  it('renders an overlay start circle in the overlay color when startPosition is set', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        overlays={[{ color: '#0000ff', startPosition: { x: 0.3, y: 0.7 } }]}
+      />
+    );
+    const circle = container.querySelector(
+      '[data-testid="field-diagram-overlay-start-0"]'
+    ) as SVGCircleElement | null;
+    expect(circle).toBeTruthy();
+    expect(circle?.getAttribute('fill')).toBe('#0000ff');
+    expect(circle?.getAttribute('cx')).toBe('0.3');
+    expect(circle?.getAttribute('cy')).toBe('0.7');
+    // No polyline for a single-point overlay (no path).
+    expect(
+      container.querySelector('[data-testid="field-diagram-overlay-0"]')
+    ).toBeNull();
+  });
+
+  it('does not render overlay polylines for fewer than 2 path points', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        overlays={[{ color: '#abcdef', path: [{ x: 0.1, y: 0.1 }] }]}
+      />
+    );
+    expect(
+      container.querySelector('[data-testid="field-diagram-overlay-0"]')
+    ).toBeNull();
+  });
+
+  it('keeps the existing single path/startPosition rendering unchanged alongside overlays', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        startPosition={{ x: 0.2, y: 0.4 }}
+        path={[
+          { x: 0.1, y: 0.1 },
+          { x: 0.9, y: 0.3 },
+        ]}
+        overlays={[
+          {
+            color: '#123456',
+            path: [
+              { x: 0.5, y: 0.5 },
+              { x: 0.6, y: 0.6 },
+            ],
+          },
+        ]}
+      />
+    );
+    const marker = container.querySelector(
+      '[data-testid="field-diagram-marker"]'
+    ) as SVGCircleElement | null;
+    expect(marker?.getAttribute('cx')).toBe('0.2');
+    const polyline = container.querySelector(
+      '[data-testid="field-diagram-polyline"]'
+    ) as SVGPolylineElement | null;
+    expect(polyline?.getAttribute('points')).toBe('0.1,0.1 0.9,0.3');
+    const overlay = container.querySelector(
+      '[data-testid="field-diagram-overlay-0"]'
+    ) as SVGPolylineElement | null;
+    expect(overlay?.getAttribute('stroke')).toBe('#123456');
+  });
+
+  it('mirrors overlay coordinates when mirror is set', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        mirror
+        overlays={[
+          {
+            color: '#ff0000',
+            startPosition: { x: 0.2, y: 0.4 },
+            path: [
+              { x: 0.1, y: 0.1 },
+              { x: 0.9, y: 0.3 },
+            ],
+          },
+        ]}
+      />
+    );
+    const overlay = container.querySelector(
+      '[data-testid="field-diagram-overlay-0"]'
+    ) as SVGPolylineElement | null;
+    expect(overlay?.getAttribute('points')).toBe('0.9,0.1 0.1,0.3');
+    const circle = container.querySelector(
+      '[data-testid="field-diagram-overlay-start-0"]'
+    ) as SVGCircleElement | null;
+    expect(circle?.getAttribute('cx')).toBe('0.8');
+  });
+});
