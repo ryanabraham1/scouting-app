@@ -1,7 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { tbaGet, statboticsGet, nexusGet, epaFromTeamEvent } from '@/dash/proxies';
-import { computeLocalEpa } from '@/dash/localEpa';
+import { computeLocalEpa, tbaMatchesToRows } from '@/dash/localEpa';
 import {
   parseNexusEventStatus,
   type NexusEventStatus,
@@ -9,6 +9,7 @@ import {
 import {
   parseStatboticsTeamYear,
   inHouseEpaForTeam,
+  seasonRecordFromTbaMatches,
   type EpaSource,
 } from '@/dash/SeasonStats';
 import type { EventWebcast } from '@/dash/EventStream';
@@ -243,6 +244,31 @@ export function useEventEpa(
         }
       }
 
+      // The local `match` table only holds the schedule (the importer never
+      // writes scores), so computeLocalEpa above is usually empty in production.
+      // Run the SAME EPA model over real results fetched live from TBA.
+      try {
+        const tbaMatches = await tbaGet<unknown>(`/event/${eventKey}/matches`);
+        const tbaEpa = computeLocalEpa(tbaMatchesToRows(tbaMatches));
+        if (tbaEpa.size > 0) {
+          let anyTba = false;
+          for (const team of sortedTeams) {
+            const v = tbaEpa.get(team);
+            if (v !== undefined) {
+              epaByTeam.set(team, v);
+              anyTba = true;
+            } else {
+              epaByTeam.set(team, null);
+            }
+          }
+          if (anyTba) {
+            return { epaByTeam, available: true, source: 'local' };
+          }
+        }
+      } catch {
+        /* TBA unavailable too — fall through to 'none' */
+      }
+
       return { epaByTeam, available: false, source: 'none' };
     },
   });
@@ -365,32 +391,48 @@ export function useTeamSeasonStats(
         ? { worldRank: null, totalEpa: null, record: null }
         : parseStatboticsTeamYear(json);
 
+      // In-house EPA from the local `match` table — works only if results were
+      // synced there; the importer stores the schedule only, so this is usually
+      // empty in production and we fall through to the TBA-derived estimate.
+      const localEpa = sb.totalEpa == null ? inHouseEpaForTeam(matches, team) : null;
+
+      // Fetch the team's season matches from TBA ONCE if Statbotics is missing
+      // either the season record or the EPA, then reuse the payload for both.
+      // tbaGet throws on any non-2xx, so guard it — a TBA outage or unset
+      // TBA_API_KEY just leaves the affected value null.
+      const needRecord = sb.record == null;
+      const needEpa = sb.totalEpa == null && localEpa == null;
+      let tbaSeason: unknown = null;
+      if (needRecord || needEpa) {
+        try {
+          tbaSeason = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
+        } catch {
+          /* TBA unavailable */
+        }
+      }
+
+      // Season record: prefer Statbotics; else derive a TBA W-L-T (quals + playoffs).
+      const seasonRecord =
+        sb.record ?? (tbaSeason != null ? seasonRecordFromTbaMatches(tbaSeason, team) : null);
+
+      // Total EPA: Statbotics → local-table in-house → TBA-derived in-house. The
+      // TBA estimate runs the Statbotics EPA model over the team's season matches
+      // (an approximation — opponent EPAs aren't globally converged — so it's
+      // labelled 'inhouse', never presented as the official number).
       if (sb.totalEpa != null) {
-        return {
-          worldRank: sb.worldRank,
-          totalEpa: sb.totalEpa,
-          epaSource: 'statbotics',
-          seasonRecord: sb.record,
-        };
+        return { worldRank: sb.worldRank, totalEpa: sb.totalEpa, epaSource: 'statbotics', seasonRecord };
+      }
+      if (localEpa != null) {
+        return { worldRank: sb.worldRank, totalEpa: localEpa, epaSource: 'inhouse', seasonRecord };
+      }
+      if (tbaSeason != null) {
+        const tbaEpa = computeLocalEpa(tbaMatchesToRows(tbaSeason)).get(team) ?? null;
+        if (tbaEpa != null) {
+          return { worldRank: sb.worldRank, totalEpa: tbaEpa, epaSource: 'inhouse', seasonRecord };
+        }
       }
 
-      // Statbotics EPA missing -> surface the in-house (TBA-derived) estimate.
-      const local = inHouseEpaForTeam(matches, team);
-      if (local != null) {
-        return {
-          worldRank: sb.worldRank,
-          totalEpa: local,
-          epaSource: 'inhouse',
-          seasonRecord: sb.record,
-        };
-      }
-
-      return {
-        worldRank: sb.worldRank,
-        totalEpa: null,
-        epaSource: 'none',
-        seasonRecord: sb.record,
-      };
+      return { worldRank: sb.worldRank, totalEpa: null, epaSource: 'none', seasonRecord };
     },
   });
 }

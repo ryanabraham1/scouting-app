@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import SeasonStats, {
   inHouseEpaForTeam,
   parseStatboticsTeamYear,
+  seasonRecordFromTbaMatches,
 } from '@/dash/SeasonStats';
 import type { MatchRow } from '@/dash/useEventData';
 
@@ -143,6 +144,62 @@ describe('parseStatboticsTeamYear', () => {
     expect(
       parseStatboticsTeamYear({ epa: { total_points: { mean: Infinity } } }).totalEpa,
     ).toBeNull();
+  });
+});
+
+describe('seasonRecordFromTbaMatches', () => {
+  // Minimal TBA Match shape: alliances with team_keys + score, and winning_alliance.
+  const m = (
+    redKeys: string[],
+    blueKeys: string[],
+    redScore: number,
+    blueScore: number,
+    winner: 'red' | 'blue' | '',
+    extra: Record<string, unknown> = {},
+  ) => ({
+    alliances: {
+      red: { team_keys: redKeys, score: redScore, ...(extra.red as object) },
+      blue: { team_keys: blueKeys, score: blueScore, ...(extra.blue as object) },
+    },
+    winning_alliance: winner,
+  });
+
+  it('counts wins, losses, and ties across quals + playoffs', () => {
+    const matches = [
+      m(['frc3256', 'frc1', 'frc2'], ['frc4', 'frc5', 'frc6'], 100, 80, 'red'), // win
+      m(['frc7', 'frc8', 'frc9'], ['frc3256', 'frc10', 'frc11'], 90, 70, 'red'), // loss (on blue)
+      m(['frc3256', 'frc1', 'frc2'], ['frc4', 'frc5', 'frc6'], 60, 60, ''), // tie
+    ];
+    expect(seasonRecordFromTbaMatches(matches, 3256)).toBe('1-1-1');
+  });
+
+  it('skips unplayed matches (alliance score of -1)', () => {
+    const matches = [
+      m(['frc3256'], ['frc4'], 100, 80, 'red'), // win
+      m(['frc3256'], ['frc4'], -1, -1, ''), // not yet played → ignored
+    ];
+    expect(seasonRecordFromTbaMatches(matches, 3256)).toBe('1-0-0');
+  });
+
+  it('skips surrogate appearances', () => {
+    const matches = [
+      m(['frc3256'], ['frc4'], 100, 80, 'red'), // counts
+      m(['frc3256'], ['frc4'], 50, 90, 'blue', {
+        red: { surrogate_team_keys: ['frc3256'] },
+      }), // surrogate → ignored, not a loss
+    ];
+    expect(seasonRecordFromTbaMatches(matches, 3256)).toBe('1-0-0');
+  });
+
+  it('ignores matches the team is not in', () => {
+    const matches = [m(['frc1'], ['frc4'], 100, 80, 'red')];
+    expect(seasonRecordFromTbaMatches(matches, 3256)).toBeNull();
+  });
+
+  it('returns null for non-arrays and garbage shapes', () => {
+    expect(seasonRecordFromTbaMatches(null, 3256)).toBeNull();
+    expect(seasonRecordFromTbaMatches('nope', 3256)).toBeNull();
+    expect(seasonRecordFromTbaMatches([{}, { alliances: {} }], 3256)).toBeNull();
   });
 });
 

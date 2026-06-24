@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const assignmentRows = [
   // Upcoming (qm5 has no result yet) — should appear in the scout's to-do list.
@@ -189,18 +189,34 @@ describe('ScoutHome logout', () => {
     expect(logout.textContent).toMatch(/log out|switch/i);
   });
 
-  it('returns to the name picker even when useSession still resolves a scout', async () => {
-    renderHome();
+  it('forgets the scouter and navigates home on logout', async () => {
+    render(
+      <MemoryRouter initialEntries={['/scout']}>
+        <Routes>
+          <Route path="/scout" element={<ScoutHome />} />
+          <Route path="/" element={<div data-testid="home-marker">Home</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
     const logout = await screen.findByTestId('scout-logout');
     fireEvent.click(logout);
     // A confirm step may appear; if so, click the confirming control.
     const confirm = screen.queryByTestId('scout-logout-confirm');
     if (confirm) fireEvent.click(confirm);
-    await waitFor(() => {
-      expect(screen.getByTestId('scout-name-picker')).toBeTruthy();
-    });
     // forgetScouterName must have been called so reload doesn't auto-skip picker.
-    expect(forgetScouterName).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(forgetScouterName).toHaveBeenCalled();
+    });
+    // Logout navigates to the home screen (Scout / Lead Dashboard chooser).
+    await waitFor(() => {
+      expect(screen.getByTestId('home-marker')).toBeTruthy();
+    });
+  });
+
+  it('offers a Home link to leave the scouting area', async () => {
+    renderHome();
+    const home = await screen.findByTestId('nav-home');
+    expect(home.getAttribute('href')).toBe('/');
   });
 });
 

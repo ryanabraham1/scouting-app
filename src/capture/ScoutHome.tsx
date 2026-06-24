@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { BarChart3, UserRound, LogOut, Search, Target, Wrench } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { BarChart3, UserRound, LogOut, Search, Target, Wrench, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import PitScoutFlow from '@/pit/PitScoutFlow';
@@ -136,6 +136,7 @@ type ScoutMode = 'match' | 'pit';
 
 export default function ScoutHome() {
   const { scout } = useSession();
+  const navigate = useNavigate();
   // Match/Pit switch. Deep-linkable via ?mode=pit; the toggle keeps it in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const mode: ScoutMode = searchParams.get('mode') === 'pit' ? 'pit' : 'match';
@@ -192,9 +193,24 @@ export default function ScoutHome() {
 
   useEffect(() => {
     if (!scoutId) return;
+    const name = effective?.display_name ?? '';
+    const ev = effective?.event_key || activeEvent || '';
     let cancelled = false;
     void (async () => {
-      const res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
+      let res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
+      // No assignments under this device's row — auto-generated assignments are
+      // published against roster-seeded duplicate scout rows. select_scouter
+      // (migration 0014) consolidates those onto this device's row; re-query after.
+      if (!cancelled && res.data && res.data.length === 0 && name && ev) {
+        try {
+          await selectScouter(ev, name);
+          if (!cancelled) {
+            res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
+          }
+        } catch {
+          /* non-fatal: keep whatever the first query returned */
+        }
+      }
       if (!cancelled && res.data) {
         setAssignments(res.data as AssignmentRow[]);
       }
@@ -203,7 +219,7 @@ export default function ScoutHome() {
     return () => {
       cancelled = true;
     };
-  }, [scoutId]);
+  }, [scoutId, effective?.display_name, effective?.event_key, activeEvent]);
 
   // Gate: no scouter selected yet on this device → pick a name (or wait for an event).
   if (!effective) {
@@ -214,7 +230,16 @@ export default function ScoutHome() {
       >
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Scout</h1>
-          <SyncIndicator />
+          <div className="flex items-center gap-2">
+            <a
+              data-testid="nav-home"
+              href="/"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
+            >
+              <Home className="size-5" /> Home
+            </a>
+            <SyncIndicator />
+          </div>
         </header>
         <InstallPrompt />
         {!activeEvent ? (
@@ -283,11 +308,9 @@ export default function ScoutHome() {
 
   const logOut = () => {
     forgetScouterName();
-    setPicked(null);
-    setAssignments([]);
-    setConfirmLogout(false);
-    // Force the picker even when useSession still resolves a bound scout row.
-    setLoggedOut(true);
+    // Return to the home screen (the Scout / Lead Dashboard chooser) after logging
+    // out. Leaving this route unmounts ScoutHome, clearing all local scout state.
+    navigate('/');
   };
 
   return (
@@ -302,6 +325,13 @@ export default function ScoutHome() {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <SyncIndicator />
+          <a
+            data-testid="nav-home"
+            href="/"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
+          >
+            <Home className="size-5" /> Home
+          </a>
           <a
             data-testid="nav-my-data"
             href="/my-data"

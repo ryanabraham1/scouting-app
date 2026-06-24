@@ -83,6 +83,65 @@ export function parseStatboticsTeamYear(json: unknown): StatboticsSeason {
   return { worldRank, totalEpa, record };
 }
 
+/** Is `teamKey` a *scoring* (non-surrogate) member of this TBA match alliance? */
+function teamOnAlliance(alliance: Record<string, unknown>, teamKey: string): boolean {
+  const teamKeys = Array.isArray(alliance.team_keys) ? alliance.team_keys : [];
+  if (!teamKeys.includes(teamKey)) return false;
+  // Surrogate appearances don't count toward a team's W-L-T.
+  const surrogates = Array.isArray(alliance.surrogate_team_keys)
+    ? alliance.surrogate_team_keys
+    : [];
+  return !surrogates.includes(teamKey);
+}
+
+/**
+ * Compute a team's full-season W-L-T from a TBA `/team/frc{team}/matches/{year}`
+ * payload (an array of Match objects). Used as a fallback when Statbotics has no
+ * season record. Counts every PLAYED match the team actually competed in (quals +
+ * playoffs), skipping unplayed matches (TBA reports an alliance `score` of -1
+ * before results) and surrogate appearances. Defensive: any unexpected shape
+ * yields null and never throws.
+ *   - win  ← match.winning_alliance equals the team's alliance color
+ *   - tie  ← match.winning_alliance is "" (no winner)
+ *   - loss ← otherwise
+ */
+export function seasonRecordFromTbaMatches(json: unknown, team: number): string | null {
+  if (!Array.isArray(json)) return null;
+  const teamKey = `frc${team}`;
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+  let counted = 0;
+
+  for (const m of json) {
+    if (!isObject(m) || !isObject(m.alliances)) continue;
+    const red = isObject(m.alliances.red) ? m.alliances.red : null;
+    const blue = isObject(m.alliances.blue) ? m.alliances.blue : null;
+    if (!red || !blue) continue;
+
+    const color = teamOnAlliance(red, teamKey)
+      ? 'red'
+      : teamOnAlliance(blue, teamKey)
+        ? 'blue'
+        : null;
+    if (!color) continue; // not in this match (or surrogate-only)
+
+    // Skip unplayed matches — TBA reports -1 for an alliance score before results.
+    const redScore = finiteOrNull(red.score);
+    const blueScore = finiteOrNull(blue.score);
+    if (redScore == null || blueScore == null || redScore < 0 || blueScore < 0) continue;
+
+    const winner = typeof m.winning_alliance === 'string' ? m.winning_alliance : '';
+    counted += 1;
+    if (winner === '') ties += 1;
+    else if (winner === color) wins += 1;
+    else losses += 1;
+  }
+
+  if (counted === 0) return null;
+  return `${wins}-${losses}-${ties}`;
+}
+
 /* --------------------------------------------------------------- component */
 
 export type EpaSource = 'statbotics' | 'inhouse' | 'none';
