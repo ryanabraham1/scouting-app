@@ -20,7 +20,8 @@ export interface MsrRow {
   teleop_fuel_inactive: number;
   endgame_fuel: number;
   fuel_points: number;
-  fuel_estimate_confidence: number;
+  // Nullable in the DB: legacy rows predate the 0.3 default/backfill (0008).
+  fuel_estimate_confidence: number | null;
   fuel_by_shift: number[];
 
   climb_level: number;

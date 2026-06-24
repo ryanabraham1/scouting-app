@@ -78,7 +78,9 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
     sumEndgame += r.endgame_fuel;
     sumTotal += r.auto_fuel + r.teleop_fuel_active + r.teleop_fuel_inactive + r.endgame_fuel;
     sumFuelPoints += r.fuel_points;
-    sumFuelConfidence += r.fuel_estimate_confidence;
+    // Coalesce legacy NULL confidence to the documented 0.3 so rate-FUEL is
+    // down-weighted to 0.3x, not zeroed. (0008 backfills the server column.)
+    sumFuelConfidence += r.fuel_estimate_confidence ?? 0.3;
     if (r.climb_success) climbSuccessCount += 1;
     sumClimbLevel += r.climb_level;
     sumClimbPoints += climbPointsForMatch(r);

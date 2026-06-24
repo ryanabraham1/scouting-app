@@ -154,6 +154,15 @@ describe('aggregateTeam edge cases', () => {
     ]);
     expect(agg.fuelPointsWeighted).toBeCloseTo(42, 10);
   });
+
+  it('coalesces NULL fuel_estimate_confidence to 0.3 (down-weight, not wipe)', () => {
+    // Legacy rows predate the 0.3 default/backfill; NULL must not zero FUEL.
+    const agg = aggregateTeam(7, [
+      row({ target_team_number: 7, fuel_points: 50, fuel_estimate_confidence: null }),
+    ]);
+    expect(agg.meanFuelConfidence).toBeCloseTo(0.3, 10);
+    expect(agg.fuelPointsWeighted).toBeCloseTo(15, 10); // 50 * 0.3, not 0
+  });
 });
 
 describe('aggregateEvent', () => {
