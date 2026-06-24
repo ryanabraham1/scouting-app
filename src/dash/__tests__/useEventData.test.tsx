@@ -290,6 +290,46 @@ describe('useEventData', () => {
     expect(Number.isFinite(result.current.data?.totalEpa as number)).toBe(true);
   });
 
+  it('useTeamSeasonStats EPA fallback is EVENT-scoped (not the inflated cross-event season)', async () => {
+    // Statbotics has no EPA, so the hook must derive an in-house estimate from
+    // the FULL EVENT match set — running the model over the team's own season
+    // matches inflates its EPA, so that path must NOT be used for EPA.
+    statboticsGetMock.mockResolvedValue({ epa: { ranks: { total: { rank: 7 } } } });
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/event/2026casnv/matches') {
+        return Promise.resolve([
+          {
+            key: '2026casnv_qm1', comp_level: 'qm', match_number: 1, actual_time: 1,
+            alliances: {
+              red: { team_keys: ['frc3256', 'frc1', 'frc2'], score: 120 },
+              blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 40 },
+            },
+            winning_alliance: 'red',
+          },
+          {
+            key: '2026casnv_qm2', comp_level: 'qm', match_number: 2, actual_time: 2,
+            alliances: {
+              red: { team_keys: ['frc4', 'frc1', 'frc5'], score: 60 },
+              blue: { team_keys: ['frc3256', 'frc2', 'frc6'], score: 80 },
+            },
+            winning_alliance: 'blue',
+          },
+        ]);
+      }
+      return Promise.resolve([]); // team-season payload (used only for the record)
+    });
+
+    const { result } = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // The EPA estimate is computed from the event match set.
+    expect(tbaGetMock).toHaveBeenCalledWith('/event/2026casnv/matches');
+    expect(result.current.data?.epaSource).toBe('inhouse');
+    expect(Number.isFinite(result.current.data?.totalEpa as number)).toBe(true);
+  });
+
   it('useNexusEventStatus parses live status when Nexus is available', async () => {
     nexusGetMock.mockResolvedValue({
       eventKey: '2026casnv',

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import { Camera, CameraOff, CheckCircle2 } from 'lucide-react';
-import { FrameAccumulator, parseFrame } from '@/qr/envelope';
+import { FountainDecoder, parseFrame, bytesToReports } from '@/qr/envelope';
+import { decompressForQr } from '@/qr/compress';
 import { postIngest } from '@/qr/ingestClient';
 import { BackLink } from '@/components/ui/BackLink';
 
@@ -33,7 +34,7 @@ type Phase = 'scanning' | 'ingesting' | 'done' | 'error';
 //    pass its id when one is found (more reliable on multi-camera Android).
 export default function QrReceiveScreen() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const accumulatorRef = useRef(new FrameAccumulator());
+  const decoderRef = useRef(new FountainDecoder());
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const completedRef = useRef(false);
 
@@ -71,9 +72,10 @@ export default function QrReceiveScreen() {
       controlsRef.current?.stop();
       setPhase('ingesting');
 
-      const reports = accumulatorRef.current.reports();
-
       try {
+        const decoder = decoderRef.current;
+        const raw = await decompressForQr(decoder.payloadBytes(), decoder.compressed ?? false);
+        const reports = bytesToReports(raw);
         const result = await postIngest(reports);
         if (cancelled) return;
         setIngested(result.ingested);
@@ -112,11 +114,11 @@ export default function QrReceiveScreen() {
             if (!text) return;
             const frame = parseFrame(text);
             if (!frame) return; // malformed/foreign frame — ignore, no crash
-            const acc = accumulatorRef.current;
-            acc.add(frame);
-            setReceived(acc.received);
-            setTotal(acc.total);
-            if (acc.complete) {
+            const decoder = decoderRef.current;
+            decoder.add(frame);
+            setReceived(decoder.solvedCount);
+            setTotal(decoder.total);
+            if (decoder.complete) {
               void handleComplete();
             }
           },
@@ -199,7 +201,7 @@ export default function QrReceiveScreen() {
               >
                 {received}/{total ?? '?'}
               </span>
-              <span className="text-sm text-muted-foreground">frames captured</span>
+              <span className="text-sm text-muted-foreground">blocks decoded</span>
               {phase === 'ingesting' && (
                 <p className="text-sm font-medium text-primary">Uploading received reports…</p>
               )}

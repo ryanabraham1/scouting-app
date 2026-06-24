@@ -15,12 +15,21 @@ vi.mock('qrcode', () => ({
   toDataURL,
 }));
 
-// getSyncQueue lives in @/db/localStore (added by the MAP cluster). The focused
-// test mocks it so QrSendScreen has a deterministic backlog without IndexedDB.
-// It returns camelCase LocalMatchReports — the screen maps them through
-// toUpsertPayload (the SINGLE wire shape) before chunking into frames.
+// getSyncQueue lives in @/db/localStore. The focused test mocks it so the screen
+// has a deterministic backlog without IndexedDB. It returns camelCase
+// LocalMatchReports — the screen maps them through toUpsertPayload (the SINGLE
+// wire shape) before fountain-encoding.
 vi.mock('@/db/localStore', () => ({
   getSyncQueue: () => getSyncQueue(),
+}));
+
+// Identity compression: keep the encode path synchronous and the decoded bytes
+// equal to the raw JSON so this test asserts the wire shape, not gzip (which has
+// its own round-trip test). The screen flags the payload uncompressed.
+vi.mock('@/qr/compress', () => ({
+  compressForQr: async (bytes: Uint8Array) => ({ bytes, compressed: false }),
+  decompressForQr: async (bytes: Uint8Array) => bytes,
+  compressionSupported: () => false,
 }));
 
 // crypto.randomUUID must exist in the test environment.
@@ -31,7 +40,7 @@ if (!globalThis.crypto?.randomUUID) {
 
 import QrSendScreen from '@/qr/QrSendScreen';
 import { QR_FRAME_MS } from '@/sync/constants';
-import { parseFrame, FrameAccumulator } from '@/qr/envelope';
+import { parseFrame, FountainDecoder, bytesToReports } from '@/qr/envelope';
 import { sampleLocalReports, sampleUpsertPayloads } from './fixtures';
 
 // The backlog as it lives in the store (camelCase LocalMatchReports).
@@ -60,23 +69,21 @@ describe('QrSendScreen', () => {
     expect(toDataURL).toHaveBeenCalled();
   });
 
-  it('emits frames that decode to SNAKE_CASE wire payloads, not camelCase', async () => {
+  it('emits fountain symbols that decode to SNAKE_CASE wire payloads, not camelCase', async () => {
     vi.useFakeTimers();
     getSyncQueue.mockResolvedValue(backlog);
     render(<QrSendScreen />);
 
-    // Flush the async backlog load + first frame render.
+    // Flush the async backlog load + compression + first frame render.
     await act(async () => {
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    // The screen only renders the CURRENT frame, so cycle the cadence enough
-    // times that every frame in the hand-off has been rendered (and captured by
-    // the toDataURL spy). Total frame count is shown in qr-send-progress.
-    const total = Number(screen.getByTestId('qr-send-progress').textContent!.split('/')[1]);
-    expect(total).toBeGreaterThan(1); // multi-frame hand-off
-    for (let i = 0; i < total; i += 1) {
+    // Cycle plenty of cadence ticks so the fountain emits well over K distinct
+    // symbols. Each render hands a fresh frame string to the toDataURL spy.
+    for (let i = 0; i < 80; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       await act(async () => {
         vi.advanceTimersByTime(QR_FRAME_MS);
@@ -84,14 +91,15 @@ describe('QrSendScreen', () => {
       });
     }
 
-    // Reassemble every rendered frame back into the original wire payloads.
-    const acc = new FrameAccumulator();
+    // Feed every rendered symbol into a fountain decoder — ANY ~K of them suffice.
+    const decoder = new FountainDecoder();
     for (const c of toDataURL.mock.calls) {
+      if (decoder.complete) break;
       const f = parseFrame(c[0] as string);
-      if (f) acc.add(f);
+      if (f) decoder.add(f);
     }
-    expect(acc.complete).toBe(true);
-    const decoded = acc.reports();
+    expect(decoder.complete).toBe(true);
+    const decoded = bytesToReports(decoder.payloadBytes());
     expect(decoded).toEqual(expectedWire);
 
     // Belt-and-braces: the keys are snake_case, NOT camelCase.
@@ -111,26 +119,23 @@ describe('QrSendScreen', () => {
     expect(screen.queryByTestId('qr-frame')).toBeNull();
   });
 
-  it('advances qr-send-progress over time', async () => {
+  it('advances the sent-symbol counter over time', async () => {
     vi.useFakeTimers();
     getSyncQueue.mockResolvedValue(backlog);
     render(<QrSendScreen />);
 
-    // Flush the async backlog load + first frame render.
     await act(async () => {
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    const progress = screen.getByTestId('qr-send-progress');
-    const total = Number(progress.textContent!.split('/')[1]);
-    expect(total).toBeGreaterThan(1); // ~1800 chars of notes → multiple frames
-    expect(progress.textContent).toBe(`1/${total}`);
+    expect(screen.getByTestId('qr-send-progress').textContent).toMatch(/^1 sent/);
 
-    // Advance one cadence tick → frame index moves to 2/total.
+    // One cadence tick → the next fountain symbol.
     await act(async () => {
       vi.advanceTimersByTime(QR_FRAME_MS);
     });
-    expect(screen.getByTestId('qr-send-progress').textContent).toBe(`2/${total}`);
+    expect(screen.getByTestId('qr-send-progress').textContent).toMatch(/^2 sent/);
   });
 });

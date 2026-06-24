@@ -493,40 +493,41 @@ export function useTeamSeasonStats(
       // empty in production and we fall through to the TBA-derived estimate.
       const localEpa = sb.totalEpa == null ? inHouseEpaForTeam(matches, team) : null;
 
-      // Fetch the team's season matches from TBA ONCE if Statbotics is missing
-      // either the season record or the EPA, then reuse the payload for both.
-      // tbaGet throws on any non-2xx, so guard it — a TBA outage or unset
-      // TBA_API_KEY just leaves the affected value null.
-      const needRecord = sb.record == null;
-      const needEpa = sb.totalEpa == null && localEpa == null;
-      let tbaSeason: unknown = null;
-      if (needRecord || needEpa) {
+      // Season record: prefer Statbotics; else derive a W-L-T from the team's
+      // FULL-season TBA matches (quals + playoffs across every event). tbaGet
+      // throws on any non-2xx, so guard it — a TBA outage just leaves it null.
+      let seasonRecord = sb.record;
+      if (seasonRecord == null) {
         try {
-          tbaSeason = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
+          const tbaSeason = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
+          seasonRecord = seasonRecordFromTbaMatches(tbaSeason, team);
         } catch {
-          /* TBA unavailable */
+          /* TBA unavailable — leave the record null */
         }
       }
 
-      // Season record: prefer Statbotics; else derive a TBA W-L-T (quals + playoffs).
-      const seasonRecord =
-        sb.record ?? (tbaSeason != null ? seasonRecordFromTbaMatches(tbaSeason, team) : null);
-
-      // Total EPA: Statbotics → local-table in-house → TBA-derived in-house. The
-      // TBA estimate runs the Statbotics EPA model over the team's season matches
-      // (an approximation — opponent EPAs aren't globally converged — so it's
-      // labelled 'inhouse', never presented as the official number).
       if (sb.totalEpa != null) {
         return { worldRank: sb.worldRank, totalEpa: sb.totalEpa, epaSource: 'statbotics', seasonRecord };
       }
       if (localEpa != null) {
         return { worldRank: sb.worldRank, totalEpa: localEpa, epaSource: 'inhouse', seasonRecord };
       }
-      if (tbaSeason != null) {
-        const tbaEpa = computeLocalEpa(tbaMatchesToRows(tbaSeason)).get(team) ?? null;
+
+      // EPA fallback: an EVENT-scoped TBA-derived estimate — NOT the team's
+      // cross-event season matches. computeLocalEpa shares each alliance's score
+      // across its three teams; over a single team's season slice the partners
+      // and opponents barely recur, so the residual keeps accruing to the one
+      // ever-present team and its EPA balloons (the "1868 reads way too high"
+      // bug). The full event match set attributes scores correctly — this is the
+      // very same estimate the event-EPA card shows, so the two stay consistent.
+      try {
+        const eventMatches = await tbaGet<unknown>(`/event/${eventKey}/matches`);
+        const tbaEpa = computeLocalEpa(tbaMatchesToRows(eventMatches)).get(team) ?? null;
         if (tbaEpa != null) {
           return { worldRank: sb.worldRank, totalEpa: tbaEpa, epaSource: 'inhouse', seasonRecord };
         }
+      } catch {
+        /* TBA unavailable */
       }
 
       return { worldRank: sb.worldRank, totalEpa: null, epaSource: 'none', seasonRecord };

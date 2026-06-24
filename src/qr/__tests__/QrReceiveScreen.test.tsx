@@ -53,21 +53,30 @@ vi.mock('@zxing/browser', () => ({
 const postIngest = vi.fn();
 vi.mock('@/qr/ingestClient', () => ({ postIngest: (...a: unknown[]) => postIngest(...a) }));
 
+// Identity compression: the decoded bytes equal the raw JSON, so this test
+// asserts the wire shape, not gzip (which has its own round-trip test).
+vi.mock('@/qr/compress', () => ({
+  decompressForQr: async (bytes: Uint8Array) => bytes,
+  compressForQr: async (bytes: Uint8Array) => ({ bytes, compressed: false }),
+  compressionSupported: () => false,
+}));
+
 // The receiver is INGEST-ONLY: it must NOT persist foreign reports locally.
 // We still mock the store so an accidental import would surface as a spy call.
 const saveReport = vi.fn();
 vi.mock('@/db/localStore', () => ({ saveReport: (...a: unknown[]) => saveReport(...a) }));
 
 import QrReceiveScreen from '@/qr/QrReceiveScreen';
-import { buildFrames, frameToString } from '@/qr/envelope';
+import { FountainEncoder, frameToString, reportsToBytes } from '@/qr/envelope';
 import { sampleUpsertPayloads } from './fixtures';
 
-// Build a multi-frame hand-off of the SAME snake_case wire payloads the sender
-// emits (shared fixture) so reassembly exercises >1 frame and the two sides of
-// the hand-off can never drift back to camelCase.
+// A fountain stream of the SAME snake_case wire payloads the sender emits
+// (shared fixture) so reassembly exercises many blocks and the two sides of the
+// hand-off can never drift back to camelCase. Pre-render plenty of distinct
+// symbols; the decoder only needs ~K of them, in any order.
 const sourceReports = sampleUpsertPayloads();
-const frames = buildFrames(sourceReports, 'sid-test');
-const frameStrings = frames.map(frameToString);
+const encoder = new FountainEncoder(reportsToBytes(sourceReports), 'sid-test', false);
+const frameStrings = Array.from({ length: 160 }, (_, t) => frameToString(encoder.frame(t)));
 
 function emit(text: string) {
   if (!captured) throw new Error('decode callback not yet registered');
@@ -117,17 +126,23 @@ describe('QrReceiveScreen', () => {
       expect.any(Function),
     );
 
-    // First frame → progress 1/total.
+    // First frame → progress shows "<solved>/<K blocks>" (K is the source-block
+    // total pinned from the frame header).
     await act(async () => emit(frameStrings[0]));
-    const progress = screen.getByTestId('qr-receive-progress');
-    expect(progress.textContent).toBe(`1/${frames.length}`);
+    expect(screen.getByTestId('qr-receive-progress').textContent).toMatch(
+      new RegExp(`/${encoder.k}$`),
+    );
 
-    // A malformed frame must be ignored (no crash, no progress bump).
+    // A malformed frame must be ignored (no crash).
     await act(async () => emit('{not-json'));
-    expect(screen.getByTestId('qr-receive-progress').textContent).toBe(`1/${frames.length}`);
+    expect(screen.getByTestId('qr-receive-progress').textContent).toMatch(
+      new RegExp(`/${encoder.k}$`),
+    );
 
-    // Remaining frames → completion.
+    // Feed the fountain stream until the decoder solves every block. ANY ~K
+    // symbols suffice, so completion arrives well before the stream is exhausted.
     for (let i = 1; i < frameStrings.length; i += 1) {
+      if (screen.queryByTestId('qr-receive-done')) break;
       // eslint-disable-next-line no-await-in-loop
       await act(async () => emit(frameStrings[i]));
     }

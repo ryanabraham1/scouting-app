@@ -187,12 +187,9 @@ function TeamTbaPanel(props: {
         </a>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {info?.nickname || info?.name ? (
+        {info?.nickname ? (
           <div data-testid="team-tba-name" className="flex flex-col gap-0.5">
-            <span className="text-base font-semibold text-zinc-100">{info.nickname ?? info.name}</span>
-            {info.nickname && info.name && info.name !== info.nickname ? (
-              <span className="text-xs text-zinc-500">{info.name}</span>
-            ) : null}
+            <span className="text-base font-semibold text-zinc-100">{info.nickname}</span>
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -208,11 +205,6 @@ function TeamTbaPanel(props: {
             label="Season record"
             value={season?.seasonRecord ?? '—'}
             testid="team-tba-season-record"
-          />
-          <Stat
-            label="Rookie year"
-            value={info?.rookieYear != null ? String(info.rookieYear) : '—'}
-            testid="team-tba-rookie-year"
           />
         </div>
         <div
