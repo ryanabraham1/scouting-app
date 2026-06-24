@@ -1,20 +1,25 @@
-// App smoke test — deliberately updated in A27 when App was rewired to render
-// <AppRouter /> (the full React Router router) instead of a static heading.
-// The old assertion (`<h1>3256 Scouting</h1>`) no longer applies; we now verify
-// that the app mounts and renders the router's default unauthenticated state
-// (the /join screen, because / → /scout → RequireSession → /join when no scout).
+// App smoke test — with auth removed, the default route (/ → /scout) renders the
+// scouter home directly (no join/login gate). We verify the app mounts and shows
+// the scout-home shell.
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('./auth/useSession', () => ({
-  useSession: () => ({ loading: false, scout: null, role: null }),
+  useSession: () => ({ loading: false, scout: null }),
+}));
+
+// Keep the smoke test hermetic: no network, no draft IO noise.
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }),
+  },
 }));
 
 import App from './App';
 
 describe('App', () => {
-  it('renders without crashing and shows the join screen by default', () => {
+  it('renders without crashing and shows the scout home by default', async () => {
     render(<App />);
-    expect(screen.getByTestId('join-submit')).toBeInTheDocument();
+    expect(await screen.findByTestId('scout-home')).toBeInTheDocument();
   });
 });

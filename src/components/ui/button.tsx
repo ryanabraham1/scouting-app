@@ -21,6 +21,9 @@ const buttonVariants = cva(
         sm: 'h-9 rounded-md px-3',
         lg: 'h-11 rounded-md px-8',
         icon: 'h-10 w-10',
+        // Mobile-first big touch target (>=56px) with larger text + icon for the
+        // landscape, glance-and-tap scouting UI.
+        big: 'min-h-[56px] rounded-lg px-6 text-lg font-semibold [&_svg]:size-6',
       },
     },
     defaultVariants: {

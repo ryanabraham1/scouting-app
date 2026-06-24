@@ -33,6 +33,10 @@ export interface LocalMatchReport {
   intakeSources: string[];
   maxFuelCapacityObserved: number;
   defenseRating: 0 | 1 | 2 | 3;
+  // Exact durations in ms (no buckets). defenseDurationMs = time this robot played
+  // defense on others; defendedDurationMs = time this robot was being defended.
+  defenseDurationMs: number;
+  defendedDurationMs: number;
   pins: number;
   foulsMinor: number;
   foulsMajor: number;

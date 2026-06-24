@@ -25,6 +25,8 @@ interface DeferredState {
   intakeSources: string[];
   maxFuelCapacityObserved: number;
   defenseRating: 0 | 1 | 2 | 3;
+  defenseDurationMs: number;
+  defendedDurationMs: number;
   pins: number;
   foulsMinor: number;
   foulsMajor: number;
@@ -47,6 +49,8 @@ const initialDeferred: DeferredState = {
   intakeSources: [],
   maxFuelCapacityObserved: 0,
   defenseRating: 0,
+  defenseDurationMs: 0,
+  defendedDurationMs: 0,
   pins: 0,
   foulsMinor: 0,
   foulsMajor: 0,
@@ -229,6 +233,8 @@ export function useCaptureSession(target: CaptureTarget) {
       intakeSources: deferred.intakeSources,
       maxFuelCapacityObserved: deferred.maxFuelCapacityObserved,
       defenseRating: deferred.defenseRating,
+      defenseDurationMs: deferred.defenseDurationMs,
+      defendedDurationMs: deferred.defendedDurationMs,
       pins: deferred.pins,
       foulsMinor: deferred.foulsMinor,
       foulsMajor: deferred.foulsMajor,
@@ -271,6 +277,10 @@ export function useCaptureSession(target: CaptureTarget) {
     setMaxFuelCapacityObserved: (v: number) => updateDeferred('maxFuelCapacityObserved', v),
     defenseRating: deferred.defenseRating,
     setDefenseRating: (v: 0 | 1 | 2 | 3) => updateDeferred('defenseRating', v),
+    defenseDurationMs: deferred.defenseDurationMs,
+    setDefenseDurationMs: (v: number) => updateDeferred('defenseDurationMs', v),
+    defendedDurationMs: deferred.defendedDurationMs,
+    setDefendedDurationMs: (v: number) => updateDeferred('defendedDurationMs', v),
     pins: deferred.pins,
     setPins: (v: number) => updateDeferred('pins', v),
     foulsMinor: deferred.foulsMinor,

@@ -41,7 +41,9 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
     intakeSources: [],
     maxFuelCapacityObserved: 0,
     defenseRating: 0,
-    pins: 0,
+
+    defenseDurationMs: 0,
+    defendedDurationMs: 0,    pins: 0,
     foulsMinor: 0,
     foulsMajor: 0,
     noShow: false,
@@ -68,7 +70,8 @@ const EXPECTED_PAYLOAD_KEYS = [
   'inactive_first_source', 'teleop_clock_unconfirmed', 'fuel_bursts', 'climb_level',
   'climb_attempted', 'climb_success', 'auto_start_position', 'auto_path',
   'auto_left_starting_line', 'auto_climb_level1', 'intake_sources',
-  'max_fuel_capacity_observed', 'defense_rating', 'pins', 'fouls_minor',
+  'max_fuel_capacity_observed', 'defense_rating', 'defense_duration_ms',
+  'defended_duration_ms', 'pins', 'fouls_minor',
   'fouls_major', 'no_show', 'died', 'tipped', 'dropped_fuel', 'fed_corral',
   'notes', 'row_revision', 'deleted',
 ].sort();

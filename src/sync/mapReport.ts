@@ -32,6 +32,8 @@ export function toUpsertPayload(r: LocalMatchReport): Record<string, unknown> {
     intake_sources: r.intakeSources,
     max_fuel_capacity_observed: r.maxFuelCapacityObserved,
     defense_rating: r.defenseRating,
+    defense_duration_ms: r.defenseDurationMs ?? 0,
+    defended_duration_ms: r.defendedDurationMs ?? 0,
     pins: r.pins,
     fouls_minor: r.foulsMinor,
     fouls_major: r.foulsMajor,

@@ -45,7 +45,9 @@ function sampleLocalReport(overrides: Partial<LocalMatchReport> = {}): LocalMatc
     intakeSources: [],
     maxFuelCapacityObserved: 0,
     defenseRating: 0,
-    pins: 0,
+
+    defenseDurationMs: 0,
+    defendedDurationMs: 0,    pins: 0,
     foulsMinor: 0,
     foulsMajor: 0,
     noShow: false,

@@ -1,5 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { getStoredActiveEvent, setStoredActiveEvent } from './activeEventStore';
+
+export const ACTIVE_EVENT_KEY = ['active-event'] as const;
 
 export interface ActiveEvent {
   eventKey: string | null;
@@ -12,13 +15,17 @@ interface EventRow {
 }
 
 /**
- * Resolve the active event for staff. Staff (admins) have no `scout`, so the
- * dashboard reads the active event directly from the `event` table where
- * `is_active`. Returns `{ eventKey: null }` when there is no active event.
+ * Resolve the active event for staff. Reads `event.is_active` from the server but
+ * seeds React Query's initialData from localStorage so a refetch / tab-focus never
+ * blanks the selection mid-session (root of the "selected event disappears" bug).
+ * Setting the active event happens via `setActiveEvent`.
  */
 export function useActiveEvent(): ActiveEvent {
+  const stored = getStoredActiveEvent();
+
   const query = useQuery({
-    queryKey: ['active-event'],
+    queryKey: ACTIVE_EVENT_KEY,
+    initialData: stored ?? undefined,
     queryFn: async (): Promise<string | null> => {
       const { data, error } = await supabase
         .from('event')
@@ -28,12 +35,16 @@ export function useActiveEvent(): ActiveEvent {
         throw error;
       }
       const rows = (data ?? []) as EventRow[];
-      return rows[0]?.event_key ?? null;
+      const next = rows[0]?.event_key ?? null;
+      // Keep the local cache in step with the server's source of truth, but never
+      // erase a known-good local value on a transient empty result.
+      if (next) setStoredActiveEvent(next);
+      return next ?? stored ?? null;
     },
   });
 
   return {
-    eventKey: query.data ?? null,
-    loading: query.isLoading,
+    eventKey: query.data ?? stored ?? null,
+    loading: query.isLoading && !stored,
   };
 }

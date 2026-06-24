@@ -28,6 +28,8 @@ const EXPECTED_KEYS = [
   'intake_sources',
   'max_fuel_capacity_observed',
   'defense_rating',
+  'defense_duration_ms',
+  'defended_duration_ms',
   'pins',
   'fouls_minor',
   'fouls_major',
@@ -79,6 +81,8 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
     intakeSources: ['ground', 'station'],
     maxFuelCapacityObserved: 7,
     defenseRating: 1,
+    defenseDurationMs: 4200,
+    defendedDurationMs: 1500,
     pins: 2,
     foulsMinor: 3,
     foulsMajor: 1,
@@ -100,6 +104,12 @@ describe('toUpsertPayload', () => {
   it('produces EXACTLY the §1a snake_case keys (no aggregates, no timestamps)', () => {
     const p = toUpsertPayload(makeReport());
     expect(Object.keys(p).sort()).toEqual([...EXPECTED_KEYS].sort());
+  });
+
+  it('maps exact defense/being-defended durations (no buckets)', () => {
+    const p = toUpsertPayload(makeReport());
+    expect(p.defense_duration_ms).toBe(4200);
+    expect(p.defended_duration_ms).toBe(1500);
   });
 
   it('omits all aggregate/timestamp/server-managed keys', () => {

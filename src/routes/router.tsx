@@ -1,16 +1,14 @@
-// src/routes/router.tsx
+// src/routes/router.tsx — no auth, no role gates. Every route is open; a silent
+// anonymous session (see main.tsx -> ensureAnonSession) satisfies RLS.
 import {
   createBrowserRouter,
   RouterProvider,
   Navigate,
   type RouteObject,
 } from 'react-router-dom';
-import { RequireSession, RequireRole } from './guards';
-import JoinPlaceholder from './JoinPlaceholder';
 import DashboardScreen from '../dash/DashboardScreen';
-import AdminLogin from '../auth/AdminLogin';
-import AdminPage from '../admin/AdminPage';
 import ScoutHome from '../capture/ScoutHome';
+import MyDataView from '../scout/MyDataView';
 import PitRoute from '../pit/PitRoute';
 import QrSendScreen from '../qr/QrSendScreen';
 import QrReceiveScreen from '../qr/QrReceiveScreen';
@@ -18,28 +16,15 @@ import SyncStatusScreen from '../sync/SyncStatusScreen';
 
 export const routes: RouteObject[] = [
   { path: '/', element: <Navigate to="/scout" replace /> },
-  { path: '/join', element: <JoinPlaceholder /> },
-  { path: '/login', element: <AdminLogin /> },
-  {
-    element: <RequireSession />,
-    children: [
-      { path: '/scout', element: <ScoutHome /> },
-      { path: '/pit', element: <PitRoute /> },
-      { path: '/qr/send', element: <QrSendScreen /> },
-      { path: '/qr/receive', element: <QrReceiveScreen /> },
-    ],
-  },
-  {
-    element: <RequireRole role="lead" redirectTo="/login" />,
-    children: [
-      { path: '/dashboard', element: <DashboardScreen /> },
-      { path: '/sync', element: <SyncStatusScreen /> },
-    ],
-  },
-  {
-    element: <RequireRole role="admin" redirectTo="/login" />,
-    children: [{ path: '/admin', element: <AdminPage /> }],
-  },
+  { path: '/scout', element: <ScoutHome /> },
+  { path: '/my-data', element: <MyDataView /> },
+  { path: '/pit', element: <PitRoute /> },
+  { path: '/qr/send', element: <QrSendScreen /> },
+  { path: '/qr/receive', element: <QrReceiveScreen /> },
+  { path: '/dashboard', element: <DashboardScreen /> },
+  { path: '/sync', element: <SyncStatusScreen /> },
+  // Legacy admin entry point folds into the dashboard Setup tab.
+  { path: '/admin', element: <Navigate to="/dashboard?tab=setup" replace /> },
   { path: '*', element: <Navigate to="/scout" replace /> },
 ];
 

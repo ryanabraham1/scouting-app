@@ -2,33 +2,38 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import type { Role } from './roles';
-import type { ScoutRow } from './joinEvent';
+import type { ScoutRow } from './scoutRow';
 
 export interface UseSessionResult {
   session: Session | null;
   scout: ScoutRow | null;
-  role: Role | null;
   loading: boolean;
 }
 
-async function loadIdentity(authUid: string): Promise<{ scout: ScoutRow | null; role: Role | null }> {
-  const [{ data: scout }, { data: profile }] = await Promise.all([
-    supabase.from('scout').select('*').eq('auth_uid', authUid).maybeSingle(),
-    supabase.from('profile').select('*').eq('auth_uid', authUid).maybeSingle(),
-  ]);
-  return {
-    scout: (scout as ScoutRow | null) ?? null,
-    role: ((profile as { role?: Role } | null)?.role as Role | undefined) ?? null,
-  };
+async function loadScout(authUid: string): Promise<ScoutRow | null> {
+  const { data } = await supabase
+    .from('scout')
+    .select('*')
+    .eq('auth_uid', authUid)
+    .maybeSingle();
+  return (data as ScoutRow | null) ?? null;
 }
 
+/**
+ * Resolve the (anonymous) session and this device's scout row, if any.
+ *
+ * The app has no visible auth and no roles. `loading` is true ONLY during the
+ * first resolve. Subsequent `onAuthStateChange` events (TOKEN_REFRESHED on a
+ * timer, tab focus, etc.) update `session`/`scout` WITHOUT flipping `loading`
+ * back to true — flipping it was the root cause of guarded screens unmounting
+ * and the lead's selected event "disappearing after a bit".
+ */
 export function useSession(): UseSessionResult {
   const [session, setSession] = useState<Session | null>(null);
   const [scout, setScout] = useState<ScoutRow | null>(null);
-  const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
   const mounted = useRef(true);
+  const resolvedOnce = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -36,25 +41,24 @@ export function useSession(): UseSessionResult {
     async function apply(next: Session | null): Promise<void> {
       if (!mounted.current) return;
       setSession(next);
-      if (!next?.user) {
-        setScout(null);
-        setRole(null);
-        setLoading(false);
-        return;
-      }
-      const { scout: s, role: r } = await loadIdentity(next.user.id);
+      const s = next?.user ? await loadScout(next.user.id) : null;
       if (!mounted.current) return;
       setScout(s);
-      setRole(r);
-      setLoading(false);
+      // Only the FIRST resolve clears the initial loading state. Later auth
+      // events never re-enter the loading state.
+      if (!resolvedOnce.current) {
+        resolvedOnce.current = true;
+        setLoading(false);
+      }
     }
 
     supabase.auth.getSession().then(({ data }) => {
       void apply(data.session ?? null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => {
-      setLoading(true);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, next) => {
       void apply(next ?? null);
     });
 
@@ -64,5 +68,5 @@ export function useSession(): UseSessionResult {
     };
   }, []);
 
-  return { session, scout, role, loading };
+  return { session, scout, loading };
 }
