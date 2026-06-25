@@ -9,8 +9,8 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import { useSession, clearCachedScout } from '@/auth/useSession';
 import type { ScoutRow } from '@/auth/scoutRow';
-import { listDrafts } from '@/db/localStore';
-import type { CaptureDraft } from '@/db/types';
+import { listDrafts, listReports } from '@/db/localStore';
+import type { CaptureDraft, LocalMatchReport } from '@/db/types';
 import { CaptureScreen } from '@/capture/CaptureScreen';
 import { ReviewScreen } from '@/capture/ReviewScreen';
 import { useCaptureSession, type CaptureTarget } from '@/capture/useCaptureSession';
@@ -28,6 +28,7 @@ import {
 import { UpcomingMatches, matchLabelFromKey } from '@/capture/UpcomingMatches';
 import { getCachedAssignments, getCachedRoster } from '@/db/preloadClient';
 import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
+import { cn } from '@/lib/utils';
 
 interface AssignmentRow {
   match_key: string;
@@ -217,6 +218,7 @@ export default function ScoutHome() {
 
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
+  const [reports, setReports] = useState<LocalMatchReport[]>([]);
   const [active, setActive] = useState<CaptureTarget | null>(null);
 
   const [matchKey, setMatchKey] = useState('');
@@ -226,7 +228,14 @@ export default function ScoutHome() {
 
   const refreshLocal = async () => {
     setDrafts(await listDrafts());
+    setReports(await listReports());
   };
+
+  // Assignments this scout already has a saved report for, keyed by match+team, so
+  // UpcomingMatches can move them out of the "to scout" feed into "Completed".
+  const completedKeys = new Set(
+    reports.map((r) => `${r.matchKey}:${r.targetTeamNumber}`),
+  );
 
   useEffect(() => {
     if (!scoutId) return;
@@ -276,7 +285,7 @@ export default function ScoutHome() {
     return (
       <div
         data-testid="scout-home"
-        className="flex min-h-screen flex-col gap-6 bg-background p-4 text-foreground"
+        className="flex min-h-screen flex-col gap-6 bg-background px-safe py-safe text-foreground"
       >
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Scout</h1>
@@ -379,7 +388,7 @@ export default function ScoutHome() {
   return (
     <div
       data-testid="scout-home"
-      className="flex min-h-screen flex-col gap-6 bg-background p-4 text-foreground"
+      className="flex min-h-screen flex-col gap-6 bg-background px-safe py-safe text-foreground"
     >
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -404,11 +413,11 @@ export default function ScoutHome() {
             <BarChart3 className="size-5" /> My Data
           </Link>
           {confirmLogout ? (
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
               <Button
                 data-testid="scout-logout-confirm"
                 variant="destructive"
-                className="min-h-[44px]"
+                className="min-h-[44px] flex-1"
                 onClick={logOut}
               >
                 Confirm log out
@@ -416,7 +425,7 @@ export default function ScoutHome() {
               <Button
                 data-testid="scout-logout-cancel"
                 variant="ghost"
-                className="min-h-[44px]"
+                className="min-h-[44px] flex-1"
                 onClick={() => setConfirmLogout(false)}
               >
                 Cancel
@@ -426,11 +435,14 @@ export default function ScoutHome() {
             <Button
               data-testid="scout-logout"
               variant="outline"
-              className="min-h-[44px] gap-2"
+              className="min-h-[44px] max-w-full gap-2"
               onClick={() => setConfirmLogout(true)}
             >
-              <LogOut className="size-5" />
-              Log out{effective.display_name ? ` (${effective.display_name})` : ''}
+              <LogOut className="size-5 shrink-0" />
+              <span className="shrink-0">Log out</span>
+              {effective.display_name ? (
+                <span className="max-w-[40vw] truncate">({effective.display_name})</span>
+              ) : null}
             </Button>
           )}
         </div>
@@ -442,14 +454,14 @@ export default function ScoutHome() {
         <Link
           data-testid="nav-qr-send"
           to="/qr/send"
-          className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
+          className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-md border border-energy/30 px-4 text-sm font-medium text-energy hover:bg-accent"
         >
           Send via QR
         </Link>
         <Link
           data-testid="nav-qr-receive"
           to="/qr/receive"
-          className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
+          className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-md border border-success/30 px-4 text-sm font-medium text-success hover:bg-accent"
         >
           Receive via QR
         </Link>
@@ -459,8 +471,8 @@ export default function ScoutHome() {
         ariaLabel="Scouting mode"
         className="max-w-md"
         options={[
-          { value: 'match', label: 'Match', icon: <Target /> },
-          { value: 'pit', label: 'Pit', icon: <Wrench /> },
+          { value: 'match', label: 'Match', icon: <Target />, activeClassName: 'text-brand' },
+          { value: 'pit', label: 'Pit', icon: <Wrench />, activeClassName: 'text-energy' },
         ]}
         value={mode}
         onChange={setMode}
@@ -474,6 +486,7 @@ export default function ScoutHome() {
         eventKey={eventKey}
         assignments={assignments}
         onStart={startFromAssignment}
+        completedKeys={completedKeys}
       />
 
       <section data-testid="scout-manual-pick" className="rounded-lg border border-border p-3">
@@ -481,7 +494,7 @@ export default function ScoutHome() {
         <div className="grid grid-cols-2 gap-3 landscape:grid-cols-4">
           <div className="flex flex-col gap-1">
             <Label htmlFor="mp-match">Match</Label>
-            <Input id="mp-match" value={matchKey} onChange={(e) => setMatchKey(e.target.value)} className="min-h-[44px]" />
+            <Input id="mp-match" value={matchKey} onChange={(e) => setMatchKey(e.target.value)} className="min-h-[44px] text-base" />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="mp-alliance">Alliance</Label>
@@ -489,7 +502,12 @@ export default function ScoutHome() {
               id="mp-alliance"
               value={alliance}
               onChange={(e) => setAlliance(e.target.value as 'red' | 'blue')}
-              className="min-h-[44px] rounded border border-border bg-input px-2"
+              className={cn(
+                'min-h-[44px] w-full rounded border bg-input px-2 text-base',
+                alliance === 'red'
+                  ? 'border-red-500/40 text-red-300'
+                  : 'border-blue-500/40 text-blue-300',
+              )}
             >
               <option value="red">red</option>
               <option value="blue">blue</option>
@@ -501,7 +519,7 @@ export default function ScoutHome() {
               id="mp-station"
               value={station}
               onChange={(e) => setStation(Number(e.target.value) as 1 | 2 | 3)}
-              className="min-h-[44px] rounded border border-border bg-input px-2"
+              className="min-h-[44px] w-full rounded border border-border bg-input px-2 text-base"
             >
               <option value={1}>1</option>
               <option value={2}>2</option>
@@ -510,11 +528,12 @@ export default function ScoutHome() {
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="mp-team">Target team</Label>
-            <Input id="mp-team" type="number" value={team} onChange={(e) => setTeam(e.target.value)} className="min-h-[44px]" />
+            <Input id="mp-team" type="number" value={team} onChange={(e) => setTeam(e.target.value)} className="min-h-[44px] text-base" />
           </div>
         </div>
         <Button
           data-testid="scout-start-capture"
+          variant="brand"
           size="big"
           className="mt-3 w-full"
           disabled={!matchKey || !team || !scoutId}
@@ -532,7 +551,7 @@ export default function ScoutHome() {
               <Button
                 data-testid={`scout-resume-${d.draftKey}`}
                 variant="outline"
-                className="h-12 min-h-[44px] w-full justify-start text-sm"
+                className="h-12 min-h-[44px] w-full justify-start gap-2 border-warning/40 text-sm text-warning"
                 onClick={() => {
                   const stored = (d.state as { target?: CaptureTarget } | null)?.target;
                   if (stored) {

@@ -134,7 +134,7 @@ export default function MatchVideo({ matchKey, className, onTimeMs }: MatchVideo
         <Frame>
           <span
             data-testid="match-video-none"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground"
+            className="inline-flex items-center gap-2 text-sm text-warning/80"
           >
             <Video className="size-4" /> No video available
           </span>

@@ -196,7 +196,7 @@ function HoldSlideLockButton(props: {
           style={{ width: `${slideProgress * 100}%` }}
         />
       )}
-      <span className="relative z-10 flex flex-wrap items-center justify-center gap-1.5 text-center font-semibold leading-tight">
+      <span className="relative z-10 flex flex-wrap items-center justify-center gap-1.5 text-center text-sm font-semibold leading-tight sm:text-base">
         {locked ? <Lock className="size-5 shrink-0" /> : icon} {label}
       </span>
       <span data-testid={`${testid}-timer`} className="relative z-10 text-base tabular-nums">
@@ -353,10 +353,10 @@ export function CaptureScreen(props: {
   // ---- Pre-match placement step ----
   if (!placed) {
     return (
-      <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background p-3 text-foreground">
+      <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
         <header className="flex shrink-0 items-center justify-between gap-2">
           <span className="flex items-center gap-2 text-base font-semibold">
-            <MapPin className="size-5" /> Place the robot
+            <MapPin className="size-5 text-brand" /> Place the robot
           </span>
           <div className="flex items-center gap-2">
             <span className="max-w-[8.5rem] text-right text-xs text-muted-foreground">
@@ -393,6 +393,7 @@ export function CaptureScreen(props: {
         </div>
         <Button
           data-testid="capture-placement-submit"
+          variant="brand"
           size="big"
           className="h-14 shrink-0 text-xl"
           onClick={() => {
@@ -458,9 +459,9 @@ export function CaptureScreen(props: {
   const inAuto = phase === 'auto' || phase === 'pause' || phase === 'idle';
 
   return (
-    <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background p-3 text-foreground">
+    <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
       {/* Top bar: phase/window · countdown timer · undo */}
-      <header className="flex shrink-0 items-center justify-between gap-2">
+      <header className="flex shrink-0 items-center justify-between gap-1.5">
         <span
           data-testid="capture-window"
           className="min-w-0 truncate text-xs uppercase tracking-wide text-muted-foreground"
@@ -471,7 +472,7 @@ export function CaptureScreen(props: {
           data-testid="capture-clock"
           className="flex shrink-0 items-center gap-1 text-xl font-bold tabular-nums"
         >
-          <Timer className="size-5" /> {mmss(remaining)}
+          <Timer className="size-5 max-[380px]:hidden" /> {mmss(remaining)}
         </span>
         <Button
           data-testid="capture-undo"
@@ -507,7 +508,7 @@ export function CaptureScreen(props: {
         {/* Running ball counts. Compact so two cards never overflow the right
             edge on a narrow portrait phone (min-w-0 + truncate). */}
         <div className="flex shrink-0 items-stretch gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/30 px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-energy/30 bg-energy/10 px-3 py-1.5">
             <span
               data-testid="capture-running-fuel"
               className="shrink-0 text-4xl font-bold leading-none tabular-nums text-energy"
@@ -523,7 +524,7 @@ export function CaptureScreen(props: {
               </span>
             </div>
           </div>
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/30 px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-brand/30 bg-brand/10 px-3 py-1.5">
             <span
               data-testid="capture-running-feed"
               className="shrink-0 text-4xl font-bold leading-none tabular-nums text-brand"
@@ -559,7 +560,7 @@ export function CaptureScreen(props: {
         )}
 
         {/* Defense / Getting-defended: whole-button HOLD-SLIDE-LOCK pair */}
-        <div className="flex min-h-[76px] flex-1 items-stretch gap-2">
+        <div className="flex min-h-[88px] flex-1 items-stretch gap-2">
           <div className="min-w-0 flex-1">
             <HoldSlideLockButton
               testid="capture-defense"
@@ -622,12 +623,12 @@ export function CaptureScreen(props: {
         </div>
 
         {/* Secondary actions */}
-        <div className="grid shrink-0 grid-cols-2 gap-2">
+        <div className={`grid shrink-0 gap-2 ${inAuto ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <Button
             data-testid="capture-foul"
             variant="outline"
             size="big"
-            className="h-11 rounded-2xl"
+            className={`h-11 rounded-2xl ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
             onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); buzz(); }}
           >
             <Flag /> Foul ({s.foulsMinor})

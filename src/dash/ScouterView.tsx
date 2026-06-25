@@ -72,10 +72,10 @@ function ScouterProfile(props: {
           <StatTile label="Reports" value={n} icon={<ClipboardList />} tone="brand" />
         </span>
         <span data-testid="scouter-matches-covered" className="contents">
-          <StatTile label="Matches" value={matches.size} icon={<UserCheck />} />
+          <StatTile label="Matches" value={matches.size} icon={<UserCheck />} tone="success" />
         </span>
         <span data-testid="scouter-teams-covered" className="contents">
-          <StatTile label="Teams" value={teams.size} icon={<Users />} />
+          <StatTile label="Teams" value={teams.size} icon={<Users />} tone="brand" />
         </span>
         <span data-testid="scouter-avg-fuel" className="contents">
           <StatTile label="Avg fuel pts" value={fmt(avgFuel)} icon={<Flame />} tone="energy" />
@@ -93,7 +93,7 @@ function ScouterProfile(props: {
         {flags.length ? (
           <span className="text-warning">{flags.join(' · ')}</span>
         ) : (
-          <span className="text-muted-foreground">none</span>
+          <span className="text-success">none</span>
         )}
       </div>
 
@@ -119,14 +119,19 @@ function ScouterProfile(props: {
                       style={{ minHeight: CONTROL_MIN_HEIGHT }}
                       className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-left text-sm text-foreground hover:bg-muted/60"
                     >
-                      <span className="font-semibold tabular-nums">
+                      <span className="min-w-0 truncate font-semibold tabular-nums">
                         {formatMatchKeyRaw(m.match_key)} · Team {m.target_team_number}
                       </span>
-                      <span className="flex items-center gap-2 text-muted-foreground">
+                      <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
                           <Flame className="size-4 text-energy" /> {fmt(m.fuel_points)}
                         </span>
-                        <span className="inline-flex items-center gap-1">
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1',
+                            m.climb_success && 'text-success',
+                          )}
+                        >
                           <Mountain className="size-4" /> {climb}
                         </span>
                         <ChevronRight className="size-4" />
@@ -228,33 +233,40 @@ export default function ScouterView(props: ScouterViewProps): JSX.Element {
                     const isConfirming = confirmingId === s.id;
                     const isDeleting = deletingId === s.id;
                     return (
-                      <li key={s.id} className="flex items-stretch gap-2">
+                      <li key={s.id} className="flex flex-col items-stretch gap-2 sm:flex-row">
                         <button
                           type="button"
                           data-testid={`scouter-item-${s.id}`}
                           onClick={() => setSelected(s.id)}
                           style={{ minHeight: CONTROL_MIN_HEIGHT }}
                           className={cn(
-                            'flex flex-1 items-center justify-between rounded-xl border px-3 py-2 text-left text-base',
+                            'flex flex-1 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-base',
                             isSel
                               ? 'border-foreground/40 bg-accent text-foreground'
                               : 'border-border bg-muted/30 text-foreground hover:bg-muted/60',
                           )}
                         >
-                          <span className="font-semibold">{s.display_name ?? '(unnamed)'}</span>
-                          <span className="tabular-nums text-muted-foreground">
+                          <span className="min-w-0 truncate font-semibold">
+                            {s.display_name ?? '(unnamed)'}
+                          </span>
+                          <span
+                            className={cn(
+                              'shrink-0 tabular-nums',
+                              count > 0 ? 'text-brand' : 'text-warning',
+                            )}
+                          >
                             {count} report{count === 1 ? '' : 's'}
                           </span>
                         </button>
                         {isConfirming ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
                               data-testid={`scouter-remove-confirm-${s.id}`}
                               onClick={() => void handleRemove(s.id)}
                               disabled={isDeleting}
                               style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                              className="rounded-xl border border-destructive bg-destructive/15 px-3 text-sm font-semibold text-destructive hover:bg-destructive/25 disabled:opacity-50"
+                              className="shrink-0 rounded-xl border border-destructive bg-destructive/15 px-3 text-sm font-semibold text-destructive hover:bg-destructive/25 disabled:opacity-50"
                             >
                               {isDeleting ? 'Removing…' : 'Delete'}
                             </button>
@@ -264,7 +276,7 @@ export default function ScouterView(props: ScouterViewProps): JSX.Element {
                               onClick={() => setConfirmingId(null)}
                               disabled={isDeleting}
                               style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                              className="rounded-xl border border-border bg-muted/30 px-3 text-sm text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
+                              className="shrink-0 rounded-xl border border-border bg-muted/30 px-3 text-sm text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
                             >
                               Cancel
                             </button>
@@ -279,7 +291,7 @@ export default function ScouterView(props: ScouterViewProps): JSX.Element {
                             }}
                             aria-label={`Remove scouter ${s.display_name ?? ''}`.trim()}
                             style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                            className="flex items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:border-destructive hover:bg-destructive/15 hover:text-destructive"
+                            className="flex min-w-[3.5rem] shrink-0 items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:border-destructive hover:bg-destructive/15 hover:text-destructive"
                           >
                             <Trash2 className="size-4" />
                           </button>

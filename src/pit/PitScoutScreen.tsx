@@ -134,27 +134,56 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
     }
   }
 
-  const optionChip = (active: boolean) =>
+  // Semantic tone per option group: capabilities split between climb (success
+  // green = scored end-game), defense (brand cyan = defense convention) and
+  // autonomous (energy orange); intake sourcing (fuel) is energy orange.
+  type ChipTone = 'success' | 'brand' | 'energy';
+  const CHIP_TONE: Record<string, ChipTone> = {
+    auto: 'energy',
+    climb_l1: 'success',
+    climb_l2: 'success',
+    climb_l3: 'success',
+    defense: 'brand',
+    neutral: 'energy',
+    depot: 'energy',
+    human_feed: 'energy',
+  };
+
+  const TONE_CHIP: Record<ChipTone, string> = {
+    success: 'border-success/40 bg-success/15 text-success',
+    brand: 'border-brand/40 bg-brand/15 text-brand',
+    energy: 'border-energy/40 bg-energy/15 text-energy',
+  };
+  const TONE_ACCENT: Record<ChipTone, string> = {
+    success: 'accent-[hsl(var(--success))]',
+    brand: 'accent-[hsl(var(--brand))]',
+    energy: 'accent-[hsl(var(--energy))]',
+  };
+
+  const optionChip = (active: boolean, tone: ChipTone) =>
     cn(
       'flex min-h-[56px] items-center gap-3 rounded-2xl border px-4 text-base font-medium transition-colors',
       active
-        ? 'border-foreground/40 bg-accent text-foreground'
+        ? TONE_CHIP[tone]
         : 'border-border bg-card text-muted-foreground hover:bg-muted',
     );
 
   return (
     <div
       data-testid="pit-screen"
-      className="mx-auto flex max-w-md flex-col gap-5 p-4"
+      className="mx-auto flex max-w-md flex-col gap-5 px-safe py-safe"
     >
-      <h1 className="flex items-center gap-2 text-2xl font-bold">
-        <Wrench className="size-6 text-brand" />
-        Pit Scout — Team {props.teamNumber}
+      <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold sm:text-2xl">
+        <Wrench className="size-6 shrink-0 text-brand" />
+        <span className="min-w-0 break-words">
+          Pit Scout — Team{' '}
+          <span className="text-brand">{props.teamNumber}</span>
+        </span>
       </h1>
 
       <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
         <Label htmlFor="pit-drivetrain" className="flex items-center gap-1.5 text-base">
-          <Gauge className="size-5 text-muted-foreground" />
+          <Gauge className="size-5 text-brand" />
           Drivetrain
         </Label>
         <select
@@ -162,7 +191,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
           data-testid="pit-drivetrain"
           value={report.drivetrain}
           onChange={(e) => update({ drivetrain: e.target.value })}
-          className="h-14 w-full rounded-xl border border-input bg-transparent px-3 text-base"
+          className="h-14 w-full rounded-xl border border-input bg-transparent px-3 text-base text-foreground"
         >
           {DRIVETRAINS.map((d) => (
             <option key={d} value={d}>
@@ -174,7 +203,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
 
       <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
         <Label htmlFor="pit-mechanisms" className="flex items-center gap-1.5 text-base">
-          <Cog className="size-5 text-muted-foreground" />
+          <Cog className="size-5 text-brand" />
           Mechanisms (comma separated)
         </Label>
         <Input
@@ -201,11 +230,12 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
         <div className="flex flex-col gap-2">
           {CAPABILITY_OPTIONS.map((c) => {
             const active = report.capabilities.includes(c);
+            const tone = CHIP_TONE[c] ?? 'brand';
             return (
-              <label key={c} className={optionChip(active)}>
+              <label key={c} className={optionChip(active, tone)}>
                 <input
                   type="checkbox"
-                  className="size-6 accent-[hsl(var(--brand))]"
+                  className={cn('size-6', TONE_ACCENT[tone])}
                   checked={active}
                   onChange={() =>
                     update({ capabilities: toggle(report.capabilities, c) })
@@ -220,17 +250,18 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
 
       <fieldset className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
         <legend className="flex items-center gap-1.5 px-1 text-base font-semibold">
-          <ClipboardList className="size-5 text-success" />
+          <ClipboardList className="size-5 text-energy" />
           Intake sources
         </legend>
         <div className="flex flex-col gap-2">
           {INTAKE_OPTIONS.map((s) => {
             const active = report.intakeSources.includes(s);
+            const tone = CHIP_TONE[s] ?? 'energy';
             return (
-              <label key={s} className={optionChip(active)}>
+              <label key={s} className={optionChip(active, tone)}>
                 <input
                   type="checkbox"
-                  className="size-6 accent-[hsl(var(--brand))]"
+                  className={cn('size-6', TONE_ACCENT[tone])}
                   checked={active}
                   onChange={() =>
                     update({ intakeSources: toggle(report.intakeSources, s) })
@@ -269,10 +300,10 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
           accept="image/*"
           capture="environment"
           onChange={(e) => void onPhoto(e)}
-          className="min-h-[56px] rounded-xl border border-input bg-transparent p-2 text-base file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-4 file:py-2 file:text-sm file:font-medium"
+          className="w-full max-w-full overflow-hidden min-h-[56px] rounded-xl border border-input bg-transparent p-2 text-base file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-4 file:py-2 file:text-sm file:font-medium"
         />
         {uploading && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <p className="flex items-center gap-2 text-sm text-energy">
             <Loader2 className="size-4 animate-spin" /> Uploading photo…
           </p>
         )}
@@ -287,6 +318,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
 
       <Button
         data-testid="pit-submit"
+        variant="brand"
         size="xl"
         className="w-full gap-2"
         disabled={status === 'saving' || uploading}

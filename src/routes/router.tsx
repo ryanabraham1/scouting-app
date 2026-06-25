@@ -8,6 +8,7 @@ import {
   useRouteError,
   type RouteObject,
 } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import DashboardScreen from '../dash/DashboardScreen';
 import HomeScreen from '../home/HomeScreen';
 import ScoutHome from '../capture/ScoutHome';
@@ -29,15 +30,18 @@ function RouteError(): JSX.Element {
   return (
     <div
       data-testid="route-error"
-      className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center text-foreground"
+      className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-safe py-safe text-center text-foreground"
     >
-      <h1 className="text-2xl font-bold">Something went wrong</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold">
+        <AlertTriangle className="size-6 text-warning" />
+        Something went wrong
+      </h1>
       <p className="max-w-md text-sm text-muted-foreground">{message}</p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand/90"
         >
           Reload
         </button>

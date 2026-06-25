@@ -191,24 +191,36 @@ function MatchDetail(props: {
                       className="flex w-full flex-col gap-1 rounded-xl border border-border bg-muted/30 px-3 py-2 text-left text-sm text-foreground hover:bg-muted/60"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold tabular-nums">
-                          Team {r.target_team_number} · {r.alliance_color} {r.station}
+                        <span className="min-w-0 font-semibold tabular-nums">
+                          Team {r.target_team_number} ·{' '}
+                          <span
+                            className={
+                              r.alliance_color === 'red' ? 'text-red-400' : 'text-blue-400'
+                            }
+                          >
+                            {r.alliance_color} {r.station}
+                          </span>
                         </span>
-                        <span className="flex items-center gap-1 text-muted-foreground">
-                          by {scoutName(r.scout_id)}
-                          <ChevronRight className="size-4" />
+                        <span className="flex min-w-0 items-center gap-1 text-muted-foreground">
+                          <span className="truncate">by {scoutName(r.scout_id)}</span>
+                          <ChevronRight className="size-4 shrink-0" />
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                      <div className="flex flex-col gap-1 text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                         <span className="inline-flex flex-wrap items-center gap-3">
                           <span className="inline-flex items-center gap-1">
                             <Flame className="size-4 text-energy" /> {fmt(r.fuel_points)}
                           </span>
-                          <span className="inline-flex items-center gap-1">
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1',
+                              r.climb_success && 'text-success',
+                            )}
+                          >
                             <Mountain className="size-4" /> {climb}
                           </span>
                           <span className="inline-flex items-center gap-1">
-                            <Shield className="size-4" /> {r.defense_rating}
+                            <Shield className="size-4 text-brand" /> {r.defense_rating}
                           </span>
                         </span>
                         {flags.length ? (
@@ -313,7 +325,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
               ) : (
                 <ul
                   data-testid="match-list"
-                  className="flex flex-col gap-2 lg:max-h-[70vh] lg:overflow-y-auto lg:pr-1"
+                  className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto pr-1 lg:max-h-[70vh]"
                 >
                   {matches.map((m) => {
                     const count = countByMatch.get(m.match_key) ?? 0;
@@ -329,12 +341,17 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
                           className={cn(
                             'flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-base',
                             isSel
-                              ? 'border-foreground/40 bg-accent text-foreground'
+                              ? 'border-brand/60 bg-brand/10 text-foreground'
                               : 'border-border bg-muted/30 text-foreground hover:bg-muted/60',
                           )}
                         >
                           <span className="font-semibold">{label}</span>
-                          <span className="tabular-nums text-muted-foreground">
+                          <span
+                            className={cn(
+                              'tabular-nums',
+                              count === 0 ? 'text-warning' : 'text-success',
+                            )}
+                          >
                             {count} report{count === 1 ? '' : 's'}
                           </span>
                         </button>

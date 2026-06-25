@@ -62,7 +62,7 @@ function FlagPill(props: { label: string; on: boolean; tone?: 'warning' | 'destr
       data-testid={`report-flag-${props.label.toLowerCase().replace(/\s+/g, '-')}`}
       data-on={props.on ? 'true' : 'false'}
       className={[
-        'inline-flex min-h-[36px] items-center rounded-lg border px-3 text-sm font-semibold',
+        'inline-flex min-h-[44px] items-center rounded-lg border px-3 py-1.5 text-sm font-semibold',
         props.on ? onClass : 'border-border bg-muted/40 text-muted-foreground',
       ].join(' ')}
     >

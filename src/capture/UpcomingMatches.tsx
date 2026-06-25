@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock } from 'lucide-react';
+import { CalendarClock, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { supabase } from '@/lib/supabase';
 import { nexusGet } from '@/dash/proxies';
 import { parseNexusEventStatus, type NexusEventStatus } from '@/dash/nexusClient';
@@ -130,6 +131,16 @@ export interface UpcomingMatchesProps {
   assignments: ScoutAssignment[];
   /** Start capturing the tapped assignment. */
   onStart: (a: ScoutAssignment) => void;
+  /**
+   * Keys (`${match_key}:${target_team_number}`) the scout already has a saved
+   * report for. These move out of the "To scout" feed into the "Completed" tab.
+   */
+  completedKeys?: Set<string>;
+}
+
+/** Stable completion key for an assignment / report: match + target team. */
+export function assignmentKey(a: Pick<ScoutAssignment, 'match_key' | 'target_team_number'>): string {
+  return `${a.match_key}:${a.target_team_number}`;
 }
 
 /**
@@ -160,11 +171,19 @@ function liveStatusForKey(status: NexusEventStatus | null, key: string): string 
   return null;
 }
 
-export function UpcomingMatches({ eventKey, assignments, onStart }: UpcomingMatchesProps) {
+export function UpcomingMatches({
+  eventKey,
+  assignments,
+  onStart,
+  completedKeys,
+}: UpcomingMatchesProps) {
   const [matches, setMatches] = useState<UpcomingMatchRow[] | null>(null);
   // Optional Nexus live status. Fetched directly (no react-query) so this stays
   // self-contained; null/unavailable simply hides the live affordances.
   const [nexus, setNexus] = useState<NexusEventStatus | null>(null);
+  // Which tab is shown: matches still TO scout, or ones already DONE. Defaults to
+  // the to-do feed so the main view is only what still needs completing.
+  const [view, setView] = useState<'todo' | 'done'>('todo');
 
   useEffect(() => {
     if (!eventKey) {
@@ -231,28 +250,62 @@ export function UpcomingMatches({ eventKey, assignments, onStart }: UpcomingMatc
   }, [eventKey]);
 
   const byKey = new Map((matches ?? []).map((m) => [m.match_key, m]));
-  const enriched: EnrichedAssignment[] = assignments
+  const done = completedKeys ?? new Set<string>();
+  const enrichedAll: EnrichedAssignment[] = assignments
     .map((assignment) => ({ assignment, match: byKey.get(assignment.match_key) ?? null }))
-    // Upcoming only: if we have the match row, honor its result; if the match
-    // isn't in the table (offline / not imported), assume it's still upcoming.
-    .filter((e) => (e.match ? isUpcoming(e.match) : true))
     .sort(sortEnriched);
+
+  // To scout: not yet completed AND still upcoming (if we know the result; offline
+  // / un-imported matches are assumed upcoming). Completed: a saved report exists
+  // for that match+team, shown regardless of whether the match has been played.
+  const todoList = enrichedAll.filter(
+    (e) => !done.has(assignmentKey(e.assignment)) && (e.match ? isUpcoming(e.match) : true),
+  );
+  const doneList = enrichedAll.filter((e) => done.has(assignmentKey(e.assignment)));
+  const shown = view === 'done' ? doneList : todoList;
+  const hasAny = todoList.length > 0 || doneList.length > 0;
 
   return (
     <section data-testid="scout-upcoming-matches">
-      <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
-        <CalendarClock className="size-5" /> Your matches to scout
-      </h2>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <CalendarClock className="size-5 text-brand" /> Your matches to scout
+        </h2>
+        {hasAny ? (
+          <SegmentedToggle<'todo' | 'done'>
+            ariaLabel="Show matches to scout or already completed"
+            className="w-auto"
+            size="default"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'todo', label: `To scout (${todoList.length})` },
+              {
+                value: 'done',
+                label: `Completed (${doneList.length})`,
+                activeClassName: 'text-success',
+              },
+            ]}
+          />
+        ) : null}
+      </div>
       {matches == null ? (
         <p className="text-sm text-muted-foreground">Loading matches…</p>
-      ) : enriched.length === 0 ? (
+      ) : !hasAny ? (
         <p className="text-sm text-muted-foreground">
           No upcoming matches assigned to you. Use Manual pick below if you need to scout one.
         </p>
+      ) : shown.length === 0 ? (
+        <p data-testid={`scout-upcoming-empty-${view}`} className="text-sm text-muted-foreground">
+          {view === 'done'
+            ? 'No completed matches yet — scouted matches will show up here.'
+            : "All caught up — you've scouted every assigned match. 🎉"}
+        </p>
       ) : (
         <ul className="flex flex-col gap-2 landscape:grid landscape:grid-cols-2">
-          {enriched.map(({ assignment: a, match: m }) => {
-            const liveStatus = liveStatusForKey(nexus, a.match_key);
+          {shown.map(({ assignment: a, match: m }) => {
+            const isDone = view === 'done';
+            const liveStatus = isDone ? null : liveStatusForKey(nexus, a.match_key);
             return (
             <li key={a.match_key} data-testid="scout-upcoming-match">
               <Button
@@ -260,18 +313,22 @@ export function UpcomingMatches({ eventKey, assignments, onStart }: UpcomingMatc
                 variant="outline"
                 size="big"
                 className={cn(
-                  'flex h-auto w-full flex-col items-stretch gap-1 py-3 text-left',
-                  liveStatus && 'ring-2 ring-success',
+                  'flex h-auto w-full flex-col items-stretch gap-1 border-l-2 py-3 text-left',
+                  isDone ? 'border-l-success/70 opacity-90' : 'border-l-brand/40',
+                  liveStatus && 'border-l-success ring-2 ring-success',
                 )}
                 onClick={() => onStart(a)}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 text-base font-semibold">
-                    {matchLabelFromKey(a.match_key)}
+                  <span className="flex min-w-0 flex-1 items-center gap-2 text-base font-semibold">
+                    {isDone ? (
+                      <CheckCircle2 className="size-4 shrink-0 text-success" />
+                    ) : null}
+                    <span className="truncate">{matchLabelFromKey(a.match_key)}</span>
                     {liveStatus ? (
                       <span
                         data-testid="scout-upcoming-live"
-                        className="inline-flex items-center gap-1 rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-success"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-success"
                       >
                         <span className="relative flex size-2">
                           <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
@@ -283,13 +340,22 @@ export function UpcomingMatches({ eventKey, assignments, onStart }: UpcomingMatc
                   </span>
                   <span
                     className={cn(
-                      'rounded px-1.5 py-0.5 font-mono text-xs',
+                      'shrink-0 rounded px-1.5 py-0.5 font-mono text-xs',
                       a.alliance_color === 'red'
                         ? 'bg-red-500/15 text-red-300'
                         : 'bg-blue-500/15 text-blue-300',
                     )}
                   >
-                    You scout #{a.target_team_number} · {a.alliance_color} {a.station}
+                    {isDone ? 'Scouted' : 'You scout'}{' '}
+                    <span
+                      className={cn(
+                        'font-bold',
+                        a.alliance_color === 'red' ? 'text-red-200' : 'text-blue-200',
+                      )}
+                    >
+                      #{a.target_team_number}
+                    </span>{' '}
+                    · {a.alliance_color} {a.station}
                   </span>
                 </div>
                 {m ? (
@@ -316,6 +382,11 @@ export function UpcomingMatches({ eventKey, assignments, onStart }: UpcomingMatc
                       ))}
                     </div>
                   </div>
+                ) : null}
+                {isDone ? (
+                  <span className="text-xs font-medium text-success">
+                    Tap to review or re-scout
+                  </span>
                 ) : null}
               </Button>
             </li>

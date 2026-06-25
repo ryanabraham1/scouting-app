@@ -250,8 +250,27 @@ function TeamRowView({ pred, agg, nickname }: TeamRowViewProps) {
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>scouted: {matchesScouted}</span>
-        <span>climb: {agg ? pct(agg.climbSuccessRate) : '—'}</span>
-        <span>defense: {agg ? agg.avgDefenseRating.toFixed(1) : '—'}</span>
+        <span>
+          climb:{' '}
+          <span
+            className={cn(
+              'font-medium',
+              agg
+                ? agg.climbSuccessRate >= 0.7
+                  ? 'text-success'
+                  : 'text-warning'
+                : 'text-muted-foreground',
+            )}
+          >
+            {agg ? pct(agg.climbSuccessRate) : '—'}
+          </span>
+        </span>
+        <span>
+          defense:{' '}
+          <span className={cn('font-medium', agg ? 'text-brand' : 'text-muted-foreground')}>
+            {agg ? agg.avgDefenseRating.toFixed(1) : '—'}
+          </span>
+        </span>
         <FuelLowConfidenceChip />
       </div>
     </li>
@@ -341,13 +360,14 @@ function FieldTile({
 }: {
   label: string;
   match: NexusMatch | null;
-  tone: 'gray' | 'yellow';
+  tone: 'now' | 'next';
 }) {
-  const bg = tone === 'gray' ? 'bg-neutral-200' : 'bg-amber-400';
+  // brand cyan = live/now (most time-critical), amber = next/get-ready.
+  const bg = tone === 'now' ? 'bg-brand text-background' : 'bg-amber-400 text-neutral-900';
   return (
-    <div className={cn('rounded-xl px-4 py-3 text-neutral-900', bg)}>
+    <div className={cn('min-w-0 rounded-xl px-4 py-3', bg)}>
       <div className="text-sm font-semibold opacity-80">{label}</div>
-      <div className="mt-1 text-4xl font-black leading-none tracking-tight">
+      <div className="mt-1 truncate text-3xl font-black leading-none tracking-tight sm:text-4xl">
         {match ? shortMatchLabel(match.label) : '—'}
       </div>
     </div>
@@ -551,7 +571,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/30 px-4 py-3">
         <h2
           data-testid="dash-next-event-title"
-          className="text-2xl font-bold tracking-tight text-foreground"
+          className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight text-foreground"
         >
           {eventInfo.name ?? eventKey}
         </h2>
@@ -564,7 +584,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
               type="button"
               data-testid="dash-next-fullscreen"
               onClick={fullscreen.toggle}
-              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-md border border-border bg-card/60 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-border bg-card/60 px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
               aria-label={fullscreen.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             >
               {fullscreen.isFullscreen ? (
@@ -606,7 +626,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
             </div>
             <div
               data-testid="dash-next-title"
-              className="mt-3 text-7xl font-black leading-none tracking-tight"
+              className="mt-3 break-words text-5xl font-black leading-none tracking-tight sm:text-6xl lg:text-7xl"
             >
               {heroLabel}
             </div>
@@ -615,8 +635,8 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
 
           {/* Live field status — On Field (gray) / Queuing (yellow). */}
           <div className="grid grid-cols-2 gap-3">
-            <FieldTile label="On Field" tone="gray" match={status?.onField ?? null} />
-            <FieldTile label="Queuing" tone="yellow" match={status?.queuing ?? null} />
+            <FieldTile label="On Field" tone="now" match={status?.onField ?? null} />
+            <FieldTile label="Queuing" tone="next" match={status?.queuing ?? null} />
           </div>
 
           {/* Upcoming — OUR matches only, broadcast team-grid cards. */}
@@ -650,7 +670,10 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
             Red win{' '}
             <span
               data-testid="dash-next-red-winprob"
-              className="font-bold tabular-nums text-brand"
+              className={cn(
+                'font-bold tabular-nums',
+                pred.redWinProb > 0.5 ? 'text-red-400' : 'text-blue-400',
+              )}
             >
               {pct(pred.redWinProb)}
             </span>

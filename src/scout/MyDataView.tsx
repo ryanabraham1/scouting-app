@@ -40,9 +40,9 @@ export default function MyDataView(): JSX.Element {
   return (
     <div
       data-testid="my-data"
-      className="flex min-h-screen flex-col gap-4 bg-background p-4 text-foreground"
+      className="flex min-h-screen flex-col gap-4 bg-background px-safe py-safe text-foreground"
     >
-      <header className="flex items-center gap-3">
+      <header className="flex flex-wrap items-center gap-3">
         <Link
           to="/scout"
           data-testid="my-data-back"
@@ -68,30 +68,40 @@ export default function MyDataView(): JSX.Element {
           <li
             key={r.id}
             data-testid="my-data-row"
-            className="rounded-lg border border-border p-3"
+            className="rounded-lg border border-border border-l-2 border-l-brand/40 p-3"
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-lg font-semibold">{r.matchKey}</span>
-              <span className="text-base font-medium text-muted-foreground">
+              <span className="font-mono text-lg font-semibold">{r.matchKey}</span>
+              <span className="text-base font-medium text-brand tabular-nums">
                 Team #{r.targetTeamNumber}
               </span>
             </div>
-            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm sm:grid-cols-3">
               <div>
                 <dt className="text-muted-foreground">Fuel points</dt>
-                <dd className="font-medium">{r.fuelPoints}</dd>
+                <dd className="font-semibold text-energy tabular-nums">{r.fuelPoints}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Climb</dt>
-                <dd className="font-medium">{CLIMB_LABEL[r.climbLevel]}</dd>
+                <dd>
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${
+                      r.climbLevel > 0
+                        ? 'border-success/40 bg-success/15 text-success'
+                        : 'border-border bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {CLIMB_LABEL[r.climbLevel]}
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Defense</dt>
-                <dd className="font-medium">{fmtSeconds(r.defenseDurationMs)}</dd>
+                <dd className="font-medium text-brand tabular-nums">{fmtSeconds(r.defenseDurationMs)}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Defended</dt>
-                <dd className="font-medium">{fmtSeconds(r.defendedDurationMs)}</dd>
+                <dd className="font-medium tabular-nums">{fmtSeconds(r.defendedDurationMs)}</dd>
               </div>
             </dl>
             {r.notes && (

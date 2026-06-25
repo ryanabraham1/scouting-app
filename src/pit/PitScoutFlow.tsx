@@ -44,7 +44,7 @@ export default function PitScoutFlow({ eventKey, scoutId }: PitScoutFlowProps): 
         </div>
         <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
           <Label htmlFor="pit-team-input" className="flex items-center gap-1.5 text-base">
-            <Hash className="size-5 text-muted-foreground" />
+            <Hash className="size-5 text-brand" />
             Team number
           </Label>
           <Input
@@ -59,6 +59,7 @@ export default function PitScoutFlow({ eventKey, scoutId }: PitScoutFlowProps): 
           />
           <Button
             data-testid="pit-team-go"
+            variant="brand"
             size="xl"
             className="mt-2 w-full gap-2"
             disabled={!valid}

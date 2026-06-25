@@ -165,11 +165,26 @@ function InHouseBadge() {
     <span
       data-testid="dash-season-epa-source"
       title="Computed in-house from TheBlueAlliance match results — Statbotics EPA unavailable"
-      className="inline-flex items-center rounded-full bg-sky-700/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700"
+      className="inline-flex items-center rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-energy"
     >
       in-house
     </span>
   );
+}
+
+/**
+ * Pick a RankTile tone for the season W-L-T record: success when above .500,
+ * warning when at/below .500, gray when there's no record yet. So the slab
+ * encodes how OUR season is going at a glance instead of reading as dead gray.
+ */
+function recordTone(record: string | null): 'green' | 'warning' | 'gray' {
+  if (!record) return 'gray';
+  const m = /^(\d+)-(\d+)-(\d+)$/.exec(record.trim());
+  if (!m) return 'gray';
+  const wins = Number(m[1]);
+  const losses = Number(m[2]);
+  if (wins === 0 && losses === 0) return 'gray';
+  return wins > losses ? 'green' : 'warning';
 }
 
 /**
@@ -192,7 +207,7 @@ export default function SeasonStats({
         Season Rankings
       </div>
       <RankTile
-        tone="gray"
+        tone={recordTone(seasonRecord)}
         big
         label="Season Record"
         value={seasonRecord ?? '—'}

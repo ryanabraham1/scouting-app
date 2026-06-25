@@ -7,6 +7,7 @@ import { FountainEncoder, frameToString, reportsToBytes } from '@/qr/envelope';
 import { compressForQr } from '@/qr/compress';
 import { QR_FRAME_MS } from '@/sync/constants';
 import { BackLink } from '@/components/ui/BackLink';
+import { CheckCircle2 } from 'lucide-react';
 
 // Animated QR sender (contracts §6/§7). Loads the unsynced backlog, gzip-
 // compresses it, and emits an ENDLESS stream of fountain symbols — each a random
@@ -74,7 +75,7 @@ export default function QrSendScreen() {
   return (
     <div
       data-testid="qr-send"
-      className="flex min-h-screen flex-col items-center gap-6 bg-background p-4 text-foreground"
+      className="flex min-h-screen flex-col items-center gap-6 bg-background px-safe py-safe text-foreground"
     >
       <header className="w-full">
         <div className="flex items-center gap-3">
@@ -88,9 +89,13 @@ export default function QrSendScreen() {
       </header>
 
       {isEmpty ? (
-        <p data-testid="qr-send-empty" className="mt-8 text-center text-lg text-muted-foreground">
-          Nothing to send — your reports are all synced.
-        </p>
+        <div
+          data-testid="qr-send-empty"
+          className="mt-8 flex flex-col items-center gap-3 text-center"
+        >
+          <CheckCircle2 className="size-10 shrink-0 text-success" aria-hidden />
+          <p className="text-lg text-success">Nothing to send — your reports are all synced.</p>
+        </div>
       ) : encoder === null ? (
         <p className="text-sm text-muted-foreground">Loading backlog…</p>
       ) : (
@@ -101,17 +106,20 @@ export default function QrSendScreen() {
                 data-testid="qr-frame"
                 src={dataUrl}
                 alt={`QR fountain symbol ${seq + 1}`}
-                className="h-80 w-80 rounded-lg bg-white p-2"
+                className="aspect-square w-full max-w-[20rem] rounded-lg bg-white p-2"
               />
             )}
             <span data-testid="qr-send-progress" className="text-lg font-semibold tabular-nums">
-              {seq + 1} sent · {encoder.k} block{encoder.k === 1 ? '' : 's'} to receive
+              <span className="text-brand">{seq + 1} sent</span>{' '}
+              <span className="text-muted-foreground">
+                · {encoder.k} block{encoder.k === 1 ? '' : 's'} to receive
+              </span>
             </span>
           </div>
 
           <Button
             data-testid="qr-send-pause"
-            variant="secondary"
+            variant={paused ? 'brand' : 'secondary'}
             className="h-14 min-h-[44px] w-full max-w-xs"
             onClick={() => setPaused((p) => !p)}
           >

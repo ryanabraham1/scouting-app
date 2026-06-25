@@ -50,6 +50,30 @@ describe('BarChart', () => {
     const h1 = Number(getByTestId('bc-bar-1').getAttribute('height'));
     expect(h1).toBeGreaterThan(h0);
   });
+
+  // Dense x-axes (a full qual schedule) thin their labels so they don't collide
+  // into an unreadable smear on a 390px phone, while always keeping the first and
+  // last labels for orientation. <=8 points keep every label (stride 1).
+  it('renders every x-axis label when there are <=8 points', () => {
+    const eight = Array.from({ length: 8 }, (_, i) => ({ label: `Q${i + 1}`, value: i + 1 }));
+    const { queryByText } = render(<BarChart data={eight} testid="bc" />);
+    for (let i = 1; i <= 8; i++) {
+      // exact match hits only the axis <text>, not the "Q1: 1" <title> tooltip
+      expect(queryByText(`Q${i}`, { exact: true })).toBeTruthy();
+    }
+  });
+
+  it('thins x-axis labels past 8 points but keeps the first and last', () => {
+    // 12 points → stride = ceil(12/8) = 2 → show even indices + the last (Q12).
+    const twelve = Array.from({ length: 12 }, (_, i) => ({ label: `Q${i + 1}`, value: i + 1 }));
+    const { queryByText, getByTestId } = render(<BarChart data={twelve} testid="bc" />);
+    // All 12 bars still render — only the labels thin.
+    for (let i = 0; i < 12; i++) expect(getByTestId(`bc-bar-${i}`)).toBeTruthy();
+    expect(queryByText('Q1', { exact: true })).toBeTruthy(); // first
+    expect(queryByText('Q12', { exact: true })).toBeTruthy(); // last
+    expect(queryByText('Q2', { exact: true })).toBeNull(); // thinned (index 1)
+    expect(queryByText('Q10', { exact: true })).toBeNull(); // thinned (index 9)
+  });
 });
 
 describe('LineChart', () => {

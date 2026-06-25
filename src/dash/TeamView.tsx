@@ -19,6 +19,11 @@ import {
   Video,
   Crosshair,
   ExternalLink,
+  Flame,
+  Mountain,
+  Gauge,
+  TrendingUp,
+  ListChecks,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Sheet } from '@/components/ui/Sheet';
@@ -79,16 +84,32 @@ function matchOrder(matchKey: string): number {
   return level * 100000 + Number(m[2]);
 }
 
+/** Semantic value tones — maps to the app-wide color language. */
+type StatTone = 'default' | 'brand' | 'energy' | 'success' | 'warning' | 'destructive';
+
+const STAT_TONE_TEXT: Record<StatTone, string> = {
+  default: 'text-zinc-100',
+  brand: 'text-brand',
+  energy: 'text-energy',
+  success: 'text-success',
+  warning: 'text-warning',
+  destructive: 'text-destructive',
+};
+
 function Stat(props: {
   label: string;
   value: string;
   testid: string;
   hint?: string;
+  tone?: StatTone;
 }): JSX.Element {
   return (
     <div className="flex flex-col gap-0.5 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
       <span className="text-xs uppercase tracking-wide text-zinc-400">{props.label}</span>
-      <span className="text-lg font-semibold text-zinc-100" data-testid={props.testid}>
+      <span
+        className={cn('text-lg font-semibold', STAT_TONE_TEXT[props.tone ?? 'default'])}
+        data-testid={props.testid}
+      >
         {props.value}
       </span>
       {props.hint ? <span className="text-xs text-zinc-500">{props.hint}</span> : null}
@@ -193,14 +214,26 @@ function TeamTbaPanel(props: {
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat label="Event rank" value={eventRank} testid="team-tba-event-rank" />
+          <Stat label="Event rank" value={eventRank} testid="team-tba-event-rank" tone="brand" />
           <Stat
             label="Event record"
             value={recordStr(status?.wins ?? null, status?.losses ?? null, status?.ties ?? null)}
             testid="team-tba-event-record"
           />
-          <Stat label="World rank" value={worldRank} testid="team-tba-world-rank" hint={`${year} season`} />
-          <Stat label="Season EPA" value={seasonEpa} testid="team-tba-season-epa" hint={epaHint} />
+          <Stat
+            label="World rank"
+            value={worldRank}
+            testid="team-tba-world-rank"
+            hint={`${year} season`}
+            tone="brand"
+          />
+          <Stat
+            label="Season EPA"
+            value={seasonEpa}
+            testid="team-tba-season-epa"
+            hint={epaHint}
+            tone={season?.totalEpa != null && season.epaSource !== 'statbotics' ? 'warning' : 'energy'}
+          />
           <Stat
             label="Season record"
             value={season?.seasonRecord ?? '—'}
@@ -259,7 +292,7 @@ function LastMatchCard(props: { report: MsrRow }): JSX.Element {
         </div>
         <div
           data-testid="team-last-match-sync"
-          className="flex flex-wrap items-center justify-between gap-2 text-sm"
+          className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm"
         >
           <span className="inline-flex items-center gap-2 tabular-nums text-zinc-400">
             <Crosshair className="size-4 text-brand" />
@@ -280,7 +313,8 @@ function LastMatchCard(props: { report: MsrRow }): JSX.Element {
               onClick={() => {
                 if (videoSeconds != null) setOffsetSeconds(videoSeconds);
               }}
-              className="rounded-md border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 font-medium text-zinc-100 hover:bg-zinc-800 disabled:opacity-50"
+              style={{ minHeight: CONTROL_MIN_HEIGHT }}
+              className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 font-medium text-zinc-100 hover:bg-zinc-800 disabled:opacity-50"
             >
               Sync to match start
             </button>
@@ -289,7 +323,8 @@ function LastMatchCard(props: { report: MsrRow }): JSX.Element {
                 type="button"
                 data-testid="team-last-match-sync-reset"
                 onClick={() => setOffsetSeconds(0)}
-                className="rounded-md border border-zinc-700 bg-zinc-800/40 px-3 py-1.5 text-zinc-400 hover:bg-zinc-800/70"
+                style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-800/40 px-3 py-1.5 text-zinc-400 hover:bg-zinc-800/70"
               >
                 Reset
               </button>
@@ -406,7 +441,10 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
   return (
     <Card className="border-zinc-800 bg-zinc-950" data-testid="team-trends">
       <CardHeader className="space-y-0">
-        <CardTitle className="text-zinc-100">Trends</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-zinc-100">
+          <TrendingUp className="size-5 text-brand" />
+          Trends
+        </CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <BarChart
@@ -467,7 +505,10 @@ function TeamDetail(props: {
       {/* Fuel */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-zinc-100">Fuel</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            <Flame className="size-5 text-energy" />
+            Fuel
+          </CardTitle>
           {lowConfidence ? (
             <span
               data-testid="team-fuel-lowconf-chip"
@@ -491,7 +532,12 @@ function TeamDetail(props: {
             testid="team-mean-teleop-inactive"
           />
           <Stat label="Endgame fuel" value={fmt(agg.meanEndgameFuel)} testid="team-mean-endgame-fuel" />
-          <Stat label="Total fuel" value={fmt(agg.meanTotalFuel)} testid="team-mean-total-fuel" />
+          <Stat
+            label="Total fuel"
+            value={fmt(agg.meanTotalFuel)}
+            testid="team-mean-total-fuel"
+            tone="energy"
+          />
           <Stat
             label="Mean fuel points (raw)"
             value={fmt(agg.meanFuelPoints)}
@@ -502,6 +548,7 @@ function TeamDetail(props: {
             value={fmt(agg.fuelPointsWeighted)}
             testid="team-fuel-points-weighted"
             hint={`down-weighted −${fmt(downWeight)} (×${fmt(agg.meanFuelConfidence, 2)})`}
+            tone="energy"
           />
         </CardContent>
       </Card>
@@ -509,13 +556,19 @@ function TeamDetail(props: {
       {/* Climb / defense / reliability */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="space-y-0">
-          <CardTitle className="text-zinc-100">Climb · Defense · Reliability</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            <Mountain className="size-5 text-success" />
+            Climb · Defense · Reliability
+          </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat
             label="Climb success"
             value={pct(agg.climbSuccessRate)}
             testid="team-climb-success-rate"
+            tone={
+              agg.climbSuccessRate >= 0.6 ? 'success' : agg.climbSuccessRate >= 0.3 ? 'warning' : 'default'
+            }
           />
           <Stat label="Avg climb level" value={fmt(agg.avgClimbLevel)} testid="team-avg-climb-level" />
           <Stat
@@ -527,12 +580,16 @@ function TeamDetail(props: {
             label="Avg defense"
             value={fmt(agg.avgDefenseRating)}
             testid="team-avg-defense-rating"
+            tone="brand"
           />
           <Stat
             label="Reliability"
             value={pct(agg.reliability)}
             testid="team-reliability"
             hint={`no-show ${pct(agg.noShowRate)} · died ${pct(agg.diedRate)}`}
+            tone={
+              agg.reliability >= 0.85 ? 'success' : agg.reliability >= 0.6 ? 'warning' : 'destructive'
+            }
           />
           <Stat
             label="Scouting expected pts"
@@ -548,7 +605,10 @@ function TeamDetail(props: {
       {/* Statbotics EPA */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="space-y-0">
-          <CardTitle className="text-zinc-100">EPA</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            <Gauge className="size-5 text-energy" />
+            EPA
+          </CardTitle>
         </CardHeader>
         <CardContent>{props.epaNode}</CardContent>
       </Card>
@@ -559,18 +619,22 @@ function TeamDetail(props: {
       {/* Scouted matches */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="space-y-0">
-          <CardTitle className="text-zinc-100">Scouted matches ({matches.length})</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            <ListChecks className="size-5 text-brand" />
+            Scouted matches ({matches.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <ul data-testid="team-match-list" className="flex flex-col gap-2">
             {matches.map((m, i) => {
               const climb = m.climb_success ? `L${m.climb_level}` : 'no climb';
               const open = openRow === i;
-              const flags = [
-                m.no_show ? 'no-show' : null,
-                m.died ? 'died' : null,
-                m.tipped ? 'tipped' : null,
-              ].filter(Boolean);
+              // Split flags by severity: no-show/died are hard failures (destructive
+              // red), tipped is a warning (amber) — mirrors ReportDetail's FlagPill.
+              const failFlags = [m.no_show ? 'no-show' : null, m.died ? 'died' : null].filter(
+                Boolean,
+              );
+              const warnFlags = [m.tipped ? 'tipped' : null].filter(Boolean);
               return (
                 <li
                   key={`${m.match_key}-${i}`}
@@ -585,7 +649,8 @@ function TeamDetail(props: {
                   >
                     <span className="font-semibold">{formatMatchKeyRaw(m.match_key)}</span>
                     <span className="text-zinc-400">
-                      fuel {fmt(m.fuel_points)} · {climb}
+                      fuel {fmt(m.fuel_points)} ·{' '}
+                      <span className={m.climb_success ? 'text-success' : undefined}>{climb}</span>
                     </span>
                   </button>
                   {open ? (
@@ -593,12 +658,19 @@ function TeamDetail(props: {
                       data-testid="team-match-detail"
                       className="flex flex-col gap-2 border-t border-zinc-800 px-3 py-2 text-zinc-300"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                        <span className="min-w-0 break-words text-zinc-400">
                           {m.alliance_color} {m.station} · scouted by {scoutName(m.scout_id)}
                         </span>
-                        {flags.length ? (
-                          <span className="text-amber-300">{flags.join(' · ')}</span>
+                        {failFlags.length || warnFlags.length ? (
+                          <span className="flex flex-wrap items-center gap-x-2">
+                            {failFlags.length ? (
+                              <span className="text-destructive">{failFlags.join(' · ')}</span>
+                            ) : null}
+                            {warnFlags.length ? (
+                              <span className="text-warning">{warnFlags.join(' · ')}</span>
+                            ) : null}
+                          </span>
                         ) : null}
                       </div>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-zinc-400 sm:grid-cols-4">
@@ -700,13 +772,17 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   const epaNode = (
     <div data-testid="team-epa">
       {epaAvailable ? (
-        <div className="flex flex-col gap-1">
-          <span className="text-2xl font-semibold text-zinc-100">{fmt(epaValue as number)}</span>
-          <span className="text-xs text-zinc-400">
-            {epaIsLocal
-              ? 'Local estimate — Statbotics offline (computed from match results).'
-              : 'Statbotics EPA (total points).'}
-          </span>
+        <div className="flex flex-col items-start gap-2">
+          <span className="text-2xl font-semibold text-energy">{fmt(epaValue as number)}</span>
+          {epaIsLocal ? (
+            <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+              Local estimate — Statbotics offline (computed from match results).
+            </span>
+          ) : (
+            <span className="rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-xs font-medium text-energy">
+              Statbotics EPA (total points).
+            </span>
+          )}
         </div>
       ) : (
         <span className="text-sm text-zinc-400">

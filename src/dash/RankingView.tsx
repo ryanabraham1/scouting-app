@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
 import { useEventReports, useEventEpa, useEventMatches, useTbaRankings } from '@/dash/useEventData';
 
@@ -107,6 +108,69 @@ function sortValue(row: Row, key: SortKey): number {
       return row.tbaRank ?? Number.POSITIVE_INFINITY;
   }
 }
+
+/**
+ * Compare-panel stat rows. `value` returns the raw numeric (or null when
+ * unavailable) used to find the per-row winner; `better` says which direction
+ * wins so the best cell can be flagged with the success token.
+ */
+interface CompareRow {
+  label: string;
+  get: (r: Row) => string;
+  value: (r: Row) => number | null;
+  better: 'higher' | 'lower';
+}
+
+const COMPARE_ROWS: CompareRow[] = [
+  {
+    label: 'Matches',
+    get: (r) => String(r.agg.matchesScouted),
+    value: (r) => r.agg.matchesScouted,
+    better: 'higher',
+  },
+  {
+    label: 'Exp. Pts',
+    get: (r) => fmt(r.agg.scoutingExpectedPoints),
+    value: (r) => r.agg.scoutingExpectedPoints,
+    better: 'higher',
+  },
+  {
+    label: 'FUEL Pts',
+    get: (r) => fmt(r.agg.meanFuelPoints),
+    value: (r) => r.agg.meanFuelPoints,
+    better: 'higher',
+  },
+  {
+    label: 'Climb %',
+    get: (r) => pct(r.agg.climbSuccessRate),
+    value: (r) => r.agg.climbSuccessRate,
+    better: 'higher',
+  },
+  {
+    label: 'Defense',
+    get: (r) => fmt(r.agg.avgDefenseRating),
+    value: (r) => r.agg.avgDefenseRating,
+    better: 'higher',
+  },
+  {
+    label: 'Reliability',
+    get: (r) => pct(r.agg.reliability),
+    value: (r) => r.agg.reliability,
+    better: 'higher',
+  },
+  {
+    label: 'EPA',
+    get: (r) => (r.epa === null ? EM_DASH : fmt(r.epa, 0)),
+    value: (r) => r.epa,
+    better: 'higher',
+  },
+  {
+    label: 'TBA Rank',
+    get: (r) => (r.tbaRank === null ? EM_DASH : String(r.tbaRank)),
+    value: (r) => r.tbaRank,
+    better: 'lower',
+  },
+];
 
 export default function RankingView(props: RankingViewProps): JSX.Element {
   const { eventKey, onSelectTeam } = props;
@@ -250,14 +314,14 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
           {epaSource === 'local' ? (
             <div
               data-testid="dash-ranking-epa-banner"
-              className="text-xs text-amber-300"
+              className="text-xs text-warning"
             >
               Statbotics offline — EPA column shows a local estimate computed from match results.
             </div>
           ) : !epaAvailable ? (
             <div
               data-testid="dash-ranking-epa-banner"
-              className="text-xs text-amber-300"
+              className="text-xs text-warning"
             >
               Statbotics &amp; match-result EPA unavailable — EPA column shows our in-house
               estimate from scouting data.
@@ -276,7 +340,11 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                     <th
                       key={col.key}
                       scope="col"
-                      className="px-2 py-1 text-left font-medium text-muted-foreground"
+                      className={cn(
+                        'px-2 py-1 text-left font-medium text-muted-foreground',
+                        col.key === 'teamNumber' && 'sticky left-0 z-10 bg-card',
+                        (col.key === 'epa' || col.key === 'tbaRank') && 'hidden sm:table-cell',
+                      )}
                     >
                       <button
                         type="button"
@@ -316,38 +384,55 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                           className="h-5 w-5 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </td>
-                      <td className="px-2 py-1 font-medium">
+                      <td className="sticky left-0 z-10 bg-card px-2 py-1 font-medium">
                         {onSelectTeam ? (
                           <button
                             type="button"
                             data-testid={`ranking-team-${t}`}
                             onClick={() => onSelectTeam(t)}
                             aria-label={`Open team ${t}`}
-                            className="inline-flex min-h-[44px] items-center rounded px-2 tabular-nums hover:text-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            className="inline-flex min-h-[44px] items-center rounded px-2 tabular-nums text-brand hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                           >
                             {t}
                           </button>
                         ) : (
-                          <span className="tabular-nums">{t}</span>
+                          <span className="tabular-nums text-brand">{t}</span>
                         )}
                       </td>
                       <td className="px-2 py-2 tabular-nums">{r.agg.matchesScouted}</td>
                       <td className="px-2 py-2 tabular-nums">{fmt(r.agg.scoutingExpectedPoints)}</td>
-                      <td className="px-2 py-2 tabular-nums">{fmt(r.agg.meanFuelPoints)}</td>
-                      <td className="px-2 py-2 tabular-nums">{pct(r.agg.climbSuccessRate)}</td>
-                      <td className="px-2 py-2 tabular-nums">{fmt(r.agg.avgDefenseRating)}</td>
-                      <td className="px-2 py-2 tabular-nums">{pct(r.agg.reliability)}</td>
+                      <td className="px-2 py-2 tabular-nums text-energy">{fmt(r.agg.meanFuelPoints)}</td>
+                      <td
+                        className={cn(
+                          'px-2 py-2 tabular-nums',
+                          r.agg.climbSuccessRate > 0 ? 'text-success' : 'text-muted-foreground',
+                        )}
+                      >
+                        {pct(r.agg.climbSuccessRate)}
+                      </td>
+                      <td className="px-2 py-2 tabular-nums text-brand">{fmt(r.agg.avgDefenseRating)}</td>
+                      <td
+                        className={cn(
+                          'px-2 py-2 tabular-nums',
+                          r.agg.reliability < 0.7 ? 'text-warning' : 'text-success',
+                        )}
+                      >
+                        {pct(r.agg.reliability)}
+                      </td>
                       <td
                         data-testid={`epa-${t}`}
-                        className="px-2 py-2 tabular-nums"
+                        className={cn(
+                          'hidden px-2 py-2 tabular-nums sm:table-cell',
+                          r.epaInHouse && 'text-warning',
+                        )}
                         title={r.epaInHouse ? 'In-house EPA estimated from scouting data' : undefined}
                       >
                         {r.epa === null ? EM_DASH : fmt(r.epa, 0)}
                         {r.epaInHouse && r.epa !== null ? (
-                          <span className="ml-1 text-[10px] text-amber-300">est</span>
+                          <span className="ml-1 text-[10px] text-warning">est</span>
                         ) : null}
                       </td>
-                      <td data-testid={`tba-${t}`} className="px-2 py-2 tabular-nums">
+                      <td data-testid={`tba-${t}`} className="hidden px-2 py-2 tabular-nums sm:table-cell">
                         {r.tbaRank === null ? EM_DASH : String(r.tbaRank)}
                       </td>
                     </tr>
@@ -384,25 +469,40 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                   </tr>
                 </thead>
                 <tbody>
-                  {([
-                    ['Matches', (r: Row) => String(r.agg.matchesScouted)],
-                    ['Exp. Pts', (r: Row) => fmt(r.agg.scoutingExpectedPoints)],
-                    ['FUEL Pts', (r: Row) => fmt(r.agg.meanFuelPoints)],
-                    ['Climb %', (r: Row) => pct(r.agg.climbSuccessRate)],
-                    ['Defense', (r: Row) => fmt(r.agg.avgDefenseRating)],
-                    ['Reliability', (r: Row) => pct(r.agg.reliability)],
-                    ['EPA', (r: Row) => (r.epa === null ? EM_DASH : fmt(r.epa, 0))],
-                    ['TBA Rank', (r: Row) => (r.tbaRank === null ? EM_DASH : String(r.tbaRank))],
-                  ] as Array<[string, (r: Row) => string]>).map(([label, get]) => (
-                    <tr key={label} className="border-b border-border/50">
-                      <td className="px-2 py-2 font-medium text-muted-foreground">{label}</td>
-                      {selectedRows.map((r) => (
-                        <td key={r.agg.teamNumber} className="px-2 py-2 tabular-nums">
-                          {get(r)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {COMPARE_ROWS.map(({ label, get, value, better }) => {
+                    // The winning numeric value for this stat across the selected
+                    // teams (null when no team has a value), so we can flag the
+                    // best cell green — a scannable winner-per-row matrix.
+                    const nums = selectedRows
+                      .map((r) => value(r))
+                      .filter((n): n is number => n !== null);
+                    const best =
+                      nums.length === 0
+                        ? null
+                        : better === 'higher'
+                          ? Math.max(...nums)
+                          : Math.min(...nums);
+                    return (
+                      <tr key={label} className="border-b border-border/50">
+                        <td className="px-2 py-2 font-medium text-muted-foreground">{label}</td>
+                        {selectedRows.map((r) => {
+                          const v = value(r);
+                          const isBest = best !== null && v !== null && v === best;
+                          return (
+                            <td
+                              key={r.agg.teamNumber}
+                              className={cn(
+                                'px-2 py-2 tabular-nums',
+                                isBest && 'font-bold text-success',
+                              )}
+                            >
+                              {get(r)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

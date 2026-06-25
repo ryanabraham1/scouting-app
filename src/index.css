@@ -39,3 +39,29 @@
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
 }
+
+@layer utilities {
+  /* Safe-area-aware padding for a notched iPhone (PWA runs standalone with
+     viewport-fit=cover). Each clamps to a sensible baseline so non-notched
+     devices keep normal padding. Apply to screen roots / sticky headers /
+     bottom action bars so nothing renders under the notch or home-indicator. */
+  .pt-safe { padding-top: max(1rem, env(safe-area-inset-top)); }
+  .pr-safe { padding-right: max(1rem, env(safe-area-inset-right)); }
+  .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .pl-safe { padding-left: max(1rem, env(safe-area-inset-left)); }
+  .px-safe {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+  .py-safe {
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  /* Tighter baseline for space-constrained capture screens (p-3 ≈ 0.75rem). */
+  .pt-safe-tight { padding-top: max(0.75rem, env(safe-area-inset-top)); }
+  .pb-safe-tight { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+  .px-safe-tight {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+}

@@ -115,8 +115,8 @@ export default function Leaderboard(props: LeaderboardProps): JSX.Element {
               No rankings available yet.
             </div>
           ) : (
-            <div className="max-h-[28rem] overflow-y-auto">
-              <table className="w-full border-collapse text-sm">
+            <div className="max-h-[28rem] overflow-x-auto overflow-y-auto">
+              <table className="w-full min-w-[20rem] border-collapse text-sm">
                 <thead className="sticky top-0 bg-card">
                   <tr className="border-b border-border">
                     <th className="px-2 py-2 text-left font-medium text-muted-foreground">#</th>
@@ -143,7 +143,18 @@ export default function Leaderboard(props: LeaderboardProps): JSX.Element {
                         <td className="px-2 py-2 tabular-nums font-medium">{row.teamNumber}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{row.rp.toFixed(3)}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{row.total}</td>
-                        <td className="px-2 py-2 tabular-nums">{row.record}</td>
+                        <td
+                          className={cn(
+                            'px-2 py-2 tabular-nums',
+                            row.wins > row.losses
+                              ? 'text-success'
+                              : row.losses > row.wins
+                                ? 'text-warning'
+                                : undefined,
+                          )}
+                        >
+                          {row.record}
+                        </td>
                       </tr>
                     );
                   })}
@@ -184,18 +195,23 @@ export function RankTile({
   label: string;
   value: string;
   testid: string;
-  tone: 'green' | 'blue' | 'gray';
+  // Semantic broadcast tiles: green=success (trusted/good standing),
+  // blue=brand (cyan, season/world context), warning=amber (below .500),
+  // gray=neutral (no data yet).
+  tone: 'green' | 'blue' | 'warning' | 'gray';
   big?: boolean;
   sub?: ReactNode;
 }): JSX.Element {
   const bg = {
     green: 'bg-emerald-100 text-emerald-950',
-    blue: 'bg-sky-100 text-sky-950',
+    blue: 'bg-cyan-100 text-cyan-950',
+    warning: 'bg-amber-100 text-amber-950',
     gray: 'bg-neutral-200 text-neutral-900',
   }[tone];
   const labelColor = {
     green: 'text-emerald-700',
-    blue: 'text-sky-700',
+    blue: 'text-cyan-700',
+    warning: 'text-amber-700',
     gray: 'text-neutral-600',
   }[tone];
   return (

@@ -30,17 +30,21 @@ export function SyncIndicator(): JSX.Element {
   return (
     <div
       data-testid="sync-indicator"
-      className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+      className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
     >
       <span
         aria-label={online ? 'online' : 'offline'}
         title={online ? 'online' : 'offline'}
         className={`inline-block h-2.5 w-2.5 rounded-full ${
-          online ? 'bg-emerald-500' : 'bg-muted-foreground'
+          online ? 'bg-success' : 'bg-warning'
         }`}
       />
       <span className="sr-only">{online ? 'online' : 'offline'}</span>
-      <span data-testid="sync-queued" title="Queued">
+      <span
+        data-testid="sync-queued"
+        title="Queued"
+        className={queued > 0 ? 'text-warning' : undefined}
+      >
         ↑{queued}
       </span>
       <span

@@ -210,9 +210,9 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
       </div>
       {/* right-anchored live readout so it never sits under the thumb (which
           starts at the LEFT) and is never clipped by overflow-hidden. */}
-      <div className="pointer-events-none relative z-20 ml-auto mr-5 flex flex-col items-end text-right">
+      <div className="pointer-events-none relative z-20 ml-auto mr-6 flex flex-col items-end text-right">
         <div className="flex items-baseline gap-1">
-          <span className="text-4xl font-bold tabular-nums leading-none">{rate}</span>
+          <span className="text-3xl font-bold tabular-nums leading-none sm:text-4xl">{rate}</span>
           <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             {unitLabel}
           </span>

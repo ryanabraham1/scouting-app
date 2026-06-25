@@ -148,13 +148,16 @@ export default function QrReceiveScreen() {
   return (
     <div
       data-testid="qr-receive"
-      className="flex min-h-screen flex-col bg-background p-4 text-foreground sm:p-6"
+      className="flex min-h-screen flex-col bg-background px-safe py-safe text-foreground"
     >
       <header className="mb-4 flex items-center gap-3">
         <BackLink to="/scout" label="Back" icon="back" />
-        <Camera className="size-7 shrink-0 text-primary" aria-hidden />
-        <div>
-          <h1 className="text-xl font-bold leading-tight sm:text-2xl">Receive over QR</h1>
+        <Camera
+          className={`size-7 shrink-0 ${phase === 'error' ? 'text-destructive' : 'text-brand'}`}
+          aria-hidden
+        />
+        <div className="min-w-0">
+          <h1 className="break-words text-xl font-bold leading-tight sm:text-2xl">Receive over QR</h1>
           <p className="text-sm text-muted-foreground">
             Point at the sending device&apos;s screen. Keep both still until every frame is
             captured.
@@ -174,9 +177,9 @@ export default function QrReceiveScreen() {
         ) : phase === 'done' ? (
           <div
             data-testid="qr-receive-done"
-            className="flex max-w-md flex-col items-center gap-3 rounded-xl border border-primary/50 bg-primary/10 p-6 text-center"
+            className="flex max-w-md flex-col items-center gap-3 rounded-xl border border-success/50 bg-success/10 p-6 text-center"
           >
-            <CheckCircle2 className="size-10 shrink-0 text-primary" aria-hidden />
+            <CheckCircle2 className="size-10 shrink-0 text-success" aria-hidden />
             <p className="text-lg font-semibold">
               Received and uploaded {ingested ?? 0} report{ingested === 1 ? '' : 's'}.
             </p>
@@ -189,7 +192,7 @@ export default function QrReceiveScreen() {
             <video
               ref={videoRef}
               data-testid="qr-receive-video"
-              className="aspect-square w-full max-w-sm rounded-xl bg-black object-cover landscape:h-[min(70vh,22rem)] landscape:w-auto"
+              className="aspect-square w-full max-w-sm rounded-xl bg-black object-cover landscape:h-[min(60vh,20rem)] landscape:w-auto"
               autoPlay
               muted
               playsInline
@@ -197,13 +200,15 @@ export default function QrReceiveScreen() {
             <div className="flex flex-col items-center gap-2 landscape:items-start">
               <span
                 data-testid="qr-receive-progress"
-                className="text-2xl font-bold tabular-nums"
+                className={`text-2xl font-bold tabular-nums ${
+                  total !== null && received >= total ? 'text-success' : 'text-brand'
+                }`}
               >
                 {received}/{total ?? '?'}
               </span>
               <span className="text-sm text-muted-foreground">blocks decoded</span>
               {phase === 'ingesting' && (
-                <p className="text-sm font-medium text-primary">Uploading received reports…</p>
+                <p className="text-sm font-medium text-energy">Uploading received reports…</p>
               )}
             </div>
           </>

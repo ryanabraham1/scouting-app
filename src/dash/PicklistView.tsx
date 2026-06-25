@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { getPicklist, savePicklist, type PicklistEntry } from '@/dash/picklistClient';
 import { downloadText, picklistToCsv } from '@/dash/exportDash';
 
@@ -129,7 +130,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
           <CardTitle>Picklist</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             {saved ? (
-              <span data-testid="pick-saved" className="text-xs text-emerald-400">
+              <span data-testid="pick-saved" className="text-xs text-success">
                 Saved
               </span>
             ) : null}
@@ -196,37 +197,60 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                 <li
                   key={e.teamNumber}
                   data-testid={`pick-row-${e.teamNumber}`}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/40 p-2"
+                  className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-border/60 bg-background/40 p-2 sm:flex sm:flex-nowrap"
                 >
-                  <span className="w-6 shrink-0 text-right tabular-nums text-muted-foreground">
+                  <span
+                    className={cn(
+                      'w-6 shrink-0 text-right tabular-nums',
+                      i < 3 ? 'font-semibold text-brand' : 'text-muted-foreground',
+                    )}
+                  >
                     {i + 1}
                   </span>
-                  <span className="w-16 shrink-0 font-medium tabular-nums">{e.teamNumber}</span>
+                  <span className="min-w-0 shrink-0 font-medium tabular-nums sm:w-16">
+                    {e.teamNumber}
+                  </span>
 
-                  <div className="flex shrink-0 gap-1">
+                  {/* Move / remove controls: a contained group so on mobile they
+                      sit together on their own grid row instead of wrapping the
+                      destructive ✕ off on its own line. */}
+                  <div className="col-start-3 row-span-2 flex shrink-0 items-center gap-1 sm:row-span-1 sm:contents">
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        data-testid={`pick-up-${e.teamNumber}`}
+                        onClick={() => move(i, -1)}
+                        disabled={i === 0}
+                        aria-label={`Move team ${e.teamNumber} up`}
+                        className="h-11 w-11"
+                      >
+                        ↑
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        data-testid={`pick-down-${e.teamNumber}`}
+                        onClick={() => move(i, 1)}
+                        disabled={i === entries.length - 1}
+                        aria-label={`Move team ${e.teamNumber} down`}
+                        className="h-11 w-11"
+                      >
+                        ↓
+                      </Button>
+                    </div>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="destructive"
                       size="icon"
-                      data-testid={`pick-up-${e.teamNumber}`}
-                      onClick={() => move(i, -1)}
-                      disabled={i === 0}
-                      aria-label={`Move team ${e.teamNumber} up`}
-                      className="h-11 w-11"
+                      data-testid={`pick-remove-${e.teamNumber}`}
+                      onClick={() => removeTeam(e.teamNumber)}
+                      aria-label={`Remove team ${e.teamNumber}`}
+                      className="h-11 w-11 shrink-0 sm:order-last"
                     >
-                      ↑
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      data-testid={`pick-down-${e.teamNumber}`}
-                      onClick={() => move(i, 1)}
-                      disabled={i === entries.length - 1}
-                      aria-label={`Move team ${e.teamNumber} down`}
-                      className="h-11 w-11"
-                    >
-                      ↓
+                      ✕
                     </Button>
                   </div>
 
@@ -237,7 +261,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                     onChange={(ev) => updateField(e.teamNumber, 'tier', ev.target.value)}
                     placeholder="Tier"
                     aria-label={`Tier for team ${e.teamNumber}`}
-                    className="h-11 w-20"
+                    className="col-span-2 h-11 w-full sm:w-20"
                   />
                   <Input
                     type="text"
@@ -246,20 +270,8 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                     onChange={(ev) => updateField(e.teamNumber, 'note', ev.target.value)}
                     placeholder="Note"
                     aria-label={`Note for team ${e.teamNumber}`}
-                    className="h-11 min-w-[8rem] flex-1"
+                    className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
                   />
-
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="icon"
-                    data-testid={`pick-remove-${e.teamNumber}`}
-                    onClick={() => removeTeam(e.teamNumber)}
-                    aria-label={`Remove team ${e.teamNumber}`}
-                    className="h-11 w-11 shrink-0"
-                  >
-                    ✕
-                  </Button>
                 </li>
               ))}
             </ul>

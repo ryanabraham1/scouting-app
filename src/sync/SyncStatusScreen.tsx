@@ -127,18 +127,18 @@ export default function SyncStatusScreen(): JSX.Element {
   const noActiveEvent = data !== null && !data.eventKey;
 
   return (
-    <main data-testid="sync-status" className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-6">
+    <main data-testid="sync-status" className="mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6">
       <div className="flex items-center gap-3">
         <BackLink to="/" label="Home" icon="home" />
         <h1 className="text-2xl font-bold">Sync status</h1>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Server coverage</CardTitle>
+          <CardTitle className="text-xl text-brand">Server coverage</CardTitle>
         </CardHeader>
         <CardContent>
           {noActiveEvent ? (
-            <p className="text-sm text-muted-foreground">No active event.</p>
+            <p className="text-sm text-warning">No active event.</p>
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No assignments or reports yet.</p>
           ) : (
@@ -151,23 +151,25 @@ export default function SyncStatusScreen(): JSX.Element {
                     data-testid={`sync-match-${m.matchKey}`}
                     className="flex flex-col gap-1 rounded-lg border p-3 text-sm"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <span className="w-16 shrink-0 font-mono font-semibold">{m.matchKey}</span>
                       <span
-                        className={`rounded px-1.5 py-0.5 font-mono ${
-                          complete ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+                        className={`rounded-full border px-2 py-0.5 font-mono text-xs ${
+                          complete
+                            ? 'border-success/40 bg-success/15 text-success'
+                            : 'border-warning/40 bg-warning/15 text-warning'
                         }`}
                       >
                         {m.received}/{m.expected}
                       </span>
-                      <span className="ml-auto text-xs text-muted-foreground">
+                      <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">
                         {m.latestReceivedAt
                           ? new Date(m.latestReceivedAt).toLocaleString()
                           : 'none received'}
                       </span>
                     </div>
                     {m.missing.length > 0 ? (
-                      <div className="text-xs text-destructive">
+                      <div className="text-xs font-medium text-destructive [overflow-wrap:anywhere]">
                         Missing:{' '}
                         {m.missing
                           .map((x) => `#${x.targetTeamNumber}`)

@@ -201,17 +201,26 @@ export default function TeamTimeline({
             aria-hidden
           />
         </div>
-        {/* Second-tick axis. */}
+        {/* Second-tick axis. Inset the end ticks so the 0s / final labels don't
+            clip off the track edges on a narrow (390px) phone: align the first
+            tick to its left edge and the last to its right edge. */}
         <div className="relative mt-1 h-4 w-full text-sm tabular-nums text-muted-foreground">
-          {ticks.map((ms) => (
-            <span
-              key={ms}
-              className="absolute top-0 -translate-x-1/2"
-              style={{ left: pct(fractionOfMatch(ms)) }}
-            >
-              {secs(ms)}
-            </span>
-          ))}
+          {ticks.map((ms, i) => {
+            const isFirst = i === 0;
+            const isLast = i === ticks.length - 1;
+            return (
+              <span
+                key={ms}
+                className={cn(
+                  'absolute top-0',
+                  isFirst ? 'translate-x-0' : isLast ? '-translate-x-full' : '-translate-x-1/2',
+                )}
+                style={{ left: pct(fractionOfMatch(ms)) }}
+              >
+                {secs(ms)}
+              </span>
+            );
+          })}
         </div>
       </div>
       <Legend />

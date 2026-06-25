@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Mountain,
   Shield,
@@ -29,6 +29,27 @@ const STEPS = [
 const STEP_TITLES = STEPS.map((s) => s.title);
 const TOTAL_STEPS = STEPS.length;
 
+/**
+ * True when the viewport is in portrait orientation. Drives the Step 4 auto-path
+ * field: portrait → render ROTATED 90° (tall + big) so the wide field becomes a
+ * large tracing surface instead of a ~150px band; landscape → render normally.
+ */
+function useIsPortrait(): boolean {
+  const [portrait, setPortrait] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return true;
+    return window.matchMedia('(orientation: portrait)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(orientation: portrait)');
+    const onChange = (): void => setPortrait(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return portrait;
+}
+
 export function ReviewScreen(props: {
   session: ReturnType<typeof useCaptureSession>;
   onSaved: (id: string) => void;
@@ -41,6 +62,7 @@ export function ReviewScreen(props: {
 }) {
   const s = props.session;
   const [step, setStep] = useState(0); // 0-indexed; UI shows step + 1
+  const isPortrait = useIsPortrait();
 
   const agg = computeAggregates({
     schemaVersion: SCHEMA_VERSION,
@@ -72,7 +94,7 @@ export function ReviewScreen(props: {
   const labelClass = 'flex flex-col gap-1 text-sm font-medium text-muted-foreground landscape:gap-1.5';
 
   return (
-    <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background p-3 text-foreground landscape:gap-3 landscape:p-3">
+    <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground landscape:gap-3">
       {/* Stepper / progress */}
       <header className="flex shrink-0 flex-col gap-1.5 landscape:gap-2">
         <div className="flex items-center justify-between gap-2">
@@ -149,7 +171,7 @@ export function ReviewScreen(props: {
                 <Button
                   size="big"
                   variant={s.climbSuccess ? 'default' : 'outline'}
-                  className="px-2 landscape:px-6"
+                  className={`px-2 landscape:px-6 ${s.climbSuccess ? 'bg-success text-success-foreground hover:bg-success' : ''}`}
                   onClick={() => s.setClimbSuccess(!s.climbSuccess)}
                 >
                   {s.climbSuccess && <Check />}
@@ -168,19 +190,29 @@ export function ReviewScreen(props: {
                 <Shield className="size-5 text-brand" />
                 Intake sources
               </p>
-              <div className="grid grid-cols-3 gap-2">
-                {INTAKE.map((src) => (
-                  <Button
-                    key={src}
-                    size="big"
-                    variant={s.intakeSources.includes(src) ? 'default' : 'outline'}
-                    className="truncate px-2 text-sm landscape:px-6"
-                    onClick={() => toggleIntake(src)}
-                  >
-                    {s.intakeSources.includes(src) && <Check />}
-                    <span className="truncate">{src}</span>
-                  </Button>
-                ))}
+              <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3">
+                {INTAKE.map((src) => {
+                  const selected = s.intakeSources.includes(src);
+                  // Tone by meaning, echoing the live slider colors: human_feed →
+                  // brand (cyan, the FEED slider) / depot · neutral → energy (orange,
+                  // the FUEL slider).
+                  const activeTone =
+                    src === 'human_feed'
+                      ? 'bg-brand text-brand-foreground hover:bg-brand'
+                      : 'bg-energy text-energy-foreground hover:bg-energy';
+                  return (
+                    <Button
+                      key={src}
+                      size="big"
+                      variant={selected ? 'default' : 'outline'}
+                      className={`truncate px-2 text-sm landscape:px-6 ${selected ? activeTone : ''}`}
+                      onClick={() => toggleIntake(src)}
+                    >
+                      {selected && <Check />}
+                      <span className="truncate">{src}</span>
+                    </Button>
+                  );
+                })}
               </div>
             </div>
             <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
@@ -196,7 +228,7 @@ export function ReviewScreen(props: {
                     onChange={(e) =>
                       s.setDefenseDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))
                     }
-                    className={inputClass}
+                    className={`${inputClass} ${s.defenseDurationMs > 0 ? 'border-brand text-brand' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
@@ -210,7 +242,7 @@ export function ReviewScreen(props: {
                     onChange={(e) =>
                       s.setDefendedDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))
                     }
-                    className={inputClass}
+                    className={`${inputClass} ${s.defendedDurationMs > 0 ? 'border-warning text-warning' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
@@ -254,7 +286,7 @@ export function ReviewScreen(props: {
                     min={0}
                     value={s.foulsMinor}
                     onChange={(e) => s.setFoulsMinor(Number(e.target.value))}
-                    className={inputClass}
+                    className={`${inputClass} ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
@@ -264,7 +296,7 @@ export function ReviewScreen(props: {
                     min={0}
                     value={s.foulsMajor}
                     onChange={(e) => s.setFoulsMajor(Number(e.target.value))}
-                    className={inputClass}
+                    className={`${inputClass} ${s.foulsMajor > 0 ? 'border-destructive text-destructive' : ''}`}
                   />
                 </label>
               </div>
@@ -274,17 +306,18 @@ export function ReviewScreen(props: {
               <div className="grid grid-cols-2 gap-2 landscape:grid-cols-3">
                 {(
                   [
-                    ['No show', s.noShow, s.setNoShow],
-                    ['Died', s.died, s.setDied],
-                    ['Tipped', s.tipped, s.setTipped],
-                    ['Dropped', s.droppedFuel, s.setDroppedFuel],
-                  ] as [string, boolean, (v: boolean) => void][]
-                ).map(([label, val, set]) => (
+                    // Hard failures → destructive; recoverable mishaps → warning.
+                    ['No show', s.noShow, s.setNoShow, 'bg-destructive text-destructive-foreground hover:bg-destructive'],
+                    ['Died', s.died, s.setDied, 'bg-destructive text-destructive-foreground hover:bg-destructive'],
+                    ['Tipped', s.tipped, s.setTipped, 'bg-warning text-warning-foreground hover:bg-warning'],
+                    ['Dropped', s.droppedFuel, s.setDroppedFuel, 'bg-warning text-warning-foreground hover:bg-warning'],
+                  ] as [string, boolean, (v: boolean) => void, string][]
+                ).map(([label, val, set, activeTone]) => (
                   <Button
                     key={label}
                     size="big"
                     variant={val ? 'default' : 'outline'}
-                    className="text-sm"
+                    className={`text-sm ${val ? activeTone : ''}`}
                     onClick={() => set(!val)}
                   >
                     {val && <Check />}
@@ -310,11 +343,20 @@ export function ReviewScreen(props: {
                   (start position shown)
                 </span>
               </p>
-              {/* Now the only diagram on this step, so it gets the full width
-                  (capped for comfortable tracing). */}
-              <div className="mx-auto w-full max-w-[480px] landscape:max-w-[680px]">
+              {/* The only diagram on this step. In portrait the very wide field is
+                  rotated 90° (tall + big) so tracing the path with a finger is
+                  accurate; in landscape it gets the full width (capped). */}
+              <div
+                className={
+                  isPortrait
+                    ? 'mx-auto flex h-[55dvh] w-full justify-center'
+                    : 'mx-auto w-full max-w-[480px] landscape:max-w-[680px]'
+                }
+              >
                 <FieldDiagram
                   mode="draw-path"
+                  rotate={isPortrait}
+                  fillHeight={isPortrait}
                   startPosition={s.autoStartPosition}
                   path={s.autoPath}
                   onPathChange={(pts: FieldPoint[]) => s.setAutoPath(pts)}
@@ -338,13 +380,13 @@ export function ReviewScreen(props: {
               </p>
               <div className="grid grid-cols-2 gap-y-1.5 landscape:gap-y-2">
                 <span className="text-muted-foreground">Auto fuel</span>
-                <span className="text-right tabular-nums">{agg.autoFuel}</span>
+                <span className="text-right tabular-nums text-energy">{agg.autoFuel}</span>
                 <span className="text-muted-foreground">Teleop active</span>
-                <span className="text-right tabular-nums">{agg.teleopFuelActive}</span>
+                <span className="text-right tabular-nums text-energy">{agg.teleopFuelActive}</span>
                 <span className="text-muted-foreground">Teleop inactive</span>
-                <span className="text-right tabular-nums">{agg.teleopFuelInactive}</span>
+                <span className="text-right tabular-nums text-energy/70">{agg.teleopFuelInactive}</span>
                 <span className="text-muted-foreground">Endgame fuel</span>
-                <span className="text-right tabular-nums">{agg.endgameFuel}</span>
+                <span className="text-right tabular-nums text-energy">{agg.endgameFuel}</span>
                 <span className="text-muted-foreground">By shift</span>
                 <span className="text-right tabular-nums">{agg.fuelByShift.join(' / ')}</span>
                 <span className="text-base font-semibold">Fuel points</span>
@@ -366,6 +408,7 @@ export function ReviewScreen(props: {
 
               <Button
                 data-testid="review-save"
+                variant="success"
                 size="xl"
                 className="w-full"
                 onClick={() => void onSave()}

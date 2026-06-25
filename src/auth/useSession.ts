@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { ScoutRow } from './scoutRow';
+import { rememberScoutIdentity } from '@/roster/scoutIdentityCache';
 
 export interface UseSessionResult {
   session: Session | null;
@@ -39,6 +40,15 @@ function writeCachedScout(row: ScoutRow | null): void {
  */
 export function clearCachedScout(): void {
   writeCachedScout(null);
+}
+
+/**
+ * Persist a server-confirmed scout row so a reload stays signed in (even
+ * offline). Used by selectScouter after a pick — online OR via the offline
+ * identity cache — so the device doesn't fall back to the name picker on reload.
+ */
+export function cacheScoutRow(row: ScoutRow): void {
+  writeCachedScout(row);
 }
 
 /**
@@ -110,6 +120,9 @@ export function useSession(): UseSessionResult {
         } else if (s) {
           setScout(s);
           writeCachedScout(s);
+          // Durably remember this name→row so the scout can re-pick it offline
+          // (survives log-out, unlike cached_scout_row above).
+          rememberScoutIdentity(s);
         } else {
           // Definitively no row for this uid.
           setScout(null);

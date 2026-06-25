@@ -15,6 +15,10 @@ const buttonVariants = cva(
         secondary: 'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
+        // Primary "capture / go" action in the app's brand cyan. Use for the
+        // single highest-intent control on a screen (Start capture, Reload).
+        brand: 'bg-brand text-brand-foreground shadow hover:bg-brand/90',
+        success: 'bg-success text-success-foreground shadow hover:bg-success/90',
       },
       size: {
         default: 'h-10 px-4 py-2',

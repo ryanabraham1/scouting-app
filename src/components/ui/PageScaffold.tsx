@@ -28,7 +28,7 @@ export function PageScaffold({
   return (
     <div className={cn('flex min-h-screen flex-col bg-background text-foreground', className)}>
       {(title || actions || toolbar) && (
-        <header className="sticky top-0 z-30 flex flex-col gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
+        <header className="sticky top-0 z-30 flex flex-col gap-3 border-b border-border bg-background/95 px-safe py-3 pt-safe backdrop-blur">
           {(title || actions) && (
             <div className="flex items-center justify-between gap-3">
               {title ? <h1 className="truncate text-xl font-bold">{title}</h1> : <span />}
@@ -38,7 +38,7 @@ export function PageScaffold({
           {toolbar}
         </header>
       )}
-      <main className={cn('flex-1 p-4', contentClassName)}>{children}</main>
+      <main className={cn('flex-1 px-safe py-4 pb-safe', contentClassName)}>{children}</main>
     </div>
   );
 }

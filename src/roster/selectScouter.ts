@@ -4,6 +4,8 @@
 // remember the chosen name locally so the device skips the picker on reload.
 import { supabase } from '@/lib/supabase';
 import type { ScoutRow } from '@/auth/scoutRow';
+import { cacheScoutRow } from '@/auth/useSession';
+import { getCachedScoutIdentity, rememberScoutIdentity } from '@/roster/scoutIdentityCache';
 
 const REMEMBER_KEY = 'my_scouter_name';
 // Durable "this device logged out" flag. The device's anonymous auth.uid stays
@@ -65,26 +67,74 @@ function clearLoggedOutFlag(): void {
   }
 }
 
-/**
- * Bind this device to `name` for `eventKey` and return the resolved scout row.
- * Persists the chosen name locally on success.
- */
-export async function selectScouter(eventKey: string, name: string): Promise<ScoutRow> {
-  const { data, error } = await supabase.rpc('select_scouter', {
-    p_event_key: eventKey,
-    p_name: name,
-  });
-  if (error) {
-    throw new Error(error.message);
-  }
-  // The RPC `returns scout`; supabase-js may surface it as a single row or a
-  // one-element array depending on the function shape.
-  const row = (Array.isArray(data) ? data[0] : data) as ScoutRow | null;
-  if (!row) {
-    throw new Error('select_scouter returned no row');
-  }
+// Network/transport failure (offline) vs. a real server-side rejection. We fall
+// back to the offline identity cache ONLY for the former — a genuine RPC error
+// (bad name, RLS, etc.) must still surface. supabase-js surfaces a dropped
+// connection either by throwing a TypeError or by returning an error whose
+// message reads "Failed to fetch"/"Load failed"/"NetworkError"; and the browser
+// may already know it's offline via navigator.onLine.
+function isOfflineLike(err: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (err instanceof TypeError) return true;
+  // Match the network-failure phrasings across browsers (Chrome "Failed to
+  // fetch", Firefox "NetworkError", Safari "Load failed", RN "Network request
+  // failed"). Deliberately NOT a bare "fetch" so an online server error that
+  // merely mentions fetch isn't misclassified as offline.
+  const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase();
+  return /failed to fetch|networkerror|network request failed|load failed/.test(msg);
+}
+
+// Persist a successful (or cache-restored) pick so the device stays signed in
+// and can re-pick this name offline later.
+function commitSelection(row: ScoutRow, name: string): void {
   rememberScouterName(name);
   // A successful pick supersedes any prior log-out on this device.
   clearLoggedOutFlag();
+  // Durable name→row map for offline re-selection, and keep the device signed
+  // in across reloads (cached_scout_row).
+  rememberScoutIdentity(row);
+  cacheScoutRow(row);
+}
+
+/**
+ * Bind this device to `name` for `eventKey` and return the resolved scout row.
+ * Persists the chosen name locally on success.
+ *
+ * Offline-resilient: if the select_scouter RPC can't reach the server, fall
+ * back to this device's cached identity for (eventKey, name) — the real scout
+ * row from a prior online sign-in. This is what lets an accidentally-logged-out
+ * scout get back into their assignments with no wifi. If the name was never
+ * signed in on this device, we surface a friendly "connect once" message
+ * instead of a raw "Failed to fetch".
+ */
+export async function selectScouter(eventKey: string, name: string): Promise<ScoutRow> {
+  let row: ScoutRow | null = null;
+  try {
+    const { data, error } = await supabase.rpc('select_scouter', {
+      p_event_key: eventKey,
+      p_name: name,
+    });
+    if (error) throw new Error(error.message);
+    // The RPC `returns scout`; supabase-js may surface it as a single row or a
+    // one-element array depending on the function shape.
+    row = (Array.isArray(data) ? data[0] : data) as ScoutRow | null;
+  } catch (err) {
+    if (isOfflineLike(err)) {
+      const cached = getCachedScoutIdentity(eventKey, name);
+      if (cached) {
+        commitSelection(cached, name);
+        return cached;
+      }
+      throw new Error(
+        `You're offline and this device hasn't signed in as "${name}" yet. ` +
+          'Connect to the internet once to sign in, then it works offline.',
+      );
+    }
+    throw err instanceof Error ? err : new Error('Failed to select scouter.');
+  }
+  if (!row) {
+    throw new Error('select_scouter returned no row');
+  }
+  commitSelection(row, name);
   return row;
 }

@@ -5,6 +5,9 @@ export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
   icon?: React.ReactNode;
+  /** Extra classes applied only when this option is selected (e.g. a semantic
+      tint like `text-brand` / `text-energy` so the active mode is glanceable). */
+  activeClassName?: string;
 }
 
 export interface SegmentedToggleProps<T extends string> {
@@ -50,7 +53,7 @@ export function SegmentedToggle<T extends string>({
               'inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 font-semibold transition-colors [&_svg]:size-5',
               size === 'big' ? 'min-h-[52px] text-base' : 'min-h-[40px] text-sm',
               selected
-                ? 'border border-border bg-background text-foreground shadow-sm'
+                ? cn('border border-border bg-background text-foreground shadow-sm', opt.activeClassName)
                 : 'border border-transparent text-muted-foreground hover:bg-background/50 hover:text-foreground',
             )}
           >

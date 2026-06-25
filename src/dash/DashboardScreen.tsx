@@ -73,7 +73,7 @@ export default function DashboardScreen(): JSX.Element {
   return (
     <div
       data-testid="dashboard"
-      className="flex min-h-screen flex-col gap-4 bg-background p-4 text-foreground"
+      className="flex min-h-screen flex-col gap-4 bg-background px-safe py-safe text-foreground"
     >
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">

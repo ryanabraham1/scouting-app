@@ -63,6 +63,11 @@ export function LineChart({
   const ticks = Array.from({ length: yTicks + 1 }, (_, i) => (max / yTicks) * i);
   const linePath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(d.value)}`).join(' ');
 
+  // Thin dense x-axis labels so they don't collide on a 390px phone: show every
+  // Nth label, always keeping the first and last.
+  const labelStride = Math.ceil(data.length / 8);
+  const showLabel = (i: number) => i % labelStride === 0 || i === data.length - 1;
+
   return (
     <figure data-testid={testid} className="m-0 w-full" role="group" aria-label={title}>
       {title ? (
@@ -70,8 +75,7 @@ export function LineChart({
       ) : null}
       <svg
         viewBox={`0 0 ${VB_W} ${VB_H}`}
-        className="block w-full tabular-nums"
-        preserveAspectRatio="none"
+        className="block aspect-[16/9] w-full tabular-nums"
         role="img"
       >
         {ticks.map((t) => {
@@ -114,15 +118,17 @@ export function LineChart({
             >
               <title>{`${d.label}: ${d.value}`}</title>
             </circle>
-            <text
-              x={xFor(i)}
-              y={VB_H - PAD_B + 12}
-              textAnchor="middle"
-              fontSize={8}
-              fill={CHART_COLORS.axis}
-            >
-              {d.label}
-            </text>
+            {showLabel(i) ? (
+              <text
+                x={xFor(i)}
+                y={VB_H - PAD_B + 12}
+                textAnchor="middle"
+                fontSize={8}
+                fill={CHART_COLORS.axis}
+              >
+                {d.label}
+              </text>
+            ) : null}
           </g>
         ))}
       </svg>

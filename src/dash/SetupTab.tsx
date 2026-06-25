@@ -139,7 +139,7 @@ export default function SetupTab(): JSX.Element {
           <span data-testid="setup-active-event" className="font-mono text-lg font-semibold">
             {activeEvent ?? '— none —'}
           </span>
-          {activeEvent && <CheckCircle2 className="size-5 text-green-500" />}
+          {activeEvent && <CheckCircle2 className="size-5 text-success" />}
         </div>
         <p className="text-xs text-muted-foreground">
           Importing an event makes it active and keeps it active across sessions and
@@ -153,7 +153,7 @@ export default function SetupTab(): JSX.Element {
         className="flex flex-col gap-2 rounded-lg border border-border p-3"
       >
         <div className="flex items-center gap-2">
-          <ArrowLeftRight className="size-4 text-muted-foreground" />
+          <ArrowLeftRight className="size-4 text-brand" />
           <span className="text-sm font-medium">Switch event</span>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -175,7 +175,7 @@ export default function SetupTab(): JSX.Element {
                     onClick={() => void makeActive(ev.event_key)}
                   >
                     <span className="flex min-w-0 flex-1 flex-col items-start text-left">
-                      <span className="font-mono font-semibold">{ev.event_key}</span>
+                      <span className="w-full truncate font-mono font-semibold">{ev.event_key}</span>
                       {ev.name ? (
                         <span className="w-full truncate text-xs font-normal opacity-80">
                           {ev.name}
@@ -203,7 +203,7 @@ export default function SetupTab(): JSX.Element {
         className="flex flex-col gap-2 rounded-lg border border-border p-3"
       >
         <div className="flex items-center gap-2">
-          <Users className="size-4 text-muted-foreground" />
+          <Users className="size-4 text-brand" />
           <span className="text-sm font-medium">Base team</span>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -220,10 +220,20 @@ export default function SetupTab(): JSX.Element {
             value={baseTeamInput}
             onChange={(e) => setBaseTeamInput(e.target.value)}
           />
-          <Button data-testid="setup-base-team-save" variant="outline" onClick={saveBaseTeam}>
+          <Button
+            data-testid="setup-base-team-save"
+            variant="outline"
+            onClick={saveBaseTeam}
+            className="h-11 shrink-0"
+          >
             Save
           </Button>
-          <Button data-testid="setup-base-team-reset" variant="ghost" onClick={resetBaseTeam}>
+          <Button
+            data-testid="setup-base-team-reset"
+            variant="ghost"
+            onClick={resetBaseTeam}
+            className="h-11 shrink-0"
+          >
             Reset to {DEFAULT_BASE_TEAM}
           </Button>
         </div>

@@ -156,6 +156,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             data-testid="auto-generate-btn"
             onClick={() => void onAutoGenerate()}
             disabled={matches.length === 0 || seeding}
+            variant="outline"
             className="h-11"
           >
             {seeding ? 'Loading scouters…' : 'Auto-generate'}
@@ -165,7 +166,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             data-testid="publish-assignments-btn"
             onClick={() => void onPublish()}
             disabled={busy || !generated}
-            variant="secondary"
+            variant="brand"
             className="h-11"
           >
             {busy ? 'Publishing…' : 'Publish'}
@@ -178,7 +179,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
           </p>
         ) : null}
         {published !== null ? (
-          <p data-testid="assignments-published" className="mt-4 text-sm text-emerald-400">
+          <p data-testid="assignments-published" className="mt-4 text-sm text-success">
             Published {published} assignment{published === 1 ? '' : 's'}.
           </p>
         ) : null}
@@ -191,13 +192,13 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
               return (
                 <div
                   key={key}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm"
+                  className="flex flex-col gap-2 rounded-lg border p-2 text-sm sm:flex-row sm:flex-wrap sm:items-center"
                 >
                   <span className="font-mono text-xs text-muted-foreground">
                     {s.matchKey.replace(`${eventKey}_`, '')}
                   </span>
                   <span
-                    className={`rounded px-1.5 py-0.5 font-mono ${
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono ${
                       s.allianceColor === 'red'
                         ? 'bg-red-500/15 text-red-400'
                         : 'bg-blue-500/15 text-blue-400'
@@ -210,7 +211,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                     data-testid="slot-select"
                     value={current}
                     onChange={(e) => setSlot(key, e.target.value)}
-                    className="ml-auto h-11 min-w-[8rem] rounded-md border bg-background px-2 text-sm"
+                    className="h-11 w-full rounded-md border bg-background px-2 text-sm sm:ml-auto sm:w-auto sm:max-w-[12rem]"
                     aria-label={`Scout for ${s.targetTeamNumber}`}
                   >
                     <option value="">— Unassigned —</option>

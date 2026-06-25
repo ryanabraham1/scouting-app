@@ -97,6 +97,7 @@ function RosterManager(): JSX.Element {
             size="big"
             data-testid="roster-add-btn"
             disabled={busy || name.trim().length === 0}
+            className="w-full sm:w-auto"
           >
             <Plus /> Add
           </Button>
