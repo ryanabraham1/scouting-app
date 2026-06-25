@@ -1,98 +1,182 @@
 // src/dash/__tests__/ScoutersTab.test.tsx
-// The merged Scouters hub: persistent roster CRUD (always available) plus an
-// event-scoped performance drill-down (ScouterView, shown only with an event).
+// The unified Scouters panel: ONE list merging the persistent roster with the
+// active event's scout rows. Covers add, the merged report counts + profile
+// drill-down, hide/unhide, and the global delete-by-name.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { MsrRow } from '@/dash/types';
+import type { ScoutRow } from '@/dash/useEventData';
 
 const listRoster = vi.fn();
 const addScouter = vi.fn();
-const removeScouter = vi.fn();
+const setScouterHidden = vi.fn();
+const deleteRosterScouter = vi.fn();
 
 vi.mock('@/roster/rosterClient', () => ({
-  listRoster: () => listRoster(),
+  listRoster: (opts?: { includeHidden?: boolean }) => listRoster(opts),
   addScouter: (name: string) => addScouter(name),
-  removeScouter: (id: string) => removeScouter(id),
+  setScouterHidden: (name: string, hidden: boolean) => setScouterHidden(name, hidden),
+  deleteRosterScouter: (name: string) => deleteRosterScouter(name),
 }));
 
-// Stub the drill-down so this test stays focused on the hub wiring.
-vi.mock('@/dash/ScouterView', () => ({
-  default: ({ eventKey }: { eventKey: string }) => (
-    <div data-testid="scouter-view" data-event={eventKey} />
-  ),
+const useEventScoutsMock = vi.fn();
+const useEventReportsMock = vi.fn();
+vi.mock('@/dash/useEventData', () => ({
+  useEventScouts: (eventKey: string | null) => useEventScoutsMock(eventKey),
+  useEventReports: (eventKey: string | null) => useEventReportsMock(eventKey),
 }));
 
 import ScoutersTab from '../ScoutersTab';
 
+function row(overrides: Partial<MsrRow>): MsrRow {
+  return {
+    target_team_number: 254,
+    match_key: '2026casnv_qm1',
+    alliance_color: 'red',
+    station: 1,
+    auto_fuel: 0,
+    teleop_fuel_active: 0,
+    teleop_fuel_inactive: 0,
+    endgame_fuel: 0,
+    fuel_points: 0,
+    fuel_estimate_confidence: 1,
+    fuel_by_shift: [0, 0, 0, 0],
+    climb_level: 0,
+    climb_attempted: false,
+    climb_success: false,
+    auto_left_starting_line: false,
+    auto_climb_level1: false,
+    defense_rating: 0,
+    pins: 0,
+    no_show: false,
+    died: false,
+    tipped: false,
+    dropped_fuel: false,
+    fed_corral: false,
+    auto_start_position: null,
+    auto_path: null,
+    scout_id: null,
+    notes: null,
+    server_received_at: '2026-06-23T00:00:00Z',
+    deleted: false,
+    ...overrides,
+  };
+}
+
+const scouts: ScoutRow[] = [
+  { id: 's1', display_name: 'Alice', event_key: '2026demo' },
+  { id: 's2', display_name: 'Bob', event_key: '2026demo' },
+];
+const reports: MsrRow[] = [
+  row({ scout_id: 's1', match_key: '2026demo_qm1', target_team_number: 254, fuel_points: 20 }),
+  row({ scout_id: 's1', match_key: '2026demo_qm2', target_team_number: 1678, fuel_points: 10 }),
+];
+
+function querySuccess<T>(data: T) {
+  return { data, isLoading: false, isError: false, isSuccess: true };
+}
+
+function renderTab(eventKey: string | null = '2026demo') {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <ScoutersTab eventKey={eventKey} />
+    </QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
   listRoster.mockReset().mockResolvedValue([
-    { id: 'a', name: 'Alice' },
-    { id: 'b', name: 'Bob' },
+    { id: 'a', name: 'Alice', hidden: false },
+    { id: 'b', name: 'Bob', hidden: false },
   ]);
   addScouter.mockReset().mockResolvedValue(undefined);
-  removeScouter.mockReset().mockResolvedValue(undefined);
+  setScouterHidden.mockReset().mockResolvedValue(undefined);
+  deleteRosterScouter.mockReset().mockResolvedValue(undefined);
+  useEventScoutsMock.mockReset().mockReturnValue(querySuccess(scouts));
+  useEventReportsMock.mockReset().mockReturnValue(querySuccess(reports));
 });
 
-describe('ScoutersTab', () => {
-  it('lists roster names from the roster client', async () => {
-    render(<ScoutersTab eventKey="2026demo" />);
+describe('ScoutersTab (unified)', () => {
+  it('merges roster names into a single list', async () => {
+    renderTab();
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
     expect(screen.getByText('Bob')).toBeInTheDocument();
   });
 
-  it('adds a scouter and refreshes the list', async () => {
-    render(<ScoutersTab eventKey="2026demo" />);
+  it('requests hidden scouters too (admin view)', async () => {
+    renderTab();
+    await waitFor(() => expect(listRoster).toHaveBeenCalledWith({ includeHidden: true }));
+  });
+
+  it('shows merged per-scouter report counts', async () => {
+    renderTab();
+    const item = await screen.findByTestId('scouter-item-Alice');
+    expect(item.textContent).toContain('2 reports');
+    expect((await screen.findByTestId('scouter-item-Bob')).textContent).toContain('0 reports');
+  });
+
+  it('adds a scouter and refreshes', async () => {
+    renderTab();
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
-
     listRoster.mockResolvedValueOnce([
-      { id: 'a', name: 'Alice' },
-      { id: 'b', name: 'Bob' },
-      { id: 'c', name: 'Carol' },
+      { id: 'a', name: 'Alice', hidden: false },
+      { id: 'b', name: 'Bob', hidden: false },
+      { id: 'c', name: 'Carol', hidden: false },
     ]);
-
-    fireEvent.change(screen.getByTestId('roster-name-input'), {
-      target: { value: 'Carol' },
-    });
+    fireEvent.change(screen.getByTestId('roster-name-input'), { target: { value: 'Carol' } });
     fireEvent.click(screen.getByTestId('roster-add-btn'));
-
     await waitFor(() => expect(addScouter).toHaveBeenCalledWith('Carol'));
     await waitFor(() => expect(screen.getByText('Carol')).toBeInTheDocument());
   });
 
   it('does not add a blank name', async () => {
-    render(<ScoutersTab eventKey="2026demo" />);
+    renderTab();
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
-    fireEvent.change(screen.getByTestId('roster-name-input'), {
-      target: { value: '   ' },
-    });
+    fireEvent.change(screen.getByTestId('roster-name-input'), { target: { value: '  ' } });
     fireEvent.click(screen.getByTestId('roster-add-btn'));
     expect(addScouter).not.toHaveBeenCalled();
   });
 
-  it('removes a scouter and refreshes the list', async () => {
-    render(<ScoutersTab eventKey="2026demo" />);
-    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
-
-    listRoster.mockResolvedValueOnce([{ id: 'b', name: 'Bob' }]);
-
-    fireEvent.click(screen.getByTestId('roster-remove-a'));
-
-    await waitFor(() => expect(removeScouter).toHaveBeenCalledWith('a'));
-    await waitFor(() => expect(screen.queryByText('Alice')).not.toBeInTheDocument());
+  it('opens a profile with stats on click', async () => {
+    renderTab();
+    fireEvent.click(await screen.findByTestId('scouter-open-Alice'));
+    const profile = screen.getByTestId('scouter-profile');
+    expect(within(profile).getByTestId('scouter-report-count').textContent).toContain('2');
+    expect(within(profile).getByTestId('scouter-avg-fuel').textContent).toContain('15');
   });
 
-  it('shows the event-scoped performance drill-down when an event is active', async () => {
-    render(<ScoutersTab eventKey="2026demo" />);
-    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
-    const view = screen.getByTestId('scouter-view');
-    expect(view).toBeInTheDocument();
-    expect(view.getAttribute('data-event')).toBe('2026demo');
-    expect(screen.queryByTestId('scouters-no-event')).toBeNull();
+  it('hides a scouter (keeps reports) via setScouterHidden', async () => {
+    renderTab();
+    fireEvent.click(await screen.findByTestId('scouter-hide-Alice'));
+    await waitFor(() => expect(setScouterHidden).toHaveBeenCalledWith('Alice', true));
   });
 
-  it('keeps roster usable but hides performance with a note when no event is active', async () => {
-    render(<ScoutersTab eventKey={null} />);
+  it('requires a confirm before deleting, then deletes globally by name', async () => {
+    renderTab();
+    fireEvent.click(await screen.findByTestId('scouter-remove-Alice'));
+    expect(screen.getByTestId('scouter-remove-confirm-Alice')).toBeTruthy();
+    expect(deleteRosterScouter).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('scouter-remove-confirm-Alice'));
+    await waitFor(() => expect(deleteRosterScouter).toHaveBeenCalledWith('Alice'));
+  });
+
+  it('surfaces a delete error', async () => {
+    deleteRosterScouter.mockRejectedValue(new Error('nope'));
+    renderTab();
+    fireEvent.click(await screen.findByTestId('scouter-remove-Alice'));
+    fireEvent.click(screen.getByTestId('scouter-remove-confirm-Alice'));
+    await waitFor(() =>
+      expect(screen.getByTestId('scouter-action-error').textContent).toContain('nope'),
+    );
+  });
+
+  it('keeps roster usable but hides report counts with a note when no event is active', async () => {
+    useEventScoutsMock.mockReturnValue(querySuccess([]));
+    useEventReportsMock.mockReturnValue(querySuccess([]));
+    renderTab(null);
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
-    expect(screen.queryByTestId('scouter-view')).toBeNull();
     expect(screen.getByTestId('scouters-no-event')).toBeInTheDocument();
   });
 });

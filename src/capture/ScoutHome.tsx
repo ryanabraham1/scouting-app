@@ -18,7 +18,7 @@ import { exportUnsyncedToFile } from '@/export/exportReports';
 import { SyncIndicator } from '@/sync/SyncIndicator';
 import { InstallPrompt } from '@/pwa/InstallPrompt';
 import { getStoredActiveEvent } from '@/dash/activeEventStore';
-import { listRoster, type RosterScouter } from '@/roster/rosterClient';
+import { listRoster } from '@/roster/rosterClient';
 import {
   selectScouter,
   forgetScouterName,
@@ -72,7 +72,10 @@ function CaptureFlow(props: { target: CaptureTarget; onDone: () => void; onExit:
 // Login-less identity: pick your name from the team roster. Tapping a name binds
 // this device (anonymous auth.uid) to a per-event scout row via select_scouter.
 function NamePicker(props: { eventKey: string; onPicked: (s: ScoutRow) => void }) {
-  const [roster, setRoster] = useState<RosterScouter[]>([]);
+  // Only id/name are used here; both the live roster (RosterScouter, which also
+  // carries `hidden`) and the offline cache (CachedRosterScouter) satisfy this.
+  // listRoster() already excludes hidden scouters, so the picker never offers one.
+  const [roster, setRoster] = useState<{ id: string; name: string }[]>([]);
   const [filter, setFilter] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
