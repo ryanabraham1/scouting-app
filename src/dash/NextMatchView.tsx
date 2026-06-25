@@ -6,9 +6,10 @@
 // breakdown (alliance expected points, win prob, source badges, auto routines)
 // stays below. Pure/injectable: the active event is passed via props.
 
-import { useMemo, useRef, useState } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Maximize2, Minimize2, LocateFixed } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useFullscreen } from '@/dash/useFullscreen';
 import {
@@ -33,6 +34,7 @@ import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
 import { OUR_TEAM } from '@/dash/constants';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
+import { trackedNextMatch } from '@/dash/nextMatch';
 import type { MsrRow } from '@/dash/types';
 
 export interface NextMatchViewProps {
@@ -535,25 +537,64 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       seasonRecord: null,
     };
 
-  // User-overridable selection. `null` means "follow the auto-picked next match";
-  // once the user picks, we pin to that match_key.
-  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
-
   const allMatches = useMemo(() => matchesQ.data ?? [], [matchesQ.data]);
   const sortedMatches = useMemo(() => sortMatchesForSelect(allMatches), [allMatches]);
-  const autoMatch = useMemo(
-    () => (allMatches.length ? pickNextMatch(allMatches, baseTeam) : null),
-    [allMatches, baseTeam],
+
+  // The live Nexus status (null when Nexus is unavailable) feeds match TRACKING:
+  // while tracking, we follow OUR next match as Nexus sees it, falling back to the
+  // schedule. Computed here (not just in the broadcast tiles) so the tracked match
+  // re-derives whenever live status changes.
+  const liveStatus = nexusLive ? nexus.status : null;
+
+  // OUR next match to TRACK — prefer live Nexus, else the schedule (then the
+  // first unplayed qm as a last resort so the prediction always has a match).
+  const trackedMatch = useMemo(
+    () =>
+      allMatches.length
+        ? trackedNextMatch(allMatches, baseTeam, liveStatus) ?? pickNextMatch(allMatches, baseTeam)
+        : null,
+    [allMatches, baseTeam, liveStatus],
   );
 
-  // Resolve the viewed match: pinned (if it still exists) else the auto-pick.
+  // Tracking mode: when true, the view auto-follows `trackedMatch` (and live-
+  // updates as Nexus reports a new next match). The first manual selection from
+  // the dropdown drops out of tracking and pins to the chosen match_key.
+  const [tracking, setTracking] = useState(true);
+  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
+
+  // While tracking, snap the selection to OUR next match whenever it changes.
+  // Only setState when the key actually differs to avoid a render loop.
+  const trackedKey = trackedMatch?.match_key ?? null;
+  useEffect(() => {
+    if (tracking && trackedKey && trackedKey !== pinnedKey) {
+      setPinnedKey(trackedKey);
+    }
+  }, [tracking, trackedKey, pinnedKey]);
+
+  // Resolve the viewed match: pinned (if it still exists) else the tracked pick.
   const match = useMemo(() => {
     if (pinnedKey) {
       const found = allMatches.find((m) => m.match_key === pinnedKey);
       if (found) return found;
     }
-    return autoMatch;
-  }, [pinnedKey, allMatches, autoMatch]);
+    return trackedMatch;
+  }, [pinnedKey, allMatches, trackedMatch]);
+
+  // Manual selection: pin to a match and stop auto-tracking.
+  const selectMatch = (key: string) => {
+    setTracking(false);
+    setPinnedKey(key);
+  };
+
+  // Re-enter tracking and snap back to OUR next match.
+  const startTracking = () => {
+    setTracking(true);
+    setPinnedKey(trackedKey);
+  };
+
+  // The selection has DRIFTED from what we'd track (manual mode pointing elsewhere,
+  // or a stale pin) — used to offer the "Track our next match" button.
+  const driftedFromTracked = !tracking || (trackedKey != null && match?.match_key !== trackedKey);
 
   const redTeams = match ? redTeamsOf(match) : [];
   const blueTeams = match ? blueTeamsOf(match) : [];
@@ -765,13 +806,34 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label htmlFor="dash-next-match-select" className="text-sm font-medium text-muted-foreground">
             Prediction for match
+            {tracking && match?.match_key === trackedKey ? (
+              <span
+                data-testid="dash-next-tracking"
+                className="ml-2 inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand"
+              >
+                <LocateFixed className="size-3" />
+                Tracking
+              </span>
+            ) : null}
           </label>
+          {driftedFromTracked && trackedKey ? (
+            <Button
+              type="button"
+              variant="brand"
+              size="sm"
+              data-testid="dash-next-track-btn"
+              onClick={startTracking}
+            >
+              <LocateFixed className="size-4" />
+              Track our next match
+            </Button>
+          ) : null}
         </div>
         <select
           id="dash-next-match-select"
           data-testid="dash-next-match-select"
           value={match.match_key}
-          onChange={(e) => setPinnedKey(e.target.value)}
+          onChange={(e) => selectMatch(e.target.value)}
           className={cn(
             'w-full max-w-xl rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground',
             'min-h-[44px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',

@@ -291,6 +291,63 @@ describe('NextMatchView', () => {
     expect(numbers).not.toContain(`dash-next-team-${OUR_TEAM}`);
   });
 
+  it('tracks OUR next match by default and snaps back via the Track button after a manual pick', () => {
+    setupHappyPath(true);
+    const { getByTestId, queryByTestId } = render(<NextMatchView eventKey="2026evt" />);
+
+    const selector = getByTestId('dash-next-match-select') as HTMLSelectElement;
+    // Default: tracking OUR next match (qm2) -> tracking chip shown, no Track button.
+    expect(selector.value).toBe('2026evt_qm2');
+    expect(getByTestId('dash-next-tracking')).toBeTruthy();
+    expect(queryByTestId('dash-next-track-btn')).toBeNull();
+
+    // Manual pick drops out of tracking -> chip gone, Track button offered.
+    fireEvent.change(selector, { target: { value: '2026evt_qm3' } });
+    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm3');
+    expect(queryByTestId('dash-next-tracking')).toBeNull();
+    const trackBtn = getByTestId('dash-next-track-btn');
+    expect(trackBtn).toBeTruthy();
+
+    // Clicking Track snaps back to OUR next match (qm2) and re-enters tracking.
+    fireEvent.click(trackBtn);
+    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm2');
+    expect(getByTestId('dash-next-tracking')).toBeTruthy();
+    expect(queryByTestId('dash-next-track-btn')).toBeNull();
+  });
+
+  it('live-follows the Nexus next match for our team while tracking', () => {
+    setupHappyPath(true);
+    // Nexus reports qm3-equivalent ("Qualification 3") as our next upcoming match.
+    // (qm3 in the fixture does NOT include 3256, so add 3256 to it via Nexus teams.)
+    useNexusEventStatusMock.mockReturnValue(
+      dataResult({
+        available: true,
+        status: {
+          eventKey: '2026evt',
+          dataAsOfTime: 1,
+          nowQueuing: null,
+          onField: null,
+          queuing: null,
+          matches: [],
+          upcoming: [
+            {
+              label: 'Qualification 3',
+              status: 'Now queuing',
+              redTeams: [OUR_TEAM, 777, 888],
+              blueTeams: [666, 555, 444],
+              times: { estimatedStartTime: null, estimatedQueueTime: null, estimatedOnDeckTime: null, estimatedOnFieldTime: null, actualQueueTime: null },
+            },
+          ],
+        },
+      }),
+    );
+
+    const { getByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    // While tracking, the view follows Nexus' next match (qm3) over the schedule (qm2).
+    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm3');
+    expect(getByTestId('dash-next-tracking')).toBeTruthy();
+  });
+
   it('renders the win-prob banner with BOTH red and blue percentages', () => {
     setupHappyPath(true);
     const { getByTestId } = render(<NextMatchView eventKey="2026evt" />);
