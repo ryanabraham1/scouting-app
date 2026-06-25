@@ -45,6 +45,28 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     setPool(scouts);
   }, [scouts]);
 
+  // Always seed the (non-hidden) roster into the event scout pool on mount, so
+  // EVERY scouter is assignable — not just whoever has already picked their name
+  // on a device. Previously the dropdown read only the `scout` table, so a fresh
+  // event showed just the lone device that had checked in (e.g. "E2E Capture").
+  // Seeding is idempotent server-side and excludes hidden scouters (migration
+  // 0020). Offline / empty-roster failures are non-fatal: we keep the props pool.
+  useEffect(() => {
+    if (!eventKey) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const seeded = await ensureEventScoutsFromRoster(eventKey);
+        if (!cancelled && seeded.length) setPool(seeded);
+      } catch {
+        /* offline or no roster yet — keep the scouts passed in via props */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventKey]);
+
   const slots = useMemo<Slot[]>(() => {
     const out: Slot[] = [];
     for (const m of matches) {
