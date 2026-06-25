@@ -211,9 +211,10 @@ export default function SetupTab(): JSX.Element {
           </span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Spin up a simulated event with fake teams and scouting data so you can
-          explore every feature — rankings, picklist, next-match prediction, team
-          profiles, and scouter performance — without a live event.
+          Spin up a simulated copy of a real event (2026 CA Silicon Valley) with
+          real teams and TBA-derived scouting data, so you can explore every
+          feature — rankings, picklist, next-match prediction, team profiles, EPA,
+          and scouter performance — without a live event.
         </p>
 
         {demoPresent ? (

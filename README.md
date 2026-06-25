@@ -94,21 +94,23 @@ support once data is flowing for an event.
 
 ### 7. Demo mode
 
-One toggle in **Setup → Demo mode** spins up a fully-simulated event (`2026demo`) so you can
-explore every feature without a live competition. It seeds ~30 teams (including 3256), a
-60-match qualification schedule with ~70% of matches played and scored, eight scouts, and
-hundreds of realistic scouting + pit reports — so rankings, the next-match prediction, team
-profiles, the match-report compare, and scouter performance all populate immediately. One
-click removes the demo event and all of its data.
+One toggle in **Setup → Demo mode** spins up a simulated event (`2026demo`) so you can explore
+every feature without a live competition. Crucially, it's a **separate copy of a real event**
+(2026 CA Silicon Valley) built from The Blue Alliance — **real team numbers and the real
+qualification schedule** — so team-scoped features that need outside data (TBA team info,
+nicknames, world rank, season record, and cross-event EPA) all resolve, not just the
+scouting-only views. Scouting reports for each match are **generated from the actual TBA
+results** (each alliance's score attributed across its teams), so rankings reflect real
+team strength. The next-match prediction, team profiles, match-report compare, and scouter
+performance all populate immediately. One click removes the demo event and all of its data.
 
-The data is generated server-side by an idempotent `seed_demo_event` `SECURITY DEFINER` RPC
-and torn down via `delete_event`, so demo mode never touches your real events.
+The demo is built server-side by an idempotent `seed-demo` Edge Function (it fetches the
+source event from TBA with a service-role client) and torn down via `delete_event`, so demo
+mode never touches your real events.
 
 ![Demo mode toggle in Setup](docs/screenshots/demo-setup.png)
 
-![Demo data — full team rankings](docs/screenshots/demo-ranking.png)
-
-![Demo data — team profile with scouting + pit data](docs/screenshots/demo-team.png)
+![Demo data — real team profile with TBA info, EPA, and TBA-derived scouting data](docs/screenshots/demo-team-real.png)
 
 ---
 
@@ -126,6 +128,7 @@ and torn down via `delete_event`, so demo mode never touches your real events.
   - `nexus-proxy` — FRC Nexus live field status
   - `import-event` — import an event's schedule and teams from TBA
   - `ingest-reports` — accept and store scouting reports
+  - `seed-demo` — build a demo event from a real TBA event with generated scouting data
 - **PWA** — `vite-plugin-pwa` for installability and offline document serving.
 
 External services degrade gracefully: every proxy returns an unavailability sentinel rather
