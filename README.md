@@ -50,17 +50,77 @@ breakdown of both alliances.
 
 ### 2. Offline-first match & pit scouting
 
-The scout's home shows their assigned matches, a manual match picker, resumable drafts, and
-QR-based transfer — all backed by IndexedDB so a flaky venue connection never costs a
-report. A single Match/Pit toggle covers both scouting modes.
+Everything below is the **scout's side** of the app — the screens a team member runs from
+their phone in the stands. They're built thumb-first for a real iPhone: big tap targets,
+no login wall, and IndexedDB underneath so a flaky venue connection never costs a report.
 
-![Scout home — assignments, drafts, QR sync, offline-ready](docs/screenshots/03-scout-home.png)
+#### Sign in with a tap — login-less identity
 
-Match capture starts on the actual **REBUILT** field: place the robot, then record FUEL,
-climbs, defense, and auto routines through fast slider-driven inputs designed for tracking a
-live match.
+There's no password. A scout picks their name from the event roster; that one tap binds the
+device's silent anonymous session to a per-event scout row, so RLS is satisfied without
+anyone ever creating an account. A type-to-filter box keeps it fast when the roster is long.
 
-![Match capture — place the robot on the REBUILT field](docs/screenshots/04-capture-field.png)
+<img src="docs/screenshots/scout-01-name-picker.png" alt="Scout name picker — pick your name from the roster" width="300" />
+
+#### Scout home — your matches, drafts, and sync at a glance
+
+The home screen leads with **the matches assigned to this scout** (with a To-scout /
+Completed split and the team they're watching highlighted), then a **manual pick** for
+one-offs and **resumable drafts** so an interrupted match is never lost. The header carries
+a live sync indicator (queued / failed counts), an "Offline data ready" badge, and one-tap
+**Send / Receive via QR**. A single **Match / Pit** toggle switches between the two modes.
+
+<img src="docs/screenshots/scout-02-scout-home.png" alt="Scout home — assignments, drafts, QR sync, offline-ready" width="300" />
+
+#### Match capture — place the robot on the REBUILT field
+
+Capture opens on the actual **REBUILT presented by Haas** field render. The scout taps where
+their robot starts, then submits to begin tracking the match — orienting the rest of the
+capture flow to that alliance and station.
+
+<img src="docs/screenshots/scout-03-place-robot.png" alt="Match capture — place the robot on the REBUILT field" width="300" />
+
+#### Live capture — slider-driven, built for a 2:30 match
+
+The live screen is tuned for tracking a fast match without looking away from the field:
+hold-and-slide **FUEL** and **FEED** rate sliders (banked vs. scored), one-tap **defense /
+getting-defended** interval timers, and quick actions for **fouls**, **leave line**, and
+**climbs** — all with a match clock, undo, and a running fuel/feed tally up top.
+
+<img src="docs/screenshots/scout-04-live-capture.png" alt="Live match capture — fuel/feed sliders, defense timers, climb actions" width="300" />
+
+#### Guided review — confirm before you submit
+
+After the match, a short **5-step review wizard** walks the scout through the things that are
+easy to misremember in the moment (climb level & outcome, defense seconds, the auto path, a
+final summary) so the saved report is clean. It saves locally first, then syncs.
+
+<img src="docs/screenshots/scout-05-review.png" alt="Post-match review wizard — climb, defense, auto, summary" width="300" />
+
+#### Pit scouting — the same app, Pit mode
+
+Flip the toggle to **Pit** and enter a team number to capture a robot's build: drivetrain,
+mechanisms, capability checkboxes (autonomous, climb levels, defense), intake sources, free
+notes, and a **robot photo**. Pit reports are offline-first and login-less too.
+
+<img src="docs/screenshots/scout-06-pit.png" alt="Pit scouting form — drivetrain, capabilities, intake, photo" width="300" />
+
+#### My Data — what this device has scouted
+
+Every scout can review the reports they've submitted from this device — match key, target
+team, and the key aggregates (fuel points, climb, defense / defended seconds) — to self-check
+their work and spot anything that looks off.
+
+<img src="docs/screenshots/scout-07-my-data.png" alt="My Data — reports submitted from this device" width="300" />
+
+#### QR transfer — move reports with no network at all
+
+When the venue Wi-Fi is gone entirely, a scout opens **Send via QR** and the unsynced reports
+stream out as an animated, fountain-coded QR sequence; the receiving device points its camera
+and reassembles them (the block counter tracks progress until every frame lands). It's a
+literal sneakernet for scouting data.
+
+<img src="docs/screenshots/scout-08-qr-send.png" alt="Send via QR — animated fountain-coded report transfer" width="300" />
 
 ### 3. Resilient sync — built to survive a bad venue network
 
