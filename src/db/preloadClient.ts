@@ -56,9 +56,13 @@ export async function preloadEventData(opts: {
       .eq('event_key', eventKey);
     if (res.error) throw new Error(res.error.message);
     const rows = (res.data as CachedMatch[] | null) ?? [];
-    // Clean refresh: drop this event's stale rows before writing fresh ones.
-    await db.cachedMatches.where('event_key').equals(eventKey).delete();
-    if (rows.length) await db.cachedMatches.bulkPut(rows);
+    // Clean refresh: drop this event's stale rows before writing fresh ones —
+    // but ONLY when the query returned data. A successful-but-empty response
+    // (transient race / inconsistency) must NOT wipe a good offline cache.
+    if (rows.length) {
+      await db.cachedMatches.where('event_key').equals(eventKey).delete();
+      await db.cachedMatches.bulkPut(rows);
+    }
     counts.matches = rows.length;
   } catch (err) {
     errors.push(`matches: ${errMsg(err, 'failed to preload matches')}`);
@@ -68,8 +72,12 @@ export async function preloadEventData(opts: {
   try {
     const roster = await listRoster();
     const rows: CachedRosterScouter[] = roster.map((r) => ({ id: r.id, name: r.name }));
-    await db.cachedRoster.clear();
-    if (rows.length) await db.cachedRoster.bulkPut(rows);
+    // Only replace the cached roster when we actually fetched names; never wipe
+    // it to empty on a successful-but-empty response.
+    if (rows.length) {
+      await db.cachedRoster.clear();
+      await db.cachedRoster.bulkPut(rows);
+    }
     counts.roster = rows.length;
   } catch (err) {
     errors.push(`roster: ${errMsg(err, 'failed to preload roster')}`);
@@ -97,8 +105,15 @@ export async function preloadEventData(opts: {
         target_team_number: a.target_team_number,
         event_key: a.event_key,
       }));
-      await db.cachedAssignments.where('scout_id').equals(scoutId).delete();
-      if (rows.length) await db.cachedAssignments.bulkPut(rows);
+      // Clean refresh, but only when the server actually returned assignments.
+      // This is the critical case: select_scouter re-points a scout's rows to a
+      // different scout_id, so for a brief window the queried id legitimately
+      // returns zero rows. Wiping here would permanently clear a scout's cached
+      // assignments mid-event (the "assignments disappear after a while" bug).
+      if (rows.length) {
+        await db.cachedAssignments.where('scout_id').equals(scoutId).delete();
+        await db.cachedAssignments.bulkPut(rows);
+      }
       counts.assignments = rows.length;
     } catch (err) {
       errors.push(`assignments: ${errMsg(err, 'failed to preload assignments')}`);
@@ -125,8 +140,12 @@ export async function preloadEventData(opts: {
         team_number: t.team_number,
         nickname: t.nickname ?? null,
       }));
-    await db.cachedTeams.where('event_key').equals(eventKey).delete();
-    if (rows.length) await db.cachedTeams.bulkPut(rows);
+    // Only refresh when teams came back; don't wipe to empty on a transient
+    // empty response.
+    if (rows.length) {
+      await db.cachedTeams.where('event_key').equals(eventKey).delete();
+      await db.cachedTeams.bulkPut(rows);
+    }
     counts.teams = rows.length;
   } catch (err) {
     errors.push(`teams: ${errMsg(err, 'failed to preload teams')}`);
