@@ -22,6 +22,13 @@ function Host(props: { onToReview?: () => void }) {
   return <CaptureScreen session={session} onToReview={props.onToReview ?? (() => {})} />;
 }
 
+// Lets a test drive the placement step for a specific alliance (which half of
+// the field the picker reveals).
+function AllianceHost({ allianceColor }: { allianceColor: 'red' | 'blue' }) {
+  const session = useCaptureSession({ ...target, allianceColor });
+  return <CaptureScreen session={session} onToReview={() => {}} />;
+}
+
 beforeEach(async () => {
   await db.reports.clear();
   await db.drafts.clear();
@@ -66,6 +73,14 @@ describe('CaptureScreen placement step', () => {
     expect(screen.getByTestId('capture-field').getAttribute('data-mode')).toBe('pick-start');
     submitPlacement();
     expect(screen.getByTestId('capture-start')).toBeTruthy();
+  });
+
+  it('reveals only the team half of the field (red = left, blue = right)', () => {
+    const { unmount } = render(<AllianceHost allianceColor="red" />);
+    expect(screen.getByTestId('capture-half-clip').getAttribute('data-half')).toBe('left');
+    unmount();
+    render(<AllianceHost allianceColor="blue" />);
+    expect(screen.getByTestId('capture-half-clip').getAttribute('data-half')).toBe('right');
   });
 });
 

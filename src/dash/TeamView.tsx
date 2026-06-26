@@ -35,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
+import { foulReasonLabel } from '@/scoring/fouls';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
 import {
   useEventTeams,
@@ -799,6 +800,21 @@ function TeamDetail(props: {
                         <span>defense {m.defense_rating}</span>
                         <span>pins {m.pins}</span>
                       </div>
+                      {m.foul_reasons && m.foul_reasons.length > 0 ? (
+                        <div
+                          data-testid={`team-match-foul-reasons-${i}`}
+                          className="flex flex-wrap gap-1.5"
+                        >
+                          {m.foul_reasons.map((key) => (
+                            <span
+                              key={key}
+                              className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
+                            >
+                              {foulReasonLabel(key)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       {m.notes ? (
                         <span className="text-zinc-500">“{m.notes}”</span>
                       ) : null}

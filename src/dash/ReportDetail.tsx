@@ -19,6 +19,7 @@ import {
 import { StatTile } from '@/components/ui/StatTile';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
+import { foulReasonLabel } from '@/scoring/fouls';
 import type { MsrRow } from '@/dash/types';
 
 export interface ReportDetailProps {
@@ -152,6 +153,18 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
           <FlagPill label="Dropped fuel" on={r.dropped_fuel} />
           <FlagPill label="Fed corral" on={r.fed_corral} />
         </div>
+        {r.foul_reasons && r.foul_reasons.length > 0 && (
+          <div data-testid="report-foul-reasons" className="flex flex-wrap gap-1.5">
+            {r.foul_reasons.map((key) => (
+              <span
+                key={key}
+                className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
+              >
+                {foulReasonLabel(key)}
+              </span>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Notes */}

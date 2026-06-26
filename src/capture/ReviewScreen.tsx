@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
+import { FOUL_REASONS } from '@/scoring/fouls';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
 const CLIMB_LEVELS: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3];
@@ -75,6 +76,12 @@ export function ReviewScreen(props: {
   const toggleIntake = (src: string) => {
     const has = s.intakeSources.includes(src);
     s.setIntakeSources(has ? s.intakeSources.filter((x) => x !== src) : [...s.intakeSources, src]);
+  };
+
+  const foulReasons = s.foulReasons ?? [];
+  const toggleFoulReason = (key: string) => {
+    const has = foulReasons.includes(key);
+    s.setFoulReasons(has ? foulReasons.filter((x) => x !== key) : [...foulReasons, key]);
   };
 
   const onSave = async () => {
@@ -299,6 +306,36 @@ export function ReviewScreen(props: {
                     className={`${inputClass} ${s.foulsMajor > 0 ? 'border-destructive text-destructive' : ''}`}
                   />
                 </label>
+              </div>
+              {/* What were the fouls for? Advisory tags (the counts above stay the
+                  scoring source of truth). Multi-select — a robot can rack up more
+                  than one kind in a match. */}
+              <div className="mt-3" data-testid="review-foul-reasons">
+                <p className="mb-2 text-sm font-medium text-muted-foreground">
+                  What for? (optional)
+                </p>
+                <div className="grid grid-cols-2 gap-2 landscape:grid-cols-3">
+                  {FOUL_REASONS.map((reason) => {
+                    const selected = foulReasons.includes(reason.key);
+                    return (
+                      <Button
+                        key={reason.key}
+                        size="big"
+                        variant={selected ? 'default' : 'outline'}
+                        title={reason.hint}
+                        aria-pressed={selected}
+                        data-testid={`review-foul-reason-${reason.key}`}
+                        className={`h-auto min-h-12 whitespace-normal px-2 py-2 text-sm leading-tight ${
+                          selected ? 'bg-warning text-warning-foreground hover:bg-warning' : ''
+                        }`}
+                        onClick={() => toggleFoulReason(reason.key)}
+                      >
+                        {selected && <Check className="shrink-0" />}
+                        <span>{reason.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">

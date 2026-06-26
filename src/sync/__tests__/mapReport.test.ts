@@ -36,6 +36,7 @@ const EXPECTED_KEYS = [
   'pins',
   'fouls_minor',
   'fouls_major',
+  'foul_reasons',
   'no_show',
   'died',
   'tipped',
@@ -92,6 +93,7 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
     pins: 2,
     foulsMinor: 3,
     foulsMajor: 1,
+    foulReasons: ['pinning', 'damage'],
     noShow: false,
     died: true,
     tipped: false,
@@ -164,6 +166,7 @@ describe('toUpsertPayload', () => {
     expect(p.pins).toBe(2);
     expect(p.fouls_minor).toBe(3);
     expect(p.fouls_major).toBe(1);
+    expect(p.foul_reasons).toEqual(['pinning', 'damage']);
     expect(p.no_show).toBe(false);
     expect(p.died).toBe(true);
     expect(p.tipped).toBe(false);

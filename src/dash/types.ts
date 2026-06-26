@@ -63,6 +63,9 @@ export interface MsrRow {
   tipped: boolean;
   dropped_fuel: boolean;
   fed_corral: boolean;
+  // Advisory tags for what the fouls were for (keys from FOUL_REASONS). Optional:
+  // legacy rows / pre-0024 deployments omit the column. SELECT `*` brings it.
+  foul_reasons?: string[] | null;
 
   auto_start_position: FieldPoint | null;
   auto_path: FieldPoint[] | null;

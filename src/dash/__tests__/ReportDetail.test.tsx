@@ -88,6 +88,20 @@ describe('ReportDetail', () => {
     expect(getByTestId('report-flag-dropped-fuel').getAttribute('data-on')).toBe('false');
   });
 
+  it('shows foul-reason tags with friendly labels when present', () => {
+    const { getByTestId } = render(
+      <ReportDetail report={row({ foul_reasons: ['pinning', 'opponent_contact'] })} />,
+    );
+    const tags = getByTestId('report-foul-reasons');
+    expect(tags.textContent).toContain('Pinning');
+    expect(tags.textContent).toContain('Contact in opp. zone');
+  });
+
+  it('omits the foul-reason tags when none were recorded', () => {
+    const { queryByTestId } = render(<ReportDetail report={row({ foul_reasons: [] })} />);
+    expect(queryByTestId('report-foul-reasons')).toBeNull();
+  });
+
   it('shows the notes when present', () => {
     const { getByTestId } = render(<ReportDetail report={row({})} />);
     expect(getByTestId('report-notes').textContent).toContain('fast cycler');

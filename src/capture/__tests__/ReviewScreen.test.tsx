@@ -112,6 +112,43 @@ describe('ReviewScreen', () => {
     expect(screen.queryByText(/fed corral/i)).toBeNull();
   });
 
+  it('records selected foul reasons and persists them into the saved report', async () => {
+    const onSaved = vi.fn();
+    render(<Host onSaved={onSaved} initInactiveFirst={false} />);
+
+    // Advance to the Fouls & flags step (step 3 = 2 Next clicks).
+    for (let i = 0; i < 2; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('review-next'));
+      });
+    }
+
+    // Tag two common foul reasons (separate acts so each toggle sees the prior
+    // state — a single act batches both clicks against one stale snapshot).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-foul-reason-pinning'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-foul-reason-opponent_contact'));
+    });
+
+    // Finish (2 more Next clicks) and save.
+    for (let i = 0; i < 2; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('review-next'));
+      });
+    }
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-save'));
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    const reports = await listReports();
+    expect(reports[0].foulReasons).toEqual(['pinning', 'opponent_contact']);
+  });
+
   it('does not offer a second editable start-position picker on the Auto step', async () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);

@@ -33,6 +33,7 @@ interface DeferredState {
   pins: number;
   foulsMinor: number;
   foulsMajor: number;
+  foulReasons: string[];
   noShow: boolean;
   died: boolean;
   tipped: boolean;
@@ -59,6 +60,7 @@ const initialDeferred: DeferredState = {
   pins: 0,
   foulsMinor: 0,
   foulsMajor: 0,
+  foulReasons: [],
   noShow: false,
   died: false,
   tipped: false,
@@ -470,6 +472,7 @@ export function useCaptureSession(target: CaptureTarget) {
       pins: deferred.pins,
       foulsMinor: deferred.foulsMinor,
       foulsMajor: deferred.foulsMajor,
+      foulReasons: deferred.foulReasons,
       noShow: deferred.noShow,
       died: deferred.died,
       tipped: deferred.tipped,
@@ -490,6 +493,10 @@ export function useCaptureSession(target: CaptureTarget) {
 
   return {
     clock,
+    // Alliance color drives the half-field placement picker (red = left half,
+    // blue = right half). Surfaced from the target so CaptureScreen doesn't need
+    // the whole target threaded through.
+    allianceColor: target.allianceColor,
     bursts,
     holdStart,
     holdSample,
@@ -538,6 +545,8 @@ export function useCaptureSession(target: CaptureTarget) {
     setFoulsMinor: (v: number) => updateDeferred('foulsMinor', v),
     foulsMajor: deferred.foulsMajor,
     setFoulsMajor: (v: number) => updateDeferred('foulsMajor', v),
+    foulReasons: deferred.foulReasons,
+    setFoulReasons: (v: string[]) => updateDeferred('foulReasons', v),
     noShow: deferred.noShow,
     setNoShow: (v: boolean) => updateDeferred('noShow', v),
     died: deferred.died,

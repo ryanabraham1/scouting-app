@@ -46,6 +46,9 @@ export interface LocalMatchReport {
   pins: number;
   foulsMinor: number;
   foulsMajor: number;
+  // Advisory tags for WHAT the fouls were for (keys from FOUL_REASONS). Optional:
+  // legacy rows captured before this field predate it, so consumers null-guard.
+  foulReasons?: string[];
   noShow: boolean;
   died: boolean;
   tipped: boolean;

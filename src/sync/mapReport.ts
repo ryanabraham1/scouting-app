@@ -40,6 +40,7 @@ export function toUpsertPayload(r: LocalMatchReport): Record<string, unknown> {
     pins: r.pins,
     fouls_minor: r.foulsMinor,
     fouls_major: r.foulsMajor,
+    foul_reasons: r.foulReasons ?? [],
     no_show: r.noShow,
     died: r.died,
     tipped: r.tipped,

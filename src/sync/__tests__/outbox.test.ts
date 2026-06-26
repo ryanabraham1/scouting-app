@@ -81,7 +81,7 @@ const EXPECTED_PAYLOAD_KEYS = [
   'auto_left_starting_line', 'auto_climb_level1', 'intake_sources',
   'max_fuel_capacity_observed', 'defense_rating', 'defense_duration_ms',
   'defended_duration_ms', 'defense_intervals', 'defended_intervals', 'pins', 'fouls_minor',
-  'fouls_major', 'no_show', 'died', 'tipped', 'dropped_fuel', 'fed_corral',
+  'fouls_major', 'foul_reasons', 'no_show', 'died', 'tipped', 'dropped_fuel', 'fed_corral',
   'notes', 'row_revision', 'deleted',
 ].sort();
 

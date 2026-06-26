@@ -234,6 +234,10 @@ export function CaptureScreen(props: {
   // Pre-match placement step gates the live match screen.
   const [placed, setPlaced] = useState(false);
   const isPortrait = useIsPortrait();
+  // Which half of the field to show on the placement step. The field image is
+  // red-structure-left / blue-structure-right, so a red team starts on the LEFT
+  // half and a blue team on the RIGHT half.
+  const half: 'left' | 'right' = s.allianceColor === 'blue' ? 'right' : 'left';
 
   const phase = s.clock.state.phase;
 
@@ -360,7 +364,7 @@ export function CaptureScreen(props: {
           </span>
           <div className="flex items-center gap-2">
             <span className="max-w-[8.5rem] text-right text-xs text-muted-foreground">
-              {isPortrait ? 'Turn phone sideways · tap the start spot' : 'Tap the field where it starts'}
+              Tap the field where it starts
             </span>
             {props.onExit && (
               <Button
@@ -376,20 +380,58 @@ export function CaptureScreen(props: {
             )}
           </div>
         </header>
-        {/* The field fills all remaining height. In portrait it is rotated 90°
-            (tall + big); the scout turns the phone sideways to view it upright. */}
-        <div className="relative flex min-h-0 flex-1 justify-center">
-          <FieldDiagram
-            mode="pick-start"
-            rotate={isPortrait}
-            fillHeight
-            startPosition={s.autoStartPosition}
-            onStartChange={(p: FieldPoint) => {
-              s.setAutoStartPosition(p);
-              buzz();
+        {/* We only show the HALF of the field the scouted team plays on (red =
+            left, blue = right) so the scout isn't hunting across the whole field
+            for a start spot. The inner FieldDiagram still renders the FULL field
+            and reports FULL-field {x,y} (so the stored coords stay in the same
+            space the review/dash diagrams expect) — we size it 2× the clip and
+            translate it so only the team's half is visible, with the clip's
+            overflow hidden. Because the clip transform is a pure translate,
+            FieldDiagram's getBoundingClientRect-based coordinate math is
+            unaffected and a tap lands at its true full-field position.
+
+            Unlike the full field (very wide → rotated 90° on portrait phones), a
+            single half is ~square (1951:1584), so it stays UPRIGHT in both
+            orientations — matching how the scout sees the real field — and we
+            just fit it by height in landscape / by width in portrait so it never
+            overflows or gets cut off. */}
+        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+          <div
+            data-testid="capture-half-clip"
+            data-half={half}
+            style={{
+              // Fit the half (≈square) in whichever dimension is the constraint:
+              // portrait → full width (height derived); landscape → full height.
+              ...(isPortrait ? { width: '100%' } : { height: '100%' }),
+              aspectRatio: '1951 / 1584',
+              overflow: 'hidden',
+              position: 'relative',
             }}
-            data-testid="capture-field"
-          />
+          >
+            <div
+              style={{
+                // The FULL field, sized 2× the clip (it's twice as wide as one
+                // half) and shifted left by one clip-width to reveal the right
+                // (blue) half; left:0 keeps the left (red) half in view.
+                position: 'absolute',
+                top: 0,
+                left: half === 'right' ? '-100%' : 0,
+                height: '100%',
+                aspectRatio: '3902 / 1584',
+              }}
+            >
+              <FieldDiagram
+                mode="pick-start"
+                fillHeight
+                startPosition={s.autoStartPosition}
+                onStartChange={(p: FieldPoint) => {
+                  s.setAutoStartPosition(p);
+                  buzz();
+                }}
+                data-testid="capture-field"
+              />
+            </div>
+          </div>
         </div>
         <Button
           data-testid="capture-placement-submit"
