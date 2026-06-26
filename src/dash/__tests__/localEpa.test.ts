@@ -38,6 +38,47 @@ describe('computeLocalEpa', () => {
     expect(computeLocalEpa([]).size).toBe(0);
   });
 
+  it('recencyBoost 0 reproduces the exact (un-tilted) Statbotics port', () => {
+    const ms = [
+      match({
+        match_number: 1,
+        red1: 1,
+        red2: 2,
+        red3: 3,
+        blue1: 4,
+        blue2: 5,
+        blue3: 6,
+        actual_red_score: 90,
+        actual_blue_score: 60,
+      }),
+    ];
+    expect(computeLocalEpa(ms, { recencyBoost: 0 }).get(1)).toBe(computeLocalEpa(ms).get(1));
+  });
+
+  it('recency weighting tilts EPA toward recent performance', () => {
+    // Team 1 (fixed partners 2,3 vs 4,5,6) scores LOW early and HIGH late. With a
+    // recency tilt the recent strong matches weigh more, so the EPA ends higher.
+    const ms: MatchRow[] = [];
+    [60, 60, 60, 60, 200, 200, 200, 200].forEach((s, i) =>
+      ms.push(
+        match({
+          match_number: i + 1,
+          red1: 1,
+          red2: 2,
+          red3: 3,
+          blue1: 4,
+          blue2: 5,
+          blue3: 6,
+          actual_red_score: s,
+          actual_blue_score: 90,
+        }),
+      ),
+    );
+    const base = computeLocalEpa(ms).get(1) as number;
+    const tilted = computeLocalEpa(ms, { recencyBoost: 1 }).get(1) as number;
+    expect(tilted).toBeGreaterThan(base);
+  });
+
   it('initializes and updates per the Statbotics scalar recurrence', () => {
     // One played match: red 90, blue 60. Alliance scores = [90, 60].
     //   mean = 75, population sd = 15.

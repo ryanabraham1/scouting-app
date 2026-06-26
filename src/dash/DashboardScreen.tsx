@@ -17,6 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import { IconTabs } from '@/components/ui/IconTabs';
 import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
+import { useEventLiveSync } from '@/dash/useEventData';
 import NextMatchView from '@/dash/NextMatchView';
 import TeamView from '@/dash/TeamView';
 import MatchView from '@/dash/MatchView';
@@ -58,6 +59,10 @@ function initialTab(): Tab {
 
 export default function DashboardScreen(): JSX.Element {
   const { eventKey, loading } = useActiveEvent();
+  // Real-time engine for the whole dashboard: pushes Nexus field snapshots +
+  // freshly-scored results into the query cache the instant they land, and runs
+  // the TBA results reconcile safety net. No-op without an event.
+  useEventLiveSync(eventKey);
   const [tab, setTab] = useState<Tab>(initialTab);
   // Lifted so a click in Ranking can preselect the team on the Team tab.
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null);

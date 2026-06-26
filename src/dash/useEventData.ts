@@ -1,6 +1,8 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { tbaGet, statboticsGet, nexusGet, epaFromTeamEvent } from '@/dash/proxies';
+import { tbaGet, statboticsGet, nexusGet, syncEventResults } from '@/dash/proxies';
+import { queryClient } from '@/lib/queryPersist';
 import { computeLocalEpa } from '@/dash/localEpa';
 import { fetchSeasonMatchRows, EPA_STALE_TIME } from '@/dash/seasonEpa';
 import {
@@ -9,13 +11,17 @@ import {
 } from '@/dash/nexusClient';
 import {
   parseStatboticsTeamYear,
-  inHouseEpaForTeam,
   seasonRecordFromTbaMatches,
   type EpaSource,
 } from '@/dash/SeasonStats';
 import type { EventWebcast } from '@/dash/EventStream';
 import type { MsrRow } from '@/dash/types';
-import { NEXUS_POLL_MS } from '@/dash/constants';
+import {
+  NEXUS_POLL_MS,
+  NEXUS_STALE_MS,
+  RESULTS_RECONCILE_MS,
+  EPA_RECENCY_BOOST,
+} from '@/dash/constants';
 
 const STALE_TIME = 60_000;
 
@@ -68,6 +74,15 @@ export interface EventEpa {
 export interface NexusStatusResult {
   status: NexusEventStatus | null;
   available: boolean;
+  /**
+   * True when the freshest snapshot we hold is older than NEXUS_STALE_MS — the
+   * field has likely gone quiet / the push stopped. Callers treat a stale
+   * snapshot as not-live and degrade to the schedule. Optional so existing
+   * mocked fixtures (tests) that omit it keep type-checking.
+   */
+  stale?: boolean;
+  /** Where this snapshot came from: webhook (DB push), proxy (direct pull), or none. */
+  source?: 'webhook' | 'proxy' | 'none';
 }
 
 /** Scouting reports for an event (deleted rows excluded; RLS-scoped). */
@@ -258,130 +273,160 @@ export function useTbaTeamEventStatus(
   });
 }
 
+/** A team's season EPA from one cached source (so every display agrees). */
+export interface TeamSeasonEpa {
+  epa: number | null;
+  worldRank: number | null;
+  record: string | null;
+  source: 'statbotics' | 'inhouse' | 'none';
+}
+
 /**
- * Statbotics EPA for a set of teams at an event, with a local fallback.
+ * SINGLE SOURCE OF TRUTH for a team's season EPA, cached per (team, year,
+ * recency). Statbotics season EPA (`team_year`) when available; otherwise the
+ * recency-weighted in-house model over the union of events THAT TEAM attended
+ * (full alliances — never a single event, which cold-starts and underestimates).
  *
- * Degrades gracefully: a team whose Statbotics proxy call returns the
- * unavailable sentinel (or has no parseable EPA) maps to null. When Statbotics
- * is down for EVERY team, we compute a simplified local EPA from `matches`
- * (this event's played results) and populate the requested teams instead.
- *
- * `source` reports which path produced the values: 'statbotics' | 'local' |
- * 'none'. `available` is true when either source yields data.
- *
- * NOTE FOR INTEGRATORS: `matches` is OPTIONAL (default []) so existing 2-arg
- * callers (e.g. RankingView.tsx, TeamView.tsx — owned by another agent) keep
- * type-checking. When `matches` is empty the local fallback simply can't
- * compute, so `source` stays 'none' (identical to the pre-fallback behavior).
- * To enable the local fallback in those views, pass the event's MatchRow[] as
- * the third argument.
+ * Both the Total-EPA tile (useTeamSeasonStats) and the match prediction
+ * (useEventEpa) read THIS, so a team shows the SAME EPA everywhere — and both use
+ * the same `team_year` metric, fixing the old `team_event` vs `team_year` and
+ * "6-team combined run vs single-team run" discrepancies. Cached + persisted
+ * (queryPersist) so it computes once per team and serves offline.
  */
-export function useEventEpa(
-  teamNumbers: number[],
-  eventKey: string | null,
-  matches: MatchRow[] = [],
-): UseQueryResult<EventEpa> {
-  const sortedTeams = [...teamNumbers].sort((a, b) => a - b);
-  // A cheap, stable signature of the played matches so the query refetches when
-  // results change but not on every render.
-  const matchesSig = matches
-    .filter((m) => m.actual_red_score != null && m.actual_blue_score != null)
-    .map((m) => `${m.match_key}:${m.actual_red_score}-${m.actual_blue_score}`)
-    .join(',');
-  return useQuery({
-    queryKey: ['epa', eventKey, sortedTeams.join(','), matchesSig],
-    enabled: !!eventKey && sortedTeams.length > 0,
+export async function seasonEpaForTeam(
+  team: number,
+  eventKey: string,
+  year: string,
+): Promise<TeamSeasonEpa> {
+  return queryClient.fetchQuery({
+    queryKey: ['epa', 'season-team', team, year, EPA_RECENCY_BOOST],
     staleTime: EPA_STALE_TIME,
-    queryFn: async (): Promise<EventEpa> => {
-      const epaByTeam = new Map<number, number | null>();
-      let anyAvailable = false;
-
-      const results = await Promise.all(
-        sortedTeams.map(async (team) => {
-          const json = await statboticsGet<unknown>(`/team_event/${team}/${eventKey}`);
-          const unavailable =
-            typeof json === 'object' &&
-            json !== null &&
-            (json as { available?: unknown }).available === false;
-          return { team, json, unavailable };
-        }),
-      );
-
-      for (const { team, json, unavailable } of results) {
-        if (unavailable) {
-          epaByTeam.set(team, null);
-          continue;
-        }
-        const value = epaFromTeamEvent(json);
-        epaByTeam.set(team, value);
-        // Count Statbotics as "available" ONLY when it yields a REAL number. A 200
-        // response with no usable EPA (e.g. an off-season / not-yet-played event)
-        // must fall through to the local (TBA-derived) estimate below — otherwise
-        // every team shows "—" even though we could compute EPA from results.
-        if (value != null) anyAvailable = true;
+    queryFn: async (): Promise<TeamSeasonEpa> => {
+      const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
+      const unavailable =
+        typeof json === 'object' &&
+        json !== null &&
+        (json as { available?: unknown }).available === false;
+      const sb = unavailable
+        ? { worldRank: null, totalEpa: null, record: null }
+        : parseStatboticsTeamYear(json);
+      if (sb.totalEpa != null) {
+        return { epa: sb.totalEpa, worldRank: sb.worldRank, record: sb.record, source: 'statbotics' };
       }
-
-      if (anyAvailable) {
-        return { epaByTeam, available: true, source: 'statbotics' };
-      }
-
-      // Statbotics down for every team -> try the local fallback from results.
-      const localEpa = computeLocalEpa(matches);
-      if (localEpa.size > 0) {
-        let anyLocal = false;
-        for (const team of sortedTeams) {
-          const v = localEpa.get(team);
-          if (v !== undefined) {
-            epaByTeam.set(team, v);
-            anyLocal = true;
-          } else {
-            epaByTeam.set(team, null);
-          }
-        }
-        if (anyLocal) {
-          return { epaByTeam, available: true, source: 'local' };
-        }
-      }
-
-      // The local `match` table only holds the schedule (the importer never
-      // writes scores), so computeLocalEpa above is usually empty in production.
-      // Run the SAME EPA model over real results fetched live from TBA — but
-      // SEASON-WIDE: every event the requested teams have attended this season,
-      // not just the current one, so a team's EPA carries forward from earlier
-      // events. fetchSeasonMatchRows never throws (degrades to [] on a TBA
-      // outage), so a failure falls through to 'none' exactly as before.
-      const year = (eventKey as string).slice(0, 4);
-      const seasonRows = await fetchSeasonMatchRows(sortedTeams, eventKey as string, year);
-      const tbaEpa = computeLocalEpa(seasonRows);
-      if (tbaEpa.size > 0) {
-        let anyTba = false;
-        for (const team of sortedTeams) {
-          const v = tbaEpa.get(team);
-          if (v !== undefined) {
-            epaByTeam.set(team, v);
-            anyTba = true;
-          } else {
-            epaByTeam.set(team, null);
-          }
-        }
-        if (anyTba) {
-          return { epaByTeam, available: true, source: 'local' };
-        }
-      }
-
-      return { epaByTeam, available: false, source: 'none' };
+      const rows = await fetchSeasonMatchRows([team], eventKey, year);
+      const epa = computeLocalEpa(rows, { recencyBoost: EPA_RECENCY_BOOST }).get(team) ?? null;
+      return {
+        epa,
+        worldRank: sb.worldRank,
+        record: sb.record,
+        source: epa != null ? 'inhouse' : 'none',
+      };
     },
   });
 }
 
 /**
- * Live field status for an event from FRC Nexus (through nexus-proxy). This is
- * REAL-TIME data — what's queuing / on the field right now — so it must never go
- * stale: `staleTime: 0` + a short `refetchInterval` poll keep the On-Field /
- * Queuing tiles advancing as matches play, and `refetchOnWindowFocus` snaps it
- * fresh when the lead returns to the tab. The nexus-proxy itself is uncached, so
- * every poll hits Nexus fresh. Returns a parsed status + an `available` flag
- * that is false when Nexus is unavailable/unset, so callers degrade to the schedule.
+ * EPA per team for a match, for the prediction. Reads {@link seasonEpaForTeam}
+ * for EACH team, so every team's prediction EPA EQUALS its Total-EPA tile (no
+ * more 303-vs-290 discrepancy). `source` is 'statbotics' if any team has a
+ * Statbotics season EPA, else 'local' if any team has an in-house estimate, else
+ * 'none'. The third arg is accepted for call-site compatibility but unused — EPA
+ * is season-wide, not derived from the current event's rows.
+ */
+export function useEventEpa(
+  teamNumbers: number[],
+  eventKey: string | null,
+  _matches: MatchRow[] = [],
+): UseQueryResult<EventEpa> {
+  const sortedTeams = [...teamNumbers].sort((a, b) => a - b);
+  const year = eventKey ? eventKey.slice(0, 4) : '';
+  return useQuery({
+    queryKey: ['epa', 'event', eventKey, sortedTeams.join(',')],
+    enabled: !!eventKey && sortedTeams.length > 0,
+    staleTime: EPA_STALE_TIME,
+    queryFn: async (): Promise<EventEpa> => {
+      const results = await Promise.all(
+        sortedTeams.map((team) => seasonEpaForTeam(team, eventKey as string, year)),
+      );
+      const epaByTeam = new Map<number, number | null>();
+      let anyStatbotics = false;
+      let anyEpa = false;
+      sortedTeams.forEach((team, i) => {
+        const r = results[i];
+        epaByTeam.set(team, r.epa);
+        if (r.epa != null) {
+          anyEpa = true;
+          if (r.source === 'statbotics') anyStatbotics = true;
+        }
+      });
+      const source: EventEpa['source'] = anyStatbotics ? 'statbotics' : anyEpa ? 'local' : 'none';
+      return { epaByTeam, available: anyEpa, source };
+    },
+  });
+}
+
+/**
+ * Is a snapshot with this `dataAsOfTime` (unix-ms) older than the live window?
+ * Accepts a string too: PostgREST serializes the `bigint` column as a JSON
+ * string, so a naive `typeof === 'number'` check would silently ignore it and
+ * disable the guard. We coerce, then fall back to `receivedAt` only when there's
+ * no usable timestamp.
+ */
+function isNexusStale(
+  dataAsOfTime: number | string | null,
+  receivedAt: string | null,
+): boolean {
+  const asNum = typeof dataAsOfTime === 'string' ? Number(dataAsOfTime) : dataAsOfTime;
+  const ref =
+    typeof asNum === 'number' && Number.isFinite(asNum)
+      ? asNum
+      : receivedAt
+        ? Date.parse(receivedAt)
+        : NaN;
+  if (!Number.isFinite(ref)) return false; // unknown age -> don't penalize
+  return Date.now() - ref > NEXUS_STALE_MS;
+}
+
+/** Build a NexusStatusResult from a nexus_event_status DB row (webhook snapshot). */
+function statusFromDbRow(row: {
+  payload: unknown;
+  data_as_of_time: number | string | null;
+  received_at: string | null;
+}): NexusStatusResult {
+  const status = parseNexusEventStatus(row.payload);
+  // Prefer dataAsOfTime parsed from the JSONB payload (always a real number);
+  // fall back to the bigint column then received_at inside isNexusStale.
+  const asOf = status.dataAsOfTime ?? row.data_as_of_time;
+  return {
+    status,
+    available: true,
+    stale: isNexusStale(asOf, row.received_at),
+    source: 'webhook',
+  };
+}
+
+/** Read the latest webhook-pushed Nexus snapshot for an event from our DB. */
+async function readNexusStatusFromDb(eventKey: string): Promise<NexusStatusResult | null> {
+  const { data, error } = await supabase
+    .from('nexus_event_status')
+    .select('payload, data_as_of_time, received_at')
+    .eq('event_key', eventKey);
+  if (error || !data) return null;
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { payload: unknown; data_as_of_time: number | string | null; received_at: string | null }
+    | undefined;
+  if (!row || !row.payload) return null;
+  return statusFromDbRow(row);
+}
+
+/**
+ * Live field status for an event. PRIMARY source is the webhook snapshot Nexus
+ * pushes into our `nexus_event_status` table — delivered to the dashboard over
+ * Supabase Realtime (see useEventLiveSync) so On-Field / Queuing advance the
+ * instant the field changes, with no poll lag and a `dataAsOfTime` staleness
+ * guard. FALLBACK (events with no webhook configured) is a direct pull through
+ * nexus-proxy. The `refetchInterval` is a slow safety net; Realtime does the
+ * real work. `available`/`stale` let callers degrade to the schedule.
  */
 export function useNexusEventStatus(
   eventKey: string | null,
@@ -396,17 +441,98 @@ export function useNexusEventStatus(
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',
     queryFn: async (): Promise<NexusStatusResult> => {
+      // 1. Prefer a FRESH real-time webhook snapshot from our DB.
+      const fromDb = await readNexusStatusFromDb(eventKey as string);
+      if (fromDb && !fromDb.stale) return fromDb;
+      // 2. DB snapshot missing or stale (webhook stopped pushing mid-event): try a
+      //    live direct pull so a dead webhook doesn't freeze the field when Nexus
+      //    REST is still serving fresh data.
       const json = await nexusGet<unknown>(`/event/${eventKey}`);
       const unavailable =
         typeof json === 'object' &&
         json !== null &&
         (json as { available?: unknown }).available === false;
-      if (unavailable) {
-        return { status: null, available: false };
+      if (!unavailable) {
+        return { status: parseNexusEventStatus(json), available: true, source: 'proxy' };
       }
-      return { status: parseNexusEventStatus(json), available: true };
+      // 3. Proxy also down: use the stale DB snapshot if we have one (callers see
+      //    stale:true and degrade to the schedule), else nothing.
+      if (fromDb) return fromDb;
+      return { status: null, available: false, source: 'none' };
     },
   });
+}
+
+/**
+ * Real-time glue for the live dashboard. For the active event it:
+ *   - subscribes to `nexus_event_status` changes and pushes each new snapshot
+ *     straight into the nexus query cache (instant On-Field / Queuing updates);
+ *   - subscribes to `match` changes and invalidates the matches query so a freshly
+ *     scored result advances the next-match selector immediately;
+ *   - kicks a TBA results reconcile on mount and on RESULTS_RECONCILE_MS as a
+ *     safety net for any webhook that was dropped/delayed.
+ * No-op (and harmless) when there's no event, or when the Supabase client lacks
+ * Realtime (e.g. mocked in unit tests). Call once high in the dashboard tree.
+ */
+export function useEventLiveSync(eventKey: string | null): void {
+  const queryClient = useQueryClient();
+
+  // Realtime subscriptions.
+  useEffect(() => {
+    if (!eventKey || typeof supabase.channel !== 'function') return;
+    const channel = supabase
+      .channel(`live-${eventKey}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'nexus_event_status',
+          filter: `event_key=eq.${eventKey}`,
+        },
+        (payload: { new?: Record<string, unknown> }) => {
+          const row = payload.new;
+          if (row && row.payload) {
+            queryClient.setQueryData<NexusStatusResult>(
+              ['nexus', 'event', eventKey],
+              statusFromDbRow({
+                payload: row.payload,
+                data_as_of_time: (row.data_as_of_time as number | string | null) ?? null,
+                received_at: (row.received_at as string | null) ?? null,
+              }),
+            );
+          } else {
+            queryClient.invalidateQueries({ queryKey: ['nexus', 'event', eventKey] });
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'match', filter: `event_key=eq.${eventKey}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['matches', eventKey] });
+        },
+      )
+      .subscribe();
+    return () => {
+      if (typeof supabase.removeChannel === 'function') supabase.removeChannel(channel);
+    };
+  }, [eventKey, queryClient]);
+
+  // Results reconcile safety net (webhook is the primary path).
+  useEffect(() => {
+    if (!eventKey) return;
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) void syncEventResults(eventKey);
+    };
+    run();
+    const id = setInterval(run, RESULTS_RECONCILE_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [eventKey]);
 }
 
 /** Parsed TBA event header info: display name + first usable webcast. */
@@ -470,45 +596,30 @@ export interface TeamSeasonStats {
 }
 
 /**
- * Season EPA + world rank for a single team from Statbotics
- * (`/team_year/{team}/{year}`, year derived from the event key). When Statbotics
- * is down OR has no EPA for the team, falls back to the in-house EPA computed
- * from this event's played match results (TBA-derived) and flags the source as
- * 'inhouse' so the UI can label it. `source` is 'none' when neither yields a value.
+ * Season EPA + world rank + W-L-T record for a single team. EPA comes from the
+ * shared {@link seasonEpaForTeam} (Statbotics `team_year`, else the season-wide
+ * recency-weighted in-house model) — the SAME source the match prediction uses,
+ * so the Total-EPA tile and the prediction always agree. `epaSource` is
+ * 'statbotics' | 'inhouse' | 'none'; the record falls back to a TBA-derived W-L-T.
  */
 export function useTeamSeasonStats(
   team: number,
   eventKey: string | null,
-  matches: MatchRow[] = [],
+  _matches: MatchRow[] = [],
 ): UseQueryResult<TeamSeasonStats> {
   const year = eventKey ? eventKey.slice(0, 4) : '';
-  const matchesSig = matches
-    .filter((m) => m.actual_red_score != null && m.actual_blue_score != null)
-    .map((m) => `${m.match_key}:${m.actual_red_score}-${m.actual_blue_score}`)
-    .join(',');
   return useQuery({
-    queryKey: ['statbotics', 'team-year', team, year, matchesSig],
+    queryKey: ['statbotics', 'team-year', team, year],
     enabled: !!eventKey && team > 0,
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<TeamSeasonStats> => {
-      const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
-      const unavailable =
-        typeof json === 'object' &&
-        json !== null &&
-        (json as { available?: unknown }).available === false;
-      const sb = unavailable
-        ? { worldRank: null, totalEpa: null, record: null }
-        : parseStatboticsTeamYear(json);
+      // Same single source of truth as the match prediction -> identical EPA.
+      const r = await seasonEpaForTeam(team, eventKey as string, year);
 
-      // In-house EPA from the local `match` table — works only if results were
-      // synced there; the importer stores the schedule only, so this is usually
-      // empty in production and we fall through to the TBA-derived estimate.
-      const localEpa = sb.totalEpa == null ? inHouseEpaForTeam(matches, team) : null;
-
-      // Season record: prefer Statbotics; else derive a W-L-T from the team's
-      // FULL-season TBA matches (quals + playoffs across every event). tbaGet
-      // throws on any non-2xx, so guard it — a TBA outage just leaves it null.
-      let seasonRecord = sb.record;
+      // Season record: prefer the one Statbotics returned; else derive a W-L-T
+      // from the team's FULL-season TBA matches. tbaGet throws on non-2xx, so
+      // guard it — a TBA outage just leaves the record null.
+      let seasonRecord = r.record;
       if (seasonRecord == null) {
         try {
           const tbaSeason = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
@@ -518,30 +629,8 @@ export function useTeamSeasonStats(
         }
       }
 
-      if (sb.totalEpa != null) {
-        return { worldRank: sb.worldRank, totalEpa: sb.totalEpa, epaSource: 'statbotics', seasonRecord };
-      }
-      if (localEpa != null) {
-        return { worldRank: sb.worldRank, totalEpa: localEpa, epaSource: 'inhouse', seasonRecord };
-      }
-
-      // EPA fallback: a SEASON-WIDE TBA-derived estimate. We must NOT run the
-      // model over the team's own cross-event season SLICE — computeLocalEpa
-      // shares each alliance's score across its three teams, so over a single
-      // team's slice the partners/opponents barely recur and the residual keeps
-      // accruing to the one ever-present team, ballooning its EPA (the "1868
-      // reads way too high" bug). Instead we fetch the FULL match set of every
-      // event this team attended this season and run the model over the combined
-      // (complete-alliance) set, so scores attribute correctly AND the team's
-      // EPA carries forward from earlier events. fetchSeasonMatchRows never
-      // throws (degrades to [] on a TBA outage).
-      const seasonRows = await fetchSeasonMatchRows([team], eventKey as string, year);
-      const tbaEpa = computeLocalEpa(seasonRows).get(team) ?? null;
-      if (tbaEpa != null) {
-        return { worldRank: sb.worldRank, totalEpa: tbaEpa, epaSource: 'inhouse', seasonRecord };
-      }
-
-      return { worldRank: sb.worldRank, totalEpa: null, epaSource: 'none', seasonRecord };
+      const epaSource: EpaSource = r.source;
+      return { worldRank: r.worldRank, totalEpa: r.epa, epaSource, seasonRecord };
     },
   });
 }

@@ -124,6 +124,18 @@ function isQueuing(m: NexusMatch): boolean {
   return s === 'now queuing' || s === 'on deck';
 }
 
+/**
+ * Practice matches (Nexus labels them "Practice N"). They are NOT part of the
+ * qual/playoff schedule we track, and at many events Nexus leaves an old practice
+ * match lingering as "On field" after real play has started — which is exactly
+ * the "On Field stuck on P1" bug. Once any real (non-practice) match exists we
+ * exclude practice from live selection so a stale practice row can't freeze the
+ * field tiles. Exported for direct testing.
+ */
+export function isPracticeLabel(label: string | null | undefined): boolean {
+  return /^\s*practice\b/i.test(label ?? '');
+}
+
 /** Best-effort sort key for upcoming order: estimated start, then on-field/queue. */
 function startKey(m: NexusMatch): number {
   return (
@@ -131,6 +143,20 @@ function startKey(m: NexusMatch): number {
     m.times.estimatedOnFieldTime ??
     m.times.estimatedQueueTime ??
     Number.MAX_SAFE_INTEGER
+  );
+}
+
+/**
+ * "How recently did this match touch the field" — used to disambiguate when more
+ * than one match is somehow marked "On field" (stale data): pick the freshest.
+ */
+function fieldFreshness(m: NexusMatch): number {
+  return (
+    m.times.actualQueueTime ??
+    m.times.estimatedOnFieldTime ??
+    m.times.estimatedStartTime ??
+    m.times.estimatedQueueTime ??
+    Number.MIN_SAFE_INTEGER
   );
 }
 
@@ -147,17 +173,30 @@ export function parseNexusEventStatus(payload: unknown): NexusEventStatus {
 
   const nowQueuing = asString(r?.nowQueuing);
 
-  const onField = matches.find(isOnField) ?? null;
+  // Once real (qual/playoff) matches exist, ignore practice rows for all LIVE
+  // selection — a lingering "On field" practice match must not freeze the tiles.
+  const nonPractice = matches.filter((m) => !isPracticeLabel(m.label));
+  const pool = nonPractice.length > 0 ? nonPractice : matches;
+
+  // On field: if several are flagged (shouldn't happen, but stale data does),
+  // take the freshest rather than the first in play order.
+  const onFieldCandidates = pool.filter(isOnField);
+  const onField =
+    onFieldCandidates.length > 0
+      ? onFieldCandidates.reduce((best, m) =>
+          fieldFreshness(m) >= fieldFreshness(best) ? m : best,
+        )
+      : null;
 
   // Prefer the match whose label matches nowQueuing; else the first queuing/on-deck.
   const queuing =
     (nowQueuing
-      ? matches.find((m) => m.label === nowQueuing && m !== onField)
+      ? pool.find((m) => m.label === nowQueuing && m !== onField)
       : undefined) ??
-    matches.find((m) => isQueuing(m) && m !== onField) ??
+    pool.find((m) => isQueuing(m) && m !== onField) ??
     null;
 
-  const upcoming = matches
+  const upcoming = pool
     .filter((m) => !isCompleted(m))
     .sort((a, b) => startKey(a) - startKey(b));
 

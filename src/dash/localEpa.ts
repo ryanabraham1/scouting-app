@@ -151,11 +151,27 @@ function isPlayed(m: MatchRow): boolean {
   return m.actual_red_score != null && m.actual_blue_score != null;
 }
 
+/** Options for {@link computeLocalEpa}. */
+export interface LocalEpaOptions {
+  /**
+   * Recency tilt (default 0 = exact Statbotics port). Re-weights each match's
+   * update by its chronological position so recent form counts more: a CENTERED
+   * multiplier where the oldest match scales by `1 - recencyBoost/2` and the
+   * newest by `1 + recencyBoost/2` (mean ≈ 1, so it tilts toward recent matches
+   * without inflating the overall learning rate). See EPA_RECENCY_BOOST.
+   */
+  recencyBoost?: number;
+}
+
 /**
  * Compute a local EPA (total points) per team from played matches.
  * Returns an empty map when there are no played matches.
  */
-export function computeLocalEpa(matches: MatchRow[]): Map<number, number> {
+export function computeLocalEpa(
+  matches: MatchRow[],
+  options: LocalEpaOptions = {},
+): Map<number, number> {
+  const recencyBoost = options.recencyBoost ?? 0;
   const played = matches
     .filter(isPlayed)
     .slice()
@@ -163,6 +179,14 @@ export function computeLocalEpa(matches: MatchRow[]): Map<number, number> {
 
   const epa = new Map<number, number>();
   if (played.length === 0) return epa;
+
+  // Recency multiplier for the match at chronological index `i` of `total`.
+  const total = played.length;
+  const recencyMult = (i: number): number => {
+    if (recencyBoost === 0 || total <= 1) return 1;
+    const frac = i / (total - 1); // 0 (oldest) .. 1 (newest)
+    return 1 + recencyBoost * (frac - 0.5); // centered: mean ≈ 1
+  };
 
   // Init EPA, ported from Statbotics `models/epa/init.py::get_init_epa` with no
   // prior-season data: year_mean/NUM_TEAMS + year_sd * z, z = -INIT_PENALTY,
@@ -187,7 +211,7 @@ export function computeLocalEpa(matches: MatchRow[]): Map<number, number> {
     }
   };
 
-  for (const m of played) {
+  played.forEach((m, i) => {
     const reds = redOf(m).filter((t): t is number => t != null);
     const blues = blueOf(m).filter((t): t is number => t != null);
     for (const t of [...reds, ...blues]) ensure(t);
@@ -196,6 +220,8 @@ export function computeLocalEpa(matches: MatchRow[]): Map<number, number> {
     const blueScore = m.actual_blue_score as number;
     const elim = m.comp_level !== 'qm';
     const weight = elim ? ELIM_WEIGHT : 1;
+    // Recent matches count more (centered tilt; 1 when recencyBoost is 0).
+    const rec = recencyMult(i);
 
     // Pre-match snapshot of predicted alliance scores (sum of team EPAs), used
     // for ALL six updates so they don't see each other within the match.
@@ -204,18 +230,18 @@ export function computeLocalEpa(matches: MatchRow[]): Map<number, number> {
 
     // Per-team Δ, ported from main.py (attribute_match + math.py add_obs, MARGIN=0):
     //   err  = (ownScore - ownEPA) - MARGIN*(oppScore - oppEPA)   (MARGIN=0)
-    //   ΔEPA = weight * percent(N) * err / NUM_TEAMS
+    //   ΔEPA = weight * recency * percent(N) * err / NUM_TEAMS
     const deltas: Array<[number, number]> = [];
     const redErr = redScore - redEPA - MARGIN * (blueScore - blueEPA);
     const blueErr = blueScore - blueEPA - MARGIN * (redScore - redEPA);
 
     for (const t of reds) {
       const p = percentOf(nByTeam.get(t) as number);
-      deltas.push([t, (weight * p * redErr) / NUM_TEAMS]);
+      deltas.push([t, (weight * rec * p * redErr) / NUM_TEAMS]);
     }
     for (const t of blues) {
       const p = percentOf(nByTeam.get(t) as number);
-      deltas.push([t, (weight * p * blueErr) / NUM_TEAMS]);
+      deltas.push([t, (weight * rec * p * blueErr) / NUM_TEAMS]);
     }
 
     // Apply all deltas (from the snapshot), then bump N for QUALS only.
@@ -227,7 +253,7 @@ export function computeLocalEpa(matches: MatchRow[]): Map<number, number> {
         nByTeam.set(t, (nByTeam.get(t) as number) + 1);
       }
     }
-  }
+  });
 
   return epa;
 }

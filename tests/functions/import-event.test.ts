@@ -2,8 +2,12 @@
 // Integration test against the DEPLOYED import-event edge function.
 // The import is OPEN (login-less), matching the rest of the app: an anonymous
 // caller can import a public TBA event. POSTs { event_key: '2026casnv' } and
-// asserts the import summary + that the DB contains 37 teams and ZERO non-qm
-// matches. Leaves 2026casnv imported (it is the real Phase-1 test event).
+// asserts the import summary + that the persisted qm count matches it.
+// NOTE: import-event itself imports ONLY qm (it filters comp_level==='qm'), but
+// the live results reconcile (sync-event-results) legitimately backfills playoff
+// rows for the same event now that the app tracks playoffs — so we no longer
+// assert the table is globally qm-only; we assert import-event's qm summary.
+// Leaves 2026casnv imported (it is the real Phase-1 test event).
 import { describe, it, expect } from "vitest";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
@@ -21,7 +25,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 });
 
 describe("import-event (deployed)", () => {
-  it("imports 2026casnv with no admin (open) → 200 with 37 teams and only qm matches", async () => {
+  it("imports 2026casnv with no admin (open) → 200 with 37 teams; summary counts only qm", async () => {
     const res = await fetch(BASE, {
       method: "POST",
       headers: {
@@ -39,21 +43,15 @@ describe("import-event (deployed)", () => {
     expect(typeof body.join_code).toBe("string");
     expect(body.join_code.length).toBe(8);
 
-    // No non-qm matches were persisted for this event.
-    const { count, error } = await admin
-      .from("match")
-      .select("match_key", { count: "exact", head: true })
-      .eq("event_key", EVENT_KEY)
-      .neq("comp_level", "qm");
-    expect(error).toBeNull();
-    expect(count).toBe(0);
-
-    // The persisted qm count matches the reported summary.
-    const { count: qmCount } = await admin
+    // import-event imports only the qm schedule: its reported match_count must
+    // equal the persisted qm rows. (Playoff rows may also exist for this event,
+    // written by the live results reconcile — not import-event's concern.)
+    const { count: qmCount, error } = await admin
       .from("match")
       .select("match_key", { count: "exact", head: true })
       .eq("event_key", EVENT_KEY)
       .eq("comp_level", "qm");
+    expect(error).toBeNull();
     expect(qmCount).toBe(body.match_count);
   }, 60000);
 

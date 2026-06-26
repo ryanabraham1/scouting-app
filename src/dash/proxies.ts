@@ -113,6 +113,25 @@ export async function nexusGet<T>(path: string): Promise<T | ProxyUnavailable> {
 }
 
 /**
+ * Trigger the server-side TBA results reconcile for an event. Best-effort and
+ * never throws: lands real match results into our `match` table (service-role
+ * write) so the dashboard knows which matches are played even if a tba-webhook
+ * was dropped. Safe to call repeatedly (idempotent upsert).
+ */
+export async function syncEventResults(eventKey: string): Promise<void> {
+  try {
+    const url = `${env.SUPABASE_URL}/functions/v1/sync-event-results?event_key=${encodeURIComponent(eventKey)}`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_key: eventKey }),
+    });
+  } catch {
+    /* best-effort safety net — the webhook is the primary path */
+  }
+}
+
+/**
  * Defensively extract a team's EPA (total points) from a Statbotics
  * `team_event` payload. Prefers `epa.breakdown.total_points`, falls back to
  * `epa.total_points.mean`. Returns null when neither is a finite number.

@@ -45,7 +45,6 @@ vi.mock('@/dash/proxies', () => ({
   epaFromTeamEvent: (json: unknown) => epaFromTeamEventMock(json),
 }));
 
-import type { MatchRow } from '../useEventData';
 import {
   useEventReports,
   useEventMatches,
@@ -61,27 +60,6 @@ import {
 // dedupe across hooks. Clear it between tests to keep them isolated.
 import { queryClient as sharedQueryClient } from '@/lib/queryPersist';
 
-/** Minimal played MatchRow factory for the local-EPA fallback tests. */
-function playedMatch(o: Partial<MatchRow>): MatchRow {
-  return {
-    match_key: '2026casnv_qm1',
-    event_key: '2026casnv',
-    comp_level: 'qm',
-    match_number: 1,
-    scheduled_time: null,
-    red1: null,
-    red2: null,
-    red3: null,
-    blue1: null,
-    blue2: null,
-    blue3: null,
-    actual_red_score: null,
-    actual_blue_score: null,
-    winner: null,
-    result_synced_at: null,
-    ...o,
-  };
-}
 import { useActiveEvent } from '../useActiveEvent';
 
 function wrapper() {
@@ -205,34 +183,45 @@ describe('useEventData', () => {
     expect(result.current.data?.epaByTeam.get(1678)).toBeNull();
   });
 
-  it('useEventEpa falls back to local EPA from matches when Statbotics is down', async () => {
-    statboticsGetMock.mockResolvedValue({ available: false });
-
-    const matches: MatchRow[] = [
-      playedMatch({
-        match_number: 1,
-        red1: 254,
-        red2: 1,
-        red3: 2,
-        blue1: 1678,
-        blue2: 3,
-        blue3: 4,
-        actual_red_score: 90,
-        actual_blue_score: 60,
-      }),
-    ];
-
-    const { result } = renderHook(() => useEventEpa([254, 1678], '2026casnv', matches), {
-      wrapper: wrapper(),
+  it('useEventEpa and useTeamSeasonStats report the SAME EPA for a team (one source)', async () => {
+    // The discrepancy fix: the prediction (useEventEpa) and the Total-EPA tile
+    // (useTeamSeasonStats) both read seasonEpaForTeam, so a team's EPA is byte-for-
+    // byte identical in both — no more 303-in-the-tile / 290-in-the-prediction.
+    statboticsGetMock.mockResolvedValue({ available: false }); // -> in-house path
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path.startsWith('/team/') && path.includes('/events/')) {
+        return Promise.resolve(['2026casnv']);
+      }
+      if (path === '/event/2026casnv/matches') {
+        return Promise.resolve([
+          {
+            key: '2026casnv_qm1',
+            event_key: '2026casnv',
+            comp_level: 'qm',
+            match_number: 1,
+            actual_time: 100,
+            alliances: {
+              red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
+              blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
+            },
+            winning_alliance: 'red',
+          },
+        ]);
+      }
+      return Promise.resolve([]);
     });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.available).toBe(true);
-    expect(result.current.data?.source).toBe('local');
-    // Winning red 254 should sit above losing blue 1678.
-    const a = result.current.data?.epaByTeam.get(254) as number;
-    const b = result.current.data?.epaByTeam.get(1678) as number;
-    expect(a).toBeGreaterThan(b);
+    const w = wrapper();
+    const ev = renderHook(() => useEventEpa([254, 1678], '2026casnv'), { wrapper: w });
+    const ts = renderHook(() => useTeamSeasonStats(254, '2026casnv'), { wrapper: w });
+    await waitFor(() => expect(ev.result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(ts.result.current.isSuccess).toBe(true));
+
+    const fromPrediction = ev.result.current.data?.epaByTeam.get(254);
+    const fromTile = ts.result.current.data?.totalEpa;
+    expect(typeof fromPrediction).toBe('number');
+    expect(fromTile).toBe(fromPrediction); // identical, not just close
+    expect(ev.result.current.data?.source).toBe('local');
   });
 
   it('useEventEpa computes EPA from TBA results when Statbotics is down and the local table is empty', async () => {
@@ -477,6 +466,103 @@ describe('useEventData', () => {
     expect(result.current.data?.available).toBe(true);
     expect(result.current.data?.status?.nowQueuing).toBe('Qualification 5');
     expect(nexusGetMock).toHaveBeenCalledWith('/event/2026casnv');
+  });
+
+  it('useNexusEventStatus prefers the webhook snapshot in the DB over the proxy', async () => {
+    // A fresh webhook-pushed row exists -> the hook reads it (source 'webhook')
+    // and must NOT fall back to the nexus-proxy pull.
+    tableResults['nexus_event_status'] = {
+      data: [
+        {
+          payload: {
+            eventKey: '2026casnv',
+            nowQueuing: 'Qualification 9',
+            matches: [
+              { label: 'Qualification 9', status: 'Now queuing', redTeams: ['1'], blueTeams: ['2'], times: {} },
+            ],
+          },
+          data_as_of_time: Date.now(),
+          received_at: null,
+        },
+      ],
+      error: null,
+    };
+    nexusGetMock.mockResolvedValue({ available: false });
+
+    const { result } = renderHook(() => useNexusEventStatus('2026casnv'), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.available).toBe(true);
+    expect(result.current.data?.source).toBe('webhook');
+    expect(result.current.data?.stale).toBe(false);
+    expect(result.current.data?.status?.nowQueuing).toBe('Qualification 9');
+    expect(nexusGetMock).not.toHaveBeenCalled();
+  });
+
+  it('useNexusEventStatus keeps a stale snapshot only when the proxy is ALSO down', async () => {
+    tableResults['nexus_event_status'] = {
+      data: [
+        {
+          payload: { eventKey: '2026casnv', matches: [] },
+          data_as_of_time: Date.now() - 10 * 60_000, // 10 min old -> stale
+          received_at: null,
+        },
+      ],
+      error: null,
+    };
+    nexusGetMock.mockResolvedValue({ available: false }); // proxy down too
+
+    const { result } = renderHook(() => useNexusEventStatus('2026casnv'), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.stale).toBe(true);
+    expect(result.current.data?.source).toBe('webhook');
+    expect(nexusGetMock).toHaveBeenCalled(); // it DID try the proxy first
+  });
+
+  it('useNexusEventStatus falls through a STALE snapshot to a fresh proxy pull', async () => {
+    tableResults['nexus_event_status'] = {
+      data: [
+        {
+          payload: { eventKey: '2026casnv', nowQueuing: 'OLD', matches: [] },
+          data_as_of_time: Date.now() - 10 * 60_000, // stale
+          received_at: null,
+        },
+      ],
+      error: null,
+    };
+    nexusGetMock.mockResolvedValue({
+      eventKey: '2026casnv',
+      nowQueuing: 'Qualification 14',
+      matches: [],
+    });
+
+    const { result } = renderHook(() => useNexusEventStatus('2026casnv'), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.source).toBe('proxy');
+    expect(result.current.data?.status?.nowQueuing).toBe('Qualification 14');
+  });
+
+  it('useNexusEventStatus honors a bigint data_as_of_time returned as a STRING', async () => {
+    // PostgREST serializes bigint columns as JSON strings — the staleness guard
+    // must still fire (coerce, don't typeof-reject).
+    tableResults['nexus_event_status'] = {
+      data: [
+        {
+          payload: { eventKey: '2026casnv', matches: [] },
+          data_as_of_time: String(Date.now() - 10 * 60_000), // STRING, 10 min old
+          received_at: null,
+        },
+      ],
+      error: null,
+    };
+    nexusGetMock.mockResolvedValue({ available: false });
+
+    const { result } = renderHook(() => useNexusEventStatus('2026casnv'), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.stale).toBe(true);
   });
 
   it('useNexusEventStatus degrades to unavailable when Nexus is down', async () => {

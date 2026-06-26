@@ -1,6 +1,6 @@
 // src/dash/__tests__/nexusClient.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseNexusEventStatus } from '@/dash/nexusClient';
+import { parseNexusEventStatus, isPracticeLabel } from '@/dash/nexusClient';
 
 const payload = {
   eventKey: '2024onwa',
@@ -76,6 +76,82 @@ describe('parseNexusEventStatus', () => {
     expect(empty.queuing).toBeNull();
     expect(empty.nowQueuing).toBeNull();
     expect(empty.upcoming).toEqual([]);
+  });
+
+  it('does NOT let a lingering "On field" practice match freeze the field (the P1 bug)', () => {
+    // The event has moved on to quals, but Nexus still has Practice 3 marked
+    // "On field". Once real matches exist, practice must be ignored for live
+    // selection — so On Field shows the qual (or nothing), never "Practice 3".
+    const s = parseNexusEventStatus({
+      eventKey: '2026txhou1',
+      nowQueuing: 'Qualification 8',
+      matches: [
+        {
+          label: 'Practice 3',
+          status: 'On field',
+          redTeams: ['1'],
+          blueTeams: ['2'],
+          times: { estimatedStartTime: 1_700_000_000_000 },
+        },
+        {
+          label: 'Qualification 7',
+          status: 'On field',
+          redTeams: ['100', '200', '300'],
+          blueTeams: ['400', '500', '600'],
+          times: { estimatedStartTime: 1_700_000_700_000, actualQueueTime: 1_700_000_650_000 },
+        },
+        {
+          label: 'Qualification 8',
+          status: 'Now queuing',
+          redTeams: ['7'],
+          blueTeams: ['8'],
+          times: { estimatedStartTime: 1_700_001_300_000 },
+        },
+      ],
+    });
+    expect(s.onField?.label).toBe('Qualification 7');
+    expect(s.queuing?.label).toBe('Qualification 8');
+    expect(s.upcoming.map((m) => m.label)).not.toContain('Practice 3');
+  });
+
+  it('shows a practice match on field only when NO real match exists yet', () => {
+    const s = parseNexusEventStatus({
+      matches: [
+        { label: 'Practice 2', status: 'On field', redTeams: ['1'], blueTeams: ['2'], times: {} },
+      ],
+    });
+    expect(s.onField?.label).toBe('Practice 2');
+  });
+
+  it('breaks an "On field" tie by freshness (defensive against stale duplicates)', () => {
+    const s = parseNexusEventStatus({
+      matches: [
+        {
+          label: 'Qualification 5',
+          status: 'On field',
+          redTeams: ['1'],
+          blueTeams: ['2'],
+          times: { actualQueueTime: 1_700_000_000_000 },
+        },
+        {
+          label: 'Qualification 6',
+          status: 'On field',
+          redTeams: ['3'],
+          blueTeams: ['4'],
+          times: { actualQueueTime: 1_700_000_600_000 },
+        },
+      ],
+    });
+    expect(s.onField?.label).toBe('Qualification 6'); // freshest actualQueueTime
+  });
+
+  it('isPracticeLabel matches Nexus practice labels only', () => {
+    expect(isPracticeLabel('Practice 1')).toBe(true);
+    expect(isPracticeLabel('practice 12')).toBe(true);
+    expect(isPracticeLabel('Qualification 1')).toBe(false);
+    expect(isPracticeLabel('Playoff 3')).toBe(false);
+    expect(isPracticeLabel('')).toBe(false);
+    expect(isPracticeLabel(null)).toBe(false);
   });
 
   it('drops malformed matches and junk team entries', () => {

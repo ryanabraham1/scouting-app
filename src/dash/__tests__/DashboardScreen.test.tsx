@@ -6,6 +6,10 @@ vi.mock('@/dash/useActiveEvent', () => ({
   useActiveEvent: () => ({ eventKey: '2026demo', loading: false }),
 }));
 
+// DashboardScreen drives the real-time engine via useEventLiveSync (react-query +
+// supabase Realtime). Stub it so this shell test stays isolated, like the views.
+vi.mock('@/dash/useEventData', () => ({ useEventLiveSync: () => {} }));
+
 // Stub the heavy tab bodies so the shell test stays isolated (no supabase/react-query).
 vi.mock('@/dash/NextMatchView', () => ({ default: () => <div data-testid="view-next" /> }));
 // TeamView echoes the selectedTeam prop so the ranking→team hand-off is observable.

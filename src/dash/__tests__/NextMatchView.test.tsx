@@ -199,6 +199,103 @@ describe('NextMatchView', () => {
     expect(getByTestId('dash-next-no-match')).toBeTruthy();
   });
 
+  it('shows OUR last match (not an empty state) when the event is complete', () => {
+    const played = (key: string, num: number, ours: boolean) => ({
+      match_key: key,
+      event_key: '2026evt',
+      comp_level: 'qm',
+      match_number: num,
+      scheduled_time: null,
+      red1: ours ? OUR_TEAM : 700,
+      red2: 111,
+      red3: 222,
+      blue1: 333,
+      blue2: 444,
+      blue3: 555,
+      actual_red_score: 80,
+      actual_blue_score: 60,
+      winner: 'red',
+      result_synced_at: '2026-06-26T00:00:00Z',
+    });
+    const matches = [
+      played('2026evt_qm1', 1, true),
+      played('2026evt_qm5', 5, false),
+      played('2026evt_qm7', 7, true),
+    ];
+    useEventMatchesMock.mockReturnValue(dataResult(matches));
+    useEventReportsMock.mockReturnValue(dataResult([]));
+    useEventTeamsMock.mockReturnValue(dataResult([]));
+    useEventEpaMock.mockReturnValue(dataResult({ epaByTeam: new Map(), available: false }));
+
+    const { getByTestId, queryByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    // Not the empty state; anchored on OUR last match (qm7).
+    expect(queryByTestId('dash-next-no-match')).toBeNull();
+    expect(getByTestId('dash-next-title').textContent).toMatch(/Q7/);
+  });
+
+  it('upcoming rail drops matches at/before the on-field match (removes already-played)', () => {
+    const mk = (n: number) => ({
+      match_key: `2026evt_qm${n}`,
+      event_key: '2026evt',
+      comp_level: 'qm',
+      match_number: n,
+      scheduled_time: null,
+      red1: OUR_TEAM,
+      red2: 111,
+      red3: 222,
+      blue1: 333,
+      blue2: 444,
+      blue3: 555,
+      // NOTE: results NOT synced (all unplayed in the DB) — the frontier must
+      // still remove qm1–qm3 because Nexus says qm3 is on the field.
+      actual_red_score: null,
+      actual_blue_score: null,
+      winner: null,
+      result_synced_at: null,
+    });
+    useEventMatchesMock.mockReturnValue(dataResult([1, 2, 3, 4, 5].map(mk)));
+    useEventReportsMock.mockReturnValue(dataResult([]));
+    useEventTeamsMock.mockReturnValue(dataResult([]));
+    useEventEpaMock.mockReturnValue(dataResult({ epaByTeam: new Map(), available: true }));
+
+    const nm = (n: number, st: string | null) => ({
+      label: `Qualification ${n}`,
+      status: st,
+      redTeams: [OUR_TEAM, 111, 222],
+      blueTeams: [333, 444, 555],
+      times: {
+        estimatedStartTime: null,
+        estimatedQueueTime: null,
+        estimatedOnDeckTime: null,
+        estimatedOnFieldTime: null,
+        actualQueueTime: null,
+      },
+    });
+    useNexusEventStatusMock.mockReturnValue(
+      dataResult({
+        available: true,
+        status: {
+          eventKey: '2026evt',
+          dataAsOfTime: 1,
+          nowQueuing: 'Qualification 4',
+          onField: nm(3, 'On field'),
+          queuing: nm(4, 'Now queuing'),
+          matches: [nm(3, 'On field'), nm(4, 'Now queuing'), nm(5, null)],
+          upcoming: [nm(4, 'Now queuing'), nm(5, null)],
+        },
+      }),
+    );
+
+    const { getByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    const rail = getByTestId('dash-next-upcoming');
+    expect(within(rail).getByText('Q4')).toBeTruthy();
+    expect(within(rail).getByText('Q5')).toBeTruthy();
+    // qm1, qm2, qm3 are at/before the on-field match -> gone from the rail.
+    expect(within(rail).queryByText('Q1')).toBeNull();
+    expect(within(rail).queryByText('Q2')).toBeNull();
+    expect(within(rail).queryByText('Q3')).toBeNull();
+  });
+
   it('renders predicted scores and per-team source badges (Statbotics available)', () => {
     setupHappyPath(true);
     const { getByTestId, getAllByTestId } = render(<NextMatchView eventKey="2026evt" />);

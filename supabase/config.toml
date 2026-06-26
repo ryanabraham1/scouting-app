@@ -5,3 +5,19 @@
 # path is unreliable in this environment): python3 .superpowers/sdd/apply-sql.py supabase/migrations/<file>.sql
 # (The 0001_-style sequential naming is intentional and is NOT the supabase-CLI timestamp format.)
 project_id = "oztsfxyfovwnwutrxzmo"
+
+# External webhook receivers: TBA / Nexus call these directly and do NOT carry a
+# Supabase JWT, so JWT verification must be off. They do their own auth (TBA
+# HMAC, Nexus token). sync-event-results keeps verify_jwt on (the dashboard sends
+# its anon session token), matching the other proxies.
+[functions.tba-webhook]
+verify_jwt = false
+
+[functions.nexus-webhook]
+verify_jwt = false
+
+# Pulls public TBA data + writes authentic results keyed by the unique TBA
+# match_key (event_key is format-validated). Public so a cold-load reconcile
+# works before the anon session settles; matches the open import-event posture.
+[functions.sync-event-results]
+verify_jwt = false

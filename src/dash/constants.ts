@@ -4,6 +4,17 @@
 /** Matches-scouted needed to fully trust our scouting data over EPA. */
 export const CONFIDENCE_N = 4;
 
+/**
+ * Recency tilt for the in-house (TBA-derived) EPA model. The model processes a
+ * team's whole season chronologically; this re-weights each match's update by
+ * its recency so a team's CURRENT form counts more than its early-season form,
+ * without inflating the overall learning rate. It is a centered tilt: the oldest
+ * match updates at `1 - boost/2`, the newest at `1 + boost/2` (avg ≈ 1). 0
+ * reproduces the exact Statbotics scalar port; 0.5 ≈ ±25% recency weighting —
+ * a moderate bias, not a regime change.
+ */
+export const EPA_RECENCY_BOOST = 0.5;
+
 // Win-probability calibration.
 //
 // Win prob is logistic over the predicted score margin, but the SPREAD of FRC
@@ -37,3 +48,19 @@ export const OUR_TEAM = 3256;
  * liveness; the nexus-proxy is uncached so every poll reflects the current field.
  */
 export const NEXUS_POLL_MS = 10_000;
+
+/**
+ * How old a Nexus snapshot may be before we stop treating it as LIVE. With the
+ * webhook path the dashboard gets pushed a fresh snapshot on every field change;
+ * if the newest snapshot we hold is older than this, the field has likely gone
+ * quiet (or the push stopped) and we degrade to the schedule rather than show a
+ * frozen "On Field" tile. Generous so normal between-match gaps stay live.
+ */
+export const NEXUS_STALE_MS = 120_000;
+
+/**
+ * Cadence (ms) for the safety-net TBA results reconcile the dashboard triggers
+ * (`sync-event-results`). The tba-webhook lands results in real time; this only
+ * backfills anything a dropped/late webhook missed, so it can be relatively slow.
+ */
+export const RESULTS_RECONCILE_MS = 60_000;

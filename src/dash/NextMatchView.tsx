@@ -26,15 +26,21 @@ import {
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
-import { formatMatchKey } from '@/lib/formatMatch';
+import { formatMatchKey, compareMatchKeys } from '@/lib/formatMatch';
 import { predictMatch, type TeamPrediction } from '@/dash/predict';
 import AutoRoutines from '@/dash/AutoRoutines';
 import EventStream from '@/dash/EventStream';
 import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
-import { OUR_TEAM } from '@/dash/constants';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
-import { trackedNextMatch } from '@/dash/nextMatch';
+import {
+  trackedNextMatch,
+  lastMatchForTeam,
+  lastMatchOverall,
+  matchRowForNexus,
+  nexusMatchesRow,
+  isUnplayedMatch,
+} from '@/dash/nextMatch';
 import type { MsrRow } from '@/dash/types';
 
 export interface NextMatchViewProps {
@@ -64,26 +70,6 @@ function blueTeamsOf(m: MatchRow): number[] {
 }
 function isUnplayed(m: MatchRow): boolean {
   return m.actual_red_score == null && m.actual_blue_score == null;
-}
-
-/**
- * Pick OUR (3256) next unplayed qm: smallest match_number among unplayed qms
- * whose alliances include 3256. Fall back to the first unplayed qm if 3256 has
- * no scheduled unplayed match.
- */
-export function pickNextMatch(
-  matches: MatchRow[],
-  baseTeam: number = OUR_TEAM,
-): MatchRow | null {
-  const unplayedQms = matches
-    .filter((m) => m.comp_level === 'qm' && isUnplayed(m))
-    .sort((a, b) => a.match_number - b.match_number);
-  if (unplayedQms.length === 0) return null;
-
-  const ours = unplayedQms.find(
-    (m) => redTeamsOf(m).includes(baseTeam) || blueTeamsOf(m).includes(baseTeam),
-  );
-  return ours ?? unplayedQms[0];
 }
 
 function round(n: number): number {
@@ -116,15 +102,37 @@ function matchOptionLabel(m: MatchRow): string {
   return `${name} — R ${red} vs B ${blue}${time ? ` · ${time}` : ''}${played}`;
 }
 
-/** Sort matches for the selector: by comp level (qm→sf→f) then match number. */
+/** PLAY order: comp level (qm→ef→qf→sf→f) then the set/game key tail — so
+ *  double-elim playoff sets order correctly (sf1m1 < sf2m1), not tied at 1. */
 const LEVEL_ORDER: Record<string, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
+function byPlay(a: MatchRow, b: MatchRow): number {
+  const la = LEVEL_ORDER[a.comp_level] ?? 9;
+  const lb = LEVEL_ORDER[b.comp_level] ?? 9;
+  return la !== lb ? la - lb : compareMatchKeys(a.match_key, b.match_key);
+}
 function sortMatchesForSelect(matches: MatchRow[]): MatchRow[] {
-  return matches.slice().sort((a, b) => {
-    const la = LEVEL_ORDER[a.comp_level] ?? 9;
-    const lb = LEVEL_ORDER[b.comp_level] ?? 9;
-    if (la !== lb) return la - lb;
-    return a.match_number - b.match_number;
-  });
+  return matches.slice().sort(byPlay);
+}
+
+/** "in 7 min" / "in 1h 5m" / "now" for a future unix-ms target; null if absent. */
+function untilLabel(targetMs: number | null | undefined, nowMs: number): string | null {
+  if (targetMs == null) return null;
+  const mins = Math.round((targetMs - nowMs) / 60000);
+  if (mins <= 0) return 'now';
+  if (mins < 60) return `in ${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `in ${h}h ${m}m` : `in ${h}h`;
+}
+
+/** A clock that re-renders every `intervalMs` so ETAs stay fresh between pushes. */
+function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
 }
 
 function nicknameFor(teams: TeamRow[], teamNumber: number): string | null {
@@ -442,29 +450,24 @@ function WinProbBanner({
   );
 }
 
-/** Find the Nexus match whose label corresponds to a scheduled MatchRow. */
+/** Find the Nexus match whose label corresponds to a scheduled MatchRow
+ *  (quals + playoffs — shared resolver in nextMatch.ts). */
 function nexusMatchFor(status: NexusEventStatus | null, m: MatchRow | null): NexusMatch | null {
   if (!status || !m) return null;
-  const label = formatMatchKey(m.comp_level, m.match_number);
-  // Nexus labels are like "Qualification 12"; ours are "Qual 12". Match on the
-  // trailing number plus a shared level prefix to stay defensive.
-  return (
-    status.matches.find((nm) => {
-      const a = nm.label.toLowerCase();
-      return a.endsWith(` ${m.match_number}`) && a.split(' ')[0].startsWith(label.split(' ')[0].toLowerCase().slice(0, 4));
-    }) ?? null
-  );
+  return status.matches.find((nm) => nexusMatchesRow(nm, m)) ?? null;
 }
 
-/** A compact live-status tile (On Field / Queuing) fed by Nexus. */
+/** A compact live-status tile (On Field / Queuing) fed by Nexus, with an ETA. */
 function FieldTile({
   label,
   match,
   tone,
+  eta,
 }: {
   label: string;
   match: NexusMatch | null;
   tone: 'now' | 'next';
+  eta?: string | null;
 }) {
   // brand cyan = live/now (most time-critical), amber = next/get-ready.
   const bg = tone === 'now' ? 'bg-brand text-background' : 'bg-amber-400 text-neutral-900';
@@ -474,6 +477,7 @@ function FieldTile({
       <div className="mt-1 truncate text-3xl font-black leading-none tracking-tight sm:text-4xl">
         {match ? shortMatchLabel(match.label) : '—'}
       </div>
+      {eta ? <div className="mt-0.5 truncate text-xs font-semibold opacity-80">{eta}</div> : null}
     </div>
   );
 }
@@ -514,6 +518,8 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // Fullscreen the broadcast view for a kiosk/display (driver station, pit TV).
   const containerRef = useRef<HTMLDivElement>(null);
   const fullscreen = useFullscreen(containerRef);
+  // Ticking clock so the "in X min" ETAs stay current between Nexus pushes.
+  const now = useNow();
   const matchesQ = useEventMatches(eventKey);
   const reportsQ = useEventReports(eventKey);
   const teamsQ = useEventTeams(eventKey);
@@ -521,7 +527,10 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // so guard against an undefined result and always degrade gracefully.
   const nexusQ = useNexusEventStatus?.(eventKey);
   const nexus = nexusQ?.data ?? { status: null, available: false };
-  const nexusLive = nexus.available && nexus.status != null;
+  // A stale snapshot (no fresh push within NEXUS_STALE_MS) is treated as not-live
+  // so the view degrades to the schedule — which now carries real results from the
+  // webhook/reconcile — instead of showing a frozen "On Field" tile.
+  const nexusLive = nexus.available && nexus.status != null && !nexus.stale;
 
   // Broadcast-panel data sources (all degrade gracefully; each may be absent in
   // unit tests that mock useEventData, so guard the optional-call result).
@@ -550,10 +559,16 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
 
   // OUR next match to TRACK — prefer live Nexus, else the schedule (then the
   // first unplayed qm as a last resort so the prediction always has a match).
+  // OUR match to anchor on: next unplayed (Nexus-preferred, schedule fallback);
+  // when the event is over with nothing left for us, the most recent match we
+  // played; finally the event's last match. So a completed event shows the last
+  // match instead of an empty state.
   const trackedMatch = useMemo(
     () =>
       allMatches.length
-        ? trackedNextMatch(allMatches, baseTeam, liveStatus) ?? pickNextMatch(allMatches, baseTeam)
+        ? trackedNextMatch(allMatches, baseTeam, liveStatus) ??
+          lastMatchForTeam(allMatches, baseTeam) ??
+          lastMatchOverall(allMatches)
         : null,
     [allMatches, baseTeam, liveStatus],
   );
@@ -625,7 +640,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           data-testid="dash-next-no-match"
           className="rounded-md border border-border bg-card/40 p-6 text-sm text-muted-foreground"
         >
-          No upcoming unplayed qualification match found.
+          No matches found for this event.
         </div>
       </div>
     );
@@ -659,47 +674,71 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   const heroLabel = shortMatchLabel(heroLabelFull);
   const heroTime =
     shortTimeMs(heroNexus?.times.estimatedStartTime ?? null) ?? shortTime(match.scheduled_time);
-  // Status line under the hero match number, broadcast-style ("queuing soon").
-  const heroStatus =
-    heroNexus?.status?.toLowerCase() === 'now queuing'
-      ? 'queuing soon'
-      : heroNexus?.status
-        ? heroNexus.status
-        : heroTime
-          ? `scheduled ${heroTime}`
-          : 'upcoming';
+  // Status line under the hero match number. Prefer live Nexus ETAs ("Queues in
+  // 7 min · on field in 12 min"); else the scheduled time; else, for a finished
+  // match (completed event), the final score.
+  const heroPlayed = !isUnplayedMatch(match);
+  const queueEta = untilLabel(heroNexus?.times.estimatedQueueTime, now);
+  const onFieldEta = untilLabel(heroNexus?.times.estimatedOnFieldTime, now);
+  const nexState = heroNexus?.status?.toLowerCase();
+  let heroStatus: string;
+  if (nexState === 'on field') {
+    heroStatus = 'On field now';
+  } else if (nexState === 'now queuing' || nexState === 'on deck') {
+    heroStatus =
+      onFieldEta && onFieldEta !== 'now' ? `Queuing now · on field ${onFieldEta}` : 'Queuing now';
+  } else if (queueEta || onFieldEta) {
+    const parts: string[] = [];
+    if (queueEta) parts.push(`Queues ${queueEta}`);
+    if (onFieldEta) parts.push(`on field ${onFieldEta}`);
+    heroStatus = parts.join(' · ');
+  } else if (heroPlayed) {
+    const r = match.actual_red_score;
+    const b = match.actual_blue_score;
+    heroStatus = r != null && b != null ? `Final · ${r}–${b}` : 'Final';
+  } else {
+    heroStatus = heroTime ? `Scheduled ${heroTime}` : 'Upcoming';
+  }
+  // ETAs for the live field tiles.
+  const onFieldTileEta = (() => {
+    const e = untilLabel(status?.onField?.times.estimatedStartTime ?? null, now);
+    return e && e !== 'now' ? `starts ${e}` : null;
+  })();
+  const queuingTileEta = (() => {
+    const e = untilLabel(status?.queuing?.times.estimatedOnFieldTime ?? null, now);
+    return e ? `on field ${e}` : null;
+  })();
 
-  // Upcoming rail: ONLY OUR (3256) upcoming matches — prefer Nexus' ordered list,
-  // else the schedule. (The On-Field/Queuing tiles still reflect the whole field.)
-  const nexusOursUpcoming = (status?.upcoming ?? []).filter(
-    (nm) => nm.redTeams.includes(baseTeam) || nm.blueTeams.includes(baseTeam),
-  );
+  // Upcoming rail: ONLY OUR matches that are STILL TO COME. Sourced from the
+  // schedule (the source of truth for who-plays-what) and filtered two ways so a
+  // match we've already played never lingers here:
+  //   1. drop anything with a result (isUnplayedMatch),
+  //   2. drop anything at/before the match Nexus says is on the field — this
+  //      removes already-played matches even when their results haven't synced to
+  //      the DB yet (Nexus tells us the live frontier). Each row is enriched with
+  //      the Nexus label/time when available. (The On-Field/Queuing tiles still
+  //      reflect the whole field.)
+  const frontierRow =
+    (status?.onField ? matchRowForNexus(allMatches, status.onField) : null) ??
+    (status?.queuing ? matchRowForNexus(allMatches, status.queuing) : null);
   const upcoming: Array<{ key: string; label: string; red: number[]; blue: number[]; time: string | null; isOurs: boolean }> =
-    nexusOursUpcoming.length > 0
-      ? nexusOursUpcoming.slice(0, 6).map((nm, i) => ({
-          key: `${nm.label}-${i}`,
-          label: nm.label,
-          red: nm.redTeams,
-          blue: nm.blueTeams,
-          time: dayTimeMs(nm.times.estimatedStartTime),
+    allMatches
+      .filter((m) => redTeamsOf(m).includes(baseTeam) || blueTeamsOf(m).includes(baseTeam))
+      .filter((m) => isUnplayedMatch(m))
+      .filter((m) => !frontierRow || byPlay(m, frontierRow) > 0)
+      .sort(byPlay)
+      .slice(0, 6)
+      .map((m) => {
+        const nm = nexusMatchFor(status, m);
+        return {
+          key: m.match_key,
+          label: nm?.label ?? formatMatchKey(m.comp_level, m.match_number),
+          red: redTeamsOf(m),
+          blue: blueTeamsOf(m),
+          time: dayTimeMs(nm?.times.estimatedStartTime ?? null) ?? dayTime(m.scheduled_time),
           isOurs: true,
-        }))
-      : allMatches
-          .filter(
-            (m) =>
-              isUnplayed(m) &&
-              (redTeamsOf(m).includes(baseTeam) || blueTeamsOf(m).includes(baseTeam)),
-          )
-          .sort((a, b) => a.match_number - b.match_number)
-          .slice(0, 6)
-          .map((m) => ({
-            key: m.match_key,
-            label: formatMatchKey(m.comp_level, m.match_number),
-            red: redTeamsOf(m),
-            blue: blueTeamsOf(m),
-            time: dayTime(m.scheduled_time),
-            isOurs: true,
-          }));
+        };
+      });
 
   return (
     <div
@@ -773,13 +812,13 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
             >
               {heroLabel}
             </div>
-            <div className="mt-3 text-base font-medium capitalize text-red-50/90">{heroStatus}</div>
+            <div className="mt-3 text-base font-medium text-red-50/90">{heroStatus}</div>
           </div>
 
           {/* Live field status — On Field (gray) / Queuing (yellow). */}
           <div className="grid grid-cols-2 gap-3">
-            <FieldTile label="On Field" tone="now" match={status?.onField ?? null} />
-            <FieldTile label="Queuing" tone="next" match={status?.queuing ?? null} />
+            <FieldTile label="On Field" tone="now" match={status?.onField ?? null} eta={onFieldTileEta} />
+            <FieldTile label="Queuing" tone="next" match={status?.queuing ?? null} eta={queuingTileEta} />
           </div>
 
           {/* Upcoming — OUR matches only, broadcast team-grid cards. */}

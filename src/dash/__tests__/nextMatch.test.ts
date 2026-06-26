@@ -5,6 +5,8 @@ import {
   nextMatchForTeam,
   matchRowForNexus,
   trackedNextMatch,
+  lastMatchForTeam,
+  lastMatchOverall,
 } from '@/dash/nextMatch';
 import type { MatchRow } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
@@ -117,6 +119,47 @@ describe('matchRowForNexus', () => {
   });
 });
 
+describe('matchRowForNexus (playoffs)', () => {
+  const matches = [
+    match({ match_key: '2026evt_qm5', comp_level: 'qm', match_number: 5 }),
+    match({ match_key: '2026evt_sf3m1', comp_level: 'sf', match_number: 1 }),
+    match({ match_key: '2026evt_sf8m1', comp_level: 'sf', match_number: 1 }),
+    match({ match_key: '2026evt_f1m1', comp_level: 'f', match_number: 1 }),
+    match({ match_key: '2026evt_f1m2', comp_level: 'f', match_number: 2 }),
+  ];
+  it('maps "Final 2" to the second final game', () => {
+    expect(matchRowForNexus(matches, nexusMatch({ label: 'Final 2' }))?.match_key).toBe('2026evt_f1m2');
+  });
+  it('maps "Semifinal 3" to the sf set-3 row', () => {
+    expect(matchRowForNexus(matches, nexusMatch({ label: 'Semifinal 3' }))?.match_key).toBe('2026evt_sf3m1');
+  });
+  it('maps "Playoff 8" (double-elim bracket position) to sf set 8', () => {
+    expect(matchRowForNexus(matches, nexusMatch({ label: 'Playoff 8' }))?.match_key).toBe('2026evt_sf8m1');
+  });
+  it('keeps quals mapping to qm rows (no playoff cross-talk)', () => {
+    expect(matchRowForNexus(matches, nexusMatch({ label: 'Qualification 5' }))?.match_key).toBe('2026evt_qm5');
+  });
+});
+
+describe('lastMatchForTeam / lastMatchOverall', () => {
+  const matches = [
+    match({ match_key: '2026evt_qm2', comp_level: 'qm', match_number: 2, red1: OURS }),
+    match({ match_key: '2026evt_qm7', comp_level: 'qm', match_number: 7, blue1: OURS }),
+    match({ match_key: '2026evt_sf3m1', comp_level: 'sf', match_number: 1, red1: OURS }),
+    match({ match_key: '2026evt_f1m1', comp_level: 'f', match_number: 1 }), // not ours (defaults)
+  ];
+  it('returns OUR latest match by play order (sf after qm)', () => {
+    expect(lastMatchForTeam(matches, OURS)?.match_key).toBe('2026evt_sf3m1');
+  });
+  it('returns the event last match overall', () => {
+    expect(lastMatchOverall(matches)?.match_key).toBe('2026evt_f1m1');
+  });
+  it('returns null when the team has no matches', () => {
+    expect(lastMatchForTeam([], OURS)).toBeNull();
+    expect(lastMatchOverall([])).toBeNull();
+  });
+});
+
 describe('trackedNextMatch', () => {
   const matches = [
     match({ match_key: 'qm2', comp_level: 'qm', match_number: 2, red1: OURS }),
@@ -135,6 +178,29 @@ describe('trackedNextMatch', () => {
       nexusMatch({ label: 'Qualification 7', redTeams: [OURS], blueTeams: [] }),
     ]);
     expect(trackedNextMatch(matches, OURS, st)?.match_key).toBe('qm4');
+  });
+
+  it('skips a played match Nexus still lists at the head of upcoming (live-path stick fix)', () => {
+    // Nexus left Qual 2 flagged "On field" and never marked it Completed, so it
+    // lingers first in `upcoming`. The webhook already wrote qm2's result, so we
+    // must NOT pin to it — advance to qm4.
+    const playedMatches = [
+      match({
+        match_key: 'qm2',
+        comp_level: 'qm',
+        match_number: 2,
+        red1: OURS,
+        actual_red_score: 50,
+        actual_blue_score: 40,
+        winner: 'red',
+      }),
+      match({ match_key: 'qm4', comp_level: 'qm', match_number: 4, blue1: OURS }),
+    ];
+    const st = status([
+      nexusMatch({ label: 'Qualification 2', redTeams: [OURS, 1, 2], blueTeams: [3, 4, 5] }),
+      nexusMatch({ label: 'Qualification 4', redTeams: [8, 9, 10], blueTeams: [OURS, 6, 7] }),
+    ]);
+    expect(trackedNextMatch(playedMatches, OURS, st)?.match_key).toBe('qm4');
   });
 
   it('skips Nexus upcoming matches that do not include our team', () => {
