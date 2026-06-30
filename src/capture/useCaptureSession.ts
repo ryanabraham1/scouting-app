@@ -681,6 +681,14 @@ export function useCaptureSession(target: CaptureTarget) {
     // blue = right half). Surfaced from the target so CaptureScreen doesn't need
     // the whole target threaded through.
     allianceColor: target.allianceColor,
+    // Event + target team are surfaced so the Review auto step can look up the
+    // team's previously-scouted auto routines (the "pick a known auto" picker)
+    // without threading the whole target through.
+    eventKey: target.eventKey,
+    targetTeamNumber: target.targetTeamNumber,
+    // The match being scouted — used to exclude this same match from the
+    // known-auto history (a resumed/edited report shouldn't offer its own auto).
+    matchKey: target.matchKey,
     bursts,
     holdStart,
     holdSample,

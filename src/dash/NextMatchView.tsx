@@ -26,7 +26,8 @@ import {
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
-import { formatMatchKey, compareMatchKeys } from '@/lib/formatMatch';
+import { formatMatchKeyRaw, compareMatchKeys, isQualLevel } from '@/lib/formatMatch';
+import PlayoffPath from '@/dash/PlayoffPath';
 import { predictMatch, type TeamPrediction } from '@/dash/predict';
 import CombinedAutoField from '@/dash/CombinedAutoField';
 import EventStream from '@/dash/EventStream';
@@ -93,7 +94,10 @@ function shortTimeMs(ms: number | null): string | null {
 
 /** Friendly one-line label for a match in the selector. */
 function matchOptionLabel(m: MatchRow): string {
-  const name = formatMatchKey(m.comp_level, m.match_number);
+  // From the raw key, not comp_level+match_number: in double-elim every semifinal
+  // shares match_number=1 (it's the game-within-set), so the latter labels them all
+  // "Semi 1". The key tail (sf3m1) carries the distinguishing SET number.
+  const name = formatMatchKeyRaw(m.match_key);
   const red = redTeamsOf(m).join('/') || '—';
   const blue = blueTeamsOf(m).join('/') || '—';
   const time = shortTime(m.scheduled_time);
@@ -517,6 +521,13 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
 
   const allMatches = useMemo(() => matchesQ.data ?? [], [matchesQ.data]);
   const sortedMatches = useMemo(() => sortMatchesForSelect(allMatches), [allMatches]);
+  // Playoffs have started once the schedule carries any non-qual match. Then the
+  // flat "upcoming" list (which can't express bracket structure) is replaced by
+  // the double-elim bracket.
+  const hasPlayoffs = useMemo(
+    () => allMatches.some((m) => !isQualLevel(m.comp_level)),
+    [allMatches],
+  );
 
   // The live Nexus status (null when Nexus is unavailable) feeds match TRACKING:
   // while tracking, we follow OUR next match as Nexus sees it, falling back to the
@@ -633,7 +644,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   const status = nexusLive ? nexus.status : null;
   const heroNexus = nexusMatchFor(status, match);
   // Prefer a Nexus live label for the hero; else the formatted schedule label.
-  const heroLabelFull = heroNexus?.label ?? formatMatchKey(match.comp_level, match.match_number);
+  const heroLabelFull = heroNexus?.label ?? formatMatchKeyRaw(match.match_key);
   const heroLabel = shortMatchLabel(heroLabelFull);
   const heroTime =
     shortTimeMs(heroNexus?.times.estimatedStartTime ?? null) ?? shortTime(match.scheduled_time);
@@ -695,7 +706,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
         const nm = nexusMatchFor(status, m);
         return {
           key: m.match_key,
-          label: nm?.label ?? formatMatchKey(m.comp_level, m.match_number),
+          label: nm?.label ?? formatMatchKeyRaw(m.match_key),
           red: redTeamsOf(m),
           blue: blueTeamsOf(m),
           time: dayTimeMs(nm?.times.estimatedStartTime ?? null) ?? dayTime(m.scheduled_time),
@@ -761,8 +772,10 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           </div>
         </div>
 
-        {/* RIGHT — next match hero, live field status, OUR upcoming rail. */}
-        <div className="flex flex-col gap-3">
+        {/* RIGHT — next match hero, live field status, OUR upcoming rail.
+            min-w-0 lets the playoff bracket's wide content scroll WITHIN this
+            column instead of stretching the grid track. */}
+        <div className="flex min-w-0 flex-col gap-3">
           {/* Next match — the loud red hero card. */}
           <div className="rounded-xl bg-red-600 px-6 py-6 text-white">
             <div className="flex items-center justify-between gap-2">
@@ -783,23 +796,36 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
             <FieldTile label="Queuing" tone="next" match={status?.queuing ?? null} eta={queuingTileEta} />
           </div>
 
-          {/* Upcoming — OUR matches only, broadcast team-grid cards. */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
+          {/* During playoffs the flat upcoming list can't express who advances
+              where, so it's replaced IN PLACE by OUR bracket path: the match we're
+              in, where a win/loss sends us, and who we'd face (the winner/loser of
+              another match until it's decided). Otherwise the broadcast team-grid
+              cards for OUR upcoming matches. */}
+          {hasPlayoffs ? (
+            <div data-testid="dash-next-bracket" className="flex flex-col gap-2">
               <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Upcoming
+                Our Playoff Path
               </div>
+              <PlayoffPath matches={allMatches} baseTeam={baseTeam} />
             </div>
-            {upcoming.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No upcoming matches for {baseTeam}.</p>
-            ) : (
-              <ul data-testid="dash-next-upcoming" className="flex flex-col gap-2">
-                {upcoming.map((u) => (
-                  <UpcomingCard key={u.key} u={u} baseTeam={baseTeam} />
-                ))}
-              </ul>
-            )}
-          </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Upcoming
+                </div>
+              </div>
+              {upcoming.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No upcoming matches for {baseTeam}.</p>
+              ) : (
+                <ul data-testid="dash-next-upcoming" className="flex flex-col gap-2">
+                  {upcoming.map((u) => (
+                    <UpcomingCard key={u.key} u={u} baseTeam={baseTeam} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

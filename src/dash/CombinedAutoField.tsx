@@ -1,14 +1,22 @@
 // src/dash/CombinedAutoField.tsx
-// ONE field image for the whole upcoming matchup: each team's MOST RECENT auto
-// drawn on the side they'll actually play next. Autos are stored in absolute
-// field coords, so a team whose latest auto was scouted on the OTHER alliance has
-// it rotated 180° onto their upcoming side (red→red, blue→blue). Red teams use a
-// red-ish palette, blue teams a blue-ish one, so the alliances read apart on the
-// shared field. Read-only, 100% client-side.
+// ONE field image for the whole upcoming matchup: each team's auto drawn on the
+// side they'll actually play next. Autos are stored in absolute field coords, so
+// a routine scouted on the OTHER alliance is rotated 180° onto their upcoming side
+// (red→red, blue→blue). Red teams use a red-ish palette, blue teams a blue-ish
+// one, so the alliances read apart on the shared field.
+//
+// By default each team shows the type of auto it MOST RECENTLY ran. Because teams
+// often run more than one routine, each team gets a small option selector — the
+// same shape-clustered "auto options" the Team tab shows (`groupAutoPaths`) — so
+// staff can flip any team to a different routine they've been scouted running.
+// Read-only, 100% client-side.
 
-import { FieldDiagram, type RoutineOverlay, type FieldPoint } from '@/components/FieldDiagram';
+import { useMemo, useState } from 'react';
+import { FieldDiagram, type RoutineOverlay } from '@/components/FieldDiagram';
 import { hasAutoData } from '@/dash/AutoRoutines';
-import { rotate180, type AllianceColor } from '@/dash/fieldFrame';
+import { collectPoints } from '@/dash/AutoHeatmap';
+import { groupAutoPaths, autoPathToFrame, type AutoGroup } from '@/dash/autoGrouping';
+import { type AllianceColor } from '@/dash/fieldFrame';
 import type { MsrRow } from '@/dash/types';
 
 export interface CombinedAutoFieldProps {
@@ -22,60 +30,70 @@ export interface CombinedAutoFieldProps {
 const RED_PALETTE = ['#ef4444', '#f97316', '#fb7185'];
 const BLUE_PALETTE = ['#3b82f6', '#22d3ee', '#a855f7'];
 
-interface AutoEntry {
-  team: number;
-  color: string;
-  start: FieldPoint | null;
-  path: FieldPoint[] | null;
+/** A, B, C … label for each discovered auto option (mirrors the Team tab). */
+function optionLetter(i: number): string {
+  return String.fromCharCode(65 + (i % 26));
 }
 
-/** A team's most-recent report carrying auto data (or null), with its alliance. */
-function latestAuto(
-  team: number,
-  reports: MsrRow[],
-): { start: FieldPoint | null; path: FieldPoint[] | null; alliance: AllianceColor } | null {
+interface TeamAuto {
+  team: number;
+  color: string;
+  /** The alliance side this team plays in the upcoming match. */
+  side: AllianceColor;
+  /** Distinct auto options, blue-framed, most-run first (Team-tab grouping). */
+  groups: AutoGroup[];
+  /** Index of the group holding the team's most-recently-scouted auto. */
+  defaultIdx: number;
+}
+
+/**
+ * A team's auto options (the same shape-clustered groups the Team tab shows) plus
+ * the index of the group containing its most-recent auto — null when it has none.
+ */
+function teamAuto(team: number, side: AllianceColor, color: string, reports: MsrRow[]): TeamAuto | null {
+  const { paths: rawPaths } = collectPoints(reports, team);
+  if (rawPaths.length === 0) return null;
+  // Canonicalize to the BLUE frame before grouping (mirror of AutoOptions) so a
+  // routine run on red folds together with its blue-side equivalent.
+  const paths = rawPaths.map((p) => autoPathToFrame(p, 'blue'));
+  const groups = groupAutoPaths(paths);
+
+  // The group containing the most-recent (largest server_received_at) auto — the
+  // type the team last ran is what we default the selector to.
   const withAuto = reports.filter((r) => r.target_team_number === team && hasAutoData(r));
-  if (withAuto.length === 0) return null;
   const latest = withAuto.reduce((best, r) =>
     r.server_received_at > best.server_received_at ? r : best,
   );
-  return {
-    start: latest.auto_start_position ?? null,
-    path: latest.auto_path ?? null,
-    alliance: latest.alliance_color === 'blue' ? 'blue' : 'red',
-  };
+  const found = groups.findIndex((g) => g.members.some((m) => m.matchKey === latest.match_key));
+
+  return { team, color, side, groups, defaultIdx: found < 0 ? 0 : found };
 }
 
-/** Build overlay entries for one alliance, re-framing each auto onto `side`. */
-function buildSide(
-  teams: number[],
-  side: AllianceColor,
-  reports: MsrRow[],
-  palette: string[],
-): AutoEntry[] {
-  const out: AutoEntry[] = [];
+/** Build each alliance's teams that have auto data, assigning palette by position. */
+function buildSide(teams: number[], side: AllianceColor, reports: MsrRow[], palette: string[]): TeamAuto[] {
+  const out: TeamAuto[] = [];
   for (const team of teams) {
-    const a = latestAuto(team, reports);
-    if (!a) continue;
-    const tf = (p: FieldPoint): FieldPoint => (a.alliance === side ? p : rotate180(p));
-    out.push({
-      team,
-      color: palette[out.length % palette.length],
-      start: a.start ? tf(a.start) : null,
-      path: a.path ? a.path.map(tf) : null,
-    });
+    const t = teamAuto(team, side, palette[out.length % palette.length], reports);
+    if (t) out.push(t);
   }
   return out;
 }
 
 export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.Element {
   const { redTeams, blueTeams, reports } = props;
-  const entries = [
-    ...buildSide(redTeams, 'red', reports, RED_PALETTE),
-    ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
-  ];
 
-  if (entries.length === 0) {
+  const teams = useMemo<TeamAuto[]>(
+    () => [
+      ...buildSide(redTeams, 'red', reports, RED_PALETTE),
+      ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
+    ],
+    [redTeams, blueTeams, reports],
+  );
+
+  // Per-team selected option index (team number → group index). Absent → default.
+  const [sel, setSel] = useState<Record<number, number>>({});
+
+  if (teams.length === 0) {
     return (
       <div data-testid="combined-auto-empty" className="text-sm text-muted-foreground">
         No auto routines recorded for this matchup yet.
@@ -83,28 +101,73 @@ export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.El
     );
   }
 
-  const overlays: RoutineOverlay[] = entries.map((e) => ({
-    color: e.color,
-    startPosition: e.start,
-    path: e.path,
-    label: String(e.team),
+  // Resolve each team's currently-shown option, re-framed onto its play side.
+  const shown = teams.map((t) => {
+    const idx = Math.min(sel[t.team] ?? t.defaultIdx, t.groups.length - 1);
+    const rep = autoPathToFrame(t.groups[idx].representative, t.side);
+    return { t, idx, rep };
+  });
+
+  const overlays: RoutineOverlay[] = shown.map(({ t, rep }) => ({
+    color: t.color,
+    startPosition: rep.start,
+    path: rep.path,
+    label: String(t.team),
   }));
+
+  const optBtn = (active: boolean): string =>
+    [
+      'rounded px-1.5 py-0.5 text-xs font-medium tabular-nums transition-colors',
+      active
+        ? 'bg-zinc-100 text-zinc-900'
+        : 'border border-zinc-700 text-zinc-400 hover:text-zinc-200',
+    ].join(' ');
 
   return (
     <div data-testid="combined-auto" className="flex flex-col gap-2">
       <FieldDiagram mode="view" overlays={overlays} data-testid="combined-auto-field" />
-      <ul
-        data-testid="combined-auto-legend"
-        className="flex flex-wrap gap-x-4 gap-y-1.5"
-      >
-        {entries.map((e) => (
-          <li key={e.team} className="flex items-center gap-1.5 text-sm text-foreground">
-            <span
-              aria-hidden
-              className="inline-block size-3 rounded-sm"
-              style={{ background: e.color }}
-            />
-            <span className="tabular-nums">{e.team}</span>
+      <ul data-testid="combined-auto-legend" className="flex flex-col gap-2">
+        {shown.map(({ t, idx }) => (
+          <li
+            key={t.team}
+            data-testid={`combined-auto-team-${t.team}`}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-foreground"
+          >
+            <span className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="inline-block size-3 rounded-sm"
+                style={{ background: t.color }}
+              />
+              <span className="tabular-nums font-medium">{t.team}</span>
+            </span>
+            {t.groups.length > 1 ? (
+              <span
+                role="group"
+                aria-label={`Auto option for team ${t.team}`}
+                className="flex flex-wrap items-center gap-1"
+              >
+                {t.groups.map((g, i) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    data-testid={`combined-auto-team-${t.team}-opt-${i}`}
+                    aria-pressed={i === idx}
+                    className={optBtn(i === idx)}
+                    onClick={() => setSel((s) => ({ ...s, [t.team]: i }))}
+                    title={`Ran ${g.members.length}×${i === t.defaultIdx ? ' · most recent' : ''}`}
+                  >
+                    {optionLetter(i)}
+                    <span className="ml-1 opacity-70">{g.members.length}×</span>
+                    {i === t.defaultIdx ? (
+                      <span aria-hidden className="ml-1 text-brand">
+                        •
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </span>
+            ) : null}
           </li>
         ))}
       </ul>

@@ -10,11 +10,15 @@ import {
   ArrowRight,
   Save,
   X,
+  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
 import { FOUL_REASONS } from '@/scoring/fouls';
+import { useTeamAutoHistory } from '@/capture/useTeamAutoHistory';
+import AutoHistoryPicker from '@/capture/AutoHistoryPicker';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
 const CLIMB_LEVELS: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3];
@@ -71,6 +75,19 @@ export function ReviewScreen(props: {
   const [step, setStep] = useState(0); // 0-indexed; UI shows step + 1
   const [saving, setSaving] = useState(false);
   const isPortrait = useIsPortrait();
+
+  // Step 4 auto: offer the routines this team has already been scouted running so a
+  // scout can reuse one instead of re-tracing it. Only looked up once the auto step
+  // is reached (saves a request if the scout exits earlier). `known` mode shows the
+  // picker, `draw` keeps the trace-it-yourself field.
+  const { autos: priorAutos } = useTeamAutoHistory(s.eventKey, s.targetTeamNumber, {
+    excludeMatchKey: s.matchKey,
+    enabled: step >= 3,
+  });
+  const hasPriorAutos = priorAutos.length > 0;
+  const [autoMode, setAutoMode] = useState<'known' | 'draw'>('known');
+  // Effective mode: with no prior autos there's nothing to pick, so always draw.
+  const effectiveAutoMode = hasPriorAutos ? autoMode : 'draw';
 
   const agg = computeAggregates({
     schemaVersion: SCHEMA_VERSION,
@@ -399,40 +416,79 @@ export function ReviewScreen(props: {
           </section>
         )}
 
-        {/* Step 4: Auto — draw the auto path. The start position (captured
-            pre-match on the placement step) is already rendered as the orange
-            marker on this same diagram, so no separate read-only field image is
-            needed. */}
+        {/* Step 4: Auto. Two ways to record the path: PICK one of the routines the
+            team has already been scouted running (re-framed onto this match's
+            alliance), or DRAW it by finger. The start position (captured pre-match
+            on the placement step) renders as the orange marker on the draw field. */}
         {step === 3 && (
           <section className="flex flex-col gap-3">
             <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
-              <p className="mb-2 flex items-center gap-2 text-base font-semibold">
+              <p className="mb-3 flex items-center gap-2 text-base font-semibold">
                 <Route className="size-5 text-brand" />
                 Auto path
-                <span className="text-sm font-normal text-muted-foreground">
-                  (start position shown)
-                </span>
+                {effectiveAutoMode === 'draw' && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    (start position shown)
+                  </span>
+                )}
               </p>
-              {/* The only diagram on this step. In portrait the very wide field is
-                  rotated 90° (tall + big) so tracing the path with a finger is
-                  accurate; in landscape it gets the full width (capped). */}
-              <div
-                className={
-                  isPortrait
-                    ? 'mx-auto flex h-[55dvh] w-full justify-center'
-                    : 'mx-auto w-full max-w-[480px] landscape:max-w-[680px]'
-                }
-              >
-                <FieldDiagram
-                  mode="draw-path"
-                  rotate={isPortrait}
-                  fillHeight={isPortrait}
-                  startPosition={s.autoStartPosition}
-                  path={s.autoPath}
-                  onPathChange={(pts: FieldPoint[]) => s.setAutoPath(pts)}
-                  data-testid="review-field-path"
+
+              {/* Mode switch — only when the team has prior autos worth reusing. */}
+              {hasPriorAutos && (
+                <SegmentedToggle<'known' | 'draw'>
+                  ariaLabel="Auto path entry mode"
+                  className="mb-3"
+                  size="default"
+                  value={autoMode}
+                  onChange={setAutoMode}
+                  options={[
+                    {
+                      value: 'known',
+                      label: 'Known autos',
+                      icon: <Route />,
+                      activeClassName: 'text-brand',
+                    },
+                    { value: 'draw', label: 'Draw new', icon: <Pencil /> },
+                  ]}
                 />
-              </div>
+              )}
+
+              {effectiveAutoMode === 'known' ? (
+                <AutoHistoryPicker
+                  autos={priorAutos}
+                  alliance={s.allianceColor}
+                  selectedPath={s.autoPath}
+                  onSelect={({ start, path }) => {
+                    // Applying a known routine writes BOTH its start and path (in
+                    // this alliance's absolute coords) so the report is a complete,
+                    // self-consistent auto — exactly as if it had been traced here.
+                    s.setAutoStartPosition(start);
+                    s.setAutoPath(path);
+                  }}
+                  data-testid="review-auto-history"
+                />
+              ) : (
+                /* In portrait the very wide field is rotated 90° (tall + big) so
+                   tracing the path with a finger is accurate; landscape gets the
+                   full width (capped). */
+                <div
+                  className={
+                    isPortrait
+                      ? 'mx-auto flex h-[55dvh] w-full justify-center'
+                      : 'mx-auto w-full max-w-[480px] landscape:max-w-[680px]'
+                  }
+                >
+                  <FieldDiagram
+                    mode="draw-path"
+                    rotate={isPortrait}
+                    fillHeight={isPortrait}
+                    startPosition={s.autoStartPosition}
+                    path={s.autoPath}
+                    onPathChange={(pts: FieldPoint[]) => s.setAutoPath(pts)}
+                    data-testid="review-field-path"
+                  />
+                </div>
+              )}
             </div>
           </section>
         )}

@@ -422,6 +422,35 @@ describe('NextMatchView', () => {
     expect(numbers).not.toContain(`dash-next-team-${OUR_TEAM}`);
   });
 
+  it('labels playoff semifinals by their SET number, not match_number (no duplicate "Semi 1")', () => {
+    // Double-elim: every sf match shares match_number=1; the SET (sf1m1 vs sf2m1)
+    // is what distinguishes them. Both must get distinct labels in the selector.
+    const matches = [
+      {
+        match_key: '2026evt_sf1m1', event_key: '2026evt', comp_level: 'sf', match_number: 1,
+        scheduled_time: null, red1: OUR_TEAM, red2: 111, red3: 222, blue1: 333, blue2: 444, blue3: 555,
+        actual_red_score: null, actual_blue_score: null, winner: null, result_synced_at: null,
+      },
+      {
+        match_key: '2026evt_sf2m1', event_key: '2026evt', comp_level: 'sf', match_number: 1,
+        scheduled_time: null, red1: 777, red2: 888, red3: 999, blue1: 666, blue2: 555, blue3: 444,
+        actual_red_score: null, actual_blue_score: null, winner: null, result_synced_at: null,
+      },
+    ];
+    useEventMatchesMock.mockReturnValue(dataResult(matches));
+    useEventReportsMock.mockReturnValue(dataResult([]));
+    useEventTeamsMock.mockReturnValue(dataResult([]));
+    useEventEpaMock.mockReturnValue(dataResult(new Map()));
+
+    const { getByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    const selector = getByTestId('dash-next-match-select') as HTMLSelectElement;
+    const labels = Array.from(selector.options).map((o) => o.textContent ?? '');
+    expect(labels.some((l) => l.startsWith('Semi 1'))).toBe(true);
+    expect(labels.some((l) => l.startsWith('Semi 2'))).toBe(true);
+    // The bug: both showing "Semi 1". Guard against a regression.
+    expect(labels.filter((l) => l.startsWith('Semi 1 ')).length).toBe(1);
+  });
+
   it('tracks OUR next match by default and snaps back via the Track button after a manual pick', () => {
     setupHappyPath(true);
     const { getByTestId, queryByTestId } = render(<NextMatchView eventKey="2026evt" />);
