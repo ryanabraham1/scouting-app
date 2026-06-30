@@ -51,7 +51,10 @@ async function uploadAndUpsert(rec: LocalPitReport): Promise<unknown> {
     // it instead of re-uploading (which would orphan this object in Storage).
     await setPitUploadedPhoto(rec.draftKey, path);
   }
-  const { error } = await upsertPitRow(report);
+  // Revision = this report's local updatedAt epoch-ms, so a STALE queued report
+  // (older edit) can never overwrite a newer one already on the server (0031).
+  const revision = Date.parse(rec.updatedAt) || Date.now();
+  const { error } = await upsertPitRow(report, revision);
   if (error) return error;
   // Stash the resolved path back so markPitSynced records it.
   rec.data = report;

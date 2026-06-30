@@ -1,0 +1,23 @@
+-- 0029_drop_legacy_scout_auth_uid.sql
+-- Bug: a device that already picked a scouter at one event CANNOT pick a scouter
+-- at a SECOND event — select_scouter fails with
+--   duplicate key value violates unique constraint "scout_auth_uid_key"
+--
+-- Why: scout carries TWO unique constraints on auth_uid:
+--   * scout_auth_uid_key      UNIQUE (auth_uid)              -- legacy, from 0001
+--   * scout_event_uid_unique  UNIQUE (event_key, auth_uid)   -- per-event, from 0009
+-- The 0009 design is ONE scout row per (event, auth_uid); the single-column legacy
+-- constraint was meant to be superseded then but was never dropped (verified live
+-- on the deployed DB). select_scouter upserts with ON CONFLICT (event_key, auth_uid):
+-- for a device (one anon auth.uid) already on event A, picking a name at event B
+-- produces a tuple that does NOT conflict on the composite, so Postgres attempts a
+-- genuine INSERT — which violates the global scout_auth_uid_key. ON CONFLICT only
+-- catches the composite target, so the violation surfaces as an unhandled 23505 and
+-- the RPC aborts; the device can never join event B.
+--
+-- Fix: drop the legacy single-column constraint, leaving only the per-event
+-- composite — exactly the one-row-per-(event,uid) model the RPCs assume. Synthetic
+-- per-row auth_uids (roster seeding, QR ingest) stay unique under the composite, so
+-- this is safe. Idempotent.
+
+alter table scout drop constraint if exists scout_auth_uid_key;

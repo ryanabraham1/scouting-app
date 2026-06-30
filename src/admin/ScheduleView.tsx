@@ -25,10 +25,15 @@ export function ScheduleView({ eventKey }: ScheduleViewProps): JSX.Element {
     let active = true;
     setLoading(true);
     void (async () => {
+      // Qualification matches only. The webhook / results-reconcile path now
+      // writes playoff matches (qf/sf/f) into the `match` table too, and their
+      // per-set match_number resets to 1 — so without this filter the scouting
+      // schedule fills with rows all labelled "Q1". We never scout playoffs.
       const { data } = await supabase
         .from('match')
         .select('match_key,match_number,red1,red2,red3,blue1,blue2,blue3')
         .eq('event_key', eventKey)
+        .eq('comp_level', 'qm')
         .order('match_number', { ascending: true });
       if (active) {
         setMatches((data as MatchRow[] | null) ?? []);

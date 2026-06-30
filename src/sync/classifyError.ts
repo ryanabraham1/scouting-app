@@ -129,3 +129,20 @@ export function isSupersedeRecoverable(message: string | null | undefined): bool
   if (!message) return false;
   return SUPERSEDE_RECOVERABLE.test(message);
 }
+
+/**
+ * A dead-letter caused by an ORPHANED scout_id — the report's scout row was
+ * deleted server-side by select_scouter's name-consolidation (e.g. the same
+ * scouter name was picked on a second device). upsert_match_report's
+ * authenticated branch raised 23503 'invalid scout_id'. The server fix in
+ * migration 0030 (re-resolve a missing scout_id by scout_name, provisioning a
+ * caller-owned row as a last resort) makes these recoverable, so they're safe to
+ * auto-requeue once after that migration ships — re-sending now carries scout_name
+ * and lands on the surviving canonical row instead of dead-lettering again.
+ */
+const ORPHANED_SCOUT_RECOVERABLE = /\b23503\b|invalid scout_id|no such scout/i;
+
+export function isOrphanedScoutRecoverable(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return ORPHANED_SCOUT_RECOVERABLE.test(message);
+}

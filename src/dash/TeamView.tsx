@@ -12,7 +12,6 @@ import {
   Cog,
   Sparkles,
   Inbox,
-  Image as ImageIcon,
   StickyNote,
   Trophy,
   MapPin,
@@ -31,12 +30,13 @@ import {
   Route,
 } from 'lucide-react';
 import { FieldDiagram } from '@/components/FieldDiagram';
+import { MatchScorePanel } from '@/dash/MatchScorePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
 import { formatMatchKeyRaw, compareMatchKeys } from '@/lib/formatMatch';
 import { foulReasonLabel } from '@/scoring/fouls';
-import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
+import { aggregateEvent, TREND_WINDOW, type TeamAgg } from '@/dash/aggregate';
 import {
   useEventTeams,
   useEventReports,
@@ -50,11 +50,20 @@ import {
 } from '@/dash/useEventData';
 import { useTeamPit, useTeamPhoto, type TeamPit } from '@/dash/useTeamPit';
 import ReportDetail from '@/dash/ReportDetail';
+import AutoOptions from '@/dash/AutoOptions';
 import MatchVideo from '@/dash/MatchVideo';
 import TeamTimeline from '@/dash/TeamTimeline';
 import { MATCH_MS } from '@/dash/matchTimeline';
+import {
+  pctSigned,
+  DEF_EFF_MIN_SAMPLE,
+  intervalAbsRange,
+  suppressionFromBursts,
+} from '@/dash/defenseAnalytics';
 import { BarChart, LineChart, StackedBar } from '@/dash/charts';
-import type { MsrRow } from '@/dash/types';
+import ConflictMarker from '@/components/ConflictMarker';
+import { useMultiScoutConflicts } from '@/dash/useMultiScoutConflicts';
+import type { MsrRow, MultiScoutGroup } from '@/dash/types';
 
 export interface TeamViewProps {
   eventKey: string;
@@ -63,6 +72,17 @@ export interface TeamViewProps {
    * dropdown when it changes; the dropdown still drives manual selection after.
    */
   selectedTeam?: number | null;
+  /**
+   * Deep-link to the Match tab with a given match selected — wired from the
+   * team's last-match card so a lead can jump straight to the full match view.
+   */
+  onOpenMatch?: (matchKey: string) => void;
+  /**
+   * Notifies the parent (DashboardScreen) of a manual team selection so it
+   * survives a tab switch — the parent holds the selection and feeds it back via
+   * `selectedTeam` when this view remounts.
+   */
+  onSelectTeam?: (team: number | null) => void;
 }
 
 /** Confidence below this surfaces the rate-FUEL low-confidence chip. */
@@ -77,6 +97,29 @@ function fmt(n: number, digits = 1): string {
 function pct(n: number): string {
   if (!Number.isFinite(n)) return '—';
   return `${(n * 100).toFixed(0)}%`;
+}
+
+/** "30.0 ± 8.2" (mean ± std-dev); em-dash when the mean is not finite. */
+function fmtPM(mean: number, sd: number): string {
+  if (!Number.isFinite(mean)) return '—';
+  return `${mean.toFixed(1)} ± ${Number.isFinite(sd) ? sd.toFixed(1) : '0.0'}`;
+}
+function recentFormText(agg: TeamAgg): string {
+  switch (agg.recentTrend) {
+    case 'improving':
+      return `Improving +${agg.recentFuelDelta.toFixed(1)}`;
+    case 'fading':
+      return `Fading ${agg.recentFuelDelta.toFixed(1)}`; // delta already negative
+    case 'stable':
+      return 'Stable';
+    default:
+      return '—';
+  }
+}
+function recentFormTone(agg: TeamAgg): StatTone {
+  if (agg.recentTrend === 'improving') return 'success';
+  if (agg.recentTrend === 'fading') return 'warning';
+  return 'default';
 }
 
 // Chronological ordering for match keys: quals first, then the playoff rounds,
@@ -309,15 +352,28 @@ function TeamTbaPanel(props: {
 
 /**
  * Last-match card: embeds the TBA video for the team's most-recent scouted match
- * and overlays OUR activity timeline for that report, with an optional playhead
- * synced to the video (press "Sync to match start" once the video's auto kickoff
- * lines up). The timeline degrades on its own for legacy reports without
- * timestamps; the video degrades to a "no video" note when TBA has none yet.
+ * BESIDE a compact match-details panel (both alliances with our team highlighted,
+ * the final score + winner), overlays OUR activity timeline for that report with
+ * an optional playhead synced to the video, and is itself clickable to deep-link
+ * to the full Match tab for that match. The timeline degrades on its own for
+ * legacy reports without timestamps; the video degrades to a "no video" note when
+ * TBA has none yet; score/winner degrade to "—" when the match is unplayed.
  */
-function LastMatchCard(props: { report: MsrRow }): JSX.Element {
-  const { report } = props;
+function LastMatchCard(props: {
+  report: MsrRow;
+  match: MatchRow | null;
+  teamNumber: number;
+  onOpenMatch?: (matchKey: string) => void;
+}): JSX.Element {
+  const { report, match, teamNumber, onOpenMatch } = props;
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const [offsetSeconds, setOffsetSeconds] = useState(0);
+
+  const redTeams = [match?.red1 ?? null, match?.red2 ?? null, match?.red3 ?? null];
+  const blueTeams = [match?.blue1 ?? null, match?.blue2 ?? null, match?.blue3 ?? null];
+  const redScore = match?.actual_red_score ?? null;
+  const blueScore = match?.actual_blue_score ?? null;
+  const winner = match?.winner ?? null; // 'red' | 'blue' | 'tie' | null
 
   const currentTimeMs = useMemo(() => {
     if (videoSeconds == null || !Number.isFinite(videoSeconds)) return null;
@@ -328,17 +384,46 @@ function LastMatchCard(props: { report: MsrRow }): JSX.Element {
   const hasTime = videoSeconds != null && Number.isFinite(videoSeconds);
   const matchSecs = hasTime ? Math.max(0, (videoSeconds as number) - offsetSeconds) : null;
 
+  // Single-report defended-fuel suppression caption (null when no defended data).
+  const lastMatchSuppression = useMemo(() => {
+    const windows = (report.defended_intervals ?? []).map(intervalAbsRange);
+    if (windows.length === 0) return null;
+    return suppressionFromBursts(report.fuel_bursts, windows);
+  }, [report.defended_intervals, report.fuel_bursts]);
+
   return (
     <Card className="border-zinc-800 bg-zinc-950" data-testid="team-last-match">
-      <CardHeader className="flex flex-row items-center gap-2 space-y-0">
-        <Video className="size-5 text-brand" />
-        <CardTitle className="text-zinc-100">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle className="flex items-center gap-2 text-zinc-100">
+          <Video className="size-5 text-brand" />
           Last match — {formatMatchKeyRaw(report.match_key)}
         </CardTitle>
+        {onOpenMatch ? (
+          <button
+            type="button"
+            data-testid="team-last-match-open"
+            onClick={() => onOpenMatch(report.match_key)}
+            className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+          >
+            Open in Match tab <ExternalLink className="size-3.5" />
+          </button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <div className="mx-auto w-full max-w-xl">
-          <MatchVideo matchKey={report.match_key} onTimeMs={(ms) => setVideoSeconds(ms / 1000)} />
+        {/* Video beside a compact match-details panel (alliances + score). */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_minmax(0,16rem)]">
+          <div className="w-full">
+            <MatchVideo matchKey={report.match_key} onTimeMs={(ms) => setVideoSeconds(ms / 1000)} />
+          </div>
+          <MatchScorePanel
+            redTeams={redTeams}
+            blueTeams={blueTeams}
+            redScore={redScore}
+            blueScore={blueScore}
+            winner={winner}
+            ourTeam={teamNumber}
+            testidPrefix="team-last-match"
+          />
         </div>
         <div
           data-testid="team-last-match-sync"
@@ -382,6 +467,14 @@ function LastMatchCard(props: { report: MsrRow }): JSX.Element {
           </span>
         </div>
         <TeamTimeline report={report} currentTimeMs={currentTimeMs} />
+        {lastMatchSuppression != null ? (
+          <span
+            data-testid="team-last-match-suppression"
+            className="text-xs text-zinc-400"
+          >
+            Fuel ↓ {pctSigned(lastMatchSuppression)} while defended this match
+          </span>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -494,12 +587,14 @@ function PitPanel(props: { pit: TeamPit | null; isLoading: boolean }): JSX.Eleme
 }
 
 /**
- * Robot photo for the selected team. Shows the scouted pit photo when one exists
- * (resolved from its Storage path to a signed URL), otherwise falls back to a
- * Blue Alliance team-media image for the event's season. Renders nothing when no
- * photo is available from either source — no placeholder, no broken image.
+ * Robot-photo panel for the team header. Shows the scouted pit photo when one
+ * exists (resolved from its Storage path to a signed URL), otherwise a Blue
+ * Alliance team-media image for the event's season. Sits beside the TBA card at
+ * a fixed, standard 4:3 size (top-aligned, not stretched to the tall card).
+ * Clicking it opens the full image in a lightbox. Renders nothing when no photo
+ * is available — no placeholder, no dead space.
  */
-function TeamPhotoCard(props: {
+function TeamPhotoThumb(props: {
   eventKey: string;
   teamNumber: number;
   pitPhotoPath: string | null;
@@ -508,19 +603,42 @@ function TeamPhotoCard(props: {
   const photoQuery = useTeamPhoto(eventKey, teamNumber, pitPhotoPath);
   const url = photoQuery.data?.url ?? null;
   const source = photoQuery.data?.source ?? null;
+  const [open, setOpen] = useState(false);
   if (!url) return null;
   return (
-    <div className="flex flex-col gap-1.5" data-testid="team-pit-photo">
-      <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
-        <ImageIcon />
-        {source === 'tba' ? 'Photo (TBA)' : 'Photo'}
-      </span>
-      <img
-        src={url}
-        alt={`Robot for team ${teamNumber}`}
-        className="max-h-64 w-full rounded-xl border border-border object-contain"
-      />
-    </div>
+    <>
+      <button
+        type="button"
+        data-testid="team-photo-thumb"
+        onClick={() => setOpen(true)}
+        title={source === 'tba' ? 'Robot photo (TBA) — tap to enlarge' : 'Robot photo — tap to enlarge'}
+        className="group relative block aspect-[4/3] w-full overflow-hidden rounded-xl border border-border bg-muted/40"
+      >
+        <img
+          src={url}
+          alt={`Robot for team ${teamNumber}`}
+          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+        />
+        <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-200 backdrop-blur-sm">
+          {source === 'tba' ? 'TBA' : 'Pit photo'}
+        </span>
+      </button>
+      {open ? (
+        <div
+          data-testid="team-photo-lightbox"
+          role="dialog"
+          aria-label={`Robot photo for team ${teamNumber}`}
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <img
+            src={url}
+            alt={`Robot for team ${teamNumber}`}
+            className="max-h-[90vh] max-w-full rounded-xl border border-border object-contain"
+          />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -529,8 +647,8 @@ function TeamPhotoCard(props: {
  * Charts degrade to a "Not enough data to chart" state under 2 reports. Uses the
  * dependency-free SVG chart set with design tokens (brand/energy/success/warning).
  */
-function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
-  const { matches } = props;
+function TeamTrends(props: { matches: MsrRow[]; showClimb: boolean }): JSX.Element {
+  const { matches, showClimb } = props;
 
   // Stable chronological order so x-axis labels read left→right by match. Sort by
   // (comp-level, match number) parsed from the key — a plain string localeCompare
@@ -576,13 +694,15 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
           title="Fuel by shift"
           testid="team-trend-shift"
         />
-        <LineChart
-          data={climbData}
-          color="success"
-          yMax={3}
-          title="Climb level per match (success-gated)"
-          testid="team-trend-climb"
-        />
+        {showClimb ? (
+          <LineChart
+            data={climbData}
+            color="success"
+            yMax={3}
+            title="Climb level per match (success-gated)"
+            testid="team-trend-climb"
+          />
+        ) : null}
         <LineChart
           data={defenseData}
           color="brand"
@@ -597,45 +717,97 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
 
 function TeamDetail(props: {
   agg: TeamAgg;
+  teamNumber: number;
   matches: MsrRow[];
   tbaNode: JSX.Element;
+  /** Larger robot-photo panel rendered beside the TBA card; null when no image. */
+  photoNode: JSX.Element | null;
   lastMatchNode: JSX.Element | null;
   epaNode: JSX.Element;
   pitNode: JSX.Element;
-  photoNode: JSX.Element | null;
   scoutName: (id: string | null | undefined) => string;
   onOpenReport: (r: MsrRow) => void;
+  /** robotKey → multi-scout group (event-wide, looked up per scouted-match row). */
+  conflictByRobotKey: Map<string, MultiScoutGroup>;
+  /** robotKey helper from the conflicts hook (O(1) per-row lookup). */
+  robotKey: (r: MsrRow) => string;
+  /** count of CONFLICTED (minor/severe) groups for this team. */
+  conflictCount: number;
 }): JSX.Element {
-  const { agg, matches, scoutName } = props;
+  const { agg, matches, scoutName, conflictByRobotKey, robotKey, conflictCount } = props;
   const lowConfidence = agg.meanFuelConfidence < LOW_CONFIDENCE_THRESHOLD;
-  const downWeight = agg.meanFuelPoints - agg.fuelPointsWeighted;
+  // A team that has never climbed (no successful climb at any level) — hide all
+  // its climb stats/graphs and just say "no climb" instead of showing zeros.
+  const neverClimbs = agg.climbSuccessRate <= 0 && agg.avgClimbLevel <= 0;
   // Index of the expanded scouted-match row (click to reveal that report's detail).
   const [openRow, setOpenRow] = useState<number | null>(null);
+  // "Show conflicts only" filter. Flipping it RESETS openRow (the index-based
+  // rows reindex when filtered) so an open row never jumps to a different match.
+  const [conflictsOnly, setConflictsOnly] = useState(false);
+
+  // Conflicted group (minor/severe) for one scouted-match row, looked up O(1).
+  const conflictFor = (m: MsrRow): MultiScoutGroup | undefined => {
+    const g = conflictByRobotKey.get(robotKey(m));
+    return g && g.isConflicted ? g : undefined;
+  };
+  const visibleMatches = conflictsOnly ? matches.filter((m) => conflictFor(m)) : matches;
 
   return (
     <div data-testid="team-detail" className="flex flex-col gap-4">
-      {/* The Blue Alliance: rank, record, season stats, location. */}
-      {props.tbaNode}
+      {/* The Blue Alliance card beside the robot photo, which fills the card's
+          vertical space instead of leaving it blank. Photo collapses below the
+          card on narrow screens; full-width TBA card when there's no photo. */}
+      {props.photoNode ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-start">
+          {props.tbaNode}
+          {props.photoNode}
+        </div>
+      ) : (
+        props.tbaNode
+      )}
 
       {/* Last-match video + our activity timeline. */}
       {props.lastMatchNode}
 
       {/* Fuel */}
       <Card className="border-zinc-800 bg-zinc-950">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle className="flex items-center gap-2 text-zinc-100">
             <Flame className="size-5 text-energy" />
             Fuel
           </CardTitle>
-          {lowConfidence ? (
+          <span className="flex flex-wrap items-center gap-2">
+            {/* Recent-form trend (improving/fading/stable) — compact chip, no longer
+                its own card; semantics preserved from agg.recentTrend. */}
             <span
-              data-testid="team-fuel-lowconf-chip"
-              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"
-              title="FUEL is rate-derived; points are down-weighted by fuel_estimate_confidence."
+              data-testid="team-recent-form"
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium',
+                recentFormTone(agg) === 'success'
+                  ? 'border-success/40 bg-success/10 text-success'
+                  : recentFormTone(agg) === 'warning'
+                    ? 'border-warning/40 bg-warning/10 text-warning'
+                    : 'border-zinc-700 bg-zinc-800/60 text-zinc-300',
+              )}
+              title={
+                agg.recentTrend === 'insufficient'
+                  ? 'need 3 matches'
+                  : `last ${Math.min(3, agg.matchesScouted)} vs all`
+              }
             >
-              rate-FUEL · low confidence ({pct(agg.meanFuelConfidence)})
+              <TrendingUp className="size-3.5" />
+              {recentFormText(agg)}
             </span>
-          ) : null}
+            {lowConfidence ? (
+              <span
+                data-testid="team-fuel-lowconf-chip"
+                className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"
+                title="FUEL is rate-derived; points are down-weighted by fuel_estimate_confidence."
+              >
+                rate-FUEL · low confidence ({pct(agg.meanFuelConfidence)})
+              </span>
+            ) : null}
+          </span>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat label="Auto fuel" value={fmt(agg.meanAutoFuel)} testid="team-mean-auto-fuel" />
@@ -657,15 +829,10 @@ function TeamDetail(props: {
             tone="energy"
           />
           <Stat
-            label="Mean fuel points (raw)"
-            value={fmt(agg.meanFuelPoints)}
+            label="Mean fuel points"
+            value={fmtPM(agg.meanFuelPoints, agg.stdDevFuelPoints)}
             testid="team-mean-fuel-points"
-          />
-          <Stat
-            label="Fuel points (weighted)"
-            value={fmt(agg.fuelPointsWeighted)}
-            testid="team-fuel-points-weighted"
-            hint={`down-weighted −${fmt(downWeight)} (×${fmt(agg.meanFuelConfidence, 2)})`}
+            hint={`range ${fmt(agg.minFuelPoints)} – ${fmt(agg.maxFuelPoints)} · n=${agg.matchesScouted}`}
             tone="energy"
           />
         </CardContent>
@@ -676,29 +843,90 @@ function TeamDetail(props: {
         <CardHeader className="space-y-0">
           <CardTitle className="flex items-center gap-2 text-zinc-100">
             <Mountain className="size-5 text-success" />
-            Climb · Defense · Reliability
+            {neverClimbs ? 'Defense · Reliability' : 'Climb · Defense · Reliability'}
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat
-            label="Climb success"
-            value={pct(agg.climbSuccessRate)}
-            testid="team-climb-success-rate"
-            tone={
-              agg.climbSuccessRate >= 0.6 ? 'success' : agg.climbSuccessRate >= 0.3 ? 'warning' : 'default'
-            }
-          />
-          <Stat label="Avg climb level" value={fmt(agg.avgClimbLevel)} testid="team-avg-climb-level" />
-          <Stat
-            label="Mean climb points"
-            value={fmt(agg.meanClimbPoints)}
-            testid="team-mean-climb-points"
-          />
+          {neverClimbs ? (
+            <div
+              data-testid="team-no-climb"
+              className="col-span-2 flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-400 sm:col-span-3"
+            >
+              <Mountain className="size-4 text-zinc-500" />
+              No climb — this team hasn’t climbed in any scouted match.
+            </div>
+          ) : (
+            <>
+              <Stat
+                label="Climb success"
+                value={pct(agg.climbSuccessRate)}
+                testid="team-climb-success-rate"
+                tone={
+                  agg.climbSuccessRate >= 0.6
+                    ? 'success'
+                    : agg.climbSuccessRate >= 0.3
+                      ? 'warning'
+                      : 'default'
+                }
+              />
+              <Stat label="Avg climb level" value={fmt(agg.avgClimbLevel)} testid="team-avg-climb-level" />
+              <Stat
+                label="Mean climb points"
+                value={fmtPM(agg.meanClimbPoints, agg.stdDevClimbPoints)}
+                testid="team-mean-climb-points"
+                hint={`range ${fmt(agg.minClimbPoints)} – ${fmt(agg.maxClimbPoints)}`}
+              />
+            </>
+          )}
           <Stat
             label="Avg defense"
-            value={fmt(agg.avgDefenseRating)}
+            value={fmtPM(agg.avgDefenseRating, agg.stdDevDefenseRating)}
             testid="team-avg-defense-rating"
+            hint={`range ${fmt(agg.minDefenseRating)} – ${fmt(agg.maxDefenseRating)}`}
             tone="brand"
+          />
+          <Stat
+            label="Defended fuel ↓"
+            value={
+              agg.fuelSuppressionWhileDefended == null
+                ? '—'
+                : pctSigned(agg.fuelSuppressionWhileDefended)
+            }
+            testid="team-defended-suppression"
+            hint={
+              agg.fuelSuppressionWhileDefended == null
+                ? 'no defended intervals'
+                : `from ${Math.round(agg.defendedSampleMs / 1000)}s defended`
+            }
+            tone={
+              agg.fuelSuppressionWhileDefended != null && agg.fuelSuppressionWhileDefended > 0.15
+                ? 'warning'
+                : 'default'
+            }
+          />
+          <Stat
+            label="Defender effect"
+            // Gated: a single-opponent observation is not shown as authoritative
+            // (co-occurrence estimate confounded by simultaneous defenders).
+            value={
+              agg.defenderEffectiveness == null ||
+              agg.defenseSampleCount < DEF_EFF_MIN_SAMPLE
+                ? '—'
+                : pctSigned(agg.defenderEffectiveness)
+            }
+            testid="team-defender-effectiveness"
+            hint={
+              agg.defenderEffectiveness == null
+                ? 'never played defense'
+                : `vs ${agg.defenseSampleCount} opp. · co-occurrence estimate`
+            }
+            tone={
+              agg.defenderEffectiveness != null &&
+              agg.defenseSampleCount >= DEF_EFF_MIN_SAMPLE &&
+              agg.defenderEffectiveness > 0.15
+                ? 'success'
+                : 'default'
+            }
           />
           <Stat
             label="Reliability"
@@ -717,8 +945,12 @@ function TeamDetail(props: {
         </CardContent>
       </Card>
 
-      {/* Trends — per-match data-viz over this team's scouted matches. */}
-      <TeamTrends matches={matches} />
+      {/* Trends — per-match data-viz over this team's scouted matches. Hidden
+          entirely when there isn't enough data to draw a meaningful trend
+          (fewer than the trend window of matches) — no empty placeholder. */}
+      {agg.recentTrend !== 'insufficient' && agg.matchesScouted >= TREND_WINDOW ? (
+        <TeamTrends matches={matches} showClimb={!neverClimbs} />
+      ) : null}
 
       {/* Statbotics EPA */}
       <Card className="border-zinc-800 bg-zinc-950">
@@ -731,25 +963,69 @@ function TeamDetail(props: {
         <CardContent>{props.epaNode}</CardContent>
       </Card>
 
-      {/* Robot photo — scouted pit photo, else a TBA fallback image. */}
-      {props.photoNode}
-
       {/* Pit scouting report */}
       {props.pitNode}
+
+      {/* Auto options — this team's distinct auto routines, grouped by path shape
+          (the options they tend to run), with a step-through of every auto. */}
+      <Card className="border-zinc-800 bg-zinc-950" data-testid="team-auto-options-card">
+        <CardHeader className="space-y-0">
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            <Route className="size-5 text-brand" />
+            Auto options
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AutoOptions
+            teamNumber={props.teamNumber}
+            reports={props.matches}
+            data-testid="team-auto-options"
+          />
+        </CardContent>
+      </Card>
 
       {/* Scouted matches */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="space-y-0">
-          <CardTitle className="flex items-center gap-2 text-zinc-100">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-zinc-100">
             <ListChecks className="size-5 text-brand" />
             Scouted matches ({matches.length})
+            {conflictCount > 0 ? (
+              <span
+                data-testid="team-conflict-summary"
+                className="rounded-full border border-warning/50 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
+              >
+                {conflictCount} multi-scout conflict{conflictCount === 1 ? '' : 's'}
+              </span>
+            ) : null}
           </CardTitle>
+          {conflictCount > 0 ? (
+            <label className="flex items-center gap-2 pt-2 text-xs font-medium text-zinc-300">
+              <input
+                type="checkbox"
+                data-testid="team-conflicts-only"
+                checked={conflictsOnly}
+                onChange={(e) => {
+                  setConflictsOnly(e.target.checked);
+                  setOpenRow(null); // rows reindex on filter — collapse any open row
+                }}
+                className="size-4 accent-warning"
+              />
+              Show conflicts only
+            </label>
+          ) : null}
         </CardHeader>
         <CardContent>
+          {conflictsOnly && visibleMatches.length === 0 ? (
+            <div data-testid="team-conflicts-empty" className="text-sm text-zinc-400">
+              No multi-scout conflicts for this team.
+            </div>
+          ) : null}
           <ul data-testid="team-match-list" className="flex flex-col gap-2">
-            {matches.map((m, i) => {
+            {visibleMatches.map((m, i) => {
               const climb = m.climb_success ? `L${m.climb_level}` : 'no climb';
               const open = openRow === i;
+              const conflict = conflictFor(m);
               // Split flags by severity: no-show/died are hard failures (destructive
               // red), tipped is a warning (amber) — mirrors ReportDetail's FlagPill.
               const failFlags = [m.no_show ? 'no-show' : null, m.died ? 'died' : null].filter(
@@ -768,7 +1044,14 @@ function TeamDetail(props: {
                     style={{ minHeight: CONTROL_MIN_HEIGHT }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left"
                   >
-                    <span className="font-semibold">{formatMatchKeyRaw(m.match_key)}</span>
+                    <span className="flex min-w-0 items-center gap-2 font-semibold">
+                      {conflict ? (
+                        <span data-testid="team-conflict-marker" className="inline-flex">
+                          <ConflictMarker variant="icon" size="sm" group={conflict} />
+                        </span>
+                      ) : null}
+                      {formatMatchKeyRaw(m.match_key)}
+                    </span>
                     <span className="text-zinc-400">
                       fuel {fmt(m.fuel_points)} ·{' '}
                       <span className={m.climb_success ? 'text-success' : undefined}>{climb}</span>
@@ -843,7 +1126,15 @@ function TeamDetail(props: {
 export default function TeamView(props: TeamViewProps): JSX.Element {
   const { eventKey, selectedTeam } = props;
   const [selected, setSelected] = useState<number | null>(selectedTeam ?? null);
+  const [teamSearch, setTeamSearch] = useState('');
   const [openReport, setOpenReport] = useState<MsrRow | null>(null);
+
+  // Manual selection: update local state AND notify the parent so the choice
+  // persists across tab switches (the parent feeds it back via `selectedTeam`).
+  const chooseTeam = (team: number | null): void => {
+    setSelected(team);
+    props.onSelectTeam?.(team);
+  };
 
   // Sync from the incoming prop (e.g. a click in Ranking) without clobbering
   // manual dropdown changes: only when the prop names a real, different team.
@@ -878,6 +1169,13 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   // Aggregate the whole event once; index the selected team's TeamAgg out of it.
   const reports = reportsQuery.data ?? [];
   const aggByTeam = useMemo(() => aggregateEvent(reports), [reports]);
+
+  // Multi-scout conflicts across the whole event once; the selected team's
+  // groups derive from byTeam (no per-team detector run). byRobotKey backs the
+  // O(1) per-scouted-match-row marker lookup in TeamDetail.
+  const conflicts = useMultiScoutConflicts(reports);
+  const teamGroups = selected != null ? conflicts.byTeam.get(selected) ?? [] : [];
+  const teamConflictCount = teamGroups.filter((g) => g.isConflicted).length;
 
   const loading = teamsQuery.isLoading || reportsQuery.isLoading;
   const teams = teamsQuery.data ?? [];
@@ -930,12 +1228,12 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
 
   const pitNode = <PitPanel pit={pitQuery.data ?? null} isLoading={pitQuery.isLoading} />;
 
-  // Robot photo for the selected team: scouted pit photo if present, else a TBA
-  // fallback. Shown regardless of whether a pit report exists. Renders nothing
-  // when neither source has an image.
-  const photoNode =
+  // Compact robot-photo thumbnail for the team header: scouted pit photo if
+  // present, else a TBA fallback. Renders nothing when neither source has an
+  // image (no placeholder), and opens the full image in a lightbox on click.
+  const photoThumb =
     selected != null ? (
-      <TeamPhotoCard
+      <TeamPhotoThumb
         eventKey={eventKey}
         teamNumber={selected}
         pitPhotoPath={pitQuery.data?.photoPath ?? null}
@@ -947,7 +1245,39 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     selected != null ? (
       <TeamTbaPanel team={selected} eventKey={eventKey} matches={matchesQuery.data ?? []} />
     ) : null;
-  const lastMatchNode = lastReport ? <LastMatchCard report={lastReport} /> : null;
+  // The MatchRow backing the last scouted match — feeds the alliances/score
+  // panel beside the video. Null when the schedule isn't loaded for that key.
+  const lastMatchRow = useMemo(
+    () =>
+      lastReport != null
+        ? matchesQuery.data?.find((m) => m.match_key === lastReport.match_key) ?? null
+        : null,
+    [lastReport, matchesQuery.data],
+  );
+  const lastMatchNode =
+    lastReport && selected != null ? (
+      <LastMatchCard
+        report={lastReport}
+        match={lastMatchRow}
+        teamNumber={selected}
+        onOpenMatch={props.onOpenMatch}
+      />
+    ) : null;
+
+  // Live search results (number or nickname). Cheap over a ~50-team list, so no
+  // memo; only non-empty while the user is typing.
+  const teamSearchQ = teamSearch.trim().toLowerCase();
+  const matchedTeams =
+    teamSearchQ === ''
+      ? []
+      : teams
+          .slice()
+          .sort((a, b) => a.team_number - b.team_number)
+          .filter(
+            (t) =>
+              String(t.team_number).includes(teamSearchQ) ||
+              (t.nickname?.toLowerCase().includes(teamSearchQ) ?? false),
+          );
 
   return (
     <div data-testid="dash-team" className="flex flex-col gap-4 text-zinc-100">
@@ -955,31 +1285,92 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         <label htmlFor="team-select" className="text-sm font-medium text-zinc-300">
           Team
         </label>
-        <select
-          id="team-select"
-          data-testid="team-select"
-          value={selected ?? ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            setSelected(v === '' ? null : Number(v));
-          }}
-          style={{ minHeight: CONTROL_MIN_HEIGHT }}
-          className={cn(
-            'w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100',
-            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500',
-          )}
-        >
-          <option value="">Select a team…</option>
-          {teams
-            .slice()
-            .sort((a, b) => a.team_number - b.team_number)
-            .map((t) => (
-              <option key={t.team_number} value={t.team_number}>
-                {t.team_number}
-                {t.nickname ? ` — ${t.nickname}` : ''}
-              </option>
-            ))}
-        </select>
+        <div className="flex w-full max-w-xs flex-col gap-2">
+          <input
+            type="search"
+            inputMode="search"
+            data-testid="team-search"
+            value={teamSearch}
+            onChange={(e) => setTeamSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter jumps straight to the top match — fast keyboard select.
+              if (e.key === 'Enter' && matchedTeams.length > 0) {
+                e.preventDefault();
+                chooseTeam(matchedTeams[0].team_number);
+                setTeamSearch('');
+              }
+            }}
+            placeholder="Search team # or name…"
+            aria-label="Search teams by number or name"
+            className={cn(
+              'w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500',
+            )}
+          />
+          {/* Live results: typing shows clickable matches (a filtered <select> only
+              changes the collapsed dropdown, which reads as "nothing happened"). */}
+          {teamSearchQ !== '' ? (
+            matchedTeams.length === 0 ? (
+              <div data-testid="team-search-empty" className="text-sm text-zinc-400">
+                No teams match your search.
+              </div>
+            ) : (
+              <ul
+                data-testid="team-search-results"
+                className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900/60 p-1"
+              >
+                {matchedTeams.slice(0, 60).map((t) => (
+                  <li key={t.team_number}>
+                    <button
+                      type="button"
+                      data-testid={`team-search-result-${t.team_number}`}
+                      onClick={() => {
+                        chooseTeam(t.team_number);
+                        setTeamSearch('');
+                      }}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm',
+                        selected === t.team_number
+                          ? 'bg-brand/15 text-zinc-100'
+                          : 'text-zinc-200 hover:bg-zinc-800',
+                      )}
+                    >
+                      <span className="font-medium tabular-nums text-brand">{t.team_number}</span>
+                      {t.nickname ? (
+                        <span className="truncate text-zinc-400">{t.nickname}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+          <select
+            id="team-select"
+            data-testid="team-select"
+            value={selected ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              chooseTeam(v === '' ? null : Number(v));
+            }}
+            style={{ minHeight: CONTROL_MIN_HEIGHT }}
+            className={cn(
+              'w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500',
+            )}
+          >
+            <option value="">Select a team…</option>
+            {teams
+              .slice()
+              .sort((a, b) => a.team_number - b.team_number)
+              .map((t) => (
+                <option key={t.team_number} value={t.team_number}>
+                  {t.team_number}
+                  {t.nickname ? ` — ${t.nickname}` : ''}
+                </option>
+              ))}
+          </select>
+        </div>
       </div>
 
       {loading ? (
@@ -1000,20 +1391,35 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
           </div>
           <TeamDetail
             agg={agg}
+            teamNumber={selected}
             matches={teamMatches}
             tbaNode={tbaNode ?? <></>}
+            photoNode={photoThumb}
             lastMatchNode={lastMatchNode}
             epaNode={epaNode}
             pitNode={pitNode}
-            photoNode={photoNode}
             scoutName={scoutName}
             onOpenReport={setOpenReport}
+            conflictByRobotKey={conflicts.byRobotKey}
+            robotKey={conflicts.robotKey}
+            conflictCount={teamConflictCount}
           />
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {/* TBA rank/record/season stats need no scouting reports — show them. */}
-          {tbaNode}
+          <span className="text-xl font-bold text-zinc-100">Team {selected}</span>
+          {/* TBA stats beside the fixed-size robot photo — same 2-col layout as
+              the scouted branch, so a pit-only team's photo stays a standard
+              size instead of filling the header. Photo collapses below on
+              narrow screens; full-width TBA card when there's no photo. */}
+          {photoThumb ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-start">
+              {tbaNode}
+              {photoThumb}
+            </div>
+          ) : (
+            tbaNode
+          )}
           <div
             data-testid="team-no-data"
             className="rounded-md border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-400"
@@ -1022,8 +1428,6 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             {/* EPA may still be available; show it so the team isn't a dead end. */}
             <div className="mt-3">{epaNode}</div>
           </div>
-          {/* Robot photo — scouted pit photo, else a TBA fallback image. */}
-          {photoNode}
           {/* Pit data may still exist even without match reports. */}
           {pitNode}
         </div>
@@ -1041,7 +1445,13 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         data-testid="team-report-sheet"
       >
         {openReport ? (
-          <ReportDetail report={openReport} scoutName={scoutName(openReport.scout_id)} />
+          <ReportDetail
+            report={openReport}
+            scoutName={scoutName(openReport.scout_id)}
+            conflictGroup={conflicts.byRobotKey.get(conflicts.robotKey(openReport))}
+            siblingName={scoutName}
+            onOpenSibling={setOpenReport}
+          />
         ) : null}
       </Sheet>
     </div>

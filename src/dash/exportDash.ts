@@ -10,7 +10,7 @@ import type { PicklistEntry } from '@/dash/picklistClient';
  * Escape a single CSV field: wrap in double-quotes when it contains a comma,
  * double-quote, or newline, doubling any internal double-quotes.
  */
-function csvField(value: string | number | null | undefined): string {
+export function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
   const s = String(value);
   if (/[",\r\n]/.test(s)) {
@@ -20,7 +20,7 @@ function csvField(value: string | number | null | undefined): string {
 }
 
 /** Join already-stringified fields into one CSV row. */
-function csvRow(fields: Array<string | number | null | undefined>): string {
+export function csvRow(fields: Array<string | number | null | undefined>): string {
   return fields.map(csvField).join(',');
 }
 
@@ -29,7 +29,6 @@ const TEAM_AGG_HEADER = [
   'matchesScouted',
   'scoutingExpectedPoints',
   'meanFuelPoints',
-  'fuelPointsWeighted',
   'climbSuccessRate',
   'avgDefenseRating',
   'reliability',
@@ -45,7 +44,6 @@ export function teamAggToCsv(aggs: TeamAgg[]): string {
         a.matchesScouted,
         a.scoutingExpectedPoints,
         a.meanFuelPoints,
-        a.fuelPointsWeighted,
         a.climbSuccessRate,
         a.avgDefenseRating,
         a.reliability,
@@ -55,11 +53,24 @@ export function teamAggToCsv(aggs: TeamAgg[]): string {
   return lines.join('\n');
 }
 
-/** Header `rank,teamNumber,tier,note` + one (1-based) row per entry. */
+/**
+ * Header `rank,teamNumber,tier,note,tierType,dnp` + one (1-based) row per entry.
+ * `tierType` is the structured first/second pick bucket (empty when unset);
+ * `dnp` is the do-not-pick coaching flag (`true`/`false`).
+ */
 export function picklistToCsv(entries: PicklistEntry[]): string {
-  const lines = ['rank,teamNumber,tier,note'];
+  const lines = ['rank,teamNumber,tier,note,tierType,dnp'];
   entries.forEach((e, i) => {
-    lines.push(csvRow([i + 1, e.teamNumber, e.tier ?? null, e.note ?? null]));
+    lines.push(
+      csvRow([
+        i + 1,
+        e.teamNumber,
+        e.tier ?? null,
+        e.note ?? null,
+        e.tierType ?? '',
+        e.dnp ? 'true' : 'false',
+      ]),
+    );
   });
   return lines.join('\n');
 }

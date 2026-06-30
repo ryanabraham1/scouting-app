@@ -174,4 +174,62 @@ describe('AutoRoutines', () => {
     expect(o1?.getAttribute('stroke')).toBeTruthy();
     expect(o0?.getAttribute('stroke')).not.toBe(o1?.getAttribute('stroke'));
   });
+
+  it('default/latest mode is unchanged (overlays present, no team chips)', () => {
+    const { container, queryByTestId } = render(
+      <AutoRoutines reports={reports} isOurAlliance={false} mode="latest" />
+    );
+    expect(
+      container.querySelector('[data-testid="auto-routines-field-overlay-0"]')
+    ).toBeTruthy();
+    // No clickable team chips in latest mode.
+    expect(queryByTestId('auto-routines-team-254')).toBeNull();
+  });
+
+  it('all-heatmap mode renders clickable team chips and no latest overlays', () => {
+    const { container, getByTestId } = render(
+      <AutoRoutines
+        reports={reports}
+        isOurAlliance={true}
+        mode="all-heatmap"
+      />
+    );
+    // Team 254 chip (3256 omitted from OUR alliance).
+    expect(getByTestId('auto-routines-team-254')).toBeTruthy();
+    // No latest-mode overlay polylines.
+    expect(
+      container.querySelector('[data-testid="auto-routines-field-overlay-0"]')
+    ).toBeNull();
+    // Combined (no team isolated) heatmap renders a field with a heatmap layer.
+    expect(
+      container.querySelector('[data-testid="auto-routines-field-heatmap"]')
+    ).toBeTruthy();
+  });
+
+  it('all-heatmap mode isolates the selected team into an AutoHeatmap', () => {
+    const { container } = render(
+      <AutoRoutines
+        reports={reports}
+        isOurAlliance={true}
+        mode="all-heatmap"
+        selectedTeam={254}
+      />
+    );
+    // Isolated team's AutoHeatmap renders its heatmap layer under the auto-routines
+    // testid prefix.
+    expect(
+      container.querySelector('[data-testid="auto-routines-heatmap"]')
+    ).toBeTruthy();
+  });
+
+  it('all-heatmap mode still shows the empty state when no overlays', () => {
+    const { getByTestId } = render(
+      <AutoRoutines
+        reports={[row({ target_team_number: 111 })]}
+        isOurAlliance={false}
+        mode="all-heatmap"
+      />
+    );
+    expect(getByTestId('auto-routines-empty')).toBeTruthy();
+  });
 });

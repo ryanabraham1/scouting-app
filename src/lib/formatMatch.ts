@@ -27,6 +27,32 @@ export function formatMatchKey(
   return `${label}${n}`.trim();
 }
 
+/**
+ * A qualification match is comp_level in {qm, q, qual} (case-insensitive);
+ * everything else (sf, f, ef, qf, …) is a playoff. Single source of truth so
+ * the quals-only rule (scouting assignments are created ONLY for quals) isn't
+ * scattered as string literals across the codebase.
+ */
+const QUAL_LEVELS = new Set(['qm', 'q', 'qual']);
+
+/** True iff the given comp level is a qualification level (case-insensitive). */
+export function isQualLevel(compLevel: string | null | undefined): boolean {
+  return QUAL_LEVELS.has((compLevel ?? '').trim().toLowerCase());
+}
+
+/**
+ * True iff a raw match key (e.g. "2026casnv_qm1") is a qualification match.
+ * Parses the trailing "<level><number>" token; anything unparseable is treated
+ * as NOT a qual (so playoff/garbage keys are never assigned).
+ */
+export function isQualMatchKey(matchKey: string | null | undefined): boolean {
+  if (!matchKey) return false;
+  const tail = matchKey.includes('_') ? matchKey.slice(matchKey.lastIndexOf('_') + 1) : matchKey;
+  const m = tail.match(/^([a-zA-Z]+)\d+/);
+  if (!m) return false;
+  return isQualLevel(m[1]);
+}
+
 /** Play order for comp levels: qual → playoffs → final. */
 const LEVEL_SORT: Record<string, number> = { qm: 0, q: 0, qual: 0, ef: 1, qf: 2, sf: 3, f: 4, final: 4 };
 

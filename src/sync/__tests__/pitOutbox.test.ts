@@ -1,12 +1,14 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock the network layer used by the pit outbox: the row upsert (via pitStore →
-// supabase) and the Storage photo upload. The local Dexie outbox is real.
+// Mock the network layer used by the pit outbox: the row upsert (now via the
+// revision-guarded upsert_pit_report RPC) and the Storage photo upload. The local
+// Dexie outbox is real.
 const upsertMock = vi.fn();
+// Reference upsertMock lazily so the hoisted factory doesn't read the const in its TDZ.
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    from: vi.fn(() => ({ upsert: upsertMock })),
+    rpc: (...args: unknown[]) => upsertMock(...args),
   },
 }));
 const uploadPitPhoto = vi.fn();
@@ -90,8 +92,9 @@ describe('syncPitOnce', () => {
     expect(uploadPitPhoto).toHaveBeenCalledTimes(1);
     expect(uploadPitPhoto.mock.calls[0][0]).toBe('2026casj');
     expect(uploadPitPhoto.mock.calls[0][1]).toBe(254);
-    // The upsert carried the uploaded path.
-    expect(upsertMock.mock.calls[0][0]).toMatchObject({
+    // The RPC payload carried the uploaded path. rpc(fn, { p: payload }).
+    expect(upsertMock.mock.calls[0][0]).toBe('upsert_pit_report');
+    expect(upsertMock.mock.calls[0][1].p).toMatchObject({
       photo_path: '2026casj/254/uploaded.jpg',
     });
     const rec = await getRec('2026casj:254');

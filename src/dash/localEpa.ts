@@ -7,9 +7,15 @@
 // source (github.com/avgupta456/statbotics, backend/src/models/epa/*) for modern
 // games (>= 2016). It deliberately does NOT replicate the full multi-dimensional
 // component model (auto/teleop/endgame/RP + per-year score-breakdown logic + the
-// MLE-fit year-normalized distributions), which needs year-wide stats and TBA
-// score breakdowns that aren't available client-side. The overall EPA is what we
-// display and what predicts alliance score, so the scalar port is the right scope.
+// MLE-fit year-normalized distributions), which needs year-wide stats. The
+// overall EPA is what we display and what predicts alliance score, so the scalar
+// port is the right scope.
+//
+// NOTE (component-epa-estimation): the raw TBA `score_breakdown` JSON DOES exist
+// per-event (it is dropped on the way into MatchRow). `parseRebuiltBreakdown`
+// below is the dark, flag-gated, single-event Tier-2 seam that reads it once the
+// 2026 REBUILT field names are confirmed. The shipped v1 component split does
+// NOT use it — it decomposes the already-shown prediction total instead.
 //
 // Algorithm (per played match, chronological by match_number):
 //   * Init each team's EPA = max(0, mean/NUM_TEAMS - 0.2*sd)  (init.py, no history),
@@ -256,4 +262,71 @@ export function computeLocalEpa(
   });
 
   return epa;
+}
+
+// ===========================================================================
+// Tier 2 — real TBA score_breakdown extraction (component-epa-estimation §3B/§4).
+//
+// DARK behind a flag, DEFAULT OFF, and scoped to SINGLE-EVENT raw JSON only
+// (`fetchEventMatchesCached(eventKey)` objects DO carry `score_breakdown`;
+// MatchRow drops it, so the season recurrence can never use this). The exact
+// 2026 REBUILT `score_breakdown` field names are UNCONFIRMED in live data, so
+// `parseRebuiltBreakdown` is defensive: every key access is finite-guarded and
+// any missing/renamed key makes the whole parse return `null` → callers silently
+// fall back to the Tier-1 proportional split. It NEVER throws on schema drift.
+// ===========================================================================
+
+/**
+ * Master flag for Tier-2 real-breakdown extraction. DEFAULT FALSE. Do NOT flip
+ * this on until the 2026 REBUILT `score_breakdown` keys are validated against a
+ * real played event (plan §4/§11). With it off, `parseRebuiltBreakdown` returns
+ * `null` regardless of input so no code path depends on the unconfirmed schema.
+ */
+export const ENABLE_TBA_BREAKDOWN = false;
+
+/** Per-alliance component scores extracted from a single match's score_breakdown. */
+export interface RebuiltBreakdown {
+  red: { auto: number; fuelTeleop: number; climb: number };
+  blue: { auto: number; fuelTeleop: number; climb: number };
+}
+
+/** Inferred 2026 REBUILT key candidates (TBA research; UNCONFIRMED). */
+const AUTO_FUEL_KEYS = ['autoFuelPoints', 'autoPoints'];
+const TELEOP_FUEL_KEYS = ['teleopFuelPoints', 'teleopPoints'];
+const CLIMB_KEYS = ['endgameClimbPoints', 'endgamePoints'];
+
+function firstFiniteKey(obj: Record<string, unknown>, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = finiteOrNull(obj[k]);
+    if (v != null) return v;
+  }
+  return null;
+}
+
+function parseAlliance(
+  raw: unknown,
+): { auto: number; fuelTeleop: number; climb: number } | null {
+  if (!isObject(raw)) return null;
+  const auto = firstFiniteKey(raw, AUTO_FUEL_KEYS);
+  const fuelTeleop = firstFiniteKey(raw, TELEOP_FUEL_KEYS);
+  const climb = firstFiniteKey(raw, CLIMB_KEYS);
+  if (auto == null || fuelTeleop == null || climb == null) return null;
+  return { auto, fuelTeleop, climb };
+}
+
+/**
+ * Read per-alliance auto / teleop-fuel / climb points off ONE raw TBA match's
+ * `score_breakdown`. Returns `null` when the flag is off, the input is not a
+ * usable object, or ANY expected key is missing/renamed (schema drift) — callers
+ * fall back to the Tier-1 split. Pure; never throws. Plan §3B/§4.
+ */
+export function parseRebuiltBreakdown(rawMatch: unknown): RebuiltBreakdown | null {
+  if (!ENABLE_TBA_BREAKDOWN) return null;
+  if (!isObject(rawMatch)) return null;
+  const sb = rawMatch.score_breakdown;
+  if (!isObject(sb)) return null;
+  const red = parseAlliance(sb.red);
+  const blue = parseAlliance(sb.blue);
+  if (!red || !blue) return null;
+  return { red, blue };
 }

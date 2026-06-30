@@ -12,6 +12,7 @@ import {
   Settings,
   UserCheck,
   Grid3x3,
+  Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { IconTabs } from '@/components/ui/IconTabs';
@@ -25,8 +26,9 @@ import RankingView from '@/dash/RankingView';
 import PicklistView from '@/dash/PicklistView';
 import ScoutersTab from '@/dash/ScoutersTab';
 import SetupTab from '@/dash/SetupTab';
+import AllianceSimulatorView from '@/dash/AllianceSimulatorView';
 
-type Tab = 'next' | 'team' | 'scouters' | 'match' | 'ranking' | 'picklist' | 'setup';
+type Tab = 'next' | 'team' | 'scouters' | 'match' | 'ranking' | 'picklist' | 'setup' | 'alliance';
 
 const TABS: { key: Tab; label: string; icon: LucideIcon; needsEvent: boolean }[] = [
   { key: 'next', label: 'Next Match', icon: Swords, needsEvent: true },
@@ -36,6 +38,7 @@ const TABS: { key: Tab; label: string; icon: LucideIcon; needsEvent: boolean }[]
   { key: 'ranking', label: 'Ranking', icon: ListOrdered, needsEvent: true },
   { key: 'picklist', label: 'Picklist', icon: ClipboardList, needsEvent: true },
   { key: 'setup', label: 'Setup', icon: Settings, needsEvent: false },
+  { key: 'alliance', label: 'Alliance', icon: Users, needsEvent: true },
 ];
 
 /** Legacy ?tab= values that now fold into a current tab. */
@@ -66,6 +69,8 @@ export default function DashboardScreen(): JSX.Element {
   const [tab, setTab] = useState<Tab>(initialTab);
   // Lifted so a click in Ranking can preselect the team on the Team tab.
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  // Lifted so a click on a team's last-match card deep-links to the Match tab.
+  const [selectedMatchKey, setSelectedMatchKey] = useState<string | null>(null);
 
   const current = TABS.find((t) => t.key === tab);
   const dataGated = current?.needsEvent ?? true;
@@ -73,6 +78,11 @@ export default function DashboardScreen(): JSX.Element {
   function openTeam(teamNumber: number): void {
     setSelectedTeam(teamNumber);
     setTab('team');
+  }
+
+  function openMatch(matchKey: string): void {
+    setSelectedMatchKey(matchKey);
+    setTab('match');
   }
 
   return (
@@ -92,10 +102,14 @@ export default function DashboardScreen(): JSX.Element {
         ariaLabel="Dashboard sections"
         value={tab}
         onChange={setTab}
-        tabs={TABS.map((t) => {
-          const Icon = t.icon;
-          return { value: t.key, label: t.label, icon: <Icon /> };
-        })}
+        tabs={[...TABS]
+          // Setup is pinned to the far right no matter what other tabs exist
+          // (stable sort: every non-setup tab keeps its order, setup goes last).
+          .sort((a, b) => Number(a.key === 'setup') - Number(b.key === 'setup'))
+          .map((t) => {
+            const Icon = t.icon;
+            return { value: t.key, label: t.label, icon: <Icon /> };
+          })}
       />
 
       {/* Scouters stays usable without an event (roster lives on its own table). */}
@@ -114,12 +128,26 @@ export default function DashboardScreen(): JSX.Element {
         ) : (
           <section className="flex-1">
             {tab === 'next' && <NextMatchView eventKey={eventKey} />}
-            {tab === 'team' && <TeamView eventKey={eventKey} selectedTeam={selectedTeam} />}
-            {tab === 'match' && <MatchView eventKey={eventKey} />}
+            {tab === 'team' && (
+              <TeamView
+                eventKey={eventKey}
+                selectedTeam={selectedTeam}
+                onSelectTeam={setSelectedTeam}
+                onOpenMatch={openMatch}
+              />
+            )}
+            {tab === 'match' && (
+              <MatchView
+                eventKey={eventKey}
+                initialMatchKey={selectedMatchKey}
+                onSelectMatch={setSelectedMatchKey}
+              />
+            )}
             {tab === 'ranking' && (
               <RankingView eventKey={eventKey} onSelectTeam={openTeam} />
             )}
             {tab === 'picklist' && <PicklistView eventKey={eventKey} />}
+            {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
           </section>
         ))}
     </div>

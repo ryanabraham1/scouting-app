@@ -117,11 +117,19 @@ export async function deletePitDraft(eventKey: string, teamNumber: number): Prom
   await pitDb.pitDrafts.delete(pitDraftKey(eventKey, teamNumber));
 }
 
-// The snake_case wire shape for `pit_scouting_report`. `pit_scouting_report` has
+// The snake_case wire shape for `upsert_pit_report`. `pit_scouting_report` has
 // no `intake_sources` column — `capabilities` is a jsonb column, so the capability
 // list and intake sources are folded into one object:
 // { items: string[], intakeSources: string[] }.
-export function pitUpsertPayload(report: PitReport): Record<string, unknown> {
+//
+// `rowRevision` is the report's local updatedAt epoch-ms: a monotonic-with-edit-time
+// value that is comparable ACROSS authors (unlike a per-author counter). The server
+// (migration 0031) writes only when it's STRICTLY NEWER than the stored revision, so
+// a stale offline resync can no longer clobber a newer report.
+export function pitUpsertPayload(
+  report: PitReport,
+  rowRevision: number,
+): Record<string, unknown> {
   return {
     event_key: report.eventKey,
     team_number: report.teamNumber,
@@ -150,14 +158,22 @@ export function pitUpsertPayload(report: PitReport): Record<string, unknown> {
     photo_path: report.photoPath,
     notes: report.notes,
     author_scout_id: report.scoutId,
+    row_revision: rowRevision,
   };
 }
 
-// Upsert the row, returning the raw Supabase error (or null) WITHOUT throwing so
-// the outbox can classify it (transient vs terminal). `submitPit` wraps this and
-// throws for its existing callers/tests.
-export async function upsertPitRow(report: PitReport): Promise<{ error: unknown }> {
-  const { error } = await supabase.from('pit_scouting_report').upsert(pitUpsertPayload(report));
+// Upsert the row through the revision-guarded `upsert_pit_report` RPC, returning the
+// raw Supabase error (or null) WITHOUT throwing so the outbox can classify it
+// (transient vs terminal). `submitPit` wraps this and throws for its callers/tests.
+// `rowRevision` defaults to "now" for direct submits; the outbox passes the queued
+// report's updatedAt epoch so a stale resync stays older than a newer write.
+export async function upsertPitRow(
+  report: PitReport,
+  rowRevision: number = Date.now(),
+): Promise<{ error: unknown }> {
+  const { error } = await supabase.rpc('upsert_pit_report', {
+    p: pitUpsertPayload(report, rowRevision),
+  });
   return { error };
 }
 

@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { autoAssign } from './autoAssign';
 import { publishAssignments } from './setAssignmentsClient';
 import { ensureEventScoutsFromRoster } from './ensureEventScoutsClient';
 import type { AssignMatch, AssignScout, Assignment, AllianceColor } from './types';
+import {
+  computeCoverage,
+  computeCoverageFromAssignments,
+  slotKey,
+  type Seat,
+} from './coverage';
+import { CoverageGapPanel } from './CoverageGapPanel';
+import { useEventAssignments } from '@/dash/useEventData';
+import { isQualMatchKey } from '@/lib/formatMatch';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 
-interface Slot {
-  matchKey: string;
-  allianceColor: AllianceColor;
-  station: 1 | 2 | 3;
-  targetTeamNumber: number;
-}
+type Slot = Seat;
 
 export interface AssignmentBoardProps {
   eventKey: string;
@@ -20,14 +25,11 @@ export interface AssignmentBoardProps {
   scouts: AssignScout[];
 }
 
-function slotKey(s: { matchKey: string; allianceColor: AllianceColor; station: number }): string {
-  return `${s.matchKey}:${s.allianceColor}:${s.station}`;
-}
-
 export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardProps): JSX.Element {
   // The base/own team is never scouted (you don't scout yourself), so its slots
   // are excluded. Configurable in Setup; defaults to 3256.
   const ownTeam = getStoredBaseTeam();
+  const queryClient = useQueryClient();
   // scoutId per slotKey ('' === unassigned)
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [generated, setGenerated] = useState(false);
@@ -67,9 +69,18 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     };
   }, [eventKey]);
 
+  // Scouting assignments are created ONLY for qualification matches — playoffs
+  // are intentionally never assigned (alliances pick their own scouting focus).
+  // The board's whole universe (slots + auto-assign input) is quals-only; the
+  // separate ScheduleView still shows every match.
+  const qualMatches = useMemo(
+    () => matches.filter((m) => isQualMatchKey(m.matchKey)),
+    [matches],
+  );
+
   const slots = useMemo<Slot[]>(() => {
     const out: Slot[] = [];
-    for (const m of matches) {
+    for (const m of qualMatches) {
       const teams: { color: AllianceColor; nums: [number, number, number] }[] = [
         { color: 'red', nums: m.redTeams },
         { color: 'blue', nums: m.blueTeams },
@@ -88,10 +99,56 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
       }
     }
     return out;
-  }, [matches, ownTeam]);
+  }, [qualMatches, ownTeam]);
+
+  // Draft coverage — 100% local, recomputes on every pick edit. Surfaces which
+  // eligible seats still have no scout BEFORE the lead queues matches.
+  const draftSummary = useMemo(
+    () => computeCoverage(slots, (k) => picks[k] ?? ''),
+    [slots, picks],
+  );
+
+  // Published coverage — what scouts actually pull right now. The hook swallows
+  // offline errors and returns [], so `rows` is always an array (never undefined).
+  const { data: publishedRows } = useEventAssignments(eventKey);
+  const publishedMapped = useMemo(
+    () =>
+      (publishedRows ?? []).map((r) => ({
+        matchKey: r.match_key,
+        allianceColor: r.alliance_color as AllianceColor,
+        station: r.station,
+        scoutId: r.scout_id,
+      })),
+    [publishedRows],
+  );
+  const publishedSummary = useMemo(
+    () => computeCoverageFromAssignments(slots, publishedMapped),
+    [slots, publishedMapped],
+  );
+
+  // Divergence: draft slot→scout map differs from the published one. Only after
+  // the board is generated (otherwise the published panel stands alone).
+  const diverged = useMemo(() => {
+    if (!generated) return false;
+    const draftMap = new Map<string, string>();
+    for (const s of slots) {
+      const v = picks[slotKey(s)] ?? '';
+      if (v !== '') draftMap.set(slotKey(s), v);
+    }
+    const publishedMap = new Map<string, string>();
+    for (const a of publishedMapped) {
+      const v = (a.scoutId ?? '').trim();
+      if (v !== '') publishedMap.set(slotKey(a), v);
+    }
+    if (draftMap.size !== publishedMap.size) return true;
+    for (const [k, v] of draftMap) {
+      if (publishedMap.get(k) !== v) return true;
+    }
+    return false;
+  }, [generated, slots, picks, publishedMapped]);
 
   function generateFrom(activePool: AssignScout[]): void {
-    const result = autoAssign(matches, activePool, {
+    const result = autoAssign(qualMatches, activePool, {
       ownTeam,
       breakEveryN: 6,
       rotatePositions: true,
@@ -153,6 +210,10 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     try {
       const count = await publishAssignments(eventKey, assignments);
       setPublished(count);
+      // Refresh the published panel + diverged flag immediately — otherwise they
+      // keep showing pre-publish rows for the full staleTime window, leaving a
+      // false "unpublished changes" note right after the lead JUST published.
+      void queryClient.invalidateQueries({ queryKey: ['assignments', eventKey] });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Publish failed.');
     } finally {
@@ -177,7 +238,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             type="button"
             data-testid="auto-generate-btn"
             onClick={() => void onAutoGenerate()}
-            disabled={matches.length === 0 || seeding}
+            disabled={qualMatches.length === 0 || seeding}
             variant="outline"
             className="h-11"
           >
@@ -195,6 +256,15 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
           </Button>
         </div>
 
+        <p data-testid="assignments-quals-only-note" className="mt-3 text-xs text-muted-foreground">
+          Assignments cover qualification matches only — playoff matches are not assigned.
+        </p>
+        {matches.length > 0 && qualMatches.length === 0 ? (
+          <p data-testid="assignments-no-quals" className="mt-2 text-sm text-muted-foreground">
+            No qualification matches in this event yet. Assignments are created only for quals.
+          </p>
+        ) : null}
+
         {error ? (
           <p data-testid="assignments-publish-error" className="mt-4 text-sm text-destructive">
             {error}
@@ -207,14 +277,34 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
         ) : null}
 
         {generated ? (
+          <CoverageGapPanel
+            summary={draftSummary}
+            eventKey={eventKey}
+            title="Draft coverage"
+            diverged={diverged}
+          />
+        ) : null}
+
+        <CoverageGapPanel
+          summary={publishedSummary}
+          eventKey={eventKey}
+          title="Published (live for scouts)"
+          empty={publishedMapped.length === 0}
+        />
+
+        {generated ? (
           <div data-testid="assignment-grid" className="mt-4 flex flex-col gap-2">
             {slots.map((s) => {
               const key = slotKey(s);
               const current = picks[key] ?? '';
+              const isGap = current === '';
               return (
                 <div
                   key={key}
-                  className="flex flex-col gap-2 rounded-lg border p-2 text-sm sm:flex-row sm:flex-wrap sm:items-center"
+                  data-coverage={isGap ? 'gap' : undefined}
+                  className={`flex flex-col gap-2 rounded-lg border p-2 text-sm sm:flex-row sm:flex-wrap sm:items-center ${
+                    isGap ? 'border-l-4 border-l-amber-500/60' : ''
+                  }`}
                 >
                   <span className="font-mono text-xs text-muted-foreground">
                     {s.matchKey.replace(`${eventKey}_`, '')}

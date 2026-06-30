@@ -17,6 +17,14 @@ import {
 import type { EventWebcast } from '@/dash/EventStream';
 import type { MsrRow } from '@/dash/types';
 import {
+  aggregateEvent,
+  fitComponentFraction,
+  aggregateTeamDefensePts,
+  type ComponentFraction,
+} from '@/dash/aggregate';
+import { fetchMatchupNotesForEvent } from '@/dash/matchupNotesClient';
+import { listMatchupNotesForEvent } from '@/db/localStore';
+import {
   NEXUS_POLL_MS,
   NEXUS_STALE_MS,
   RESULTS_RECONCILE_MS,
@@ -54,6 +62,15 @@ export interface ScoutRow {
   event_key: string;
 }
 
+/** One published assignment row (the 5 columns coverage-gaps needs). */
+export interface AssignmentRow {
+  match_key: string;
+  scout_id: string | null;
+  alliance_color: string;
+  station: number;
+  target_team_number: number | null;
+}
+
 export interface EventEpa {
   epaByTeam: Map<number, number | null>;
   available: boolean;
@@ -68,6 +85,14 @@ export interface EventEpa {
    * ALWAYS sets it, so hook consumers can rely on a concrete value.
    */
   source?: 'statbotics' | 'local' | 'none';
+  /**
+   * Per-team EPA source, so a consumer (e.g. the export presets) can label each
+   * row's `epa_source` correctly — the event-wide `source` collapses every team
+   * into one flag and would mislabel a team that only resolved an in-house
+   * estimate while ANOTHER team has Statbotics. OPTIONAL for the same reason as
+   * `source` (object-literal fixtures); `useEventEpa` ALWAYS sets it.
+   */
+  sourceByTeam?: Map<number, 'statbotics' | 'local' | 'none'>;
 }
 
 /** Parsed Nexus live status plus an availability flag for graceful degradation. */
@@ -101,6 +126,61 @@ export function useEventReports(eventKey: string | null): UseQueryResult<MsrRow[
         throw error;
       }
       return (data ?? []) as MsrRow[];
+    },
+  });
+}
+
+/**
+ * Per-opponent matchup notes for an event as a key→note Map
+ * (`${eventKey}:${ourTeam}:${oppTeam}` → note text). Reads the server first, then
+ * merges Dexie-LOCAL notes over the server rows so an unsynced edit shows
+ * immediately (local is authoritative for dirty/pending). queryKey
+ * `['matchup-notes', eventKey]`.
+ *
+ * Error path is branched (a blind catch would poison the persisted cache):
+ *  - offline (`navigator.onLine === false`) → return Dexie-only notes (cached
+ *    drafts + previously-synced rows) as a graceful fallback;
+ *  - online server/PostgREST error → RETHROW (mirrors `useEventReports`) so
+ *    TanStack keeps the last good persisted snapshot rather than overwriting it
+ *    with a partial map that would hide teammates' synced notes.
+ *
+ * The returned Map round-trips through the persisted cache (queryPersist tags
+ * Maps), so the panel never blanks on an offline reload.
+ */
+export function useMatchupNotes(
+  eventKey: string | null,
+): UseQueryResult<Map<string, string>> {
+  return useQuery({
+    queryKey: ['matchup-notes', eventKey],
+    enabled: !!eventKey,
+    staleTime: STALE_TIME,
+    queryFn: async (): Promise<Map<string, string>> => {
+      const key = eventKey as string;
+      const local = await listMatchupNotesForEvent(key);
+      const localMap = new Map<string, string>();
+      for (const n of local) localMap.set(n.key, n.note);
+
+      let serverMap: Map<string, string>;
+      try {
+        const rows = await fetchMatchupNotesForEvent(key);
+        serverMap = new Map<string, string>();
+        for (const r of rows) {
+          serverMap.set(`${r.event_key}:${r.our_team}:${r.opp_team}`, r.note);
+        }
+      } catch (err) {
+        // Offline: serve Dexie-only as a graceful fallback. Online error: rethrow
+        // so the persisted snapshot is preserved (mirrors useEventReports).
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          return localMap;
+        }
+        throw err;
+      }
+
+      // Merge: server is the base; local (dirty/pending) overrides so unsynced
+      // edits show immediately.
+      const merged = new Map(serverMap);
+      for (const [k, v] of localMap) merged.set(k, v);
+      return merged;
     },
   });
 }
@@ -162,6 +242,33 @@ export function useEventScouts(eventKey: string | null): UseQueryResult<ScoutRow
         throw error;
       }
       return (data ?? []) as ScoutRow[];
+    },
+  });
+}
+
+/**
+ * Published assignments for an event (the coverage-gap board's "live for scouts"
+ * source). Reads the open-SELECT `assignment` table. The queryFn swallows Supabase
+ * errors and returns `[]` (mirroring useTbaTeam) so an offline fetch yields an empty
+ * array — never `undefined`/error — and the published coverage panel renders the
+ * "no published assignments cached" line instead of throwing.
+ */
+export function useEventAssignments(eventKey: string | null): UseQueryResult<AssignmentRow[]> {
+  return useQuery({
+    queryKey: ['assignments', eventKey],
+    enabled: !!eventKey,
+    staleTime: STALE_TIME,
+    queryFn: async (): Promise<AssignmentRow[]> => {
+      try {
+        const { data, error } = await supabase
+          .from('assignment')
+          .select('match_key,scout_id,alliance_color,station,target_team_number')
+          .eq('event_key', eventKey as string);
+        if (error) return [];
+        return (data ?? []) as AssignmentRow[];
+      } catch {
+        return [];
+      }
     },
   });
 }
@@ -349,18 +456,99 @@ export function useEventEpa(
         sortedTeams.map((team) => seasonEpaForTeam(team, eventKey as string, year)),
       );
       const epaByTeam = new Map<number, number | null>();
+      const sourceByTeam = new Map<number, 'statbotics' | 'local' | 'none'>();
       let anyStatbotics = false;
       let anyEpa = false;
       sortedTeams.forEach((team, i) => {
         const r = results[i];
         epaByTeam.set(team, r.epa);
+        // seasonEpaForTeam returns 'inhouse' for the local fallback; normalize to
+        // the event-level 'local' label so the per-team source matches `source`.
+        sourceByTeam.set(
+          team,
+          r.epa == null ? 'none' : r.source === 'statbotics' ? 'statbotics' : 'local',
+        );
         if (r.epa != null) {
           anyEpa = true;
           if (r.source === 'statbotics') anyStatbotics = true;
         }
       });
       const source: EventEpa['source'] = anyStatbotics ? 'statbotics' : anyEpa ? 'local' : 'none';
-      return { epaByTeam, available: anyEpa, source };
+      return { epaByTeam, available: anyEpa, source, sourceByTeam };
+    },
+  });
+}
+
+/**
+ * Component-EPA split inputs for a match (component-epa-estimation feature §9).
+ *  - `fraction`: the event-wide fitted auto/fuel/climb fraction (plain OBJECT, no
+ *    Map-rehydration concern) used for the no-scouting (EPA) split branch.
+ *  - `defenseByTeam`: scouting-only defender suppression points per team (null
+ *    when unscouted → renders `—`). A nested Map that round-trips via
+ *    queryPersist's recursive Map tagging; consumers still apply an `instanceof
+ *    Map` guard (mirroring predict.ts's `asEpaMap`).
+ *  - `available`: at least one scouted team backs the fraction/defense.
+ */
+export interface EventComponentEpa {
+  fraction: ComponentFraction;
+  defenseByTeam: Map<number, number | null>;
+  available: boolean;
+}
+
+/** Coerce a possibly-rehydrated `defenseByTeam` to a real Map (see asEpaMap). */
+export function asDefenseMap(
+  m: EventComponentEpa['defenseByTeam'],
+): Map<number, number | null> {
+  if (m instanceof Map) return m;
+  const out = new Map<number, number | null>();
+  if (m && typeof m === 'object') {
+    for (const [k, v] of Object.entries(m as Record<string, number | null>)) {
+      const team = Number(k);
+      if (Number.isFinite(team)) out.set(team, v);
+    }
+  }
+  return out;
+}
+
+/**
+ * Component-split inputs for a match's teams (component-epa-estimation §9). A
+ * SMALL hook — NOT a clone of the EPA fan-out: it reads the cached
+ * `['reports', eventKey]` query, aggregates it, fits the event-wide component
+ * fraction, and builds the scouting-only defense map. It does NOT run
+ * `computeLocalEpa` and does NOT fan out to TBA in v1; `expected` (which the
+ * split decomposes) comes from `useEventEpa` + `predictMatch` at the call site.
+ * Degrades gracefully: with no reports it returns `F_DEFAULT` + empty map.
+ */
+export function useEventComponentEpas(
+  teamNumbers: number[],
+  eventKey: string | null,
+): UseQueryResult<EventComponentEpa> {
+  const sortedTeams = [...teamNumbers].sort((a, b) => a - b);
+  const reportsQ = useEventReports(eventKey);
+  const reports = reportsQ.data;
+  return useQuery({
+    queryKey: [
+      'epa',
+      'event-components',
+      eventKey,
+      sortedTeams.join(','),
+      // Re-derive when the underlying reports change (count is a cheap signal).
+      reports?.length ?? 0,
+    ],
+    enabled: !!eventKey && sortedTeams.length > 0,
+    staleTime: STALE_TIME,
+    queryFn: async (): Promise<EventComponentEpa> => {
+      const rows = reports ?? [];
+      const aggs = aggregateEvent(rows);
+      const fraction = fitComponentFraction(aggs.values());
+      const defenseByTeam = new Map<number, number | null>();
+      let available = false;
+      for (const team of sortedTeams) {
+        const agg = aggs.get(team);
+        defenseByTeam.set(team, agg ? aggregateTeamDefensePts(agg) : null);
+        if (agg && agg.matchesScouted > 0) available = true;
+      }
+      return { fraction, defenseByTeam, available };
     },
   });
 }
@@ -511,6 +699,24 @@ export function useEventLiveSync(eventKey: string | null): void {
         { event: '*', schema: 'public', table: 'match', filter: `event_key=eq.${eventKey}` },
         () => {
           queryClient.invalidateQueries({ queryKey: ['matches', eventKey] });
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'match_scouting_report',
+          filter: `event_key=eq.${eventKey}`,
+        },
+        () => {
+          // A new/changed scout report landed: refresh the reports query so the
+          // dashboard heartbeat (and every report-derived view) updates within
+          // one realtime tick instead of waiting out the 60s staleTime. Requires
+          // migration 0034 (match_scouting_report in supabase_realtime); without
+          // it this branch is a harmless no-op. The 60s poll + manual Sync are
+          // the always-present fallback refresh paths.
+          queryClient.invalidateQueries({ queryKey: ['reports', eventKey] });
         },
       )
       .subscribe();

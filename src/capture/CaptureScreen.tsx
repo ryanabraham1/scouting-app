@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, Plane, MoveUpRight, Lock, ChevronRight, MapPin, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
-import { useCaptureEvents, type DefenseIntervalPayload } from '@/capture/useCaptureEvents';
+import { useCaptureEvents } from '@/capture/useCaptureEvents';
 import { AUTO_MS, TELEOP_MS, remainingMs } from '@/capture/clock';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
@@ -267,10 +267,15 @@ export function CaptureScreen(props: {
   }, [defenseActive, defendedActive]);
 
   const events = useCaptureEvents({
-    onUndoDefense: (p: DefenseIntervalPayload) =>
-      s.setDefenseDurationMs(Math.max(0, s.defenseDurationMs - p.durationMs)),
-    onUndoDefended: (p: DefenseIntervalPayload) =>
-      s.setDefendedDurationMs(Math.max(0, s.defendedDurationMs - p.durationMs)),
+    // The session owns interval+duration bookkeeping atomically, so undo pops the
+    // committed interval AND subtracts its exact duration (the old handler only
+    // adjusted the scalar and left the interval in the uploaded report).
+    onUndoDefense: () => s.undoLastDefenseInterval(),
+    onUndoDefended: () => s.undoLastDefendedInterval(),
+    // Pop the burst from the slider that committed it (fuel vs feeding). Without
+    // this the burst stayed counted forever while the timeline event was consumed.
+    onUndoBurst: (p) =>
+      p.kind === 'feeding' ? s.undoLastFeedingBurst() : s.undoLastBurst(),
     onUndoFoul: () => s.setFoulsMinor(Math.max(0, s.foulsMinor - 1)),
     onUndoToggle: (p) => {
       if (p.key === 'autoLeftStartingLine') s.setAutoLeftStartingLine(p.prev);
@@ -645,7 +650,7 @@ export function CaptureScreen(props: {
               className="h-full"
               onShootStart={() => { s.holdStart(); buzz(); }}
               onShootRate={(r) => s.holdSample(r)}
-              onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate }); buzz(20); }}
+              onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate, kind: 'fuel' }); buzz(20); }}
             />
           </div>
           <div className="flex min-h-0 flex-1">
@@ -659,7 +664,7 @@ export function CaptureScreen(props: {
               className="h-full"
               onShootStart={() => { s.feedHoldStart(); buzz(); }}
               onShootRate={(r) => s.feedHoldSample(r)}
-              onShootEnd={(rate) => { s.feedHoldEnd(rate); buzz(20); }}
+              onShootEnd={(rate) => { s.feedHoldEnd(rate); events.recordBurst({ rate, kind: 'feeding' }); buzz(20); }}
             />
           </div>
         </div>

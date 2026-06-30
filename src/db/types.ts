@@ -9,6 +9,12 @@ export interface LocalMatchReport {
   eventKey: string;
   matchKey: string;
   scoutId: string;
+  // The scout's display name at capture time. Sent to the server so an upsert
+  // whose scout_id was orphaned (e.g. select_scouter consolidation deleted that
+  // row when the same name was picked on another device) can re-resolve to the
+  // surviving canonical row by name instead of dead-lettering. Optional: reports
+  // captured before this field lack it (the server then provisions a row).
+  scoutName?: string;
   targetTeamNumber: number;
   allianceColor: 'red' | 'blue';
   station: 1 | 2 | 3;
@@ -56,6 +62,13 @@ export interface LocalMatchReport {
   fedCorral: boolean;
   notes: string;
   syncState: 'dirty' | 'pending' | 'synced' | 'error';
+  // Client-side mirror of the server `row_revision`. New reports start at 1; a
+  // correction (edit + resubmit) MUST set it to the previously-loaded revision + 1
+  // so the revision-guarded `upsert_match_report` UPDATEs the existing row rather
+  // than no-opping. Note: `markSynced` does NOT copy the server revision back, so
+  // `loaded` is the last value THIS client sent; it stays monotonic provided
+  // nothing bumps this row's server revision out-of-band (a supersede bumps a
+  // DIFFERENT row, so it's safe). No wire-shape change.
   rowRevision: number;
   syncAttempts: number;
   lastSyncError: string | null;
@@ -125,4 +138,41 @@ export interface PreloadMeta {
   key: string; // event_key (the roster is folded into each event's preload + counts)
   lastPreloadAt: string; // ISO timestamp
   counts: { matches?: number; assignments?: number; roster?: number; teams?: number };
+}
+
+// ---------------------------------------------------------------------------
+// Matchup notes (matchup-intelligence feature).
+//
+// Per-opponent free-text strategy notes, keyed event-scoped on the two alliance
+// LEAD teams (the lowest team number on each alliance — see matchupNotesClient).
+// `MatchupNoteRow` is the server read shape (snake_case, from `matchup_note`);
+// `LocalMatchupNote` is the Dexie draft/outbox shape mirroring LocalMatchReport's
+// sync-state machine so notes survive a dead venue network exactly like reports.
+// ---------------------------------------------------------------------------
+
+/** Server read shape — one row of the `matchup_note` table (RLS-scoped select). */
+export interface MatchupNoteRow {
+  event_key: string;
+  our_team: number;
+  opp_team: number;
+  note: string;
+  row_revision: number;
+  updated_at: string;
+  // Advisory "last edited by"; nulled server-side if the scout row was orphaned.
+  author_scout_id: string | null;
+  deleted: boolean;
+}
+
+/** Dexie draft/outbox row for a matchup note. `key` = `${eventKey}:${ourTeam}:${oppTeam}`. */
+export interface LocalMatchupNote {
+  key: string;
+  eventKey: string;
+  ourTeam: number;
+  oppTeam: number;
+  note: string;
+  updatedAt: string; // ISO; Date.parse(updatedAt) is the monotonic row_revision sent to the RPC
+  authorScoutId: string | null;
+  syncState: 'dirty' | 'pending' | 'synced' | 'error';
+  syncAttempts: number;
+  lastSyncError: string | null;
 }

@@ -9,6 +9,7 @@ const useEventMatchesMock = vi.fn();
 const useEventReportsMock = vi.fn();
 const useEventTeamsMock = vi.fn();
 const useEventEpaMock = vi.fn();
+const useEventScoutsMock = vi.fn();
 const useNexusEventStatusMock = vi.fn();
 
 vi.mock('@/dash/useEventData', () => ({
@@ -17,6 +18,9 @@ vi.mock('@/dash/useEventData', () => ({
   useEventTeams: (eventKey: string | null) => useEventTeamsMock(eventKey),
   useEventEpa: (teams: number[], eventKey: string | null, matches?: unknown) =>
     useEventEpaMock(teams, eventKey, matches),
+  // Scout heartbeat: useEventScoutCoverage reads this; without it the new hook
+  // would resolve to undefined and throw on render (reddening every test).
+  useEventScouts: (eventKey: string | null) => useEventScoutsMock(eventKey),
   useNexusEventStatus: (eventKey: string | null) => useNexusEventStatusMock(eventKey),
   // Broadcast-panel hooks: static safe defaults (their own units cover them).
   useEventInfo: () => ({ data: { name: null, webcast: null } }),
@@ -24,12 +28,30 @@ vi.mock('@/dash/useEventData', () => ({
   useTeamSeasonStats: () => ({
     data: { worldRank: null, totalEpa: null, epaSource: 'none', seasonRecord: null },
   }),
+  // Matchup-intelligence: the MatchupPanel mounted by NextMatchView reads notes.
+  useMatchupNotes: () => ({ data: new Map<string, string>() }),
 }));
 
-// --- stub AutoRoutines to keep this focused on prediction rendering ---
-vi.mock('@/dash/AutoRoutines', () => ({
-  default: (props: { isOurAlliance: boolean }) => (
-    <div data-testid="auto-routines-stub" data-our={String(props.isOurAlliance)} />
+// useSync drives the heartbeat's online/pending hints — mock to the real shape.
+vi.mock('@/sync/useSync', () => ({
+  useSync: () => ({
+    online: true,
+    queued: 0,
+    deadLetters: 0,
+    syncing: false,
+    syncNow: vi.fn(),
+    lastSyncedAt: null,
+  }),
+}));
+
+// --- stub the combined auto field to keep this focused on prediction rendering ---
+vi.mock('@/dash/CombinedAutoField', () => ({
+  default: (props: { redTeams: number[]; blueTeams: number[] }) => (
+    <div
+      data-testid="combined-auto-stub"
+      data-red={props.redTeams.join(',')}
+      data-blue={props.blueTeams.join(',')}
+    />
   ),
 }));
 
@@ -41,9 +63,20 @@ beforeEach(() => {
   useEventReportsMock.mockReset();
   useEventTeamsMock.mockReset();
   useEventEpaMock.mockReset();
+  useEventScoutsMock.mockReset();
   useNexusEventStatusMock.mockReset();
   // Default: Nexus unavailable so the view degrades to the schedule.
   useNexusEventStatusMock.mockReturnValue(dataResult({ status: null, available: false }));
+  // Default scout roster (heartbeat denominator). Overridden per-test as needed.
+  useEventScoutsMock.mockReturnValue(
+    dataResult(
+      Array.from({ length: 9 }, (_, i) => ({
+        id: `s${i + 1}`,
+        display_name: `Scout ${i + 1}`,
+        event_key: '2026evt',
+      })),
+    ),
+  );
 });
 
 /** Minimal MsrRow factory. */
@@ -345,19 +378,20 @@ describe('NextMatchView', () => {
     expect(badgeText).not.toMatch(/\bepa\b/);
   });
 
-  it('renders the rate-FUEL low-confidence chip and AutoRoutines for both alliances', () => {
+  it('renders the rate-FUEL low-confidence chip and ONE combined auto field for the matchup', () => {
     setupHappyPath(true);
     const { getAllByTestId, getByTestId } = render(<NextMatchView eventKey="2026evt" />);
 
     // Rate-FUEL low-confidence indicator present where fuel is shown.
     expect(getAllByTestId('fuel-low-confidence').length).toBeGreaterThan(0);
 
-    // AutoRoutines rendered for both alliances; the one containing 3256 is "ours".
-    const stubs = getAllByTestId('auto-routines-stub');
-    expect(stubs.length).toBe(2);
-    const ourFlags = stubs.map((s) => s.getAttribute('data-our'));
-    expect(ourFlags).toContain('true');
-    expect(ourFlags).toContain('false');
+    // Exactly ONE combined auto field for both alliances (no per-column fields,
+    // no mode toggle).
+    const combined = getAllByTestId('combined-auto-stub');
+    expect(combined.length).toBe(1);
+    // It receives both alliances' teams.
+    expect(combined[0].getAttribute('data-red')).toBeTruthy();
+    expect(combined[0].getAttribute('data-blue')).toBeTruthy();
 
     // 3256 row resolves to an EPA source badge (unscouted).
     const ourRow = getByTestId(`dash-next-team-${OUR_TEAM}`);
@@ -551,5 +585,45 @@ describe('NextMatchView', () => {
     const { getByTestId } = render(<NextMatchView eventKey="2026evt" />);
     // Nexus-fed upcoming list rendered (no live badge — those were removed).
     expect(getByTestId('dash-next-upcoming')).toBeTruthy();
+  });
+
+  it('no longer renders the scout heartbeat (moved to the Scouters tab)', () => {
+    setupHappyPath(true);
+    // Even with fresh, attributed reports on the anchored match, the heartbeat
+    // tile is gone from Next Match — it now lives in the Scouters tab.
+    const fresh = new Date().toISOString();
+    const reports: MsrRow[] = [
+      row({ target_team_number: OUR_TEAM, match_key: '2026evt_qm2', station: 1, scout_id: 's1', server_received_at: fresh }),
+      row({ target_team_number: 111, match_key: '2026evt_qm2', station: 2, scout_id: 's2', server_received_at: fresh }),
+      row({ target_team_number: 222, match_key: '2026evt_qm2', station: 3, scout_id: 's3', server_received_at: fresh }),
+    ];
+    useEventReportsMock.mockReturnValue(dataResult(reports));
+
+    const { queryByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    expect(queryByTestId('scout-heartbeat')).toBeNull();
+    expect(queryByTestId('scout-heartbeat-count')).toBeNull();
+    expect(queryByTestId('scout-heartbeat-last')).toBeNull();
+  });
+
+  it('no longer renders the per-team component estimate line (moved to Alliance sim)', () => {
+    setupHappyPath(true);
+    const { queryByTestId, getByTestId, getAllByTestId } = render(
+      <NextMatchView eventKey="2026evt" />,
+    );
+    // The per-team auto/fuel/climb component line is gone from Next Match.
+    for (const t of [...RED, ...BLUE]) {
+      expect(queryByTestId(`dash-next-components-${t}`)).toBeNull();
+    }
+    // But the predicted alliance scores, win prob, and source badges stay intact.
+    expect(getByTestId('dash-next-red-score').textContent).toMatch(/\d/);
+    expect(getByTestId('dash-next-blue-score').textContent).toMatch(/\d/);
+    expect(getByTestId('dash-next-red-winprob').textContent).toMatch(/%/);
+    expect(getAllByTestId('dash-next-source-badge').length).toBe(6);
+  });
+
+  it('does not render the alliance matchup panel (removed)', () => {
+    setupHappyPath(true);
+    const { queryByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    expect(queryByTestId('dash-matchup-panel')).toBeNull();
   });
 });

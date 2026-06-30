@@ -202,6 +202,22 @@ describe('useSync', () => {
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalled());
   });
 
+  it('stamps lastSyncedAt after a successful run', async () => {
+    const { result } = renderHook(() => useSync());
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.lastSyncedAt).not.toBeNull());
+    expect(typeof result.current.lastSyncedAt).toBe('number');
+  });
+
+  it('leaves lastSyncedAt null when syncOnce throws', async () => {
+    syncOnceMock.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useSync());
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalled());
+    // The run rejected, so the success stamp is never set.
+    await waitFor(() => expect(result.current.syncing).toBe(false));
+    expect(result.current.lastSyncedAt).toBeNull();
+  });
+
   it('guards overlapping runs: a syncNow while a run is in flight does not double-run', async () => {
     let resolveRun: (() => void) | undefined;
     syncOnceMock.mockImplementation(

@@ -6,11 +6,12 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSync } from '@/sync/useSync';
+import { relativeTime } from '@/dash/relativeTime';
 import { listDeadLetters, requeueReport } from '@/db/localStore';
 import { listPitDeadLetters, requeuePitReport } from '@/pit/pitStore';
 
 export function SyncIndicator(): JSX.Element {
-  const { online, queued, deadLetters, syncing, syncNow } = useSync();
+  const { online, queued, deadLetters, syncing, syncNow, lastSyncedAt } = useSync();
   const [retrying, setRetrying] = useState(false);
 
   async function retryAll(): Promise<void> {
@@ -71,6 +72,11 @@ export function SyncIndicator(): JSX.Element {
       >
         {syncing ? 'Syncing…' : 'Sync now'}
       </Button>
+      {lastSyncedAt != null ? (
+        <span data-testid="sync-last" title="Last successful sync" className="text-muted-foreground">
+          · synced {relativeTime(new Date(lastSyncedAt).toISOString(), Date.now())}
+        </span>
+      ) : null}
       {deadLetters > 0 ? (
         <Button
           data-testid="sync-retry-all"

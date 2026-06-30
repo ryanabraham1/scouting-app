@@ -38,8 +38,20 @@ describe('getPicklist', () => {
     expect(eq).toHaveBeenCalledWith('event_key', '2026casnv');
   });
 
-  it('maps the entries jsonb of an existing row', async () => {
+  it('maps the entries jsonb of an existing row, preserving set fields', async () => {
     const entries: PicklistEntry[] = [
+      { teamNumber: 254, tier: 'A', note: 'fast', tierType: 'first', dnp: true },
+      { teamNumber: 3256, tier: null, note: null, tierType: 'second', dnp: false },
+    ];
+    maybeSingle.mockResolvedValue({ data: { entries }, error: null });
+
+    const result = await getPicklist('2026casnv');
+
+    expect(result).toEqual(entries);
+  });
+
+  it('normalizes legacy entries lacking dnp/tierType to false/null', async () => {
+    const entries = [
       { teamNumber: 254, tier: 'A', note: 'fast' },
       { teamNumber: 3256, tier: null, note: null },
     ];
@@ -47,7 +59,10 @@ describe('getPicklist', () => {
 
     const result = await getPicklist('2026casnv');
 
-    expect(result).toEqual(entries);
+    expect(result).toEqual([
+      { teamNumber: 254, tier: 'A', note: 'fast', dnp: false, tierType: null },
+      { teamNumber: 3256, tier: null, note: null, dnp: false, tierType: null },
+    ]);
   });
 
   it('throws when the read errors', async () => {
@@ -72,6 +87,19 @@ describe('savePicklist', () => {
     expect(typeof payload.updated_at).toBe('string');
     expect(Number.isNaN(Date.parse(payload.updated_at))).toBe(false);
     expect(options).toEqual({ onConflict: 'event_key' });
+  });
+
+  it('includes dnp/tierType in the upserted entries payload', async () => {
+    upsert.mockResolvedValue({ error: null });
+    const entries: PicklistEntry[] = [
+      { teamNumber: 254, tier: 'A', note: null, tierType: 'first', dnp: true },
+    ];
+
+    await savePicklist('2026casnv', entries);
+
+    const [payload] = upsert.mock.calls[0];
+    expect(payload.entries).toEqual(entries);
+    expect(payload.entries[0]).toMatchObject({ tierType: 'first', dnp: true });
   });
 
   it('throws when the upsert errors', async () => {

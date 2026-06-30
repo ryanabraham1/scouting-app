@@ -23,7 +23,17 @@ export interface IntervalRow {
   phase: 'auto' | 'teleop';
 }
 
-/** A single `match_scouting_report` row as read by the dashboard (contracts §1). */
+/**
+ * A single `match_scouting_report` row as read by the dashboard (contracts §1).
+ *
+ * The four timestamped jsonb fields below — `fuel_bursts`, `feeding_bursts`,
+ * `defense_intervals`, `defended_intervals` — also feed the derived defense
+ * analytics (`src/dash/defenseAnalytics.ts` + `aggregate.ts`): Metric A
+ * (defended fuel suppression) reads `fuel_bursts` × `defended_intervals`, and
+ * Metric B (defender effectiveness) reads a team's `defense_intervals` against
+ * opponents' `fuel_bursts`. These are pure display-only derivations of
+ * already-synced raw fields — no migration, no wire-shape change.
+ */
 export interface MsrRow {
   target_team_number: number;
   match_key: string;
@@ -79,4 +89,94 @@ export interface MsrRow {
 
   server_received_at: string;
   deleted: boolean;
+}
+
+// ===========================================================================
+// Scout heartbeat / data-freshness coverage (dashboard-heartbeat feature).
+//
+// Purely a client-side analysis layer over already-fetched MsrRow rows + the
+// scout roster — NO new fields on MsrRow, NO wire-shape change, NO migration
+// (the only migration this feature ships is a realtime-publication add). These
+// types describe "who has reported on a match and who hasn't yet".
+// ===========================================================================
+
+/** Minimal scout identity the coverage view needs (subset of ScoutRow). */
+export interface ScoutLite {
+  id: string;
+  display_name: string | null;
+}
+
+/** Per-match scout coverage synthesized from the report stream + roster. */
+export interface MatchScoutCoverage {
+  matchKey: string;
+  /** distinct scout_ids with a LIVE (deleted=false) report on this match */
+  scoutsCovered: number;
+  /** scouts registered for the event (roster size, the denominator) */
+  scoutsTotal: number;
+  /** freshest server_received_at among this match's reports, or null */
+  lastReportAt: string | null;
+  /** distinct reported scout_ids (excludes null/undefined attribution) */
+  reportedScoutIds: string[];
+  /** roster scouts with NO report on this match */
+  missingScouts: ScoutLite[];
+  /** count of reports on this match whose scout_id is null/undefined */
+  unattributed: number;
+  /** station coverage: distinct stations reported, capped at stationCap (6) */
+  stationsCovered: number;
+}
+
+// ===========================================================================
+// Multi-scout reconciliation (multi-scout-reconciliation feature).
+//
+// Two different scouts can each file an active report on the SAME robot in the
+// SAME match (the uniqueness index is per scout_id). These types describe a
+// detected multi-scout group + how much the two reports diverge. PURELY a
+// client-side analysis layer over already-fetched MsrRow rows — NO new fields
+// on MsrRow, NO wire-shape change, NO migration. Conflict metadata lives on
+// MultiScoutGroup, looked up by report/robot key (see src/dash/reconcile.ts).
+// ===========================================================================
+
+/**
+ * Severity tier of a multi-scout group.
+ *  - `agree`   — two scouts covered the robot and their comparable metrics matched.
+ *  - `unknown` — two scouts covered the robot but nothing comparable existed to
+ *                confirm agreement (every numeric metric missing on a side, no
+ *                boolean disagreement). Distinct from `agree` so absence of
+ *                evidence isn't conflated with a confirmed match.
+ *  - `minor`   — at least one metric diverges, below the severe threshold.
+ *  - `severe`  — a categorical disagreement (no-show, died, climb success, or a
+ *                large fuel/defense spread).
+ */
+export type ConflictSeverity = 'agree' | 'unknown' | 'minor' | 'severe';
+
+/** Per-metric divergence summary for a multi-scout group (all null-guarded). */
+export interface ConflictDivergences {
+  /** max−min of comparable `fuel_points` across the deduped reports (0 when <2). */
+  fuel_spread: number;
+  /** scouts disagree on whether the climb succeeded. */
+  climb_success_divergent: boolean;
+  /** max−min of `climb_level` among the successful climbs (0 when <2). */
+  climb_level_spread: number;
+  /** max−min of comparable `defense_rating` (0 when <2). */
+  defense_spread: number;
+  no_show_divergent: boolean;
+  died_divergent: boolean;
+  tipped_divergent: boolean;
+  /** how many metrics were actually comparable (≥2 scouts had a usable value). */
+  comparable_metric_count: number;
+}
+
+/** A robot covered by 2+ distinct scouts in one match, with divergence/severity. */
+export interface MultiScoutGroup {
+  matchKey: string;
+  teamNumber: number;
+  allianceColor: 'red' | 'blue';
+  station: number;
+  /** deduped, one per distinct scout (latest server_received_at wins). */
+  reports: MsrRow[];
+  scoutIds: (string | null)[];
+  severity: ConflictSeverity;
+  /** severity === 'minor' || 'severe'. */
+  isConflicted: boolean;
+  divergences: ConflictDivergences;
 }

@@ -12,13 +12,30 @@ vi.mock('@/dash/useEventData', () => ({ useEventLiveSync: () => {} }));
 
 // Stub the heavy tab bodies so the shell test stays isolated (no supabase/react-query).
 vi.mock('@/dash/NextMatchView', () => ({ default: () => <div data-testid="view-next" /> }));
-// TeamView echoes the selectedTeam prop so the ranking→team hand-off is observable.
+// TeamView echoes the selectedTeam prop so the ranking→team hand-off is
+// observable, and exposes a button that fires onOpenMatch like the real
+// last-match card so the team→match deep-link is observable.
 vi.mock('@/dash/TeamView', () => ({
-  default: ({ selectedTeam }: { selectedTeam?: number | null }) => (
-    <div data-testid="view-team" data-selected={selectedTeam ?? ''} />
+  default: ({
+    selectedTeam,
+    onOpenMatch,
+  }: {
+    selectedTeam?: number | null;
+    onOpenMatch?: (k: string) => void;
+  }) => (
+    <div data-testid="view-team" data-selected={selectedTeam ?? ''}>
+      <button data-testid="team-open-match" onClick={() => onOpenMatch?.('2026demo_qm7')}>
+        open match
+      </button>
+    </div>
   ),
 }));
-vi.mock('@/dash/MatchView', () => ({ default: () => <div data-testid="view-match" /> }));
+// MatchView echoes the initialMatchKey prop so the team→match deep-link lands.
+vi.mock('@/dash/MatchView', () => ({
+  default: ({ initialMatchKey }: { initialMatchKey?: string | null }) => (
+    <div data-testid="view-match" data-initial-match={initialMatchKey ?? ''} />
+  ),
+}));
 // RankingView exposes a button that fires onSelectTeam, like the real team cell.
 vi.mock('@/dash/RankingView', () => ({
   default: ({ onSelectTeam }: { onSelectTeam?: (n: number) => void }) => (
@@ -101,6 +118,23 @@ describe('DashboardScreen', () => {
     expect(screen.getByTestId('scouters-tab')).toBeInTheDocument();
   });
 
+  it('always renders the Setup tab LAST in the tab bar, after Alliance', () => {
+    render(
+      <MemoryRouter>
+        <DashboardScreen />
+      </MemoryRouter>,
+    );
+    const tabs = screen.getAllByRole('tab');
+    const labels = tabs.map((t) => t.textContent?.trim());
+    // Setup is pinned to the far right even though 'alliance' is declared after
+    // it in TABS (stable sort moves only setup to the end).
+    expect(labels[labels.length - 1]).toBe('Setup');
+    const allianceIdx = labels.indexOf('Alliance');
+    const setupIdx = labels.indexOf('Setup');
+    expect(allianceIdx).toBeGreaterThanOrEqual(0);
+    expect(allianceIdx).toBeLessThan(setupIdx);
+  });
+
   it('opens the Team tab with the team preselected when a ranking row is picked', () => {
     render(
       <MemoryRouter>
@@ -112,5 +146,18 @@ describe('DashboardScreen', () => {
     const team = screen.getByTestId('view-team');
     expect(team).toBeInTheDocument();
     expect(team.getAttribute('data-selected')).toBe('254');
+  });
+
+  it('opens the Match tab with the match preselected when a team last-match card is opened', () => {
+    render(
+      <MemoryRouter>
+        <DashboardScreen />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Team' }));
+    fireEvent.click(screen.getByTestId('team-open-match'));
+    const matchView = screen.getByTestId('view-match');
+    expect(matchView).toBeInTheDocument();
+    expect(matchView.getAttribute('data-initial-match')).toBe('2026demo_qm7');
   });
 });

@@ -27,6 +27,11 @@ vi.mock('@/dash/useEventData', () => ({
   useEventReports: (eventKey: string | null) => useEventReportsMock(eventKey),
 }));
 
+const useEventPitsMock = vi.fn();
+vi.mock('@/dash/useTeamPit', () => ({
+  useEventPits: (eventKey: string | null) => useEventPitsMock(eventKey),
+}));
+
 import ScoutersTab from '../ScoutersTab';
 
 function row(overrides: Partial<MsrRow>): MsrRow {
@@ -96,6 +101,7 @@ beforeEach(() => {
   deleteRosterScouter.mockReset().mockResolvedValue(undefined);
   useEventScoutsMock.mockReset().mockReturnValue(querySuccess(scouts));
   useEventReportsMock.mockReset().mockReturnValue(querySuccess(reports));
+  useEventPitsMock.mockReset().mockReturnValue(querySuccess(new Map()));
 });
 
 describe('ScoutersTab (unified)', () => {
@@ -115,6 +121,31 @@ describe('ScoutersTab (unified)', () => {
     const item = await screen.findByTestId('scouter-item-Alice');
     expect(item.textContent).toContain('2 reports');
     expect((await screen.findByTestId('scouter-item-Bob')).textContent).toContain('0 reports');
+  });
+
+  it('shows per-scouter pit report counts (list) and teams (profile)', async () => {
+    useEventPitsMock.mockReturnValue(
+      querySuccess(
+        new Map<number, { teamNumber: number; authorScoutId: string }>([
+          [254, { teamNumber: 254, authorScoutId: 's1' }],
+          [1678, { teamNumber: 1678, authorScoutId: 's1' }],
+          [9999, { teamNumber: 9999, authorScoutId: 's2' }],
+        ]),
+      ),
+    );
+    renderTab();
+    // List chip: Alice authored 2 pit reports, Bob 1.
+    const alice = await screen.findByTestId('scouter-item-Alice');
+    expect(within(alice).getByTestId('scouter-pit-count-Alice').textContent).toContain('2 pit');
+    const bob = await screen.findByTestId('scouter-item-Bob');
+    expect(within(bob).getByTestId('scouter-pit-count-Bob').textContent).toContain('1 pit');
+    // Profile: pit teams listed.
+    fireEvent.click(within(alice).getByTestId('scouter-open-Alice'));
+    const profile = await screen.findByTestId('scouter-profile');
+    expect(within(profile).getByTestId('scouter-pit-reports').textContent).toContain('2');
+    const pitTeams = within(profile).getByTestId('scouter-pit-teams');
+    expect(pitTeams.textContent).toContain('254');
+    expect(pitTeams.textContent).toContain('1678');
   });
 
   it('adds a scouter and refreshes', async () => {
@@ -144,7 +175,7 @@ describe('ScoutersTab (unified)', () => {
     fireEvent.click(await screen.findByTestId('scouter-open-Alice'));
     const profile = screen.getByTestId('scouter-profile');
     expect(within(profile).getByTestId('scouter-report-count').textContent).toContain('2');
-    expect(within(profile).getByTestId('scouter-avg-fuel').textContent).toContain('15');
+    expect(within(profile).getByTestId('scouter-teams-covered').textContent).toContain('2');
   });
 
   it('hides a scouter (keeps reports) via setScouterHidden', async () => {
@@ -178,5 +209,27 @@ describe('ScoutersTab (unified)', () => {
     renderTab(null);
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
     expect(screen.getByTestId('scouters-no-event')).toBeInTheDocument();
+  });
+
+  // --- scout heartbeat moved here from Next Match (gated on eventKey) ---------
+  it('renders the scout heartbeat at the top when an event is active', async () => {
+    renderTab('2026demo');
+    const heartbeat = await screen.findByTestId('scout-heartbeat');
+    expect(heartbeat).toBeInTheDocument();
+    // It anchors to the freshest-reported match and shows an X/Y synced count.
+    expect(screen.getByTestId('scout-heartbeat-count').textContent).toMatch(/\/\s*\d+|\/—/);
+    // It sits ABOVE the roster card.
+    const roster = screen.getByTestId('roster-tab');
+    expect(
+      heartbeat.compareDocumentPosition(roster) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('does NOT render the scout heartbeat when no event is active', async () => {
+    useEventScoutsMock.mockReturnValue(querySuccess([]));
+    useEventReportsMock.mockReturnValue(querySuccess([]));
+    renderTab(null);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    expect(screen.queryByTestId('scout-heartbeat')).toBeNull();
   });
 });

@@ -9,6 +9,10 @@ export interface PicklistEntry {
   teamNumber: number;
   tier?: string | null;
   note?: string | null;
+  /** Coaching flag: "do not pick" / avoid. Additive JSONB — no migration. */
+  dnp?: boolean;
+  /** Structured first/second-pick bucket (distinct from the free-text `tier`). */
+  tierType?: 'first' | 'second' | null;
 }
 
 /**
@@ -26,7 +30,10 @@ export async function getPicklist(eventKey: string): Promise<PicklistEntry[]> {
     throw error;
   }
 
-  return (data?.entries as PicklistEntry[] | undefined) ?? [];
+  // Normalize on read so callers always see booleans/null — legacy rows written
+  // by older builds lack `dnp`/`tierType` (defensive forward/backward compat).
+  const entries = (data?.entries as PicklistEntry[] | undefined) ?? [];
+  return entries.map((e) => ({ ...e, dnp: e.dnp ?? false, tierType: e.tierType ?? null }));
 }
 
 /**

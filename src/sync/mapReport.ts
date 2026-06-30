@@ -15,6 +15,9 @@ export function toUpsertPayload(r: LocalMatchReport): Record<string, unknown> {
     event_key: r.eventKey,
     match_key: r.matchKey,
     scout_id: r.scoutId,
+    // Name fallback so the server can re-resolve an orphaned scout_id (see
+    // upsert_match_report, migration 0030) instead of dead-lettering. Omitted-safe.
+    scout_name: r.scoutName,
     target_team_number: r.targetTeamNumber,
     alliance_color: r.allianceColor,
     station: r.station,

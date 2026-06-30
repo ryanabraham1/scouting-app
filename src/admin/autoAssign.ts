@@ -1,4 +1,5 @@
 import type { AssignMatch, AssignScout, AssignOptions, Assignment, AllianceColor } from './types';
+import { isQualMatchKey } from '@/lib/formatMatch';
 
 interface Slot {
   allianceColor: AllianceColor;
@@ -26,10 +27,14 @@ export function slotsForMatch(m: AssignMatch, ownTeam: number): Slot[] {
 }
 
 export function autoAssign(
-  matches: AssignMatch[],
+  rawMatches: AssignMatch[],
   scouts: AssignScout[],
   opts: AssignOptions,
 ): Assignment[] {
+  // Scouting assignments are created ONLY for qualification matches; playoffs
+  // are intentionally never assigned. Filter defensively here so even a direct
+  // caller (not just AssignmentBoard) can never produce a playoff assignment.
+  const matches = rawMatches.filter((m) => isQualMatchKey(m.matchKey));
   const result: Assignment[] = [];
 
   // Per-scout running state.

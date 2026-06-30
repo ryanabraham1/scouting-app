@@ -155,6 +155,70 @@ describe('useCaptureSession committedFuelCount', () => {
   });
 });
 
+describe('useCaptureSession undo reversers (BUG-4 / BUG-7)', () => {
+  it('undoLastBurst pops the most-recent fuel burst and drops the count', async () => {
+    await saveDraft('qm1:scout-1:254', {
+      bursts: [
+        { startMs: 0, endMs: 1000, rate: 20, window: 'transition' }, // 20 balls
+        { startMs: 2000, endMs: 3000, rate: 10, window: 'shift1' }, // 10 balls
+      ],
+      inactiveFirst: false,
+      rate: 1,
+      deferred: {},
+    });
+    const { result } = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(result.current.bursts).toHaveLength(2));
+    expect(result.current.committedFuelCount).toBe(30);
+
+    act(() => result.current.undoLastBurst());
+    await waitFor(() => expect(result.current.bursts).toHaveLength(1));
+    // The over-counted burst is actually removed (was a no-op before the fix).
+    expect(result.current.committedFuelCount).toBe(20);
+  });
+
+  it('undoLastFeedingBurst pops the most-recent feeding burst', async () => {
+    await saveDraft('qm1:scout-1:254', {
+      bursts: [],
+      inactiveFirst: false,
+      rate: 1,
+      deferred: {},
+      feedingBursts: [
+        { startMs: 0, endMs: 1000, rate: 5, window: 'transition' },
+        { startMs: 1000, endMs: 2000, rate: 5, window: 'shift1' },
+      ],
+    });
+    const { result } = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(result.current.feedingBursts).toHaveLength(2));
+
+    act(() => result.current.undoLastFeedingBurst());
+    await waitFor(() => expect(result.current.feedingBursts).toHaveLength(1));
+  });
+
+  it('undoLastDefenseInterval pops the interval AND subtracts its exact duration', async () => {
+    await saveDraft('qm1:scout-1:254', {
+      bursts: [],
+      inactiveFirst: false,
+      rate: 1,
+      deferred: {
+        defenseDurationMs: 5000,
+        defenseIntervals: [
+          { startMs: 0, endMs: 2000, phase: 'teleop' },
+          { startMs: 3000, endMs: 6000, phase: 'teleop' }, // 3000ms — the one undone
+        ],
+      },
+    });
+    const { result } = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(result.current.defenseIntervals).toHaveLength(2));
+    expect(result.current.defenseDurationMs).toBe(5000);
+
+    act(() => result.current.undoLastDefenseInterval());
+    await waitFor(() => expect(result.current.defenseIntervals).toHaveLength(1));
+    // The interval is removed from the report AND the total equals the sum of the
+    // remaining intervals (5000 - 3000 = 2000) — not just an approximate subtraction.
+    expect(result.current.defenseDurationMs).toBe(2000);
+  });
+});
+
 describe('useCaptureSession reAnchorCue', () => {
   it('exposes reAnchorCue that maps now into the endgame window', () => {
     const { result } = renderHook(() => useCaptureSession(target));

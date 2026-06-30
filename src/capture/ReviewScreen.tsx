@@ -60,6 +60,12 @@ export function ReviewScreen(props: {
    * escape. The draft auto-saves, so exiting is non-destructive and resumable.
    */
   onExit?: () => void;
+  /**
+   * Set when this Review is correcting a previously-submitted report. Renders an
+   * "Editing · rev N -> N+1" banner in place of the plain "Review" heading so the
+   * scout knows this resubmits an existing report rather than creating a new one.
+   */
+  editingRevision?: number;
 }) {
   const s = props.session;
   const [step, setStep] = useState(0); // 0-indexed; UI shows step + 1
@@ -117,10 +123,25 @@ export function ReviewScreen(props: {
       {/* Stepper / progress */}
       <header className="flex shrink-0 flex-col gap-1.5 landscape:gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-xl font-bold landscape:text-2xl">
-            <StepIcon className="size-5 text-brand landscape:size-6" />
-            Review
-          </h2>
+          {props.editingRevision !== undefined ? (
+            <h2
+              data-testid="review-editing-banner"
+              className="flex flex-col text-xl font-bold leading-tight landscape:text-2xl"
+            >
+              <span className="flex items-center gap-2">
+                <StepIcon className="size-5 text-warning landscape:size-6" />
+                Editing
+              </span>
+              <span className="text-xs font-medium text-warning tabular-nums">
+                rev {props.editingRevision} -&gt; {props.editingRevision + 1}
+              </span>
+            </h2>
+          ) : (
+            <h2 className="flex items-center gap-2 text-xl font-bold landscape:text-2xl">
+              <StepIcon className="size-5 text-brand landscape:size-6" />
+              Review
+            </h2>
+          )}
           <div className="flex items-center gap-2">
             <span data-testid="review-step" className="text-sm tabular-nums text-muted-foreground">
               Step {step + 1} of {TOTAL_STEPS}

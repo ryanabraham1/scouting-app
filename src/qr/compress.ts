@@ -85,11 +85,34 @@ export async function compressForQr(
   }
 }
 
+/**
+ * Thrown when a payload was gzipped by the SENDER but THIS device (the receiver)
+ * has no DecompressionStream to inflate it. Sender/receiver capability is
+ * independent — a modern sender can compress for a stale-WebView receiver — and
+ * retrying with the same bytes would re-throw forever, so the UI must treat this
+ * as NON-retryable (don't offer an identical "Retry upload").
+ */
+export class DecompressionUnsupportedError extends Error {
+  constructor() {
+    super(
+      'This device can’t open the compressed data (no DecompressionStream). Open ' +
+        'the receiver in an up-to-date browser, or have the sender resend.',
+    );
+    this.name = 'DecompressionUnsupportedError';
+  }
+}
+
 /** Inverse of compressForQr: inflate when `compressed`, else pass through. */
 export async function decompressForQr(
   bytes: Uint8Array,
   compressed: boolean,
 ): Promise<Uint8Array> {
   if (!compressed) return bytes;
+  // The receiver's capability is independent of the sender's — guard before
+  // constructing the stream so a missing API surfaces as a clear, non-retryable
+  // error rather than an opaque "DecompressionStream is not defined" on every retry.
+  if (typeof DecompressionStream === 'undefined') {
+    throw new DecompressionUnsupportedError();
+  }
   return pipeThrough(bytes, new DecompressionStream('gzip'));
 }

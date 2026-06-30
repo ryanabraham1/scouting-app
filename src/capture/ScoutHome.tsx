@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, UserRound, LogOut, Search, Target, Wrench, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import { useSession, clearCachedScout } from '@/auth/useSession';
 import type { ScoutRow } from '@/auth/scoutRow';
-import { listDrafts, listReports } from '@/db/localStore';
+import { listDrafts, listReports, getReport } from '@/db/localStore';
 import type { CaptureDraft, LocalMatchReport } from '@/db/types';
 import { CaptureScreen } from '@/capture/CaptureScreen';
 import { ReviewScreen } from '@/capture/ReviewScreen';
@@ -48,15 +48,25 @@ function draftTitle(d: CaptureDraft): string {
   return Number.isFinite(teamNum) && teamNum ? `${label} · Team ${teamNum}` : label;
 }
 
-function CaptureFlow(props: { target: CaptureTarget; onDone: () => void; onExit: () => void }) {
+function CaptureFlow(props: {
+  target: CaptureTarget;
+  onDone: () => void;
+  onExit: () => void;
+  // Edit mode opens straight on Review (the live fuel timeline can't be re-run
+  // after the match). Default 'live' for a fresh capture.
+  startStage?: 'live' | 'review';
+  // Loaded revision of the report being corrected — drives the Review edit banner.
+  editingRevision?: number;
+}) {
   const session = useCaptureSession(props.target);
-  const [stage, setStage] = useState<'live' | 'review'>('live');
+  const [stage, setStage] = useState<'live' | 'review'>(props.startStage ?? 'live');
   if (stage === 'review') {
     return (
       <ReviewScreen
         session={session}
         onSaved={() => props.onDone()}
         onExit={props.onExit}
+        editingRevision={props.editingRevision}
       />
     );
   }
@@ -173,6 +183,7 @@ type ScoutMode = 'match' | 'pit';
 
 export default function ScoutHome() {
   const { scout } = useSession();
+  const navigate = useNavigate();
   // Match/Pit switch. Deep-linkable via ?mode=pit; the toggle keeps it in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const mode: ScoutMode = searchParams.get('mode') === 'pit' ? 'pit' : 'match';
@@ -195,12 +206,6 @@ export default function ScoutHome() {
   // old profile resurrected from cache and the user got "stuck in a profile".
   const [loggedOut, setLoggedOut] = useState<boolean>(() => isScouterLoggedOut());
   const [confirmLogout, setConfirmLogout] = useState(false);
-  // A fresh pick on THIS device wins over the session-resolved row: re-picking
-  // after logout updates the same auth_uid's scout row, but useSession may still
-  // hold the stale name until it refetches — `picked` reflects the new choice now.
-  const effective = loggedOut ? null : picked ?? scout;
-  const scoutId = effective?.id ?? '';
-
   // Resolve the active event without React Query (keeps this screen provider-free).
   const [activeEvent, setActiveEvent] = useState<string | null>(getStoredActiveEvent());
   useEffect(() => {
@@ -219,10 +224,26 @@ export default function ScoutHome() {
     };
   }, [activeEvent]);
 
+  // A fresh pick on THIS device wins over the session-resolved row: re-picking
+  // after logout updates the same auth_uid's scout row, but useSession may still
+  // hold the stale name until it refetches — `picked` reflects the new choice now.
+  const candidate = loggedOut ? null : picked ?? scout;
+  // Event-scope the gate. useSession caches the last scout row in NON-event-scoped
+  // storage, so after a lead switches the active event a stale row would otherwise
+  // short-circuit the NamePicker and silently bind captures/pit reports to the OLD
+  // event_key. Once the active event is known, force a re-pick when the cached row
+  // belongs to a different event. (Guarded on activeEvent so there's no flash
+  // before it resolves; a fresh `picked` always reflects the current event.)
+  const effective =
+    candidate && activeEvent && candidate.event_key !== activeEvent ? null : candidate;
+  const scoutId = effective?.id ?? '';
+
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
   const [reports, setReports] = useState<LocalMatchReport[]>([]);
   const [active, setActive] = useState<CaptureTarget | null>(null);
+  // Loaded revision of the report being corrected (drives the Review edit banner).
+  const [editingRev, setEditingRev] = useState<number | undefined>(undefined);
 
   const [matchKey, setMatchKey] = useState('');
   const [alliance, setAlliance] = useState<'red' | 'blue'>('red');
@@ -283,6 +304,47 @@ export default function ScoutHome() {
     };
   }, [scoutId, effective?.display_name, effective?.event_key, activeEvent]);
 
+  // Report-correction deep link: /scout?edit=<reportId>. Gated on the scouter
+  // gate being satisfied (so the param is preserved until a name is picked). Loads
+  // the report, and if eligible (syncState !== 'error') reconstructs a CaptureTarget
+  // from its own fields with editingReportId set, forces match mode, and clears the
+  // edit param so a reload/back doesn't re-trigger. No `deleted` check — the local
+  // row has no `deleted` field (see docs/plans/report-correction.md §1).
+  const editId = searchParams.get('edit');
+  useEffect(() => {
+    if (!effective || !editId) return;
+    let cancelled = false;
+    void (async () => {
+      const r = await getReport(editId);
+      if (cancelled) return;
+      // Always clear the param (whether eligible or not) so it doesn't re-fire.
+      setSearchParams(
+        (prev) => {
+          const sp = new URLSearchParams(prev);
+          sp.delete('edit');
+          sp.delete('mode'); // force match mode for the correction
+          return sp;
+        },
+        { replace: true },
+      );
+      if (!r || r.syncState === 'error') return; // not found / ineligible: fall through
+      setEditingRev(r.rowRevision ?? 1);
+      setActive({
+        eventKey: r.eventKey,
+        matchKey: r.matchKey,
+        scoutId: r.scoutId,
+        scoutName: r.scoutName,
+        targetTeamNumber: r.targetTeamNumber,
+        allianceColor: r.allianceColor,
+        station: r.station,
+        editingReportId: r.id,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effective, editId, setSearchParams]);
+
   // Gate: no scouter selected yet on this device → pick a name (or wait for an event).
   if (!effective) {
     return (
@@ -324,28 +386,44 @@ export default function ScoutHome() {
 
   // Match capture takes over the whole screen; it's only reachable in match mode.
   if (active && mode === 'match') {
+    const isEdit = Boolean(active.editingReportId);
+    // Navigation is owned ENTIRELY by ScoutHome (CaptureFlow has no router access):
+    // an edit save re-uploads an existing report, so jump to My Data with the
+    // updated flag; a fresh capture/exit clears the active target in place.
+    const leaveEdit = () => {
+      setActive(null);
+      setEditingRev(undefined);
+      navigate('/my-data?updated=1');
+    };
+    const leaveFresh = () => {
+      setActive(null);
+      void refreshLocal();
+    };
     return (
       <CaptureFlow
         target={active}
-        onDone={() => {
+        startStage={isEdit ? 'review' : 'live'}
+        editingRevision={isEdit ? editingRev : undefined}
+        onDone={isEdit ? leaveEdit : leaveFresh}
+        onExit={isEdit ? () => {
           setActive(null);
-          void refreshLocal();
-        }}
-        onExit={() => {
-          setActive(null);
-          void refreshLocal();
-        }}
+          setEditingRev(undefined);
+          navigate('/my-data');
+        } : leaveFresh}
       />
     );
   }
 
-  const eventKey = effective.event_key || activeEvent || '';
+  // Prefer the ACTIVE event over the (possibly stale) cached row's event so a
+  // capture can never bind to a previous event. `effective` is non-null here.
+  const eventKey = activeEvent || effective.event_key || '';
 
   const startFromAssignment = (a: AssignmentRow) => {
     setActive({
       eventKey: a.event_key,
       matchKey: a.match_key,
       scoutId,
+      scoutName: effective.display_name,
       targetTeamNumber: a.target_team_number,
       allianceColor: a.alliance_color,
       station: a.station,
@@ -357,6 +435,7 @@ export default function ScoutHome() {
       eventKey,
       matchKey,
       scoutId,
+      scoutName: effective.display_name,
       targetTeamNumber: Number(team),
       allianceColor: alliance,
       station,
@@ -566,6 +645,7 @@ export default function ScoutHome() {
                     eventKey,
                     matchKey: dMatch,
                     scoutId: dScout || scoutId,
+                    scoutName: effective.display_name,
                     targetTeamNumber: Number(dTeam),
                     allianceColor: alliance,
                     station,

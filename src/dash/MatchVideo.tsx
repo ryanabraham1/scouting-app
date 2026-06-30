@@ -13,8 +13,8 @@
 
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Video } from 'lucide-react';
-import { tbaGet } from '@/dash/proxies';
+import { ExternalLink, Video } from 'lucide-react';
+import { tbaGetOptional, isUnavailable, type ProxyUnavailable } from '@/dash/proxies';
 import { cn } from '@/lib/utils';
 import { useYouTubePlayer } from '@/dash/useYouTubePlayer';
 
@@ -97,7 +97,8 @@ export default function MatchVideo({ matchKey, className, onTimeMs }: MatchVideo
     queryKey: ['tba', 'match', matchKey],
     enabled: !!matchKey,
     staleTime: STALE_TIME,
-    queryFn: async (): Promise<TbaMatch> => tbaGet<TbaMatch>(`/match/${matchKey}`),
+    queryFn: (): Promise<TbaMatch | ProxyUnavailable> =>
+      tbaGetOptional<TbaMatch>(`/match/${matchKey}`),
   });
   // Avoid re-subscribing the player effect on every parent render.
   const onTimeRef = useRef(onTimeMs);
@@ -113,6 +114,9 @@ export default function MatchVideo({ matchKey, className, onTimeMs }: MatchVideo
       </Frame>
     );
   } else if (query.isError) {
+    // Defensive: tbaGetOptional never rejects in production (it degrades to the
+    // { available:false } sentinel handled below). Retained as a belt-and-
+    // suspenders path for a genuine query rejection.
     body = (
       <Frame>
         <span data-testid="match-video-error" className="text-sm text-warning">
@@ -120,25 +124,54 @@ export default function MatchVideo({ matchKey, className, onTimeMs }: MatchVideo
         </span>
       </Frame>
     );
+  } else if (isUnavailable(query.data)) {
+    // TBA offline — calm info-tone note matching the Statbotics/Nexus degrade
+    // pattern. Early return so query.data narrows to TbaMatch below.
+    body = (
+      <Frame>
+        <span
+          data-testid="match-video-unavailable"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground"
+        >
+          <Video className="size-4" /> Video unavailable — TBA offline
+        </span>
+      </Frame>
+    );
   } else {
     const key = firstYoutubeKey(query.data);
     if (key) {
       body = (
-        <PlayerFrame
-          ytKey={key}
-          onTimeMs={onTimeMs ? (ms) => onTimeRef.current?.(ms) : undefined}
-        />
+        <div className="flex flex-col gap-1">
+          <PlayerFrame
+            ytKey={key}
+            onTimeMs={onTimeMs ? (ms) => onTimeRef.current?.(ms) : undefined}
+          />
+          <a
+            data-testid="match-video-yt-link"
+            href={`https://youtu.be/${encodeURIComponent(key)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 self-end text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ExternalLink className="size-3" /> Watch on YouTube
+          </a>
+        </div>
       );
     } else {
       body = (
-        <Frame>
-          <span
-            data-testid="match-video-none"
-            className="inline-flex items-center gap-2 text-sm text-warning/80"
-          >
-            <Video className="size-4" /> No video available
+        <div className="flex flex-col items-center gap-1">
+          <Frame>
+            <span
+              data-testid="match-video-none"
+              className="inline-flex items-center gap-2 text-sm text-warning/80"
+            >
+              <Video className="size-4" /> No video available
+            </span>
+          </Frame>
+          <span className="text-xs text-muted-foreground">
+            Videos usually appear 1–4h after the match.
           </span>
-        </Frame>
+        </div>
       );
     }
   }

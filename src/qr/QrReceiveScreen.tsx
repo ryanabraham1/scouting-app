@@ -2,12 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import { Camera, CameraOff, CheckCircle2, RotateCcw } from 'lucide-react';
 import { FountainDecoder, parseFrame, bytesToReports } from '@/qr/envelope';
-import { decompressForQr } from '@/qr/compress';
+import { decompressForQr, DecompressionUnsupportedError } from '@/qr/compress';
 import { postIngest } from '@/qr/ingestClient';
 import { QR_SCAN_DELAY_MS } from '@/sync/constants';
 import { BackLink } from '@/components/ui/BackLink';
 
 type Phase = 'scanning' | 'ingesting' | 'done' | 'error';
+
+// Consecutive frames from a new session id required before the receiver abandons
+// its in-progress decode and adopts the new session (single-sender-restart
+// recovery without letting a brief foreign frame wipe a half-decoded transfer).
+const ADOPT_AFTER_FOREIGN_FRAMES = 3;
 
 // Live camera receiver (contracts §6/§7). Scans animated QR frames via the
 // device camera, reassembles the chunked backlog with FrameAccumulator, then
@@ -38,6 +43,13 @@ export default function QrReceiveScreen() {
   const decoderRef = useRef(new FountainDecoder());
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const completedRef = useRef(false);
+  // Foreign-session debounce: don't wipe a half-decoded transfer on the FIRST
+  // frame from a different session id (a reflection, a screenshot, or a second
+  // scout's send screen briefly in frame). Only adopt a new session after several
+  // CONSECUTIVE frames confirm the sender genuinely restarted — otherwise two
+  // concurrent senders thrash and the transfer never completes.
+  const foreignSidRef = useRef<string | null>(null);
+  const foreignCountRef = useRef(0);
 
   const [received, setReceived] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
@@ -77,14 +89,24 @@ export default function QrReceiveScreen() {
         setPhase('error');
         setCanRetry(true);
       } else {
+        // PARTIAL success (some ingested, some failed) still keeps a retry
+        // affordance: the WHOLE batch is still in decoderRef and re-POSTing is
+        // revision-guarded (already-ingested rows are server no-ops), so a retry
+        // only re-attempts the failures. Without this the green "done" view hid the
+        // failed subset, which is lost the moment the sender is wiped — the very
+        // thing QR transfer exists to prevent.
+        setCanRetry(result.failed.length > 0);
         setPhase('done');
       }
     } catch (err) {
-      // Transient network/ingest failure AFTER a full decode: the batch is still
-      // in decoderRef, so keep it and offer a retry instead of discarding it.
+      // A receiver that can't inflate a gzipped payload (no DecompressionStream)
+      // would re-throw the identical error on every retry — mark it non-retryable
+      // so the UI stops offering a useless "Retry upload". Any other failure
+      // (transient network/ingest) keeps the batch in decoderRef and offers a retry.
+      const unrecoverable = err instanceof DecompressionUnsupportedError;
       setErrorMessage(err instanceof Error ? err.message : 'Failed to upload reports.');
       setPhase('error');
-      setCanRetry(true);
+      setCanRetry(!unrecoverable);
     }
   }, []);
 
@@ -156,17 +178,34 @@ export default function QrReceiveScreen() {
             // A restarted sender (navigation, lock/unlock, re-open to push a fresh
             // backlog) emits a NEW session id. FountainDecoder pins to the first
             // session and silently drops every frame from any other one, so without
-            // this the receiver freezes mid-decode forever. If a different session
-            // appears while we're still incomplete, adopt it (start a fresh decode).
+            // adoption the receiver freezes mid-decode forever. BUT adopting on the
+            // FIRST foreign frame lets a reflection / a second scout's screen / a
+            // screenshot momentarily in frame wipe a half-decoded transfer — and two
+            // concurrent senders then reset each other forever. So debounce: only
+            // adopt a new session after N CONSECUTIVE frames from the SAME new sid.
             if (
               decoder.sessionId !== null &&
               frame.s !== decoder.sessionId &&
               !decoder.complete
             ) {
+              if (foreignSidRef.current === frame.s) foreignCountRef.current += 1;
+              else {
+                foreignSidRef.current = frame.s;
+                foreignCountRef.current = 1;
+              }
+              // Not yet convinced the sender truly changed — ignore this frame and
+              // keep the current decode intact.
+              if (foreignCountRef.current < ADOPT_AFTER_FOREIGN_FRAMES) return;
               decoder = new FountainDecoder();
               decoderRef.current = decoder;
+              foreignSidRef.current = null;
+              foreignCountRef.current = 0;
               setReceived(0);
               setTotal(null);
+            } else {
+              // A current-session (or first-ever) frame breaks any foreign streak.
+              foreignSidRef.current = null;
+              foreignCountRef.current = 0;
             }
             decoder.add(frame);
             setReceived(decoder.solvedCount);
@@ -251,6 +290,19 @@ export default function QrReceiveScreen() {
                 {failedCount} report{failedCount === 1 ? '' : 's'} could not be uploaded
                 {failedError ? ` (${failedError})` : ''}.
               </p>
+            )}
+            {/* Partial success keeps a retry: re-POSTing the held batch is
+                revision-guarded, so it only re-attempts the failed subset. Without
+                this the failed reports are lost when the sender is wiped. */}
+            {failedCount > 0 && canRetry && (
+              <button
+                type="button"
+                data-testid="qr-receive-retry"
+                onClick={() => void runIngest()}
+                className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-energy/50 px-4 text-sm font-medium text-energy hover:bg-energy/15"
+              >
+                <RotateCcw className="size-4" /> Retry failed uploads
+              </button>
             )}
           </div>
         ) : (

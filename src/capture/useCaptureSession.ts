@@ -7,16 +7,24 @@ import {
   type MatchReportInputs,
 } from '@/scoring';
 import { useMatchClock, windowForBurst } from '@/capture/clock';
-import { saveDraft, getDraft, deleteDraft, saveReport } from '@/db/localStore';
+import { saveDraft, getDraft, deleteDraft, saveReport, getReport } from '@/db/localStore';
 import type { LocalMatchReport } from '@/db/types';
 
 export interface CaptureTarget {
   eventKey: string;
   matchKey: string;
   scoutId: string;
+  // Display name of the scout, persisted into the report so the server can
+  // re-resolve an orphaned scout_id by name (see upsert_match_report 0030).
+  scoutName?: string;
   targetTeamNumber: number;
   allianceColor: 'red' | 'blue';
   station: 1 | 2 | 3;
+  // Set when this session is RE-OPENING an existing submitted report for
+  // correction. The load-existing effect reconstitutes session state from that
+  // report (instead of resuming a draft), and save() rewrites it in place with a
+  // bumped revision. See docs/plans/report-correction.md.
+  editingReportId?: string;
 }
 
 interface DeferredState {
@@ -118,6 +126,19 @@ export function useCaptureSession(target: CaptureTarget) {
   const [, setHoldTick] = useState(0); // force re-render of the live readout
   const hydratedRef = useRef(false);
 
+  // ── Edit-mode (report correction) refs ───────────────────────────────────────
+  // Populated by the load-existing effect when target.editingReportId is set. They
+  // carry the loaded report's identity so save() rewrites it IN PLACE (same id,
+  // original createdAt for stable local sort, rowRevision+1). When editIdRef is
+  // null the session is a fresh capture and behaves exactly as before.
+  const editIdRef = useRef<string | null>(null);
+  const editCreatedAtRef = useRef<string | null>(null);
+  const editRevRef = useRef<number>(0);
+  // teleopClockUnconfirmed from the loaded report. The live clock starts this at
+  // false and edit mode skips the live screen, so save() reads this ref instead of
+  // the clock when editing (preserving the original report's value).
+  const editTeleopUnconfirmedRef = useRef<boolean>(false);
+
   // Feeding hold accumulators — exact mirror of the fuel-hold integral above, but
   // for balls FED to the human player rather than scored. Independent so a robot
   // can feed and score in overlapping gestures on two sliders.
@@ -139,8 +160,82 @@ export function useCaptureSession(target: CaptureTarget) {
   const phaseElapsed = (): number =>
     clock.state.phase === 'teleop' ? clock.teleopElapsedMs : clock.autoElapsedMs;
 
+  // Reconstitute live session state from an existing report. Shared primitive so
+  // other report-loading flows (e.g. multi-scout-reconciliation) can reuse it
+  // rather than fork their own. Reads only fields the deferred review depends on;
+  // the raw fuel/feeding bursts and inactiveFirst are carried through unchanged so
+  // recomputed aggregates stay correct. teleopClockUnconfirmed is the one field the
+  // live screen would otherwise seed — but save() reads it from the live clock, and
+  // edit mode skips the live screen, so it is re-applied to the clock state here.
+  const reconstituteFrom = useCallback(
+    (r: LocalMatchReport) => {
+      setBursts(r.fuelBursts ?? []);
+      const feeds = r.feedingBursts ?? [];
+      setFeedingBursts(feeds);
+      feedingBurstsRef.current = feeds;
+      setInactiveFirstState(r.inactiveFirst);
+      setDeferred({
+        ...initialDeferred,
+        climbLevel: r.climbLevel,
+        climbAttempted: r.climbAttempted,
+        climbSuccess: r.climbSuccess,
+        intakeSources: r.intakeSources ?? [],
+        maxFuelCapacityObserved: r.maxFuelCapacityObserved,
+        defenseRating: r.defenseRating,
+        defenseDurationMs: r.defenseDurationMs,
+        defendedDurationMs: r.defendedDurationMs,
+        defenseIntervals: r.defenseIntervals ?? [],
+        defendedIntervals: r.defendedIntervals ?? [],
+        pins: r.pins,
+        foulsMinor: r.foulsMinor,
+        foulsMajor: r.foulsMajor,
+        foulReasons: r.foulReasons ?? [],
+        noShow: r.noShow,
+        died: r.died,
+        tipped: r.tipped,
+        droppedFuel: r.droppedFuel,
+        fedCorral: r.fedCorral,
+        autoStartPosition: r.autoStartPosition,
+        autoPath: r.autoPath,
+        autoLeftStartingLine: r.autoLeftStartingLine,
+        autoClimbLevel1: r.autoClimbLevel1,
+        notes: r.notes,
+      });
+      // save() reads clock.state.teleopClockUnconfirmed for fresh captures; in edit
+      // mode it reads this ref so the rewritten report preserves the loaded value
+      // (the live screen — the only thing that seeds the clock flag — is skipped).
+      editTeleopUnconfirmedRef.current = r.teleopClockUnconfirmed;
+    },
+    [],
+  );
+
+  // Load-existing (edit/correction) effect: when editing, reconstitute from the
+  // report and stash its identity in refs. Runs INSTEAD of the draft-resume effect.
+  useEffect(() => {
+    const editId = target.editingReportId;
+    if (!editId) return;
+    let cancelled = false;
+    void (async () => {
+      const r = await getReport(editId);
+      if (cancelled || !r) {
+        hydratedRef.current = true;
+        return;
+      }
+      editIdRef.current = r.id;
+      editCreatedAtRef.current = r.createdAt;
+      editRevRef.current = r.rowRevision ?? 1;
+      reconstituteFrom(r);
+      hydratedRef.current = true;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [target.editingReportId, reconstituteFrom]);
+
   // Resume an existing draft on mount.
   useEffect(() => {
+    // In edit mode the load-existing effect owns hydration; never resume a draft.
+    if (target.editingReportId) return;
     let cancelled = false;
     void (async () => {
       const d = await getDraft(draftKey);
@@ -181,6 +276,11 @@ export function useCaptureSession(target: CaptureTarget) {
   // event_key (which later fails the server's event-scoped RLS insert).
   const persistDraft = useCallback(
     (next: DraftPayload) => {
+      // Edit mode reconstitutes from the report, never a draft. Skip all draft
+      // writes so the loaded edit never leaks into the draft store and resurrects
+      // later as a phantom new draft (and so a pre-existing fresh draft for the
+      // same matchKey:scoutId:team key survives the edit untouched).
+      if (editIdRef.current) return;
       // Always pin the current feedingBursts from the ref so callers that only
       // know about fuel/deferred state don't wipe feeding data on persist.
       void saveDraft(draftKey, {
@@ -383,6 +483,66 @@ export function useCaptureSession(target: CaptureTarget) {
     [commitInterval],
   );
 
+  // ── Undo helpers (the timeline records the action; these reverse its effect) ──
+  // Pop the most-recent committed FUEL burst and re-persist. Without this the
+  // Undo button consumed the 'burst' timeline event but never removed the burst,
+  // leaving an over-counted, unrecoverable burst in the saved report.
+  const undoLastBurst = useCallback(() => {
+    setBursts((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev.slice(0, -1);
+      persistDraft({ bursts: next, inactiveFirst, rate, deferred });
+      return next;
+    });
+  }, [inactiveFirst, rate, deferred, persistDraft]);
+
+  // Pop the most-recent committed FEEDING burst (feeding was previously not
+  // undoable at all — onShootEnd never recorded an undo event).
+  const undoLastFeedingBurst = useCallback(() => {
+    const prev = feedingBurstsRef.current;
+    if (prev.length === 0) return;
+    const next = prev.slice(0, -1);
+    feedingBurstsRef.current = next;
+    setFeedingBursts(next);
+    persistDraft({ bursts, inactiveFirst, rate, deferred, feedingBursts: next });
+  }, [bursts, inactiveFirst, rate, deferred, persistDraft]);
+
+  // Atomically pop the last defense/being-defended interval AND subtract that
+  // exact interval's duration from the running total, so the uploaded report's
+  // intervals always equal its duration. (The old undo only adjusted the scalar
+  // by CaptureScreen's separately-measured ms and left the interval in the report.)
+  const undoLastDefenseInterval = useCallback(() => {
+    setDeferred((prev) => {
+      const ivs = prev.defenseIntervals;
+      if (ivs.length === 0) return prev;
+      const last = ivs[ivs.length - 1];
+      const dur = Math.max(0, last.endMs - last.startMs);
+      const next: DeferredState = {
+        ...prev,
+        defenseIntervals: ivs.slice(0, -1),
+        defenseDurationMs: Math.max(0, prev.defenseDurationMs - dur),
+      };
+      persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+      return next;
+    });
+  }, [bursts, inactiveFirst, rate, persistDraft]);
+
+  const undoLastDefendedInterval = useCallback(() => {
+    setDeferred((prev) => {
+      const ivs = prev.defendedIntervals;
+      if (ivs.length === 0) return prev;
+      const last = ivs[ivs.length - 1];
+      const dur = Math.max(0, last.endMs - last.startMs);
+      const next: DeferredState = {
+        ...prev,
+        defendedIntervals: ivs.slice(0, -1),
+        defendedDurationMs: Math.max(0, prev.defendedDurationMs - dur),
+      };
+      persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+      return next;
+    });
+  }, [bursts, inactiveFirst, rate, persistDraft]);
+
   const updateDeferred = useCallback(
     <K extends keyof DeferredState>(key: K, value: DeferredState[K]) => {
       setDeferred((prev) => {
@@ -444,21 +604,28 @@ export function useCaptureSession(target: CaptureTarget) {
       autoClimbLevel1: deferred.autoClimbLevel1,
     };
     const agg = computeAggregates(inputs);
+    // Edit (correction) mode: rewrite the loaded report IN PLACE — same id, keep
+    // the original createdAt (stable local sort only; NOT sent over the wire), and
+    // bump rowRevision so the revision-guarded upsert UPDATEs instead of no-opping.
+    const editing = editIdRef.current !== null;
     const report: LocalMatchReport = {
-      id: crypto.randomUUID(),
+      id: editing ? editIdRef.current! : crypto.randomUUID(),
       schemaVersion: SCHEMA_VERSION,
       appVersion: '2.0.0',
       deviceId: 'device-local',
-      createdAt: new Date().toISOString(),
+      createdAt: editing ? editCreatedAtRef.current! : new Date().toISOString(),
       eventKey: target.eventKey,
       matchKey: target.matchKey,
       scoutId: target.scoutId,
+      scoutName: target.scoutName,
       targetTeamNumber: target.targetTeamNumber,
       allianceColor: target.allianceColor,
       station: target.station,
       inactiveFirst,
       inactiveFirstSource: inactiveFirst === null ? null : 'scout',
-      teleopClockUnconfirmed: clock.state.teleopClockUnconfirmed,
+      teleopClockUnconfirmed: editing
+        ? editTeleopUnconfirmedRef.current
+        : clock.state.teleopClockUnconfirmed,
       fuelBursts: bursts,
       feedingBursts,
       autoFuel: agg.autoFuel,
@@ -494,12 +661,17 @@ export function useCaptureSession(target: CaptureTarget) {
       // Rate-derived fuel estimate -> low confidence.
       fuelEstimateConfidence: 0.3,
       syncState: 'dirty',
-      rowRevision: 1,
+      rowRevision: editing ? editRevRef.current + 1 : 1,
       syncAttempts: 0,
       lastSyncError: null,
     };
     await saveReport(report);
-    await deleteDraft(draftKey);
+    // Edit mode never wrote a live-capture draft (persistDraft short-circuits), so
+    // there is no draft to delete; leaving any unrelated fresh draft for the same
+    // key intact. Fresh captures still clear their own draft.
+    if (!editing) {
+      await deleteDraft(draftKey);
+    }
     return report.id;
   }, [inactiveFirst, bursts, feedingBursts, deferred, clock.state.teleopClockUnconfirmed, target, draftKey]);
 
@@ -551,6 +723,11 @@ export function useCaptureSession(target: CaptureTarget) {
     endDefense,
     beginDefended,
     endDefended,
+    // Undo reversers (wired to the capture timeline's Undo button).
+    undoLastBurst,
+    undoLastFeedingBurst,
+    undoLastDefenseInterval,
+    undoLastDefendedInterval,
     pins: deferred.pins,
     setPins: (v: number) => updateDeferred('pins', v),
     foulsMinor: deferred.foulsMinor,

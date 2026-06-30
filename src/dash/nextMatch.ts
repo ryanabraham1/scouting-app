@@ -175,19 +175,28 @@ export function trackedNextMatch(
   status: NexusEventStatus | null,
 ): MatchRow | null {
   if (status) {
+    // Live frontier: the match currently ON FIELD (else the one queuing). Mirrors
+    // the Upcoming rail (NextMatchView). Any upcoming entry AT OR BEFORE this in
+    // play order has already happened — Nexus often leaves a finished match flagged
+    // "On field" without flipping it to "Completed", and if THAT match's result
+    // sync was dropped, isUnplayedMatch is still true (no DB score). The DB-only
+    // guard below then can't tell it's done, so we'd re-pin the hero to a match we
+    // already played while the rail correctly advanced. Skipping at/before the
+    // frontier keeps the hero and rail consistent.
+    const frontierNm = status.onField ?? status.queuing;
+    const frontierRow = frontierNm ? matchRowForNexus(matches, frontierNm) : null;
+
     // Walk Nexus' ordered upcoming list and take the first of OUR matches that
-    // resolves to a schedule row WE STILL HAVEN'T PLAYED. The isUnplayedMatch
-    // guard is the fix for the live-path stick: Nexus often leaves a finished
-    // match flagged "On field" (never flipping it to "Completed"), so it lingers
-    // at the head of `upcoming`. Without this check we'd return that already-
-    // scored row (results now flow in from the webhook), re-pinning the hero to a
-    // match we already played. A played/unresolvable entry is skipped, not
+    // resolves to a schedule row WE STILL HAVEN'T PLAYED and that is strictly AFTER
+    // the live frontier. A played/at-frontier/unresolvable entry is skipped, not
     // returned — so we fall through to the schedule only when Nexus offers nothing
     // live for us.
     for (const nm of status.upcoming) {
       if (!nexusIncludesTeam(nm, teamNumber)) continue;
       const row = matchRowForNexus(matches, nm);
-      if (row && isUnplayedMatch(row)) return row;
+      if (!row || !isUnplayedMatch(row)) continue;
+      if (frontierRow && byPlayOrder(row, frontierRow) <= 0) continue;
+      return row;
     }
   }
   return nextMatchForTeam(matches, teamNumber);

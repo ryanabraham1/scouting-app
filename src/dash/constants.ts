@@ -64,3 +64,51 @@ export const NEXUS_STALE_MS = 120_000;
  * backfills anything a dropped/late webhook missed, so it can be relatively slow.
  */
 export const RESULTS_RECONCILE_MS = 60_000;
+
+// ===========================================================================
+// Component-EPA estimation tuning (component-epa-estimation feature, §6/§11).
+//
+// The per-alliance auto/fuel/climb breakdown is a presentational DECOMPOSITION
+// of `TeamPrediction.expected` (the blended number the dashboard already shows).
+// It NEVER changes the prediction's score/win-prob (defense is display-only and
+// `APPLY_DEFENSE_TO_PREDICTION` defaults OFF). These constants are heuristic and
+// FLAGGED for tuning against the first real REBUILT event.
+// ===========================================================================
+
+/**
+ * Event-wide scouting reports needed before the component split FITS its
+ * fraction from scouting means; below this we use the F_DEFAULT cold-start
+ * fraction for the no-scouting (EPA) branch. (Per-team scouted teams always use
+ * their own means regardless of this gate.)
+ */
+export const MIN_FIT_REPORTS = 8;
+
+/**
+ * Played matches the event needs before an UNSCOUTED team gets an EPA-source
+ * component split (rather than `none`/`—`). Mirrors the research mitigation of
+ * minimum-match gating so an event with one played match doesn't surface a
+ * confident-looking breakdown.
+ */
+export const MIN_EPA_MATCHES = 2;
+
+/**
+ * Typical opponent teleop FUEL points used to convert a scouted defender's
+ * suppression FRACTION (`defenderEffectiveness`, 0..1) into points removed from
+ * the opposing alliance. 0.30 suppression × this ≈ the points denied. FLAGGED.
+ */
+export const TYPICAL_OPP_TELEOP_FUEL = 40;
+
+/**
+ * Points a maxed-out (3/3) defense_rating maps to when the precise co-occurrence
+ * signal (`defenderEffectiveness`) is unavailable. A 1.5/3 rating ≈ half this.
+ * Contextless ordinal fallback. FLAGGED.
+ */
+export const DEFENSE_RATING_MAX_PTS = 20;
+
+/**
+ * Whether `predictMatch` subtracts defense from the opposing alliance's score.
+ * DEFAULT FALSE for v1: defense is DISPLAY-ONLY; the visible prediction math is
+ * unchanged on first ship (components are a pure additive decomposition of the
+ * already-shown `expected`). Left as a seam for a future, validated follow-up.
+ */
+export const APPLY_DEFENSE_TO_PREDICTION = false;

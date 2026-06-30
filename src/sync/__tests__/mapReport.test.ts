@@ -11,6 +11,7 @@ const EXPECTED_KEYS = [
   'event_key',
   'match_key',
   'scout_id',
+  'scout_name',
   'target_team_number',
   'alliance_color',
   'station',

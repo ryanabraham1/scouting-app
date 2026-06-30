@@ -182,9 +182,9 @@ export function UpcomingMatches({
   // Optional Nexus live status. Fetched directly (no react-query) so this stays
   // self-contained; null/unavailable simply hides the live affordances.
   const [nexus, setNexus] = useState<NexusEventStatus | null>(null);
-  // Which tab is shown: matches still TO scout, or ones already DONE. Defaults to
-  // the to-do feed so the main view is only what still needs completing.
-  const [view, setView] = useState<'todo' | 'done'>('todo');
+  // Which tab is shown: matches still TO scout (upcoming), ones already DONE, or
+  // NOT FINISHED (already played but never scouted). Defaults to the to-do feed.
+  const [view, setView] = useState<'todo' | 'done' | 'missed'>('todo');
 
   useEffect(() => {
     if (!eventKey) {
@@ -262,14 +262,20 @@ export function UpcomingMatches({
     .sort(sortEnriched);
 
   // To scout: not yet completed AND still upcoming (if we know the result; offline
-  // / un-imported matches are assumed upcoming). Completed: a saved report exists
-  // for that match+team, shown regardless of whether the match has been played.
+  // / un-imported matches are assumed upcoming). Completed: a saved report exists.
+  // Not finished: not completed AND the match has already been played — an
+  // outstanding assignment the scout missed (so it stays visible to backfill,
+  // instead of vanishing once an event's matches are all played).
   const todoList = enrichedAll.filter(
     (e) => !done.has(assignmentKey(e.assignment)) && (e.match ? isUpcoming(e.match) : true),
   );
   const doneList = enrichedAll.filter((e) => done.has(assignmentKey(e.assignment)));
-  const shown = view === 'done' ? doneList : todoList;
-  const hasAny = todoList.length > 0 || doneList.length > 0;
+  const missedList = enrichedAll.filter(
+    (e) =>
+      !done.has(assignmentKey(e.assignment)) && e.match != null && !isUpcoming(e.match),
+  );
+  const shown = view === 'done' ? doneList : view === 'missed' ? missedList : todoList;
+  const hasAny = todoList.length > 0 || doneList.length > 0 || missedList.length > 0;
 
   return (
     <section data-testid="scout-upcoming-matches">
@@ -278,14 +284,19 @@ export function UpcomingMatches({
           <CalendarClock className="size-5 text-brand" /> Your matches to scout
         </h2>
         {hasAny ? (
-          <SegmentedToggle<'todo' | 'done'>
-            ariaLabel="Show matches to scout or already completed"
+          <SegmentedToggle<'todo' | 'done' | 'missed'>
+            ariaLabel="Show matches to scout, not finished, or already completed"
             className="w-auto"
             size="default"
             value={view}
             onChange={setView}
             options={[
               { value: 'todo', label: `To scout (${todoList.length})` },
+              {
+                value: 'missed',
+                label: `Not finished (${missedList.length})`,
+                activeClassName: 'text-warning',
+              },
               {
                 value: 'done',
                 label: `Completed (${doneList.length})`,
@@ -299,19 +310,23 @@ export function UpcomingMatches({
         <p className="text-sm text-muted-foreground">Loading matches…</p>
       ) : !hasAny ? (
         <p className="text-sm text-muted-foreground">
-          No upcoming matches assigned to you. Use Manual pick below if you need to scout one.
+          No matches assigned to you. Use Manual pick below if you need to scout one.
         </p>
       ) : shown.length === 0 ? (
         <p data-testid={`scout-upcoming-empty-${view}`} className="text-sm text-muted-foreground">
           {view === 'done'
             ? 'No completed matches yet — scouted matches will show up here.'
-            : "All caught up — you've scouted every assigned match. 🎉"}
+            : view === 'missed'
+              ? 'Nothing unfinished — assigned matches you missed will show here.'
+              : "All caught up — no upcoming assigned matches left. 🎉"}
         </p>
       ) : (
         <ul className="flex flex-col gap-2 landscape:grid landscape:grid-cols-2">
           {shown.map(({ assignment: a, match: m }) => {
             const isDone = view === 'done';
-            const liveStatus = isDone ? null : liveStatusForKey(nexus, a.match_key);
+            const isMissed = view === 'missed';
+            // Live (queuing/on-field) affordance only matters for the upcoming feed.
+            const liveStatus = view === 'todo' ? liveStatusForKey(nexus, a.match_key) : null;
             return (
             <li key={a.match_key} data-testid="scout-upcoming-match">
               <Button
@@ -320,7 +335,11 @@ export function UpcomingMatches({
                 size="big"
                 className={cn(
                   'flex h-auto w-full flex-col items-stretch gap-1 border-l-2 py-3 text-left',
-                  isDone ? 'border-l-success/70 opacity-90' : 'border-l-brand/40',
+                  isDone
+                    ? 'border-l-success/70 opacity-90'
+                    : isMissed
+                      ? 'border-l-warning/60 opacity-90'
+                      : 'border-l-brand/40',
                   liveStatus && 'border-l-success ring-2 ring-success',
                 )}
                 onClick={() => onStart(a)}

@@ -6,6 +6,7 @@
 
 import { FieldDiagram } from '@/components/FieldDiagram';
 import type { RoutineOverlay } from '@/components/FieldDiagram';
+import AutoHeatmap from '@/dash/AutoHeatmap';
 import { OUR_TEAM } from '@/dash/constants';
 import type { MsrRow } from '@/dash/types';
 
@@ -14,6 +15,26 @@ export interface AutoRoutinesProps {
   isOurAlliance: boolean;
   /** The base/own team to omit from OUR alliance overlay. Defaults to OUR_TEAM. */
   baseTeam?: number;
+  /**
+   * 'latest' (default) = existing per-team polyline overlays (broadcast view).
+   * 'all-heatmap' = density heatmap of ALL stored autos. In heatmap mode a single
+   * team is isolated via the clickable legend chips (multi-team heatmap is
+   * illegible). Mode + selected team are LIFTED to the parent so both alliance
+   * columns share one toggle.
+   */
+  mode?: 'latest' | 'all-heatmap';
+  /** Team isolated in 'all-heatmap' mode; null = faint combined heatmap. */
+  selectedTeam?: number | null;
+  onSelectTeam?: (team: number | null) => void;
+}
+
+/**
+ * Shared "does this report carry auto data" predicate — single source of truth for
+ * BOTH the latest-mode routine builder and the heatmap point collection, so the two
+ * never disagree on edge rows (a non-null-but-EMPTY auto_path counts as no data).
+ */
+export function hasAutoData(r: MsrRow): boolean {
+  return r.auto_start_position != null || (r.auto_path?.length ?? 0) > 0;
 }
 
 /** Small, visually-distinct palette for per-team overlay colors. */
@@ -31,10 +52,6 @@ interface TeamRoutine {
   color: string;
   startPosition: { x: number; y: number } | null;
   path: { x: number; y: number }[] | null;
-}
-
-function hasAuto(r: MsrRow): boolean {
-  return r.auto_start_position != null || r.auto_path != null;
 }
 
 /**
@@ -57,7 +74,7 @@ function buildRoutines(
     if (isOurAlliance && teamNumber === baseTeam) continue;
 
     const withAuto = reports.filter(
-      (r) => r.target_team_number === teamNumber && hasAuto(r)
+      (r) => r.target_team_number === teamNumber && hasAutoData(r)
     );
     if (withAuto.length === 0) continue;
 
@@ -76,8 +93,28 @@ function buildRoutines(
   return routines;
 }
 
+/** Flatten the latest-per-team routines into one raw-space point cloud for the
+ *  combined (no-team-isolated) heatmap fallback. */
+function collectAllPoints(
+  routines: TeamRoutine[],
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  for (const r of routines) {
+    if (r.startPosition) pts.push(r.startPosition);
+    if (r.path) for (const p of r.path) pts.push(p);
+  }
+  return pts;
+}
+
 export default function AutoRoutines(props: AutoRoutinesProps): JSX.Element {
-  const { reports, isOurAlliance, baseTeam = OUR_TEAM } = props;
+  const {
+    reports,
+    isOurAlliance,
+    baseTeam = OUR_TEAM,
+    mode = 'latest',
+    selectedTeam = null,
+    onSelectTeam,
+  } = props;
   const routines = buildRoutines(reports, isOurAlliance, baseTeam);
 
   const overlays: RoutineOverlay[] = routines.map((r) => ({
@@ -86,6 +123,103 @@ export default function AutoRoutines(props: AutoRoutinesProps): JSX.Element {
     path: r.path,
     label: String(r.teamNumber),
   }));
+
+  // 'all-heatmap': replace polyline overlays with a per-team density heatmap.
+  // A multi-team heatmap is illegible, so isolate one team via the (now clickable)
+  // legend chips; null = faint combined heatmap of every team on this alliance.
+  if (mode === 'all-heatmap') {
+    if (routines.length === 0) {
+      return (
+        <div data-testid="auto-routines">
+          <div data-testid="auto-routines-empty">No auto routines recorded.</div>
+        </div>
+      );
+    }
+    const heatTeam =
+      selectedTeam != null &&
+      routines.some((r) => r.teamNumber === selectedTeam)
+        ? selectedTeam
+        : null;
+    return (
+      <div data-testid="auto-routines">
+        <p
+          style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', opacity: 0.7 }}
+        >
+          Tap a team to isolate its autos.
+        </p>
+        <ul
+          data-testid="auto-routines-legend"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            listStyle: 'none',
+            padding: 0,
+            margin: '0 0 0.5rem',
+          }}
+        >
+          {routines.map((r) => (
+            <li key={r.teamNumber}>
+              <button
+                type="button"
+                data-testid={`auto-routines-team-${r.teamNumber}`}
+                aria-pressed={heatTeam === r.teamNumber}
+                onClick={() =>
+                  onSelectTeam?.(
+                    heatTeam === r.teamNumber ? null : r.teamNumber,
+                  )
+                }
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  minHeight: 44,
+                  padding: '0.35rem 0.6rem',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  border:
+                    heatTeam === r.teamNumber
+                      ? `2px solid ${r.color}`
+                      : '1px solid rgba(255,255,255,0.2)',
+                  background:
+                    heatTeam === r.teamNumber
+                      ? 'rgba(255,255,255,0.08)'
+                      : 'transparent',
+                  color: 'inherit',
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    display: 'inline-block',
+                    width: 12,
+                    height: 12,
+                    borderRadius: 2,
+                    background: r.color,
+                  }}
+                />
+                <span>{r.teamNumber}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {heatTeam != null ? (
+          <AutoHeatmap
+            teamNumber={heatTeam}
+            reports={reports}
+            data-testid="auto-routines"
+          />
+        ) : (
+          // No team isolated: a faint combined heatmap of every alliance team.
+          <FieldDiagram
+            mode="view"
+            heatmap={{ points: collectAllPoints(routines) }}
+            data-testid="auto-routines-field"
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div data-testid="auto-routines">

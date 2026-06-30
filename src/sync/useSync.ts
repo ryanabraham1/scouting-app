@@ -12,7 +12,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOnline } from '@/sync/useOnline';
 import { syncOnce } from '@/sync/outbox';
 import { syncPitOnce } from '@/sync/pitOutbox';
-import { getSyncQueue, listDeadLetters, requeueAuthClassDeadLetters } from '@/db/localStore';
+import { syncMatchupNotesOnce } from '@/sync/matchupNotesSync';
+import {
+  getSyncQueue,
+  listDeadLetters,
+  requeueAuthClassDeadLetters,
+  getMatchupSyncQueue,
+  listMatchupDeadLetters,
+  requeueAuthClassMatchupDeadLetters,
+} from '@/db/localStore';
 import {
   getPitSyncQueue,
   listPitDeadLetters,
@@ -26,6 +34,8 @@ export interface UseSyncResult {
   deadLetters: number;
   syncing: boolean;
   syncNow: () => void;
+  /** Date.now() of the last run() that completed WITHOUT throwing; null until one does. */
+  lastSyncedAt: number | null;
 }
 
 export function useSync(): UseSyncResult {
@@ -33,6 +43,7 @@ export function useSync(): UseSyncResult {
   const [queued, setQueued] = useState(0);
   const [deadLetters, setDeadLetters] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
 
   // Overlap guard: a ref so concurrent callers see the live value synchronously
   // (state updates are async and would let a second run slip through).
@@ -49,28 +60,45 @@ export function useSync(): UseSyncResult {
     // `queued` = the retry worklist (dirty + pending), which EXCLUDES dead-letters.
     // Dead-letters are surfaced separately so the badge never double-counts them.
     // Pit reports drain through the same indicator, so their counts are folded in.
-    const [queue, dead, pitQueue, pitDead] = await Promise.all([
+    const [queue, dead, pitQueue, pitDead, matchupQueue, matchupDead] = await Promise.all([
       getSyncQueue(),
       listDeadLetters(),
       getPitSyncQueue(),
       listPitDeadLetters(),
+      getMatchupSyncQueue(),
+      listMatchupDeadLetters(),
     ]);
     if (!mountedRef.current) return;
-    setQueued(queue.length + pitQueue.length);
-    setDeadLetters(dead.length + pitDead.length);
+    setQueued(queue.length + pitQueue.length + matchupQueue.length);
+    setDeadLetters(dead.length + pitDead.length + matchupDead.length);
   }, []);
 
   const run = useCallback(async () => {
     if (runningRef.current) return;
     runningRef.current = true;
     if (mountedRef.current) setSyncing(true);
+    // Only stamp lastSyncedAt when ALL drains resolved without throwing — a
+    // thrown syncOnce/syncPitOnce leaves the stamp untouched (truthful "last
+    // SUCCESSFUL sync"). Tracked via a local flag so the finally can read it.
+    let ok = false;
     try {
       await syncOnce();
       await syncPitOnce();
+      await syncMatchupNotesOnce();
+      ok = true;
+    } catch {
+      // A drain threw (transient/terminal failures are already classified into
+      // dead-letters inside the outbox engines, surfaced via refreshCounts). We
+      // swallow here so the fire-and-forget callers (void run() on mount / poll /
+      // reconnect) never produce an unhandled rejection — and crucially `ok`
+      // stays false so lastSyncedAt is NOT stamped on a failed run.
     } finally {
       await refreshCounts();
       runningRef.current = false;
-      if (mountedRef.current) setSyncing(false);
+      if (mountedRef.current) {
+        setSyncing(false);
+        if (ok) setLastSyncedAt(Date.now());
+      }
     }
   }, [refreshCounts]);
 
@@ -106,11 +134,12 @@ export function useSync(): UseSyncResult {
       // Both the match-report (migration 0012) AND pit-report (migration 0021)
       // write paths had server-side fixes that make previously auth/RLS-class
       // dead-letters succeed now — requeue both once.
-      const [matchRequeued, pitRequeued] = await Promise.all([
+      const [matchRequeued, pitRequeued, matchupRequeued] = await Promise.all([
         requeueAuthClassDeadLetters(),
         requeueAuthClassPitDeadLetters(),
+        requeueAuthClassMatchupDeadLetters(),
       ]);
-      if (matchRequeued > 0 || pitRequeued > 0) {
+      if (matchRequeued > 0 || pitRequeued > 0 || matchupRequeued > 0) {
         await run();
       } else {
         await refreshCounts();
@@ -139,5 +168,5 @@ export function useSync(): UseSyncResult {
     return () => clearInterval(id);
   }, [online, run]);
 
-  return { online, queued, deadLetters, syncing, syncNow };
+  return { online, queued, deadLetters, syncing, syncNow, lastSyncedAt };
 }

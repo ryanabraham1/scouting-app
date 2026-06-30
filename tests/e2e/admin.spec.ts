@@ -67,3 +67,46 @@ test('lead auto-generates assignments and publishes (no login)', async ({ page }
   expect(error).toBeNull();
   expect(count ?? 0).toBeGreaterThan(0);
 });
+
+test('coverage board reflects gap count as the lead edits a slot', async ({ page }) => {
+  test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
+  await setActiveEvent(admin, EVENT);
+  await page.goto('/dashboard?tab=setup');
+  await expect(page.getByTestId('setup-tab')).toBeVisible({ timeout: 15_000 });
+
+  await page.getByTestId('auto-generate-btn').click();
+  await expect(page.getByTestId('assignment-grid')).toBeVisible({ timeout: 15_000 });
+  // The DRAFT coverage headline is the one inside the generated panel.
+  const headline = page.getByTestId('coverage-headline').first();
+  await expect(headline).toBeVisible();
+
+  // Parse the baseline gap count straight from the headline text.
+  const gapCount = async () => {
+    const t = (await headline.textContent()) ?? '';
+    const m = t.match(/(\d+)\s+gap/);
+    return m ? Number(m[1]) : 0;
+  };
+  const base = await gapCount();
+
+  // Find a slot that IS currently assigned (non-empty value) and unassign it.
+  const selects = page.getByTestId('slot-select');
+  const n = await selects.count();
+  let assignedIdx = -1;
+  for (let i = 0; i < n; i++) {
+    if (((await selects.nth(i).inputValue()) ?? '') !== '') {
+      assignedIdx = i;
+      break;
+    }
+  }
+  expect(assignedIdx).toBeGreaterThanOrEqual(0); // auto-generate assigned at least one seat
+  await selects.nth(assignedIdx).selectOption(''); // '' === unassigned
+
+  // Gap count rises by exactly one; the gaps container + a gap chip are now visible.
+  await expect.poll(gapCount).toBe(base + 1);
+  await expect(page.getByTestId('coverage-gaps').first()).toBeVisible();
+  await expect(page.getByTestId('coverage-gap-seat').first()).toBeVisible();
+
+  // Re-assign to the first real scout -> gap count returns to baseline.
+  await selects.nth(assignedIdx).selectOption({ index: 1 }); // first real scout option
+  await expect.poll(gapCount).toBe(base);
+});

@@ -16,7 +16,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 12.5,
     meanFuelConfidence: 1,
-    fuelPointsWeighted: 12.5,
     climbSuccessRate: 0.5,
     avgClimbLevel: 2,
     meanClimbPoints: 8,
@@ -25,6 +24,22 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     diedRate: 0,
     reliability: 1,
     scoutingExpectedPoints: 20.5,
+    fuelSuppressionWhileDefended: null,
+    defendedSampleMs: 0,
+    defenderEffectiveness: null,
+    defenseSampleCount: 0,
+    stdDevFuelPoints: 0,
+    minFuelPoints: 0,
+    maxFuelPoints: 0,
+    stdDevClimbPoints: 0,
+    minClimbPoints: 0,
+    maxClimbPoints: 0,
+    stdDevDefenseRating: 0,
+    minDefenseRating: 0,
+    maxDefenseRating: 0,
+    recentFuelMean: 0,
+    recentFuelDelta: 0,
+    recentTrend: 'insufficient',
     ...overrides,
   };
 }
@@ -34,25 +49,25 @@ describe('teamAggToCsv', () => {
     const csv = teamAggToCsv([]);
     const header = csv.split('\n')[0];
     expect(header).toBe(
-      'teamNumber,matchesScouted,scoutingExpectedPoints,meanFuelPoints,fuelPointsWeighted,climbSuccessRate,avgDefenseRating,reliability',
+      'teamNumber,matchesScouted,scoutingExpectedPoints,meanFuelPoints,climbSuccessRate,avgDefenseRating,reliability',
     );
   });
 
   it('emits one row per TeamAgg with the selected columns', () => {
     const csv = teamAggToCsv([
-      agg({ teamNumber: 254, matchesScouted: 3, scoutingExpectedPoints: 20.5, meanFuelPoints: 12.5, fuelPointsWeighted: 12.5, climbSuccessRate: 0.5, avgDefenseRating: 3, reliability: 1 }),
-      agg({ teamNumber: 1678, matchesScouted: 2, scoutingExpectedPoints: 10, meanFuelPoints: 6, fuelPointsWeighted: 6, climbSuccessRate: 0, avgDefenseRating: 2, reliability: 0.5 }),
+      agg({ teamNumber: 254, matchesScouted: 3, scoutingExpectedPoints: 20.5, meanFuelPoints: 12.5, climbSuccessRate: 0.5, avgDefenseRating: 3, reliability: 1 }),
+      agg({ teamNumber: 1678, matchesScouted: 2, scoutingExpectedPoints: 10, meanFuelPoints: 6, climbSuccessRate: 0, avgDefenseRating: 2, reliability: 0.5 }),
     ]);
     const lines = csv.split('\n');
     expect(lines.length).toBe(3); // header + 2
-    expect(lines[1]).toBe('254,3,20.5,12.5,12.5,0.5,3,1');
-    expect(lines[2]).toBe('1678,2,10,6,6,0,2,0.5');
+    expect(lines[1]).toBe('254,3,20.5,12.5,0.5,3,1');
+    expect(lines[2]).toBe('1678,2,10,6,0,2,0.5');
   });
 });
 
 describe('picklistToCsv', () => {
   it('emits the expected header row', () => {
-    expect(picklistToCsv([]).split('\n')[0]).toBe('rank,teamNumber,tier,note');
+    expect(picklistToCsv([]).split('\n')[0]).toBe('rank,teamNumber,tier,note,tierType,dnp');
   });
 
   it('numbers ranks 1-based and escapes notes containing commas and quotes', () => {
@@ -61,18 +76,32 @@ describe('picklistToCsv', () => {
       { teamNumber: 1678, tier: null, note: null },
     ];
     const lines = picklistToCsv(entries).split('\n');
-    expect(lines[0]).toBe('rank,teamNumber,tier,note');
+    expect(lines[0]).toBe('rank,teamNumber,tier,note,tierType,dnp');
     // rank is 1-based; note with comma + quote is wrapped and internal quotes doubled.
-    expect(lines[1]).toBe('1,254,A,"great, ""elite"" shooter"');
+    // tierType empty + dnp false by default.
+    expect(lines[1]).toBe('1,254,A,"great, ""elite"" shooter",,false');
     // null tier/note serialize to empty fields.
-    expect(lines[2]).toBe('2,1678,,');
+    expect(lines[2]).toBe('2,1678,,,,false');
+  });
+
+  it('emits tierType and dnp columns when set', () => {
+    const entries: PicklistEntry[] = [
+      { teamNumber: 254, tier: 'A', note: 'x', tierType: 'first', dnp: true },
+    ];
+    const lines = picklistToCsv(entries).split('\n');
+    expect(lines[1]).toBe('1,254,A,x,first,true');
+  });
+
+  it('defaults emit empty tierType and false dnp', () => {
+    const lines = picklistToCsv([{ teamNumber: 7, tier: null, note: null }]).split('\n');
+    expect(lines[1]).toBe('1,7,,,,false');
   });
 
   it('wraps fields containing newlines', () => {
     const line = picklistToCsv([{ teamNumber: 7, tier: null, note: 'line1\nline2' }]).split('\n');
     // The newline lives inside a quoted field, so splitting on \n yields the open quote.
     expect(line[1]).toBe('1,7,,"line1');
-    expect(line[2]).toBe('line2"');
+    expect(line[2]).toBe('line2",,false');
   });
 });
 

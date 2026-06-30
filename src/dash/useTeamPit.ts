@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { signedPitPhotoUrl } from '@/pit/photoUpload';
 import { tbaGetOptional, isUnavailable } from '@/dash/proxies';
@@ -93,6 +93,42 @@ function normalizeCapabilities(raw: unknown): { capabilities: string[]; intakeSo
 }
 
 /**
+ * Canonical shared mapper from a raw `pit_scouting_report` row to the normalized
+ * {@link TeamPit} shape. Reuses the per-field normalizers above so both
+ * `useTeamPit` (single) and `useEventPits` (batch) produce identical objects.
+ * Pure — never throws on a malformed row.
+ */
+export function rowToTeamPit(row: Record<string, unknown>): TeamPit {
+  const data = row as Record<string, any>;
+  const { capabilities, intakeSources } = normalizeCapabilities(data.capabilities);
+  const batteries = normalizeBatteries(data.batteries);
+  const dims = normalizeDimensions(data.robot_dimensions);
+  return {
+    eventKey: data.event_key,
+    teamNumber: data.team_number,
+    drivetrain: data.drivetrain ?? null,
+    mechanisms: Array.isArray(data.mechanisms) ? data.mechanisms : [],
+    capabilities,
+    intakeSources,
+    visionSystem: data.vision_system ?? null,
+    batteryCount: batteries.count,
+    chargerCount: batteries.chargers,
+    batteryBrand: batteries.brand,
+    batteryConnector: batteries.connector,
+    preferredAutoStartPosition: normalizeStartPosition(data.preferred_auto_start_position),
+    preferredAutoPath: Array.isArray(data.preferred_auto_path) ? data.preferred_auto_path : null,
+    matchStrategy: Array.isArray(data.match_strategy) ? data.match_strategy : [],
+    robotLengthIn: dims.lengthIn,
+    robotWidthIn: dims.widthIn,
+    robotHeightIn: dims.heightIn,
+    trenchCapable: dims.trenchCapable,
+    photoPath: data.photo_path ?? null,
+    notes: data.notes ?? null,
+    authorScoutId: data.author_scout_id ?? null,
+  };
+}
+
+/**
  * Fetch a single team's pit scouting report for an event. Returns null when no
  * pit report exists yet (not an error). Used by TeamView's pit panel.
  */
@@ -110,32 +146,37 @@ export function useTeamPit(eventKey: string | null | undefined, teamNumber: numb
         .maybeSingle();
       if (error) throw error;
       if (!data) return null;
-      const { capabilities, intakeSources } = normalizeCapabilities(data.capabilities);
-      const batteries = normalizeBatteries(data.batteries);
-      const dims = normalizeDimensions(data.robot_dimensions);
-      return {
-        eventKey: data.event_key,
-        teamNumber: data.team_number,
-        drivetrain: data.drivetrain ?? null,
-        mechanisms: Array.isArray(data.mechanisms) ? data.mechanisms : [],
-        capabilities,
-        intakeSources,
-        visionSystem: data.vision_system ?? null,
-        batteryCount: batteries.count,
-        chargerCount: batteries.chargers,
-        batteryBrand: batteries.brand,
-        batteryConnector: batteries.connector,
-        preferredAutoStartPosition: normalizeStartPosition(data.preferred_auto_start_position),
-        preferredAutoPath: Array.isArray(data.preferred_auto_path) ? data.preferred_auto_path : null,
-        matchStrategy: Array.isArray(data.match_strategy) ? data.match_strategy : [],
-        robotLengthIn: dims.lengthIn,
-        robotWidthIn: dims.widthIn,
-        robotHeightIn: dims.heightIn,
-        trenchCapable: dims.trenchCapable,
-        photoPath: data.photo_path ?? null,
-        notes: data.notes ?? null,
-        authorScoutId: data.author_scout_id ?? null,
-      };
+      return rowToTeamPit(data as Record<string, unknown>);
+    },
+  });
+}
+
+/**
+ * Batch hook: every pit report for an event, keyed by team number. One query for
+ * the whole event (vs N per-team `useTeamPit` calls). Canonical shared return is
+ * a `Map<number, TeamPit>` (pinned API — do NOT add an array-shaped variant).
+ * Persisted via the global query cache, so it serves offline from the last good
+ * snapshot. Returns an empty Map (never throws) when no pit rows exist.
+ */
+export function useEventPits(
+  eventKey: string | null | undefined,
+): UseQueryResult<Map<number, TeamPit>> {
+  return useQuery<Map<number, TeamPit>>({
+    queryKey: ['event-pits', eventKey],
+    enabled: !!eventKey,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pit_scouting_report')
+        .select('*')
+        .eq('event_key', eventKey as string);
+      if (error) throw error;
+      const map = new Map<number, TeamPit>();
+      for (const row of (data ?? []) as Record<string, unknown>[]) {
+        const pit = rowToTeamPit(row);
+        if (Number.isFinite(pit.teamNumber)) map.set(pit.teamNumber, pit);
+      }
+      return map;
     },
   });
 }

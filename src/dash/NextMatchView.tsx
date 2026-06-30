@@ -28,7 +28,7 @@ import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
 import { formatMatchKey, compareMatchKeys } from '@/lib/formatMatch';
 import { predictMatch, type TeamPrediction } from '@/dash/predict';
-import AutoRoutines from '@/dash/AutoRoutines';
+import CombinedAutoField from '@/dash/CombinedAutoField';
 import EventStream from '@/dash/EventStream';
 import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
@@ -41,7 +41,6 @@ import {
   nexusMatchesRow,
   isUnplayedMatch,
 } from '@/dash/nextMatch';
-import type { MsrRow } from '@/dash/types';
 
 export interface NextMatchViewProps {
   /** The active event key (injected by the shell — do NOT resolve it here). */
@@ -280,22 +279,9 @@ interface AllianceColumnProps {
   teams: TeamPrediction[];
   agg: Map<number, TeamAgg>;
   allTeams: TeamRow[];
-  reports: MsrRow[];
-  isOurAlliance: boolean;
-  baseTeam: number;
 }
 
-function AllianceColumn({
-  side,
-  label,
-  score,
-  teams,
-  agg,
-  allTeams,
-  reports,
-  isOurAlliance,
-  baseTeam,
-}: AllianceColumnProps) {
+function AllianceColumn({ side, label, score, teams, agg, allTeams }: AllianceColumnProps) {
   return (
     <Card
       className={cn(
@@ -326,9 +312,6 @@ function AllianceColumn({
             />
           ))}
         </ul>
-        <div className="mt-3">
-          <AutoRoutines reports={reports} isOurAlliance={isOurAlliance} baseTeam={baseTeam} />
-        </div>
       </CardContent>
     </Card>
   );
@@ -562,7 +545,6 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // the dropdown drops out of tracking and pins to the chosen match_key.
   const [tracking, setTracking] = useState(true);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
-
   // While tracking, snap the selection to OUR next match whenever it changes.
   // Only setState when the key actually differs to avoid a render loop.
   const trackedKey = trackedMatch?.match_key ?? null;
@@ -647,9 +629,6 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
     statboticsAvailable: epa.available,
   });
 
-  const ourAllianceIsRed = redTeams.includes(baseTeam);
-  const redReports = reports.filter((r) => redTeams.includes(r.target_team_number));
-  const blueReports = reports.filter((r) => blueTeams.includes(r.target_team_number));
 
   const status = nexusLive ? nexus.status : null;
   const heroNexus = nexusMatchFor(status, match);
@@ -903,9 +882,6 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           teams={pred.red.teams}
           agg={agg}
           allTeams={allTeams}
-          reports={redReports}
-          isOurAlliance={ourAllianceIsRed}
-          baseTeam={baseTeam}
         />
         <AllianceColumn
           side="blue"
@@ -914,11 +890,20 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           teams={pred.blue.teams}
           agg={agg}
           allTeams={allTeams}
-          reports={blueReports}
-          isOurAlliance={!ourAllianceIsRed}
-          baseTeam={baseTeam}
         />
       </div>
+
+      {/* ONE combined auto field for the whole matchup — each team's latest auto
+          drawn on the side they'll actually play (rotated 180° onto that side when
+          it was scouted on the other alliance). */}
+      <Card className="border-border">
+        <CardHeader className="p-4 pb-0">
+          <CardTitle className="text-foreground">Auto routines</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4">
+          <CombinedAutoField redTeams={redTeams} blueTeams={blueTeams} reports={reports} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

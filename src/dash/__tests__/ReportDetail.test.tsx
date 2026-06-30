@@ -3,9 +3,9 @@
 // field: friendly match label, identity, fuel breakdown + confidence, climb,
 // defense, fouls/flags, notes, and the read-only auto field diagram.
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup, within } from '@testing-library/react';
-import type { MsrRow } from '@/dash/types';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, cleanup, within, fireEvent } from '@testing-library/react';
+import type { MsrRow, MultiScoutGroup, ConflictSeverity } from '@/dash/types';
 import ReportDetail from '@/dash/ReportDetail';
 
 function row(overrides: Partial<MsrRow>): MsrRow {
@@ -130,5 +130,71 @@ describe('ReportDetail', () => {
   it('falls back to "unassigned" when there is no scout', () => {
     const { getByTestId } = render(<ReportDetail report={row({ scout_id: null })} />);
     expect(getByTestId('report-detail').textContent).toContain('unassigned');
+  });
+
+  // --- Multi-scout conflict banner (multi-scout-reconciliation) -------------
+  function group(severity: ConflictSeverity, reports: MsrRow[]): MultiScoutGroup {
+    return {
+      matchKey: '2026casnv_qm7',
+      teamNumber: 254,
+      allianceColor: 'red',
+      station: 2,
+      reports,
+      scoutIds: reports.map((r) => r.scout_id ?? null),
+      severity,
+      isConflicted: severity === 'minor' || severity === 'severe',
+      divergences: {
+        fuel_spread: 6,
+        climb_success_divergent: true,
+        climb_level_spread: 0,
+        defense_spread: 0,
+        no_show_divergent: false,
+        died_divergent: false,
+        tipped_divergent: false,
+        comparable_metric_count: 6,
+      },
+    };
+  }
+
+  const a = row({ scout_id: 'a', fuel_points: 14, climb_success: true, climb_level: 3 });
+  const b = row({ scout_id: 'b', fuel_points: 8, climb_success: false, climb_level: 0 });
+
+  it('renders the conflict banner + a sibling button per sibling, and fires onOpenSibling', () => {
+    const onOpenSibling = vi.fn();
+    const { getByTestId } = render(
+      <ReportDetail
+        report={a}
+        scoutName="Ada"
+        conflictGroup={group('severe', [a, b])}
+        siblingName={(id) => (id === 'b' ? 'Bria' : 'Ada')}
+        onOpenSibling={onOpenSibling}
+      />,
+    );
+    const banner = getByTestId('report-conflict');
+    expect(banner.getAttribute('data-scout-id')).toBe('a');
+    // One sibling button for the OTHER scout (b), labelled with the name.
+    const siblingBtn = getByTestId('report-conflict-sibling-b');
+    expect(siblingBtn.textContent).toContain('Bria');
+    fireEvent.click(siblingBtn);
+    expect(onOpenSibling).toHaveBeenCalledWith(b);
+  });
+
+  it('renders no banner when no conflictGroup is passed (back-compat)', () => {
+    const { queryByTestId } = render(<ReportDetail report={row({})} scoutName="Ada" />);
+    expect(queryByTestId('report-conflict')).toBeNull();
+  });
+
+  it('renders no banner for a non-conflicted (agree) group', () => {
+    const { queryByTestId } = render(
+      <ReportDetail report={a} conflictGroup={group('agree', [a, b])} />,
+    );
+    expect(queryByTestId('report-conflict')).toBeNull();
+  });
+
+  it('renders no banner for an unknown group', () => {
+    const { queryByTestId } = render(
+      <ReportDetail report={a} conflictGroup={group('unknown', [a, b])} />,
+    );
+    expect(queryByTestId('report-conflict')).toBeNull();
   });
 });

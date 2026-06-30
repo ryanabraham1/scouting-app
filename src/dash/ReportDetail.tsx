@@ -20,12 +20,23 @@ import { StatTile } from '@/components/ui/StatTile';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { foulReasonLabel } from '@/scoring/fouls';
-import type { MsrRow } from '@/dash/types';
+import ConflictMarker from '@/components/ConflictMarker';
+import type { MsrRow, MultiScoutGroup } from '@/dash/types';
 
 export interface ReportDetailProps {
   report: MsrRow;
   /** Resolved scouter display name for attribution (e.g. "Ada"). */
   scoutName?: string;
+  /**
+   * Multi-scout group this report belongs to (multi-scout-reconciliation).
+   * When `conflictGroup?.isConflicted`, a top banner renders with the divergence
+   * lines + one "View {name}'s report →" button per sibling report.
+   */
+  conflictGroup?: MultiScoutGroup;
+  /** Resolve a sibling's scout_id → display name (reuses the caller's map). */
+  siblingName?: (id: string | null | undefined) => string;
+  /** Swap the Sheet to a sibling report when its button is clicked. */
+  onOpenSibling?: (r: MsrRow) => void;
 }
 
 function fmt(n: number, digits = 1): string {
@@ -73,13 +84,48 @@ function FlagPill(props: { label: string; on: boolean; tone?: 'warning' | 'destr
 }
 
 export default function ReportDetail(props: ReportDetailProps): JSX.Element {
-  const { report: r, scoutName } = props;
+  const { report: r, scoutName, conflictGroup, siblingName, onOpenSibling } = props;
   const matchLabel = formatMatchKeyRaw(r.match_key);
   const hasPath = !!(r.auto_path && r.auto_path.length >= 2);
   const hasStart = !!r.auto_start_position;
 
+  // Sibling reports (every group member that ISN'T the one being shown).
+  const siblings =
+    conflictGroup?.isConflicted
+      ? conflictGroup.reports.filter((s) => s.scout_id !== r.scout_id)
+      : [];
+  const resolveName = siblingName ?? ((id: string | null | undefined) => (id ? id : 'unassigned'));
+
   return (
     <div data-testid="report-detail" className="flex flex-col gap-5 text-foreground">
+      {/* Multi-scout conflict banner (renders at the very top, above identity). */}
+      {conflictGroup?.isConflicted ? (
+        <section
+          data-testid="report-conflict"
+          data-scout-id={r.scout_id ?? ''}
+          data-severity={conflictGroup.severity}
+          className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3"
+        >
+          <SectionHeading icon={<AlertTriangle />}>Multi-scout conflict</SectionHeading>
+          <ConflictMarker group={conflictGroup} showDetail />
+          {siblings.length ? (
+            <div className="flex flex-wrap gap-2">
+              {siblings.map((s) => (
+                <button
+                  key={s.scout_id ?? '∅'}
+                  type="button"
+                  data-testid={`report-conflict-sibling-${s.scout_id ?? 'unassigned'}`}
+                  onClick={() => onOpenSibling?.(s)}
+                  className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning hover:bg-warning/20"
+                >
+                  View {resolveName(s.scout_id)}&apos;s report →
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {/* Identity */}
       <section className="flex flex-col gap-2">
         <SectionHeading icon={<Hash />}>Identity</SectionHeading>

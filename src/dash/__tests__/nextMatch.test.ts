@@ -215,4 +215,36 @@ describe('trackedNextMatch', () => {
     const st = status([nexusMatch({ label: 'Qualification 99', redTeams: [OURS] })]);
     expect(trackedNextMatch(matches, OURS, st)?.match_key).toBe('qm2');
   });
+
+  it('advances past an OUR match Nexus still flags "On field" when a later unplayed match exists (BUG-6)', () => {
+    // qm2 is OURS and unplayed IN THE DB (its result-sync was dropped), but Nexus
+    // reports it as the live frontier (still "On field", never flipped to
+    // Completed). Without the frontier guard, trackedNextMatch returned qm2 (the
+    // match we already played) while the Upcoming rail correctly advanced to qm4.
+    const playedFrontier = [
+      match({ match_key: 'qm2', comp_level: 'qm', match_number: 2, red1: OURS }),
+      match({ match_key: 'qm4', comp_level: 'qm', match_number: 4, blue1: OURS }),
+    ];
+    const onFieldNm = nexusMatch({
+      label: 'Qualification 2',
+      status: 'On field',
+      redTeams: [OURS, 1, 2],
+      blueTeams: [3, 4, 5],
+    });
+    const nextNm = nexusMatch({
+      label: 'Qualification 4',
+      redTeams: [8, 9, 10],
+      blueTeams: [OURS, 6, 7],
+    });
+    const st: NexusEventStatus = {
+      eventKey: '2026evt',
+      dataAsOfTime: null,
+      nowQueuing: 'Qualification 2',
+      onField: onFieldNm,
+      queuing: nextNm,
+      matches: [onFieldNm, nextNm],
+      upcoming: [onFieldNm, nextNm],
+    };
+    expect(trackedNextMatch(playedFrontier, OURS, st)?.match_key).toBe('qm4');
+  });
 });

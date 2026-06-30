@@ -20,8 +20,11 @@ beforeAll(async () => {
   await admin.from('team').upsert({ team_number: TEAM, nickname: 'C2' });
   await admin.from('match').upsert({ match_key: MATCH, event_key: EVENT, comp_level: 'qm', match_number: 1 });
   await admin.from('match').upsert({ match_key: MATCH2, event_key: EVENT, comp_level: 'qm', match_number: 2 });
+  // Conflict on the per-event composite (the legacy global UNIQUE(auth_uid) was
+  // dropped in migration 0029). auth_uid is random here, so this is effectively a
+  // plain insert; the target just needs to be a real unique constraint.
   const { data: s } = await admin.from('scout')
-    .upsert({ event_key: EVENT, display_name: 'C2 scout', auth_uid: crypto.randomUUID() }, { onConflict: 'auth_uid' })
+    .upsert({ event_key: EVENT, display_name: 'C2 scout', auth_uid: crypto.randomUUID() }, { onConflict: 'event_key,auth_uid' })
     .select().single();
   scoutId = s!.id;
 });

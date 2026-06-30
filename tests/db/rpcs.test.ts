@@ -112,12 +112,16 @@ it('upsert_match_report SUCCEEDS for scout owned by caller (forge guard - self)'
   expect(error, `own report should succeed: ${error?.message}`).toBeNull();
 });
 
-it('upsert_match_report REJECTS a non-existent scout_id (referential guard, 0012)', async () => {
-  // 0012 relaxed the ownership gate to a REFERENTIAL check to fix login-less
-  // uploads dead-lettering: a scout_id must reference a real scout row, but need
-  // NOT be owned by the caller (open, single-team posture). So a non-existent
-  // scout_id is rejected with SQLSTATE 23503 (it raises before any insert), while
-  // a non-owned-but-existing scout_id is now accepted (no longer 42501).
+it('upsert_match_report RE-RESOLVES a non-existent scout_id to the caller (BUG-1, migrations 0030/0032)', async () => {
+  // PREVIOUS behavior (0012): a non-existent scout_id raised 23503. That hard
+  // reject is exactly what permanently dead-lettered a scout's matches when
+  // select_scouter consolidation deleted the scout row a queued report referenced
+  // (e.g. the same name picked on a second device) — silent data loss.
+  //
+  // NEW behavior (0030 + 0032): a missing scout_id is RE-RESOLVED instead of
+  // rejected — by scout_name, else to the authenticated caller's OWN scout row for
+  // the event, else provisioned — so the capture always lands. Here the anon caller
+  // already joined the event, so the report is re-attributed to their own row.
   const reportId = crypto.randomUUID();
   const forgedReport = {
     id: reportId,
@@ -133,6 +137,12 @@ it('upsert_match_report REJECTS a non-existent scout_id (referential guard, 0012
     fuel_bursts: [],
   };
   const { error } = await anon.rpc('upsert_match_report', { p: forgedReport });
-  expect(error, 'non-existent scout should be rejected').not.toBeNull();
-  expect(error!.code).toBe('23503');
+  expect(error, `re-resolved report should succeed: ${error?.message}`).toBeNull();
+  // Attributed to the caller's OWN scout row, not the forged id — and never lost.
+  const row = await admin
+    .from('match_scouting_report')
+    .select('scout_id')
+    .eq('id', reportId)
+    .single();
+  expect(row.data!.scout_id).toBe(myScoutId);
 });

@@ -75,7 +75,7 @@ async function getReport(id: string): Promise<LocalMatchReport | undefined> {
 
 const EXPECTED_PAYLOAD_KEYS = [
   'id', 'schema_version', 'app_version', 'device_id', 'event_key', 'match_key',
-  'scout_id', 'target_team_number', 'alliance_color', 'station', 'inactive_first',
+  'scout_id', 'scout_name', 'target_team_number', 'alliance_color', 'station', 'inactive_first',
   'inactive_first_source', 'teleop_clock_unconfirmed', 'fuel_bursts', 'feeding_bursts', 'climb_level',
   'climb_attempted', 'climb_success', 'auto_start_position', 'auto_path',
   'auto_left_starting_line', 'auto_climb_level1', 'intake_sources',

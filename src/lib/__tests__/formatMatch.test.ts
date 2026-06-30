@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { formatMatchKey, formatMatchKeyRaw, compareMatchKeys } from '../formatMatch';
+import {
+  formatMatchKey,
+  formatMatchKeyRaw,
+  compareMatchKeys,
+  isQualLevel,
+  isQualMatchKey,
+} from '../formatMatch';
 
 describe('formatMatchKey', () => {
   it('formats qualification matches', () => {
@@ -42,6 +48,47 @@ describe('formatMatchKeyRaw', () => {
     expect(formatMatchKeyRaw('qm7')).toBe('Qual 7');
     expect(formatMatchKeyRaw('')).toBe('');
     expect(formatMatchKeyRaw('garbage')).toBe('garbage');
+  });
+});
+
+describe('isQualLevel', () => {
+  it('treats qm/q/qual as qualification (case-insensitive, trimmed)', () => {
+    expect(isQualLevel('qm')).toBe(true);
+    expect(isQualLevel('q')).toBe(true);
+    expect(isQualLevel('qual')).toBe(true);
+    expect(isQualLevel('QM')).toBe(true);
+    expect(isQualLevel(' Qual ')).toBe(true);
+  });
+  it('treats every playoff level as NOT a qual', () => {
+    for (const lvl of ['sf', 'f', 'ef', 'qf', 'final']) {
+      expect(isQualLevel(lvl)).toBe(false);
+    }
+  });
+  it('treats empty/nullish as NOT a qual', () => {
+    expect(isQualLevel('')).toBe(false);
+    expect(isQualLevel(null)).toBe(false);
+    expect(isQualLevel(undefined)).toBe(false);
+  });
+});
+
+describe('isQualMatchKey', () => {
+  it('recognizes qualification match keys (event-prefixed and bare)', () => {
+    expect(isQualMatchKey('2026casnv_qm1')).toBe(true);
+    expect(isQualMatchKey('2026casnv_qm73')).toBe(true);
+    expect(isQualMatchKey('qm7')).toBe(true);
+  });
+  it('rejects playoff match keys', () => {
+    expect(isQualMatchKey('2026casnv_sf3')).toBe(false);
+    expect(isQualMatchKey('2026casnv_sf3m1')).toBe(false);
+    expect(isQualMatchKey('2026casnv_f1')).toBe(false);
+    expect(isQualMatchKey('2026casnv_f1m2')).toBe(false);
+    expect(isQualMatchKey('2026casnv_qf2')).toBe(false);
+    expect(isQualMatchKey('2026casnv_ef1')).toBe(false);
+  });
+  it('rejects empty/unparseable keys', () => {
+    expect(isQualMatchKey('')).toBe(false);
+    expect(isQualMatchKey(null)).toBe(false);
+    expect(isQualMatchKey('garbage')).toBe(false);
   });
 });
 

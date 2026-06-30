@@ -36,6 +36,8 @@ export interface DefenseIntervalPayload {
 
 export interface BurstPayload {
   rate: number;
+  /** Which slider committed the burst, so Undo pops from the right array. */
+  kind?: 'fuel' | 'feeding';
 }
 
 export interface FoulPayload {

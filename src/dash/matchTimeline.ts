@@ -22,10 +22,10 @@ export interface TimelineSegment {
 }
 
 /** A burst's window is 'auto' only during autonomous; everything else is teleop. */
-function burstAbsStart(b: BurstRow): number {
+export function burstAbsStart(b: BurstRow): number {
   return b.window === 'auto' ? b.startMs : AUTO_MS + b.startMs;
 }
-function intervalAbsStart(i: IntervalRow): number {
+export function intervalAbsStart(i: IntervalRow): number {
   return i.phase === 'auto' ? i.startMs : AUTO_MS + i.startMs;
 }
 

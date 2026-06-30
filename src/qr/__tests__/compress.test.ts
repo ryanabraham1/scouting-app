@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { compressForQr, decompressForQr, compressionSupported } from '@/qr/compress';
+import {
+  compressForQr,
+  decompressForQr,
+  compressionSupported,
+  DecompressionUnsupportedError,
+} from '@/qr/compress';
 
 const supported = compressionSupported();
 
@@ -22,6 +27,25 @@ describe('compressForQr / decompressForQr', () => {
     const original = new Uint8Array([1, 2, 3, 4, 5]);
     const out = await decompressForQr(original, false);
     expect([...out]).toEqual([...original]);
+  });
+
+  it('throws a clear non-retryable error when the receiver lacks DecompressionStream (BUG-10)', async () => {
+    // A modern sender can gzip a payload (z=1) for a receiver on a stale WebView
+    // that has no DecompressionStream. Previously the constructor threw an opaque
+    // "DecompressionStream is not defined" and the UI looped on an identical retry.
+    const g = globalThis as { DecompressionStream?: unknown };
+    const original = g.DecompressionStream;
+    g.DecompressionStream = undefined;
+    try {
+      await expect(decompressForQr(new Uint8Array([1, 2, 3]), true)).rejects.toBeInstanceOf(
+        DecompressionUnsupportedError,
+      );
+      // Uncompressed payloads still pass through fine without the API.
+      const raw = new Uint8Array([9, 9, 9]);
+      expect([...(await decompressForQr(raw, false))]).toEqual([...raw]);
+    } finally {
+      g.DecompressionStream = original;
+    }
   });
 
   it('never claims compression for an incompressible tiny payload', async () => {

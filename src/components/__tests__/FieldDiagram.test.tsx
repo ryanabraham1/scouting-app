@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { FieldDiagram } from '../FieldDiagram';
+import { HEATMAP_BINS } from '../HeatmapLayer';
 
 beforeEach(() => {
   cleanup();
@@ -192,6 +193,133 @@ describe('FieldDiagram view', () => {
       '[data-testid="field-diagram-polyline"]'
     ) as SVGPolylineElement | null;
     expect(polyline?.getAttribute('points')).toBe('0.9,0.1 0.1,0.3');
+  });
+});
+
+describe('FieldDiagram heatmap', () => {
+  it('renders a heatmap <g> with circles as the FIRST child of the svg in view mode', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        heatmap={{
+          points: [
+            { x: 0.5, y: 0.5 },
+            { x: 0.5, y: 0.5 },
+          ],
+        }}
+        path={[
+          { x: 0.1, y: 0.1 },
+          { x: 0.9, y: 0.3 },
+        ]}
+      />,
+    );
+    const svg = container.querySelector(
+      '[data-testid="field-diagram-svg"]',
+    ) as SVGSVGElement | null;
+    expect(svg).toBeTruthy();
+    const g = container.querySelector(
+      '[data-testid="field-diagram-heatmap"]',
+    ) as SVGGElement | null;
+    expect(g).toBeTruthy();
+    expect(g!.querySelectorAll('circle').length).toBeGreaterThan(0);
+    // First child of the svg => painted under the polyline (document order).
+    expect(svg!.firstElementChild).toBe(g);
+    // The polyline still renders (after the heatmap).
+    expect(
+      container.querySelector('[data-testid="field-diagram-polyline"]'),
+    ).toBeTruthy();
+  });
+
+  it('does NOT render the heatmap <g> in pick-start or draw-path modes', () => {
+    const heatmap = { points: [{ x: 0.5, y: 0.5 }] };
+    const { container: pick } = render(
+      <FieldDiagram mode="pick-start" heatmap={heatmap} />,
+    );
+    expect(
+      pick.querySelector('[data-testid="field-diagram-heatmap"]'),
+    ).toBeNull();
+    cleanup();
+    const { container: draw } = render(
+      <FieldDiagram mode="draw-path" heatmap={heatmap} />,
+    );
+    expect(
+      draw.querySelector('[data-testid="field-diagram-heatmap"]'),
+    ).toBeNull();
+  });
+
+  it('marks the heatmap <g> pointer-events:none (never blocks interaction)', () => {
+    const { container } = render(
+      <FieldDiagram mode="view" heatmap={{ points: [{ x: 0.5, y: 0.5 }] }} />,
+    );
+    const g = container.querySelector(
+      '[data-testid="field-diagram-heatmap"]',
+    ) as SVGGElement | null;
+    expect(g).toBeTruthy();
+    expect(g!.style.pointerEvents).toBe('none');
+  });
+
+  it('renders a soft, ramp-colored intensity field (blur filter + rgb ramp), not one flat hue', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        heatmap={{
+          // a dense cluster + a sparse outlier => the field spans the ramp.
+          points: [
+            { x: 0.3, y: 0.3 },
+            { x: 0.31, y: 0.3 },
+            { x: 0.3, y: 0.31 },
+            { x: 0.3, y: 0.3 },
+            { x: 0.8, y: 0.8 },
+          ],
+        }}
+      />,
+    );
+    const g = container.querySelector(
+      '[data-testid="field-diagram-heatmap"]',
+    ) as SVGGElement | null;
+    expect(g).toBeTruthy();
+    // The group is blurred (a real smooth field, not hard cells).
+    expect(g!.getAttribute('filter')).toMatch(/^url\(#.+\)$/);
+    // A <defs>'d gaussian blur backs that filter.
+    expect(
+      g!.querySelector('filter feGaussianBlur'),
+    ).toBeTruthy();
+    // Circles are ramp-colored rgb(...) (multiple distinct hues), not one hex hue.
+    const fills = Array.from(g!.querySelectorAll('circle')).map((c) =>
+      c.getAttribute('fill'),
+    );
+    expect(fills.length).toBeGreaterThan(1);
+    expect(fills.every((f) => /^rgb\(/.test(f ?? ''))).toBe(true);
+    expect(new Set(fills).size).toBeGreaterThan(1);
+  });
+
+  it('still honors an explicit single-hue color override (monochrome callers)', () => {
+    const { container } = render(
+      <FieldDiagram
+        mode="view"
+        heatmap={{ color: '#abcdef', points: [{ x: 0.5, y: 0.5 }] }}
+      />,
+    );
+    const fills = Array.from(
+      container.querySelectorAll(
+        '[data-testid="field-diagram-heatmap"] circle',
+      ),
+    ).map((c) => c.getAttribute('fill'));
+    expect(fills.length).toBeGreaterThan(0);
+    expect(fills.every((f) => f === '#abcdef')).toBe(true);
+  });
+
+  it('mirrors heatmap circle cx when mirror is set (helper emits raw space)', () => {
+    // A single point at x=0 -> bin center x = 0.5/HEATMAP_BINS. With mirror, cx = 1 - that.
+    const rawX = 0.5 / HEATMAP_BINS;
+    const { container } = render(
+      <FieldDiagram mode="view" mirror heatmap={{ points: [{ x: 0, y: 0 }] }} />,
+    );
+    const circle = container.querySelector(
+      '[data-testid="field-diagram-heatmap"] circle',
+    ) as SVGCircleElement | null;
+    expect(circle).toBeTruthy();
+    expect(Number(circle!.getAttribute('cx'))).toBeCloseTo(1 - rawX, 6);
   });
 });
 

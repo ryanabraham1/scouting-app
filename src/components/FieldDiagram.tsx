@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
+import { heatmapBlobs } from '@/components/HeatmapLayer';
 
 export interface FieldPoint {
   x: number;
@@ -26,6 +27,14 @@ export interface FieldDiagramProps {
   mirror?: boolean;
   /** Read-only routine overlays drawn on top of the primary path/start. */
   overlays?: RoutineOverlay[];
+  /**
+   * Read-only density heatmap drawn UNDER the polyline/marker/overlays (rendered
+   * as the first child of the `<svg>`, so document order paints it below). Points
+   * arrive in RAW [0,1] field space; this component applies the `mx()` mirror at
+   * the render boundary (the heatmap helper never mirrors). Only rendered in
+   * `mode === 'view'`, so it never blocks pick-start/draw-path interaction.
+   */
+  heatmap?: { points: FieldPoint[]; color?: string } | null;
   /**
    * Render the (very wide) field rotated 90° so it fills a TALL portrait
    * container — used on phones held vertically so the diagram is large and easy
@@ -58,12 +67,16 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
     onStartChange,
     onPathChange,
     overlays,
+    heatmap,
     rotate,
     fillHeight,
   } = props;
   const rotated = !!rotate;
   const heightFit = rotated || !!fillHeight;
   const testid = props['data-testid'] ?? 'field-diagram';
+  // Unique-per-instance id for the heatmap blur filter so multiple diagrams on a
+  // page don't share/clobber one another's <filter>.
+  const blurId = `${useId()}-heat-blur`;
   const containerRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef<FieldPoint[] | null>(null);
 
@@ -174,6 +187,50 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
           pointerEvents: 'none',
         }}
       >
+        {/* Traditional density heatmap — FIRST child so document order paints it
+            UNDER the polyline/marker/overlays. View mode only (never blocks
+            editing). Soft ramp-colored blobs (transparent→blue→cyan→green→
+            yellow→red) fused by a gaussian blur into a continuous intensity
+            field. The `color` prop, when given, tints the whole field a single
+            hue instead of the ramp (back-compat for monochrome callers). */}
+        {heatmap && heatmap.points.length > 0 && mode === 'view' && (
+          <g
+            data-testid={`${testid}-heatmap`}
+            filter={`url(#${blurId})`}
+            style={{ pointerEvents: 'none' }}
+          >
+            {/* <defs> paints nothing, so it can live inside the <g>; keeping the
+                <g> as the svg's first child preserves the UNDER-everything paint
+                order (and the documented first-child contract). */}
+            <defs>
+              <filter
+                id={blurId}
+                x="-20%"
+                y="-20%"
+                width="140%"
+                height="140%"
+                filterUnits="objectBoundingBox"
+              >
+                {/* blur in [0,1] user space: a tight ~0.8% stdDev just softens
+                    cell edges into a continuous line WITHOUT smearing each path
+                    point into a wide zone (was 2.2%, which fattened every path
+                    into a broad blob). */}
+                <feGaussianBlur stdDeviation="0.008" />
+              </filter>
+            </defs>
+            {heatmapBlobs(heatmap.points).map((b, i) => (
+              <circle
+                key={i}
+                cx={mx(b.x)}
+                cy={b.y}
+                r={b.r}
+                fill={heatmap.color ?? b.color}
+                fillOpacity={b.fillOpacity}
+                stroke="none"
+              />
+            ))}
+          </g>
+        )}
         {path && path.length >= 2 && (
           <polyline
             data-testid={`${testid}-polyline`}

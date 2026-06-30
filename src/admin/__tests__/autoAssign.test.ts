@@ -128,6 +128,33 @@ describe('autoAssign', () => {
   });
 });
 
+describe('autoAssign quals-only', () => {
+  it('returns nothing for a playoff-only match list', () => {
+    const playoffs: AssignMatch[] = [
+      { matchKey: '2026casnv_sf1', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+      { matchKey: '2026casnv_sf2m1', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+      { matchKey: '2026casnv_f1m1', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+    ];
+    const out = autoAssign(playoffs, buildScouts(6), OPTS);
+    expect(out).toHaveLength(0);
+  });
+
+  it('assigns ONLY the qualification matches when quals + playoffs are mixed', () => {
+    const mixed: AssignMatch[] = [
+      { matchKey: '2026casnv_qm1', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+      { matchKey: '2026casnv_sf1', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+      { matchKey: '2026casnv_qm2', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+      { matchKey: '2026casnv_f1m1', redTeams: [11, 22, 33], blueTeams: [44, 55, 66] },
+    ];
+    const out = autoAssign(mixed, buildScouts(6), OPTS);
+    const assignedMatchKeys = new Set(out.map((a) => a.matchKey));
+    expect([...assignedMatchKeys].sort()).toEqual(['2026casnv_qm1', '2026casnv_qm2']);
+    // 2 quals * 6 slots = 12 (no own-team here).
+    expect(out).toHaveLength(12);
+    expect(out.some((a) => a.matchKey.includes('sf') || a.matchKey.includes('f1'))).toBe(false);
+  });
+});
+
 describe('autoAssign break cadence', () => {
   // Helper: longest run of consecutive matches (in match order) a scout is assigned to.
   function longestStreak(out: Assignment[], matches: AssignMatch[], scoutId: string): number {

@@ -1,15 +1,16 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const upsertMock = vi.fn();
+const rpcMock = vi.fn();
 
+// Reference rpcMock LAZILY (inside a function body) so the hoisted vi.mock factory
+// doesn't read it at import time — a direct `rpc: rpcMock` hits the const's TDZ.
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    from: vi.fn(() => ({ upsert: upsertMock })),
+    rpc: (...args: unknown[]) => rpcMock(...args),
   },
 }));
 
-import { supabase } from '@/lib/supabase';
 import {
   savePitDraft,
   getPitDraft,
@@ -65,15 +66,17 @@ describe('pit draft', () => {
 
 describe('submitPit', () => {
   beforeEach(() => {
-    upsertMock.mockReset();
-    (supabase.from as unknown as ReturnType<typeof vi.fn>).mockClear();
+    rpcMock.mockReset();
   });
 
-  it('upserts snake_case row into pit_scouting_report', async () => {
-    upsertMock.mockResolvedValue({ data: null, error: null });
+  it('upserts snake_case row via the revision-guarded upsert_pit_report RPC', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: null });
     await submitPit(makeReport());
-    expect(supabase.from).toHaveBeenCalledWith('pit_scouting_report');
-    expect(upsertMock).toHaveBeenCalledWith({
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    const [fn, args] = rpcMock.mock.calls[0];
+    expect(fn).toBe('upsert_pit_report');
+    const { row_revision, ...rest } = args.p as Record<string, unknown>;
+    expect(rest).toEqual({
       event_key: '2026casj',
       team_number: 254,
       drivetrain: 'swerve',
@@ -94,10 +97,12 @@ describe('submitPit', () => {
       notes: 'fast',
       author_scout_id: 'scout-1',
     });
+    // The guard value is a monotonic epoch-ms (the report's edit time).
+    expect(typeof row_revision).toBe('number');
   });
 
   it('throws on upsert error', async () => {
-    upsertMock.mockResolvedValue({ data: null, error: { message: 'rls' } });
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'rls' } });
     await expect(submitPit(makeReport())).rejects.toThrow('rls');
   });
 });
