@@ -14,6 +14,18 @@ export interface AssignOptions {
   ownTeam: number;
   breakEveryN: number;
   rotatePositions: boolean;
+  /**
+   * When there's slack (more scouts than seats in a match), avoid handing a
+   * scout two matches in a row. Optional; treated as `true` when omitted so
+   * existing callers keep their current spread-out behavior.
+   */
+  avoidBackToBack?: boolean;
+  /**
+   * How many matches a scout rests once they hit `breakEveryN` consecutive
+   * matches. Optional; treated as `1` when omitted (the prior implicit behavior).
+   * The rest is a SOFT preference — a slot is never left unscouted to honor it.
+   */
+  breakLength?: number;
 }
 
 export type AllianceColor = 'red' | 'blue';

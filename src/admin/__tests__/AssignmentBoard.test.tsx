@@ -187,6 +187,54 @@ describe('AssignmentBoard', () => {
     expect(screen.getByTestId('auto-generate-btn')).toBeDisabled();
   });
 
+  it('opens the board for manual assignment WITHOUT auto-filling', async () => {
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    fireEvent.click(screen.getByTestId('assign-manually-btn'));
+    // Grid is shown, but autoAssign was never called (nothing pre-filled).
+    const grid = await screen.findByTestId('assignment-grid');
+    expect(autoAssign).not.toHaveBeenCalled();
+    // Every seat starts unassigned.
+    const selects = screen.getAllByTestId('slot-select') as HTMLSelectElement[];
+    expect(selects.length).toBe(6);
+    expect(selects.every((s) => s.value === '')).toBe(true);
+    expect(grid).toBeInTheDocument();
+  });
+
+  it('renders one row per match with a selector per seat (not one row per seat)', async () => {
+    autoAssign.mockReturnValue([
+      { matchKey: '2026casnv_qm1', scoutId: 's1', allianceColor: 'red', station: 1, targetTeamNumber: 254 },
+    ]);
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    fireEvent.click(screen.getByTestId('auto-generate-btn'));
+    await screen.findByTestId('assignment-grid');
+    // A single qual match -> exactly ONE match row holding all six seat selects.
+    expect(screen.getAllByTestId('match-assign-row')).toHaveLength(1);
+    expect(screen.getAllByTestId('slot-select')).toHaveLength(6);
+  });
+
+  it('passes the tuned auto-generate options through to autoAssign', async () => {
+    autoAssign.mockReturnValue([]);
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    // Open the options panel and change every knob.
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    fireEvent.change(screen.getByTestId('opt-rest-every'), { target: { value: '3' } });
+    fireEvent.change(screen.getByTestId('opt-rest-length'), { target: { value: '2' } });
+    fireEvent.click(screen.getByTestId('opt-rotate')); // default on -> off
+    fireEvent.click(screen.getByTestId('opt-avoid-b2b')); // default on -> off
+    fireEvent.click(screen.getByTestId('auto-generate-btn'));
+    await waitFor(() => expect(autoAssign).toHaveBeenCalled());
+    expect(autoAssign).toHaveBeenCalledWith(
+      MATCHES,
+      SCOUTS,
+      expect.objectContaining({
+        breakEveryN: 3,
+        breakLength: 2,
+        rotatePositions: false,
+        avoidBackToBack: false,
+      }),
+    );
+  });
+
   it('shows a helpful message when the roster is empty', async () => {
     ensureEventScoutsFromRoster.mockResolvedValue([]);
     const caetbMatches: AssignMatch[] = [

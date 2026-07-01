@@ -3,13 +3,19 @@
 // built around, and assign scouters. Folds the old /admin page in.
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Users, ArrowLeftRight, Trash2, Sparkles } from 'lucide-react';
+import {
+  CheckCircle2,
+  Users,
+  ArrowLeftRight,
+  Trash2,
+  Sparkles,
+  ChevronDown,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EventSetup } from '@/admin/EventSetup';
-import { ScheduleView } from '@/admin/ScheduleView';
-import { AssignmentBoard } from '@/admin/AssignmentBoard';
+import { MatchPlanner } from '@/admin/MatchPlanner';
 import type { AssignMatch, AssignScout } from '@/admin/types';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { setActiveEvent } from '@/dash/setActiveEvent';
@@ -59,6 +65,10 @@ export default function SetupTab(): JSX.Element {
   // in-flight seed/teardown; `confirmingDemoRemove` arms the one-tap remove guard.
   const [demoBusy, setDemoBusy] = useState(false);
   const [confirmingDemoRemove, setConfirmingDemoRemove] = useState(false);
+  // Event/config management (demo, event switching, base team) folds into a
+  // disclosure so it doesn't push the match schedule + assignments — the daily
+  // work — far down the page. Opens by default only when nothing is set up yet.
+  const [configOpen, setConfigOpen] = useState(() => !activeEvent);
 
   // Base team: the team the whole dashboard pivots on (next match, live data,
   // rankings). Defaults to 3256; configurable here so a lead can point the app at
@@ -195,6 +205,29 @@ export default function SetupTab(): JSX.Element {
 
   return (
     <div data-testid="setup-tab" className="flex flex-col gap-4">
+      {/* Event & config management folds into a disclosure so the daily work —
+          the match schedule + assignments below — isn't buried under setup that
+          rarely changes. The active event stays visible in the summary. */}
+      <details
+        open={configOpen}
+        onToggle={(e) => setConfigOpen(e.currentTarget.open)}
+        className="group rounded-lg border border-border"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 [&::-webkit-details-marker]:hidden">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Active event</span>
+            <span data-testid="setup-active-event" className="font-mono text-lg font-semibold">
+              {activeEvent ?? '— none —'}
+            </span>
+            {activeEvent ? <CheckCircle2 className="size-5 text-success" /> : null}
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+            Events &amp; settings
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+          </span>
+        </summary>
+
+        <div className="flex flex-col gap-4 border-t border-border p-3">
       {/* Demo mode — a one-tap simulated event so the whole dashboard (rankings,
           picklist, next-match prediction, team profiles, scouter performance) can
           be explored without a live event. Tinted brand/energy so it reads as a
@@ -275,22 +308,6 @@ export default function SetupTab(): JSX.Element {
             {demoBusy ? 'Setting up demo…' : 'Enable demo mode'}
           </Button>
         )}
-      </div>
-
-      {/* Active event. Set automatically when you import an event below; it sticks
-          across sessions, so there's nothing extra to press to "keep" it. */}
-      <div className="flex flex-col gap-1 rounded-lg border border-border p-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-muted-foreground">Active event</span>
-          <span data-testid="setup-active-event" className="font-mono text-lg font-semibold">
-            {activeEvent ?? '— none —'}
-          </span>
-          {activeEvent && <CheckCircle2 className="size-5 text-success" />}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Importing an event makes it active and keeps it active across sessions and
-          devices. Switch between already-imported events below — no re-import needed.
-        </p>
       </div>
 
       {/* Events — switch the active event among already-imported ones (no
@@ -449,13 +466,12 @@ export default function SetupTab(): JSX.Element {
         </div>
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        </div>
+      </details>
 
       {activeEvent ? (
-        <>
-          <ScheduleView eventKey={activeEvent} />
-          <AssignmentBoard eventKey={activeEvent} matches={matches} scouts={scouts} />
-        </>
+        <MatchPlanner eventKey={activeEvent} matches={matches} scouts={scouts} />
       ) : (
         <p className="text-sm text-muted-foreground">Import an event to begin.</p>
       )}

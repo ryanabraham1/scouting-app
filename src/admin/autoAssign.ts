@@ -40,12 +40,16 @@ export function autoAssign(
   // Per-scout running state.
   const totalCount = new Map<string, number>(); // total assignments so far
   const consecutive = new Map<string, number>(); // consecutive assignments without a rest
+  const restRemaining = new Map<string, number>(); // matches of owed rest still pending (soft)
   const lastStation = new Map<string, number>(); // last station scouted (for rotation bias)
   const lastColor = new Map<string, AllianceColor>(); // last alliance color (for rotation bias)
   for (const s of scouts) {
     totalCount.set(s.id, 0);
     consecutive.set(s.id, 0);
+    restRemaining.set(s.id, 0);
   }
+  // How long a break lasts once earned (>=1 match). Legacy callers omit it -> 1.
+  const breakLength = Math.max(1, opts.breakLength ?? 1);
 
   const scoutOrder = new Map<string, number>();
   scouts.forEach((s, i) => scoutOrder.set(s.id, i));
@@ -76,16 +80,16 @@ export function autoAssign(
       // Scheduled break is a SOFT preference: prefer scouts who are NOT due for a
       // rest, but NEVER drop a slot just because everyone is due. When the scout
       // pool equals the slot count, the break used to fire for everyone at once,
-      // leaving entire matches (every breakEveryN-th) completely unscouted.
-      const notOnBreak = baseEligible.filter(
-        (s) => !(opts.breakEveryN > 0 && (consecutive.get(s.id) ?? 0) >= opts.breakEveryN),
-      );
+      // leaving entire matches (every breakEveryN-th) completely unscouted. A
+      // scout is "on break" while they still owe rest matches (restRemaining > 0).
+      const notOnBreak = baseEligible.filter((s) => (restRemaining.get(s.id) ?? 0) <= 0);
       const eligible = notOnBreak.length > 0 ? notOnBreak : baseEligible;
 
       // When the pool is larger than slots, also avoid back-to-back same scout.
+      // Opt-out via avoidBackToBack:false (default on for legacy callers).
       const slotsThisMatch = slots.length;
       let pool = eligible;
-      if (scouts.length > slotsThisMatch) {
+      if ((opts.avoidBackToBack ?? true) && scouts.length > slotsThisMatch) {
         const filtered = eligible.filter((s) => !prevMatchScouts.has(s.id));
         if (filtered.length > 0) pool = filtered;
       }
@@ -118,12 +122,23 @@ export function autoAssign(
       lastColor.set(chosen.id, slot.allianceColor);
     }
 
-    // Update consecutive counters after the match: anyone who worked +1, anyone who rested -> 0.
+    // Update per-scout counters after the match.
     for (const s of scouts) {
       if (usedThisMatch.has(s.id)) {
-        consecutive.set(s.id, (consecutive.get(s.id) ?? 0) + 1);
+        // Worked this match: extend the streak. On hitting the cadence, owe a
+        // full breakLength rest and reset the streak.
+        const streak = (consecutive.get(s.id) ?? 0) + 1;
+        if (opts.breakEveryN > 0 && streak >= opts.breakEveryN) {
+          restRemaining.set(s.id, breakLength);
+          consecutive.set(s.id, 0);
+        } else {
+          consecutive.set(s.id, streak);
+        }
       } else {
-        consecutive.set(s.id, 0); // a missed match counts as a rest, breaking the streak
+        // Missed the match: pay down any owed rest, and the gap breaks the streak.
+        const owed = restRemaining.get(s.id) ?? 0;
+        if (owed > 0) restRemaining.set(s.id, owed - 1);
+        consecutive.set(s.id, 0);
       }
     }
   }

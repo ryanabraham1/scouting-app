@@ -172,6 +172,51 @@ describe('autoAssign break cadence', () => {
     return best;
   }
 
+  it('(g) breakLength keeps a rested scout out for that many matches (with slack)', () => {
+    // breakEveryN=1 -> a break is earned after every worked match; breakLength=3
+    // -> once earned, the scout sits out the next 3 matches. Ample slack (20
+    // scouts for 5 slots) lets the soft rest be honored while every slot fills.
+    const matches = buildMatches(); // 12 matches, 5 slots each
+    const scouts = buildScouts(20);
+    const breakLength = 3;
+    const out = autoAssign(matches, scouts, {
+      ownTeam: 3256,
+      breakEveryN: 1,
+      breakLength,
+      rotatePositions: false,
+    });
+    // Every slot still filled.
+    expect(out).toHaveLength(60);
+    // For each scout, consecutive worked matches are at least breakLength+1 apart.
+    const idxOf = new Map(matches.map((m, i) => [m.matchKey, i]));
+    for (const s of scouts) {
+      const worked = out
+        .filter((a) => a.scoutId === s.id)
+        .map((a) => idxOf.get(a.matchKey) as number)
+        .sort((a, b) => a - b);
+      for (let i = 1; i < worked.length; i++) {
+        expect(worked[i] - worked[i - 1]).toBeGreaterThanOrEqual(breakLength + 1);
+      }
+    }
+  });
+
+  it('(f) accepts avoidBackToBack:false without degrading coverage or balance', () => {
+    // The flag only relaxes a soft tiebreak; correctness (full coverage, ±1
+    // balance, never scouting own team) must hold whether it's on or off.
+    const matches = buildMatches(); // 12 matches, 5 slots each = 60 slots
+    const scouts = buildScouts(6);
+    const out = autoAssign(matches, scouts, {
+      ownTeam: 3256,
+      breakEveryN: 0,
+      rotatePositions: false,
+      avoidBackToBack: false,
+    });
+    expect(out).toHaveLength(60);
+    expect(out.some((a) => a.targetTeamNumber === 3256)).toBe(false);
+    const counts = scouts.map((s) => out.filter((a) => a.scoutId === s.id).length);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+  });
+
   it('(e) honors breakEveryN (no over-long streak) AND keeps full coverage when there is slack', () => {
     // Coverage is MANDATORY; the scheduled break is best-effort. With ample slack
     // (10 scouts for 5 slots/match) the break can be honored AND every slot filled.

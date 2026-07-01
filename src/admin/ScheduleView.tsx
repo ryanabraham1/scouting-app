@@ -56,7 +56,14 @@ export function ScheduleView({ eventKey }: ScheduleViewProps): JSX.Element {
         ) : matches.length === 0 ? (
           <p className="text-sm text-muted-foreground">No matches yet.</p>
         ) : (
-          <ul data-testid="schedule-list" className="flex flex-col gap-2">
+          <>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {matches.length} qualification match{matches.length === 1 ? '' : 'es'}
+            </p>
+            <ul
+              data-testid="schedule-list"
+              className="flex max-h-[62vh] flex-col gap-2 overflow-y-auto pr-1"
+            >
             {matches.map((m) => (
               <li
                 key={m.match_key}
@@ -76,7 +83,8 @@ export function ScheduleView({ eventKey }: ScheduleViewProps): JSX.Element {
                 </span>
               </li>
             ))}
-          </ul>
+            </ul>
+          </>
         )}
       </CardContent>
     </Card>
