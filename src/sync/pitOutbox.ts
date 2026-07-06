@@ -15,7 +15,7 @@ import {
   type LocalPitReport,
 } from '@/pit/pitStore';
 import { uploadPitPhoto } from '@/pit/photoUpload';
-import { classifySyncError } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 
 export interface PitSyncSummary {
@@ -49,7 +49,8 @@ async function uploadAndUpsert(rec: LocalPitReport): Promise<unknown> {
     rec.photoBlob = null;
     // Persist the uploaded path immediately so a transient upsert retry reuses
     // it instead of re-uploading (which would orphan this object in Storage).
-    await setPitUploadedPhoto(rec.draftKey, path);
+    // Guarded by updatedAt so a mid-flight re-submit's NEW blob isn't destroyed.
+    await setPitUploadedPhoto(rec.draftKey, path, rec.updatedAt);
   }
   // Revision = this report's local updatedAt epoch-ms, so a STALE queued report
   // (older edit) can never overwrite a newer one already on the server (0031).
@@ -83,20 +84,29 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
     }
 
     if (!failed) {
-      await markPitSynced(rec.draftKey, rec.data.photoPath);
+      await markPitSynced(rec.draftKey, rec.data.photoPath, rec.updatedAt);
       summary.synced += 1;
       continue;
     }
 
+    const message = errorMessage(failure);
+
+    // Pure network gap: requeue without burning an attempt, stop the drain
+    // (the rest of the queue faces the same dead network). See outbox.ts.
+    if (isNetworkFailure(failure)) {
+      await markPitDirtyRetry(rec.draftKey, message, { countAttempt: false });
+      summary.retried += 1;
+      break;
+    }
+
     const kind = classifySyncError(failure);
     const attempts = rec.syncAttempts ?? 0;
-    const message = errorMessage(failure);
 
     if (kind === 'transient' && attempts < SYNC_MAX_ATTEMPTS) {
       await markPitDirtyRetry(rec.draftKey, message);
       summary.retried += 1;
     } else {
-      await markPitSyncError(rec.draftKey, message);
+      await markPitSyncError(rec.draftKey, message, rec.updatedAt);
       summary.deadLettered += 1;
     }
   }

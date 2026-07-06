@@ -103,33 +103,52 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
 
   return (
     <div data-testid="report-detail" className="flex flex-col gap-5 text-foreground">
-      {/* Multi-scout conflict banner (renders at the very top, above identity). */}
-      {conflictGroup?.isConflicted ? (
-        <section
-          data-testid="report-conflict"
-          data-scout-id={r.scout_id ?? ''}
-          data-severity={conflictGroup.severity}
-          className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3"
-        >
-          <SectionHeading icon={<AlertTriangle />}>Multi-scout conflict</SectionHeading>
-          <ConflictMarker group={conflictGroup} showDetail />
-          {siblings.length ? (
-            <div className="flex flex-wrap gap-2">
-              {siblings.map((s) => (
-                <button
-                  key={s.scout_id ?? '∅'}
-                  type="button"
-                  data-testid={`report-conflict-sibling-${s.scout_id ?? 'unassigned'}`}
-                  onClick={() => onOpenSibling?.(s)}
-                  className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning hover:bg-warning/20"
-                >
-                  View {resolveName(s.scout_id)}&apos;s report →
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+      {/* Multi-scout conflict banner (renders at the very top, above identity).
+          MAJOR (severe) discrepancies escalate to the destructive token; MINOR
+          ones stay on warning so the tone tracks real severity. */}
+      {conflictGroup?.isConflicted
+        ? (() => {
+            const major = conflictGroup.severity === 'severe';
+            const bannerClass = major
+              ? 'border-destructive/40 bg-destructive/5'
+              : 'border-warning/40 bg-warning/5';
+            const siblingClass = major
+              ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20'
+              : 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20';
+            return (
+              <section
+                data-testid="report-conflict"
+                data-scout-id={r.scout_id ?? ''}
+                data-severity={conflictGroup.severity}
+                className={[
+                  'flex flex-col gap-2 rounded-xl border p-3',
+                  bannerClass,
+                ].join(' ')}
+              >
+                <SectionHeading icon={<AlertTriangle />}>Multi-scout conflict</SectionHeading>
+                <ConflictMarker group={conflictGroup} showDetail />
+                {siblings.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {siblings.map((s) => (
+                      <button
+                        key={s.scout_id ?? '∅'}
+                        type="button"
+                        data-testid={`report-conflict-sibling-${s.scout_id ?? 'unassigned'}`}
+                        onClick={() => onOpenSibling?.(s)}
+                        className={[
+                          'rounded-lg border px-3 py-1.5 text-sm font-semibold',
+                          siblingClass,
+                        ].join(' ')}
+                      >
+                        View {resolveName(s.scout_id)}&apos;s report →
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })()
+        : null}
 
       {/* Identity */}
       <section className="flex flex-col gap-2">

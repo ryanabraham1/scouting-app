@@ -37,7 +37,7 @@ test('scouter captures a match offline and it queues as unsynced', async ({ page
 
   // Pick a name (online: binds this device to a scout row for the active event).
   await pickScouter(page, SCOUTER);
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0');
+  await expect(page.getByTestId('sync-queued')).toHaveText('0');
 
   // Manual pick (event is fixed to the active event); reach an enabled start.
   await page.locator('#mp-match').fill(E2E_MATCH_KEY);
@@ -52,6 +52,8 @@ test('scouter captures a match offline and it queues as unsynced', async ({ page
 
   // Pre-match placement step (half-field auto picker) gates the live screen.
   await expect(page.getByTestId('capture-placement-submit')).toBeVisible();
+  // The Start button is disabled until the robot is PLACED — tap the field.
+  await page.getByTestId('capture-half-clip').click();
   await page.getByTestId('capture-placement-submit').click();
 
   await expect(page.getByTestId('capture-start')).toBeVisible();
@@ -91,8 +93,8 @@ test('scouter captures a match offline and it queues as unsynced', async ({ page
 
   // Back on the scout home, still offline: the report stays queued (not synced).
   await expect(page.getByTestId('scout-home')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑1');
-  await expect(page.getByTestId('sync-deadletters')).toHaveText('⚠0');
+  await expect(page.getByTestId('sync-queued')).toHaveText('1');
+  await expect(page.getByTestId('sync-deadletters')).toHaveText('0');
   // Stay offline: this spec verifies the OFFLINE queue only. Reconnecting here
   // would sync a row for the same _e2etest match/team and collide with sync.spec.
 });

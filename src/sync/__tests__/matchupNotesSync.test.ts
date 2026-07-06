@@ -62,7 +62,7 @@ describe('syncMatchupNotesOnce', () => {
   });
 
   it('transient error under cap: returns to dirty and bumps attempts', async () => {
-    rpcMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    rpcMock.mockResolvedValue({ error: { message: 'service unavailable', status: 503 } });
     await saveMatchupNoteLocal(makeNote());
 
     const summary = await syncMatchupNotesOnce();
@@ -71,6 +71,18 @@ describe('syncMatchupNotesOnce', () => {
     const rec = await db.matchupNotes.get('2026casnv:3256:254');
     expect(rec?.syncState).toBe('dirty');
     expect(rec?.syncAttempts).toBe(1);
+  });
+
+  it('network gap: returns to dirty WITHOUT burning an attempt', async () => {
+    rpcMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await saveMatchupNoteLocal(makeNote());
+
+    const summary = await syncMatchupNotesOnce();
+
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
+    const rec = await db.matchupNotes.get('2026casnv:3256:254');
+    expect(rec?.syncState).toBe('dirty');
+    expect(rec?.syncAttempts).toBe(0);
   });
 
   it('terminal error (42501): dead-letters', async () => {
@@ -85,7 +97,7 @@ describe('syncMatchupNotesOnce', () => {
   });
 
   it('transient at SYNC_MAX_ATTEMPTS: dead-letters', async () => {
-    rpcMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    rpcMock.mockResolvedValue({ error: { message: 'service unavailable', status: 503 } });
     await saveMatchupNoteLocal(makeNote({ syncAttempts: SYNC_MAX_ATTEMPTS }));
 
     const summary = await syncMatchupNotesOnce();

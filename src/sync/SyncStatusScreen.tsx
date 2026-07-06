@@ -14,8 +14,13 @@ import { useSession } from '@/auth/useSession';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BackLink } from '@/components/ui/BackLink';
 import { Button } from '@/components/ui/button';
-import { getSyncQueue, listDeadLetters, requeueReport } from '@/db/localStore';
-import { getPitSyncQueue, listPitDeadLetters, requeuePitReport } from '@/pit/pitStore';
+import { getSyncQueue, listDeadLetters, requeueReport, deleteReport } from '@/db/localStore';
+import {
+  getPitSyncQueue,
+  listPitDeadLetters,
+  requeuePitReport,
+  deletePitReport,
+} from '@/pit/pitStore';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 
 interface LocalDeadLetter {
@@ -31,10 +36,25 @@ interface LocalDeadLetter {
  * below only shows what reached the server — without this, a stuck report was
  * invisible here even though the header badge counted it.
  */
+/** True when a dead-letter can NEVER sync because its event no longer exists
+ *  (the scout-row provisioning trips the event FK). Retry/Fix can't help — the
+ *  only recovery is to discard it. */
+function isDeletedEventError(error: string | null): boolean {
+  if (!error) return false;
+  const e = error.toLowerCase();
+  // Require the EVENT-key FK specifically: a bare `includes('event')` also
+  // matched match-key/team FK messages whose constraint names embed "event",
+  // which mislabeled fixable dead-letters as "event no longer exists" (hiding
+  // the Fix & re-save path that could actually recover them).
+  return e.includes('scout_event_key_fkey') || (e.includes('event_key') && e.includes('foreign key'));
+}
+
 function LocalOutbox(): JSX.Element {
   const [queued, setQueued] = useState(0);
   const [dead, setDead] = useState<LocalDeadLetter[]>([]);
   const [retrying, setRetrying] = useState(false);
+  // Key (`${kind}:${id}`) of the dead-letter whose discard is armed for confirm.
+  const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [mq, pq, md, pd] = await Promise.all([
@@ -79,6 +99,18 @@ function LocalOutbox(): JSX.Element {
     }
   }, [dead, refresh]);
 
+  const discard = useCallback(
+    async (d: LocalDeadLetter) => {
+      if (d.kind === 'match') await deleteReport(d.id);
+      else await deletePitReport(d.id);
+      setConfirmDiscard(null);
+      // Update the header badge immediately.
+      window.dispatchEvent(new Event('scout-sync-changed'));
+      await refresh();
+    },
+    [refresh],
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -91,36 +123,89 @@ function LocalOutbox(): JSX.Element {
         {dead.length > 0 ? (
           <>
             <ul className="flex flex-col gap-2">
-              {dead.map((d) => (
-                <li
-                  key={`${d.kind}:${d.id}`}
-                  data-testid="local-outbox-deadletter"
-                  className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="font-semibold">{d.label}</div>
-                    {/* A pure "Retry all" just re-runs the identical broken payload
-                        and re-dead-letters (BUG-3). The real fix for a match report
-                        is to CORRECT the bad match/team and re-save, so link each
-                        match dead-letter to its editor. (Pit reports have no in-app
-                        editor yet, so they only get Retry.) */}
-                    {d.kind === 'match' ? (
-                      <Link
-                        data-testid="local-outbox-fix"
-                        to={`/scout?edit=${d.id}`}
-                        className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
-                      >
-                        Fix &amp; re-save
-                      </Link>
-                    ) : null}
-                  </div>
-                  {d.error ? (
-                    <div className="mt-0.5 text-xs text-destructive [overflow-wrap:anywhere]">
-                      {d.error}
+              {dead.map((d) => {
+                const key = `${d.kind}:${d.id}`;
+                const deletedEvent = isDeletedEventError(d.error);
+                const armed = confirmDiscard === key;
+                return (
+                  <li
+                    key={key}
+                    data-testid="local-outbox-deadletter"
+                    className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="font-semibold">{d.label}</div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {/* A pure "Retry all" just re-runs the identical broken
+                            payload and re-dead-letters (BUG-3). The real fix for a
+                            match report is to CORRECT the bad match/team and
+                            re-save — but that's pointless when the whole EVENT is
+                            gone, so hide Fix in that case and lead with Discard. */}
+                        {d.kind === 'match' && !deletedEvent ? (
+                          <Link
+                            data-testid="local-outbox-fix"
+                            to={`/scout?edit=${d.id}`}
+                            className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+                          >
+                            Fix &amp; re-save
+                          </Link>
+                        ) : null}
+                        {armed ? (
+                          <>
+                            <button
+                              type="button"
+                              data-testid="local-outbox-discard-confirm"
+                              onClick={() => void discard(d)}
+                              className="rounded-md border border-destructive bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground"
+                            >
+                              Discard
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="local-outbox-discard-cancel"
+                              onClick={() => setConfirmDiscard(null)}
+                              className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="local-outbox-discard"
+                            onClick={() => setConfirmDiscard(key)}
+                            className="rounded-md border border-destructive/50 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/20"
+                          >
+                            Discard
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ) : null}
-                </li>
-              ))}
+                    {/* Armed discard on a still-fixable report: spell out that
+                        this deletes the ONLY copy of unsynced data — history is
+                        full of dead-letters later rescued by server fixes. */}
+                    {armed && !deletedEvent ? (
+                      <div className="mt-1 text-xs font-medium text-destructive">
+                        This permanently deletes the only copy of this report — a
+                        future fix could still recover it. Consider Fix &amp;
+                        re-save or Retry first.
+                      </div>
+                    ) : null}
+                    {/* Friendly explanation for the un-fixable case; else the raw
+                        server error for debugging. */}
+                    {deletedEvent ? (
+                      <div className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                        This report is for an event that no longer exists, so it can’t be
+                        uploaded. Discard it to clear the warning.
+                      </div>
+                    ) : d.error ? (
+                      <div className="mt-0.5 text-xs text-destructive [overflow-wrap:anywhere]">
+                        {d.error}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
             <Button
               data-testid="local-outbox-retry"
@@ -279,10 +364,10 @@ export default function SyncStatusScreen(): JSX.Element {
                     data-testid={`sync-match-${m.matchKey}`}
                     className="flex flex-col gap-1 rounded-lg border p-3 text-sm"
                   >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="w-16 shrink-0 font-mono font-semibold">{m.matchKey}</span>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="font-semibold">{formatMatchKeyRaw(m.matchKey)}</span>
                       <span
-                        className={`rounded-full border px-2 py-0.5 font-mono text-xs ${
+                        className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-xs tabular-nums ${
                           complete
                             ? 'border-success/40 bg-success/15 text-success'
                             : 'border-warning/40 bg-warning/15 text-warning'

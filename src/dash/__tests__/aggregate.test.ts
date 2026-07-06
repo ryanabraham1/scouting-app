@@ -689,6 +689,22 @@ describe('matchScoutCoverage', () => {
     );
     expect(matchScoutCoverage(reports, roster, 'qm1').stationsCovered).toBe(6);
   });
+
+  it('counts red 1/2/3 and blue 1/2/3 as SIX stations (full coverage reachable)', () => {
+    // Station numbers are per-alliance. Keying the set by bare station number
+    // collapsed red 1 and blue 1 together, capping coverage at 3/6 forever.
+    const reports: MsrRow[] = (['red', 'blue'] as const).flatMap((color) =>
+      [1, 2, 3].map((st) =>
+        row({
+          match_key: 'qm1',
+          scout_id: `${color}${st}`,
+          station: st,
+          alliance_color: color,
+        }),
+      ),
+    );
+    expect(matchScoutCoverage(reports, roster, 'qm1').stationsCovered).toBe(6);
+  });
 });
 
 describe('eventScoutCoverage', () => {

@@ -168,7 +168,7 @@ export function ReviewScreen(props: {
   const StepIcon = STEPS[step].icon;
 
   const inputClass =
-    'h-12 rounded-xl border border-border bg-input px-3 text-lg tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring landscape:h-14';
+    'h-12 rounded-xl border border-border bg-input px-3 font-mono text-lg tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring landscape:h-14';
   const labelClass = 'flex flex-col gap-1 text-sm font-medium text-muted-foreground landscape:gap-1.5';
 
   return (
@@ -321,7 +321,7 @@ export function ReviewScreen(props: {
                     onChange={(e) =>
                       s.setDefenseDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))
                     }
-                    className={`${inputClass} ${s.defenseDurationMs > 0 ? 'border-brand text-brand' : ''}`}
+                    className={`${inputClass} ${s.defenseDurationMs > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
@@ -335,7 +335,7 @@ export function ReviewScreen(props: {
                     onChange={(e) =>
                       s.setDefendedDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))
                     }
-                    className={`${inputClass} ${s.defendedDurationMs > 0 ? 'border-warning text-warning' : ''}`}
+                    className={`${inputClass} ${s.defendedDurationMs > 0 ? 'border-destructive bg-destructive/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
@@ -408,7 +408,7 @@ export function ReviewScreen(props: {
                     min={0}
                     value={s.foulsMinor}
                     onChange={(e) => s.setFoulsMinor(Math.max(0, Number(e.target.value)))}
-                    className={`${inputClass} ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
+                    className={`${inputClass} ${s.foulsMinor > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>

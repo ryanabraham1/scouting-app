@@ -576,61 +576,88 @@ export default function ScoutHome() {
       data-testid="scout-home"
       className="flex min-h-screen flex-col gap-6 bg-background px-safe py-safe text-foreground"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <UserRound className="size-6 shrink-0" />
-          <h1 className="truncate text-2xl font-bold">{effective.display_name || 'Scout'}</h1>
+      {/* Mobile-first header: a clean identity + icon-nav row over a contained
+          status strip. Home/My Data/Log out collapse to icon-only buttons on
+          phones (labels return ≥ sm) so the top never staircases into a wrapping
+          mess; the offline + sync widgets live in their own bordered status bar. */}
+      <header className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <UserRound className="size-6 shrink-0" />
+            <h1 className="truncate text-2xl font-bold">{effective.display_name || 'Scout'}</h1>
+          </div>
+          <nav className="flex shrink-0 items-center gap-1.5">
+            <Link
+              data-testid="nav-home"
+              to="/"
+              aria-label="Home"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-lg border border-border px-3 text-sm font-medium hover:bg-accent"
+            >
+              <Home className="size-5 shrink-0" />
+              <span className="hidden sm:inline">Home</span>
+            </Link>
+            <Link
+              data-testid="nav-my-data"
+              to="/my-data"
+              aria-label="My Data"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-lg border border-border px-3 text-sm font-medium hover:bg-accent"
+            >
+              <BarChart3 className="size-5 shrink-0" />
+              <span className="hidden sm:inline">My Data</span>
+            </Link>
+            <Button
+              data-testid="scout-logout"
+              variant="outline"
+              aria-label={`Log out ${effective.display_name || ''}`.trim()}
+              className="min-h-[44px] min-w-[44px] px-3"
+              onClick={() => setConfirmLogout(true)}
+            >
+              <LogOut className="size-5 shrink-0" />
+              <span className="hidden sm:inline">Log out</span>
+            </Button>
+          </nav>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <OfflineReadyBadge eventKey={activeEvent ?? eventKey ?? null} scoutId={scoutId || undefined} />
-          <SyncIndicator />
-          <Link
-            data-testid="nav-home"
-            to="/"
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
-          >
-            <Home className="size-5" /> Home
-          </Link>
-          <Link
-            data-testid="nav-my-data"
-            to="/my-data"
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"
-          >
-            <BarChart3 className="size-5" /> My Data
-          </Link>
-          {confirmLogout ? (
-            <div className="flex w-full flex-wrap items-center justify-end gap-2">
+
+        {/* Two-step logout confirm: a full-width destructive bar so it can't be
+            fat-fingered, naming who's being logged out. */}
+        {confirmLogout ? (
+          <div className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm font-medium">
+              Log out{effective.display_name ? ` ${effective.display_name}` : ''}?
+            </span>
+            <div className="flex gap-2">
               <Button
                 data-testid="scout-logout-confirm"
                 variant="destructive"
-                className="min-h-[44px] flex-1"
+                className="min-h-[44px] flex-1 sm:flex-none"
                 onClick={logOut}
               >
-                Confirm log out
+                Log out
               </Button>
               <Button
                 data-testid="scout-logout-cancel"
                 variant="ghost"
-                className="min-h-[44px] flex-1"
+                className="min-h-[44px] flex-1 sm:flex-none"
                 onClick={() => setConfirmLogout(false)}
               >
                 Cancel
               </Button>
             </div>
-          ) : (
-            <Button
-              data-testid="scout-logout"
-              variant="outline"
-              className="min-h-[44px] max-w-full gap-2"
-              onClick={() => setConfirmLogout(true)}
-            >
-              <LogOut className="size-5 shrink-0" />
-              <span className="shrink-0">Log out</span>
-              {effective.display_name ? (
-                <span className="max-w-[40vw] truncate">({effective.display_name})</span>
-              ) : null}
-            </Button>
-          )}
+          </div>
+        ) : null}
+
+        {/* Status strip: two full-width rows (offline-cache readiness, then sync
+            state). Each row stays on ONE line (flex-nowrap) with its status text
+            left and action button(s) right, vertically centered — the text
+            truncates before the buttons ever drop to their own line. A hairline
+            divides the two rows. */}
+        <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card/40 px-3">
+          <OfflineReadyBadge
+            eventKey={activeEvent ?? eventKey ?? null}
+            scoutId={scoutId || undefined}
+            className="w-full flex-nowrap justify-between py-2"
+          />
+          <SyncIndicator className="w-full flex-nowrap justify-between py-2" detailsHref="/sync" />
         </div>
       </header>
 

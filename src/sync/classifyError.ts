@@ -24,7 +24,7 @@ const TRANSIENT_4XX = new Set([408, 429]);
  * (53, e.g. 53300 too_many_connections), operator intervention (57P), and
  * serialization/deadlock (40001 / 40P01).
  */
-const TRANSIENT_SQLSTATE = /^(08|53|57P|40001|40P01)/i;
+const TRANSIENT_SQLSTATE = /^(08|53|57P|57014|55P03|40001|40P01)/i;
 
 /** Extract a numeric HTTP-ish status from a `.status` or `.code` field. */
 function numericStatus(value: unknown): number | null {
@@ -62,7 +62,8 @@ export function classifySyncError(err: unknown): SyncErrorKind {
     //    PostgREST/Postgres error code (e.g. "42501", "PGRST204"). Only treat
     //    it as an HTTP status when it falls in the valid HTTP range; Postgres
     //    SQLSTATE codes like "42501" are 5 digits and must NOT be read as 5xx.
-    if (e.code != null) {
+    //    An empty-string code (fetch-failure shape) is "no code".
+    if (e.code != null && e.code !== '') {
       const codeStatus = numericStatus(e.code);
       if (codeStatus !== null && codeStatus >= 100 && codeStatus <= 599) {
         return classifyHttpStatus(codeStatus);
@@ -82,7 +83,10 @@ export function classifySyncError(err: unknown): SyncErrorKind {
       return 'terminal';
     }
 
-    // 3. Fall back to message sniffing for network failures.
+    // 3. Fall back to message sniffing for network failures. supabase-js does
+    //    NOT throw on transport failure — it resolves with
+    //    `error: { message: "TypeError: Failed to fetch", …, code: "" }` (the
+    //    empty code is treated as absent above so this branch is reachable).
     if (typeof e.message === 'string' && isNetworkMessage(e.message)) {
       return 'transient';
     }
@@ -94,6 +98,22 @@ export function classifySyncError(err: unknown): SyncErrorKind {
 
 function isNetworkMessage(message: string): boolean {
   return /failed to fetch|network|load failed|fetch/i.test(message);
+}
+
+/**
+ * True when the failure is a pure transport/network gap — no server verdict at
+ * all: a thrown fetch TypeError, or the supabase-js resolved fetch-failure shape
+ * (no status on the error, empty-string code, "Failed to fetch"-class message).
+ * A dead venue network is this app's normal operating condition, so these do NOT
+ * count toward SYNC_MAX_ATTEMPTS — they say nothing about the report itself.
+ */
+export function isNetworkFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err == null || typeof err !== 'object') return false;
+  const e = err as { status?: unknown; code?: unknown; message?: unknown };
+  if (numericStatus(e.status) !== null) return false;
+  if (e.code != null && e.code !== '') return false;
+  return typeof e.message === 'string' && isNetworkMessage(e.message);
 }
 
 /**

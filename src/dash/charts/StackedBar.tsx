@@ -26,10 +26,14 @@ export interface StackedBarProps {
 
 const VB_W = 320;
 const VB_H = 180;
-const PAD_L = 34;
+// Extra left room so 3-digit y-axis values (e.g. "120") don't clip the plot.
+const PAD_L = 40;
 const PAD_R = 8;
 const PAD_T = 10;
 const PAD_B = 30;
+
+// Monospace so SVG axis labels read as instrument telemetry (matches font-mono).
+const AXIS_FONT = "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace";
 
 function niceMax(max: number): number {
   if (max <= 0) return 1;
@@ -74,7 +78,7 @@ export function StackedBar({
   return (
     <figure data-testid={testid} className="m-0 w-full" role="group" aria-label={title}>
       {title ? (
-        <figcaption className="mb-1 text-sm font-medium text-muted-foreground">{title}</figcaption>
+        <figcaption className="eyebrow mb-1">{title}</figcaption>
       ) : null}
       <svg
         viewBox={`0 0 ${VB_W} ${VB_H}`}
@@ -93,7 +97,14 @@ export function StackedBar({
                 stroke={CHART_COLORS.border}
                 strokeWidth={0.5}
               />
-              <text x={PAD_L - 4} y={y + 3} textAnchor="end" fontSize={9} fill={CHART_COLORS.axis}>
+              <text
+                x={PAD_L - 4}
+                y={y + 3}
+                textAnchor="end"
+                fontSize={9}
+                fontFamily={AXIS_FONT}
+                fill={CHART_COLORS.axis}
+              >
                 {Math.round(t)}
               </text>
             </g>
@@ -130,6 +141,7 @@ export function StackedBar({
                   y={VB_H - PAD_B + 12}
                   textAnchor="middle"
                   fontSize={8}
+                  fontFamily={AXIS_FONT}
                   fill={CHART_COLORS.axis}
                 >
                   {d.label}
@@ -146,9 +158,11 @@ export function StackedBar({
           const colorKey = palette[s % palette.length];
           return (
             <span key={s} className="inline-flex items-center gap-1.5">
+              {/* Swatch color mirrors the segment fill (same palette index) so the
+                  legend ties visually to each stacked segment. */}
               <span
                 aria-hidden
-                className="inline-block size-2.5 rounded-sm"
+                className="inline-block size-[10px] rounded-[2px]"
                 style={{ backgroundColor: CHART_COLORS[colorKey] }}
               />
               {seriesNames?.[s] ?? `Shift ${s + 1}`}

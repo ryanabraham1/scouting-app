@@ -9,6 +9,7 @@ import {
   remainingMs,
   AUTO_MS,
   TELEOP_MS,
+  PAUSE_FALLBACK_MS,
 } from '@/capture/clock';
 import type { MatchWindow } from '@/scoring';
 
@@ -133,6 +134,58 @@ describe('useMatchClock markGo -> teleop', () => {
     expect(result.current.state.teleopClockUnconfirmed).toBe(false);
     expect(result.current.teleopElapsedMs).toBe(0);
     expect(result.current.window).toBe('transition');
+  });
+});
+
+describe('useMatchClock pause -> teleop fallback timer', () => {
+  it('a forgotten GO tap auto-enters teleop after PAUSE_FALLBACK_MS, flagged unconfirmed', () => {
+    const now = fakeNow();
+    const { result } = renderHook(() => useMatchClock(now));
+
+    act(() => {
+      now.set(1000);
+      result.current.startAuto();
+    });
+    act(() => {
+      now.advance(AUTO_MS);
+      vi.advanceTimersByTime(250);
+    });
+    expect(result.current.state.phase).toBe('pause');
+
+    // Sit in pause past the fallback window without ever tapping GO. Without
+    // this fallback the phase stayed 'pause' for the whole match, silently
+    // tagging every teleop burst/interval as 'auto'.
+    act(() => {
+      now.advance(PAUSE_FALLBACK_MS);
+      vi.advanceTimersByTime(PAUSE_FALLBACK_MS + 250);
+    });
+    expect(result.current.state.phase).toBe('teleop');
+    expect(result.current.state.teleopClockUnconfirmed).toBe(true);
+  });
+
+  it('a GO tap within the window cancels the fallback (stays confirmed)', () => {
+    const now = fakeNow();
+    const { result } = renderHook(() => useMatchClock(now));
+
+    act(() => {
+      now.set(1000);
+      result.current.startAuto();
+    });
+    act(() => {
+      now.advance(AUTO_MS);
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      now.advance(3000);
+      vi.advanceTimersByTime(3000);
+      result.current.markGo();
+    });
+    act(() => {
+      now.advance(PAUSE_FALLBACK_MS);
+      vi.advanceTimersByTime(PAUSE_FALLBACK_MS + 250);
+    });
+    expect(result.current.state.phase).toBe('teleop');
+    expect(result.current.state.teleopClockUnconfirmed).toBe(false);
   });
 });
 

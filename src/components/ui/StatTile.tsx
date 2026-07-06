@@ -42,15 +42,15 @@ export function StatTile({
   return (
     <div
       className={cn(
-        'flex flex-col gap-1 rounded-xl border border-border bg-card/60 p-3',
+        'flex flex-col gap-1.5 rounded-xl border border-border bg-card/60 p-3',
         className,
       )}
     >
-      <div className="flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         {icon ? <span className="[&_svg]:size-4">{icon}</span> : null}
         <span>{label}</span>
       </div>
-      <div className={cn('text-2xl font-bold tabular-nums leading-none', toneValue[tone])}>
+      <div className={cn('font-mono text-2xl font-bold tabular-nums leading-none', toneValue[tone])}>
         {value}
       </div>
       {sub != null ? <div className="text-sm text-muted-foreground">{sub}</div> : null}

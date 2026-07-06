@@ -149,3 +149,36 @@ it('recompute matches the B3 TS computeAggregates golden case (declared-window a
     await admin.from('match_scouting_report').delete().eq('id', b3Id);
   }
 });
+
+it('recompute clamps a negative-duration burst to ZERO fuel (0040 parity with TS)', async () => {
+  // Mirrors src/scoring/__tests__/compute.test.ts "negative-duration bursts
+  // contribute ZERO fuel": a corrupt/merged burst with endMs < startMs must
+  // count as 0 on the server too, never subtract from its window.
+  const bursts = [
+    { startMs: 0, endMs: 4000, rate: 1.0, window: 'auto' }, // 4.0 fuel
+    { startMs: 9000, endMs: 3000, rate: 2.0, window: 'auto' }, // corrupt: would be -12
+    { startMs: 5000, endMs: 1000, rate: 5.0, window: 'shift1' }, // corrupt: would be -20
+  ];
+  const { data: r, error: insErr } = await admin.from('match_scouting_report').insert({
+    schema_version: 1, event_key: EVENT, match_key: MATCH2, scout_id: scoutId,
+    target_team_number: TEAM, alliance_color: 'red', station: 3,
+    inactive_first: false, fuel_bursts: bursts,
+  }).select().single();
+  expect(insErr, insErr?.message).toBeNull();
+  const negId = r!.id as string;
+
+  try {
+    const { error: rcErr } = await admin.rpc('recompute_match_report_aggregates', { p_report_id: negId });
+    expect(rcErr, rcErr?.message).toBeNull();
+
+    const { data: out } = await admin.from('match_scouting_report')
+      .select('auto_fuel,fuel_by_shift,fuel_points')
+      .eq('id', negId).single();
+
+    expect(out!.auto_fuel).toBe(4); // 4.0 + 0, NOT 4.0 - 12
+    expect(out!.fuel_by_shift).toEqual([0, 0, 0, 0]); // 0, NOT -20
+    expect(out!.fuel_points).toBe(4);
+  } finally {
+    await admin.from('match_scouting_report').delete().eq('id', negId);
+  }
+});

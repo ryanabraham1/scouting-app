@@ -165,3 +165,25 @@ describe('computeAggregates — inactiveFirst:false inverts active/inactive shif
     expect(agg.fuelPoints).toBe(24);
   });
 });
+
+describe('computeAggregates — negative-duration bursts contribute ZERO fuel', () => {
+  it('a burst with endMs < startMs is clamped, never subtracts from its window', () => {
+    // A corrupt/merged burst (e.g. QR-transferred data or a clock jump) with a
+    // negative duration used to contribute NEGATIVE fuel, silently deflating
+    // the window total and skewing roundHalfUp around zero. It must count as 0.
+    const agg = computeAggregates({
+      schemaVersion: 1,
+      inactiveFirst: false,
+      climbLevel: 0,
+      autoClimbLevel1: false,
+      fuelBursts: [
+        { startMs: 0, endMs: 4000, rate: 1.0, window: 'auto' }, // 4.0 fuel
+        { startMs: 9000, endMs: 3000, rate: 2.0, window: 'auto' }, // corrupt: -12 → clamps to 0
+        { startMs: 5000, endMs: 1000, rate: 5.0, window: 'shift1' }, // corrupt: -20 → clamps to 0
+      ],
+    });
+    expect(agg.autoFuel).toBe(4); // 4.0 + 0, NOT 4.0 - 12
+    expect(agg.fuelByShift).toEqual([0, 0, 0, 0]); // 0, NOT -20
+    expect(agg.fuelPoints).toBe(4);
+  });
+});

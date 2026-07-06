@@ -85,6 +85,8 @@ export function computeTeamTempo(reports: MsrRow[]): TeamTempo {
     meanBurstsPerMatch: totalBursts / reportsWithBursts,
     meanBurstDurationMs: totalBursts > 0 ? totalActiveMs / totalBursts : 0,
     meanGapMs: gapCount > 0 ? totalGap / gapCount : null,
-    activeFraction: totalActiveMs / (reportsWithBursts * MATCH_MS),
+    // Clamped: overlapping bursts (possible across windows) sum raw durations,
+    // which could push the fraction past 1 and render ">100%" in the UI.
+    activeFraction: Math.min(1, totalActiveMs / (reportsWithBursts * MATCH_MS)),
   };
 }

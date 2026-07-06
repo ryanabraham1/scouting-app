@@ -31,6 +31,7 @@ import {
   Timer,
   ShieldAlert,
   MessageSquareText,
+  Users,
 } from 'lucide-react';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { MatchScorePanel } from '@/dash/MatchScorePanel';
@@ -39,7 +40,12 @@ import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
 import { formatMatchKeyRaw, compareMatchKeys } from '@/lib/formatMatch';
 import { foulReasonLabel } from '@/scoring/fouls';
-import { aggregateEvent, TREND_WINDOW, type TeamAgg } from '@/dash/aggregate';
+import {
+  aggregateEvent,
+  TREND_WINDOW,
+  LOW_CONFIDENCE_THRESHOLD,
+  type TeamAgg,
+} from '@/dash/aggregate';
 import { computeTeamTempo } from '@/dash/tempo';
 import {
   useEventTeams,
@@ -89,8 +95,6 @@ export interface TeamViewProps {
   onSelectTeam?: (team: number | null) => void;
 }
 
-/** Confidence below this surfaces the rate-FUEL low-confidence chip. */
-const LOW_CONFIDENCE_THRESHOLD = 0.7;
 
 const CONTROL_MIN_HEIGHT = 44; // px — touch target floor
 
@@ -140,18 +144,6 @@ function recentFormTone(agg: TeamAgg): StatTone {
   if (agg.recentTrend === 'improving') return 'success';
   if (agg.recentTrend === 'fading') return 'warning';
   return 'default';
-}
-
-// Chronological ordering for match keys: quals first, then the playoff rounds,
-// then finals — so the "last" scouted match is the latest the team actually
-// played, not just the lexicographically-largest key (qm10 < qm9 as strings).
-const COMP_ORDER: Record<string, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
-function matchOrder(matchKey: string): number {
-  const tail = matchKey.includes('_') ? matchKey.slice(matchKey.lastIndexOf('_') + 1) : matchKey;
-  const m = tail.match(/^([a-zA-Z]+)(\d+)/);
-  if (!m) return 0;
-  const level = COMP_ORDER[m[1].toLowerCase()] ?? 0;
-  return level * 100000 + Number(m[2]);
 }
 
 /** Semantic value tones — maps to the app-wide color language. */
@@ -726,7 +718,7 @@ function TeamTrends(props: { matches: MsrRow[]; showClimb: boolean }): JSX.Eleme
         <LineChart
           data={defenseData}
           color="brand"
-          yMax={5}
+          yMax={3}
           title="Defense rating per match"
           testid="team-trend-defense"
         />
@@ -966,7 +958,7 @@ function TeamDetail(props: {
               <span
                 data-testid="team-fuel-lowconf-chip"
                 className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"
-                title="FUEL is rate-derived; points are down-weighted by fuel_estimate_confidence."
+                title="FUEL is rate-derived; treat its contribution as a low-confidence estimate (points are NOT down-weighted)."
               >
                 rate-FUEL · low confidence ({pct(agg.meanFuelConfidence)})
               </span>
@@ -1381,7 +1373,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   const lastReport = useMemo(() => {
     if (teamMatches.length === 0) return null;
     return teamMatches.reduce((latest, r) =>
-      matchOrder(r.match_key) > matchOrder(latest.match_key) ? r : latest,
+      compareMatchKeys(r.match_key, latest.match_key) > 0 ? r : latest,
     );
   }, [teamMatches]);
 
@@ -1561,12 +1553,41 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
       </div>
 
       {loading ? (
-        <div data-testid="team-loading" className="text-sm text-zinc-400">
-          Loading event data…
+        <div
+          data-testid="team-loading"
+          role="status"
+          className="flex flex-col gap-4"
+        >
+          <span className="sr-only">Loading event data…</span>
+          {/* Skeleton approximating the team profile: a title bar, the TBA/photo
+              row, and a couple of stat cards, pulsing while event data loads.
+              role=status + sr-only text keep the loading state announced to
+              screen readers; the decorative bars below stay unlabeled. */}
+          <div className="flex items-center gap-3">
+            <div className="h-6 w-32 rounded-lg bg-muted/40 motion-safe:animate-pulse" />
+            <div className="h-4 w-24 rounded-lg bg-muted/40 motion-safe:animate-pulse" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+            <div className="h-40 rounded-xl bg-muted/40 motion-safe:animate-pulse" />
+            <div className="h-40 rounded-xl bg-muted/40 motion-safe:animate-pulse" />
+          </div>
+          <div className="h-32 rounded-xl bg-muted/40 motion-safe:animate-pulse" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-16 rounded-lg bg-muted/40 motion-safe:animate-pulse"
+              />
+            ))}
+          </div>
         </div>
       ) : selected == null ? (
-        <div data-testid="team-prompt" className="text-sm text-zinc-400">
-          Pick a team to see its scouting profile.
+        <div
+          data-testid="team-prompt"
+          className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/40 px-4 py-10 text-center text-muted-foreground"
+        >
+          <Users className="size-8 text-muted-foreground/60" />
+          <p className="text-sm">Pick a team above to see its scouting profile.</p>
         </div>
       ) : agg ? (
         <div className="flex flex-col gap-2">

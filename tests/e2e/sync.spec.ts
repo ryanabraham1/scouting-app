@@ -65,6 +65,8 @@ test('captured report syncs to the server on reconnect with no duplicate', async
   await page.getByTestId('scout-start-capture').click();
 
   // Pre-match placement step (half-field auto picker) gates the live screen.
+  // The Start button is disabled until the robot is PLACED — tap the field.
+  await page.getByTestId('capture-half-clip').click();
   await page.getByTestId('capture-placement-submit').click();
 
   await page.getByTestId('capture-start').click();
@@ -85,8 +87,8 @@ test('captured report syncs to the server on reconnect with no duplicate', async
 
   // Back on the scout home, online: the outbox (auto-sync) drains the queue.
   await expect(page.getByTestId('scout-home')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 20_000 });
-  await expect(page.getByTestId('sync-deadletters')).toHaveText('⚠0');
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 20_000 });
+  await expect(page.getByTestId('sync-deadletters')).toHaveText('0');
 
   // Exactly one row on the server.
   expect(await reportCount()).toBe(1);
@@ -97,6 +99,6 @@ test('captured report syncs to the server on reconnect with no duplicate', async
   const syncNow = page.getByTestId('sync-now');
   await expect(syncNow).toBeEnabled();
   await syncNow.click();
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0');
+  await expect(page.getByTestId('sync-queued')).toHaveText('0');
   expect(await reportCount()).toBe(1);
 });

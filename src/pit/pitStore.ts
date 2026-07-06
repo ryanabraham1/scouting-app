@@ -240,30 +240,54 @@ export async function markPitPending(draftKey: string): Promise<void> {
 
 // Record a freshly-uploaded photo path and drop the pending blob. Called right
 // after the Storage upload succeeds so a later transient upsert retry does not
-// re-upload the photo (which would orphan the first object).
-export async function setPitUploadedPhoto(draftKey: string, photoPath: string): Promise<void> {
+// re-upload the photo (which would orphan the first object). When
+// `uploadedUpdatedAt` is given the write applies ONLY if the report wasn't
+// re-submitted mid-upload — a re-submit may carry a NEW photo blob, which this
+// must not destroy.
+export async function setPitUploadedPhoto(
+  draftKey: string,
+  photoPath: string,
+  uploadedUpdatedAt?: string,
+): Promise<void> {
   const existing = await pitDb.pitReports.get(draftKey);
   if (!existing) return;
+  if (uploadedUpdatedAt != null && existing.updatedAt !== uploadedUpdatedAt) return;
   await pitDb.pitReports.update(draftKey, {
     photoBlob: null,
     data: { ...existing.data, photoPath },
   });
 }
 
-// Success: record the (now-uploaded) photo path and drop the pending blob.
-export async function markPitSynced(draftKey: string, photoPath: string | null): Promise<void> {
+// Success: record the (now-uploaded) photo path and drop the pending blob. The
+// `uploadedUpdatedAt` guard mirrors markSynced for match reports: if the report
+// was re-submitted while this upload was in flight (updatedAt rewritten,
+// re-dirtied, possibly a new photo blob), the stale upload's success must not
+// mark it synced or clobber the new submission's data/blob.
+export async function markPitSynced(
+  draftKey: string,
+  photoPath: string | null,
+  uploadedUpdatedAt?: string,
+): Promise<void> {
   const existing = await pitDb.pitReports.get(draftKey);
+  if (!existing) return;
+  if (uploadedUpdatedAt != null && existing.updatedAt !== uploadedUpdatedAt) return;
   await pitDb.pitReports.update(draftKey, {
     syncState: 'synced',
+    syncAttempts: 0,
     photoBlob: null,
     lastSyncError: null,
-    data: existing ? { ...existing.data, photoPath } : undefined,
+    data: { ...existing.data, photoPath },
   });
 }
 
-export async function markPitDirtyRetry(draftKey: string, message: string): Promise<void> {
+export async function markPitDirtyRetry(
+  draftKey: string,
+  message: string,
+  opts?: { countAttempt?: boolean },
+): Promise<void> {
   const existing = await pitDb.pitReports.get(draftKey);
-  const attempts = (existing?.syncAttempts ?? 0) + 1;
+  const bump = opts?.countAttempt === false ? 0 : 1;
+  const attempts = (existing?.syncAttempts ?? 0) + bump;
   await pitDb.pitReports.update(draftKey, {
     syncState: 'dirty',
     syncAttempts: attempts,
@@ -271,7 +295,15 @@ export async function markPitDirtyRetry(draftKey: string, message: string): Prom
   });
 }
 
-export async function markPitSyncError(draftKey: string, message: string): Promise<void> {
+export async function markPitSyncError(
+  draftKey: string,
+  message: string,
+  uploadedUpdatedAt?: string,
+): Promise<void> {
+  const existing = await pitDb.pitReports.get(draftKey);
+  if (!existing) return;
+  // A stale upload's terminal verdict must not dead-letter a newer re-submit.
+  if (uploadedUpdatedAt != null && existing.updatedAt !== uploadedUpdatedAt) return;
   await pitDb.pitReports.update(draftKey, { syncState: 'error', lastSyncError: message });
 }
 
@@ -282,6 +314,12 @@ export async function requeuePitReport(draftKey: string): Promise<void> {
     syncAttempts: 0,
     lastSyncError: null,
   });
+}
+
+// Permanently drop a pit report from the local outbox — the recovery path for a
+// dead-letter that can never sync (e.g. one bound to a since-deleted event).
+export async function deletePitReport(draftKey: string): Promise<void> {
+  await pitDb.pitReports.delete(draftKey);
 }
 
 /**

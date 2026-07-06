@@ -183,7 +183,9 @@ function setupHappyPath(available: boolean) {
   const reports: MsrRow[] = [
     row({ target_team_number: 111, match_key: '2026evt_qm1', fuel_points: 12 }),
     row({ target_team_number: 111, match_key: '2026evt_qm0', fuel_points: 8 }),
-    row({ target_team_number: 222, match_key: '2026evt_qm1', fuel_points: 20 }),
+    // 222 is rate-derived (low confidence) → the ONLY row that should wear the
+    // low-confidence chip; the 0.8-confidence teams and unscouted teams don't.
+    row({ target_team_number: 222, match_key: '2026evt_qm1', fuel_points: 20, fuel_estimate_confidence: 0.3 }),
     row({ target_team_number: 333, match_key: '2026evt_qm1', fuel_points: 15 }),
     row({ target_team_number: 444, match_key: '2026evt_qm1', fuel_points: 5 }),
   ];
@@ -378,12 +380,15 @@ describe('NextMatchView', () => {
     expect(badgeText).not.toMatch(/\bepa\b/);
   });
 
-  it('renders the rate-FUEL low-confidence chip and ONE combined auto field for the matchup', () => {
+  it('renders the rate-FUEL low-confidence chip ONLY for low-confidence teams, and ONE combined auto field', () => {
     setupHappyPath(true);
     const { getAllByTestId, getByTestId } = render(<NextMatchView eventKey="2026evt" />);
 
-    // Rate-FUEL low-confidence indicator present where fuel is shown.
-    expect(getAllByTestId('fuel-low-confidence').length).toBeGreaterThan(0);
+    // Rate-FUEL low-confidence chip: exactly the one team whose
+    // fuel_estimate_confidence is below the threshold (222) — not every row.
+    expect(getAllByTestId('fuel-low-confidence').length).toBe(1);
+    const lowConfRow = getByTestId('dash-next-team-222');
+    expect(within(lowConfRow).getByTestId('fuel-low-confidence')).toBeTruthy();
 
     // Exactly ONE combined auto field for both alliances (no per-column fields,
     // no mode toggle).

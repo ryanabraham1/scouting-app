@@ -7,6 +7,12 @@ export type ClockPhase = 'idle' | 'auto' | 'pause' | 'teleop' | 'done';
 
 export const AUTO_MS = 20000;
 export const TELEOP_MS = 140000;
+// How long the clock may sit in 'pause' before it assumes the scout missed the
+// GO tap and enters teleop on its own (flagged unconfirmed). The real
+// auto→teleop gap is a few seconds; without this fallback a forgotten GO tap
+// left the phase at 'pause' for the entire match, silently tagging every
+// teleop burst/interval as 'auto' with no downstream trace.
+export const PAUSE_FALLBACK_MS = 15000;
 
 // Pure: remaining ms in a phase, clamped to [0, totalMs]. Used to drive the
 // count-DOWN readout (remaining = total - elapsed).
@@ -87,6 +93,26 @@ export function useMatchClock(now: () => number = () => Date.now()) {
       setState((s) => (s.phase === 'auto' ? { ...s, phase: 'pause' } : s));
     }
   }, [state.phase, autoElapsedMs]);
+
+  // Pause auto-advances to teleop (flagged UNCONFIRMED) if the scout never taps
+  // GO. A tap of GO afterwards still re-anchors and clears the flag (markGo).
+  useEffect(() => {
+    if (state.phase !== 'pause' || state.autoStartedAt === null) return;
+    const pauseElapsedMs = nowRef.current() - (state.autoStartedAt + AUTO_MS);
+    const id = setTimeout(() => {
+      setState((s) =>
+        s.phase === 'pause'
+          ? {
+              ...s,
+              phase: 'teleop',
+              teleopAnchoredAt: nowRef.current(),
+              teleopClockUnconfirmed: true,
+            }
+          : s,
+      );
+    }, Math.max(0, PAUSE_FALLBACK_MS - pauseElapsedMs));
+    return () => clearTimeout(id);
+  }, [state.phase, state.autoStartedAt]);
 
   const window: MatchWindow = windowForBurst(state.phase, teleopElapsedMs);
 

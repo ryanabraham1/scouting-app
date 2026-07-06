@@ -110,7 +110,8 @@ describe('RankingView', () => {
     const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
     const empty = getByTestId('dash-ranking-empty');
     expect(empty).toBeTruthy();
-    expect(empty.textContent).toBe('No teams or scouting data yet for this event.');
+    // E1: the empty state now leads with a directive line (icon + guidance).
+    expect(empty.textContent).toContain('No teams or scouting data yet');
   });
 
   it('adds EPA-only rows for every event team without scouting', () => {

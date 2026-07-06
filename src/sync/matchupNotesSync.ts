@@ -13,7 +13,7 @@ import {
   markMatchupSyncError,
 } from '@/db/localStore';
 import type { LocalMatchupNote } from '@/db/types';
-import { classifySyncError } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 
 export interface MatchupSyncSummary {
@@ -73,20 +73,29 @@ export async function syncMatchupNotesOnce(): Promise<MatchupSyncSummary> {
     }
 
     if (!failed) {
-      await markMatchupSynced(rec.key);
+      await markMatchupSynced(rec.key, rec.updatedAt);
       summary.synced += 1;
       continue;
     }
 
+    const message = errorMessage(failure);
+
+    // Pure network gap: requeue without burning an attempt, stop the drain
+    // (the rest of the queue faces the same dead network). See outbox.ts.
+    if (isNetworkFailure(failure)) {
+      await markMatchupDirtyRetry(rec.key, message, { countAttempt: false });
+      summary.retried += 1;
+      break;
+    }
+
     const kind = classifySyncError(failure);
     const attempts = rec.syncAttempts ?? 0;
-    const message = errorMessage(failure);
 
     if (kind === 'transient' && attempts < SYNC_MAX_ATTEMPTS) {
       await markMatchupDirtyRetry(rec.key, message);
       summary.retried += 1;
     } else {
-      await markMatchupSyncError(rec.key, message);
+      await markMatchupSyncError(rec.key, message, rec.updatedAt);
       summary.deadLettered += 1;
     }
   }

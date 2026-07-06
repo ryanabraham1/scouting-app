@@ -1,7 +1,11 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useCaptureSession, type CaptureTarget } from '@/capture/useCaptureSession';
+import {
+  useCaptureSession,
+  adjustIntervalsTotal,
+  type CaptureTarget,
+} from '@/capture/useCaptureSession';
 import { db, getDraft, saveDraft, listReports } from '@/db/localStore';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
 
@@ -226,5 +230,74 @@ describe('useCaptureSession reAnchorCue', () => {
     act(() => result.current.clock.markGo());
     act(() => result.current.reAnchorCue());
     expect(result.current.clock.window).toBe('endgame');
+  });
+});
+
+describe('adjustIntervalsTotal (Review duration-edit interval re-fit)', () => {
+  const iv = (startMs: number, endMs: number) =>
+    ({ startMs, endMs, phase: 'teleop' as const });
+
+  it('extends the LAST interval when the corrected total is larger', () => {
+    const out = adjustIntervalsTotal([iv(0, 5000), iv(20000, 25000)], 14000);
+    expect(out).toEqual([iv(0, 5000), iv(20000, 29000)]);
+  });
+
+  it('shrinks from the end (popping emptied intervals) when smaller', () => {
+    const out = adjustIntervalsTotal([iv(0, 5000), iv(20000, 25000)], 3000);
+    // 10000 → 3000: the last interval (5000) is fully consumed and dropped,
+    // then the first shrinks by the remaining 2000.
+    expect(out).toEqual([iv(0, 3000)]);
+  });
+
+  it('target 0 drops every interval', () => {
+    expect(adjustIntervalsTotal([iv(0, 5000), iv(20000, 25000)], 0)).toEqual([]);
+  });
+
+  it('no-op when the total already matches (same array back)', () => {
+    const ivs = [iv(0, 5000)];
+    expect(adjustIntervalsTotal(ivs, 5000)).toBe(ivs);
+  });
+
+  it('an empty list stays empty (scalar-only reports keep no fabricated timeline)', () => {
+    expect(adjustIntervalsTotal([], 9000)).toEqual([]);
+  });
+});
+
+describe('useCaptureSession Review duration edits keep duration == Σ intervals', () => {
+  it('setDefenseDurationMs re-fits defenseIntervals atomically (resumed live capture)', async () => {
+    // A live capture recorded two defense stints (10s total), then the scout
+    // hand-corrects the total to 8s on the Review step. The scalar AND the
+    // intervals must both reflect it — shipping duration ≠ Σ intervals made the
+    // match timeline disagree with the ranked totals.
+    await saveDraft('qm1:scout-1:254', {
+      bursts: [],
+      inactiveFirst: false,
+      rate: 1,
+      deferred: {
+        defenseDurationMs: 10000,
+        defenseIntervals: [
+          { startMs: 0, endMs: 5000, phase: 'teleop' },
+          { startMs: 20000, endMs: 25000, phase: 'teleop' },
+        ],
+      },
+    });
+    const { result } = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(result.current.defenseDurationMs).toBe(10000));
+
+    act(() => result.current.setDefenseDurationMs(8000));
+
+    await waitFor(() => expect(result.current.defenseDurationMs).toBe(8000));
+    // Correction absorbed at the END: first stint untouched, last shrinks.
+    expect(result.current.defenseIntervals).toEqual([
+      { startMs: 0, endMs: 5000, phase: 'teleop' },
+      { startMs: 20000, endMs: 23000, phase: 'teleop' },
+    ]);
+  });
+
+  it('setDefendedDurationMs on a scalar-only report leaves intervals empty', async () => {
+    const { result } = renderHook(() => useCaptureSession(target));
+    act(() => result.current.setDefendedDurationMs(6000));
+    await waitFor(() => expect(result.current.defendedDurationMs).toBe(6000));
+    expect(result.current.defendedIntervals).toEqual([]);
   });
 });

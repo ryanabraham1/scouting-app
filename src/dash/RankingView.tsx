@@ -5,7 +5,7 @@
 // a multi-select compare panel. Read-only; dark theme; shadcn primitives.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal, ChevronUp, ChevronDown, ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -186,6 +186,27 @@ function sortValue(row: Row, key: SortKey): number {
     case 'epa':
       // Shared with the picklist seeder — delegate to the single source of truth.
       return rankSortValue({ agg: row.agg, epa: row.epa }, key);
+  }
+}
+
+/**
+ * True when the row has NO value for the sort column. Checked before the
+ * numeric compare so "—" rows land at the BOTTOM in both directions — the
+ * ±Infinity sentinels in sortValue encode "worst", which an ascending sort
+ * would otherwise hoist to the top as a wall of empty rows.
+ */
+function sortValueMissing(row: Row, key: SortKey): boolean {
+  switch (key) {
+    case 'fuelSuppression':
+      return row.agg.fuelSuppressionWhileDefended == null;
+    case 'defenderEffectiveness':
+      return row.agg.defenderEffectiveness == null;
+    case 'tbaRank':
+      return row.tbaRank == null;
+    case 'epa':
+      return row.epa == null;
+    default:
+      return false;
   }
 }
 
@@ -417,6 +438,9 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   const sortedRows = useMemo(() => {
     const copy = [...rows];
     copy.sort((a, b) => {
+      const aMissing = sortValueMissing(a, sortKey);
+      const bMissing = sortValueMissing(b, sortKey);
+      if (aMissing !== bMissing) return aMissing ? 1 : -1; // "—" rows always last
       const av = sortValue(a, sortKey);
       const bv = sortValue(b, sortKey);
       if (av === bv) return a.agg.teamNumber - b.agg.teamNumber;
@@ -469,9 +493,26 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     return (
       <div data-testid="dash-ranking" className="text-foreground">
         <Card className="bg-card">
-          <CardContent className="p-6">
-            <div data-testid="dash-ranking-loading" className="text-sm text-muted-foreground">
-              Loading scouting data…
+          <CardHeader>
+            <div className="h-5 w-40 rounded-lg bg-muted/40 motion-safe:animate-pulse" />
+          </CardHeader>
+          <CardContent className="p-0">
+            {/* Skeleton rows approximating the ranked table while data loads.
+                role=status + sr-only text keep it announced to screen readers. */}
+            <div
+              data-testid="dash-ranking-loading"
+              role="status"
+              className="flex flex-col gap-px"
+            >
+              <span className="sr-only">Loading scouting data…</span>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  <div className="h-5 w-5 rounded bg-muted/40 motion-safe:animate-pulse" />
+                  <div className="h-4 w-16 rounded-lg bg-muted/40 motion-safe:animate-pulse" />
+                  <div className="ml-auto h-4 w-24 rounded-lg bg-muted/40 motion-safe:animate-pulse" />
+                  <div className="h-4 w-14 rounded-lg bg-muted/40 motion-safe:animate-pulse" />
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -483,9 +524,10 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     return (
       <div data-testid="dash-ranking" className="text-foreground">
         <Card className="bg-card">
-          <CardContent className="p-6">
+          <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
+            <ClipboardList className="size-8 text-muted-foreground/60" />
             <div data-testid="dash-ranking-empty" className="text-sm text-muted-foreground">
-              No teams or scouting data yet for this event.
+              No teams or scouting data yet — import the event or capture a match to populate rankings.
             </div>
           </CardContent>
         </Card>
@@ -500,8 +542,13 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     .map((tn) => sortedRows.find((r) => r.agg.teamNumber === tn))
     .filter((r): r is (typeof sortedRows)[number] => r != null);
 
-  const arrow = (key: SortKey) =>
-    key === sortKey ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+  // Solid caret for the active sort column (filled lucide icon instead of a
+  // muted text arrow), so the sorted column reads as clearly active.
+  const sortCaret = (key: SortKey) => {
+    if (key !== sortKey) return null;
+    const Icon = sortDir === 'asc' ? ChevronUp : ChevronDown;
+    return <Icon className="size-3.5 shrink-0" aria-hidden="true" />;
+  };
 
   return (
     <div data-testid="dash-ranking" className="space-y-4 text-foreground">
@@ -585,10 +632,13 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                   <th className="px-2 py-2 text-left font-medium text-muted-foreground">
                     Compare
                   </th>
-                  {columns.filter((col) => isVisible(col.key)).map((col) => (
+                  {columns.filter((col) => isVisible(col.key)).map((col) => {
+                    const active = col.key === sortKey;
+                    return (
                     <th
                       key={col.key}
                       scope="col"
+                      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                       className={cn(
                         'px-2 py-1 text-left font-medium text-muted-foreground',
                         (col.key === 'epa' ||
@@ -602,16 +652,20 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         type="button"
                         data-testid={`sort-${col.key}`}
                         onClick={() => onSort(col.key)}
-                        className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded px-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        className={cn(
+                          'inline-flex min-h-[44px] items-center gap-1 whitespace-nowrap rounded-md px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                          active
+                            ? 'bg-brand/10 font-semibold text-brand'
+                            : 'hover:text-foreground',
+                        )}
                       >
-                        <span>
-                          {col.label}
-                          {arrow(col.key)}
-                        </span>
+                        <span>{col.label}</span>
+                        {sortCaret(col.key)}
                         {col.headerExtra}
                       </button>
                     </th>
-                  ))}
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -661,7 +715,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         <span className="flex items-center gap-2">
                           <span
                             className={cn(
-                              'w-7 shrink-0 text-right text-xs font-semibold tabular-nums',
+                              'w-7 shrink-0 text-right text-xs font-semibold font-mono tabular-nums',
                               TIER_RANK_TEXT[tier],
                             )}
                           >
@@ -673,25 +727,25 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                               data-testid={`ranking-team-${t}`}
                               onClick={() => onSelectTeam(t)}
                               aria-label={`Open team ${t}`}
-                              className="inline-flex min-h-[44px] items-center rounded tabular-nums text-base font-semibold text-brand hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              className="inline-flex min-h-[44px] items-center rounded font-mono tabular-nums text-base font-semibold text-brand hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                             >
                               {t}
                             </button>
                           ) : (
-                            <span className="tabular-nums text-base font-semibold text-brand">{t}</span>
+                            <span className="font-mono tabular-nums text-base font-semibold text-brand">{t}</span>
                           )}
                         </span>
                       </td>
                       {isVisible('matchesScouted') && (
-                        <td className="px-2 py-2 tabular-nums">{r.agg.matchesScouted}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums">{r.agg.matchesScouted}</td>
                       )}
                       {isVisible('scoutingExpectedPoints') && (
-                        <td className="px-2 py-2 tabular-nums">{fmt(r.agg.scoutingExpectedPoints)}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums">{fmt(r.agg.scoutingExpectedPoints)}</td>
                       )}
                       {isVisible('climbSuccessRate') && (
                         <td
                           className={cn(
-                            'px-2 py-2 tabular-nums',
+                            'px-2 py-2 font-mono tabular-nums',
                             r.agg.climbSuccessRate > 0 ? 'text-success' : 'text-muted-foreground',
                           )}
                         >
@@ -699,12 +753,12 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         </td>
                       )}
                       {isVisible('avgDefenseRating') && (
-                        <td className="px-2 py-2 tabular-nums text-brand">{fmt(r.agg.avgDefenseRating)}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-brand">{fmt(r.agg.avgDefenseRating)}</td>
                       )}
                       {isVisible('reliability') && (
                         <td
                           className={cn(
-                            'px-2 py-2 tabular-nums',
+                            'px-2 py-2 font-mono tabular-nums',
                             r.agg.reliability < 0.7 ? 'text-warning' : 'text-success',
                           )}
                         >
@@ -714,7 +768,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                       {isVisible('fuelSuppression') && (
                         <td
                           data-testid={`def-supp-${t}`}
-                          className="hidden px-2 py-2 tabular-nums sm:table-cell"
+                          className="hidden px-2 py-2 font-mono tabular-nums sm:table-cell"
                         >
                           {r.agg.fuelSuppressionWhileDefended === null
                             ? EM_DASH
@@ -724,7 +778,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                       {isVisible('defenderEffectiveness') && (
                         <td
                           data-testid={`defender-${t}`}
-                          className="hidden px-2 py-2 tabular-nums sm:table-cell"
+                          className="hidden px-2 py-2 font-mono tabular-nums sm:table-cell"
                         >
                           {r.agg.defenderEffectiveness === null ||
                           r.agg.defenseSampleCount < DEF_EFF_MIN_SAMPLE
@@ -736,7 +790,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         <td
                           data-testid={`epa-${t}`}
                           className={cn(
-                            'hidden px-2 py-2 tabular-nums sm:table-cell',
+                            'hidden px-2 py-2 font-mono tabular-nums sm:table-cell',
                             r.epaInHouse && 'text-warning',
                           )}
                           title={r.epaInHouse ? 'In-house EPA estimated from scouting data' : undefined}
@@ -748,7 +802,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         </td>
                       )}
                       {isVisible('tbaRank') && (
-                        <td data-testid={`tba-${t}`} className="hidden px-2 py-2 tabular-nums sm:table-cell">
+                        <td data-testid={`tba-${t}`} className="hidden px-2 py-2 font-mono tabular-nums sm:table-cell">
                           {r.tbaRank === null ? EM_DASH : String(r.tbaRank)}
                         </td>
                       )}
@@ -817,7 +871,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                             <td
                               key={r.agg.teamNumber}
                               className={cn(
-                                'px-2 py-2 tabular-nums',
+                                'px-2 py-2 font-mono tabular-nums',
                                 isBest && 'font-bold text-success',
                               )}
                             >

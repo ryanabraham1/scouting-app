@@ -526,14 +526,22 @@ export function useEventComponentEpas(
   const sortedTeams = [...teamNumbers].sort((a, b) => a - b);
   const reportsQ = useEventReports(eventKey);
   const reports = reportsQ.data;
+  // Change signal for the derived cache: count alone misses same-length changes
+  // (an edited/superseded report bumps server_received_at but not the count),
+  // which served a stale fraction/defense map while the prediction had already
+  // moved on. count + freshest server_received_at catches both.
+  let latestReceivedAt = '';
+  for (const r of reports ?? []) {
+    const iso = r.server_received_at ?? '';
+    if (iso > latestReceivedAt) latestReceivedAt = iso;
+  }
   return useQuery({
     queryKey: [
       'epa',
       'event-components',
       eventKey,
       sortedTeams.join(','),
-      // Re-derive when the underlying reports change (count is a cheap signal).
-      reports?.length ?? 0,
+      `${reports?.length ?? 0}:${latestReceivedAt}`,
     ],
     enabled: !!eventKey && sortedTeams.length > 0,
     staleTime: STALE_TIME,

@@ -13,7 +13,7 @@ import {
   markSyncError,
 } from '@/db/localStore';
 import { toUpsertPayload } from '@/sync/mapReport';
-import { classifySyncError } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 
 export interface SyncSummary {
@@ -25,8 +25,10 @@ export interface SyncSummary {
 
 /**
  * supabase-js `.rpc()` resolves to `{ error }` for DB-level failures (a
- * PostgrestError or null) and THROWS for transport/network failures. The engine
- * handles both. Injectable so tests can supply a fake without a network.
+ * PostgrestError or null) AND for transport/network failures (it catches fetch
+ * rejections and resolves with `error: { message: "TypeError: Failed to
+ * fetch", …, code: "" }`). The engine also tolerates a thrown rejection (custom
+ * fetch / test fakes). Injectable so tests can supply a fake without a network.
  */
 type RpcFn = (
   fn: string,
@@ -80,21 +82,32 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
     }
 
     if (!failed) {
-      await markSynced(report.id);
+      await markSynced(report.id, report.rowRevision ?? 1);
       summary.synced += 1;
       continue;
     }
 
+    const message = errorMessage(failure);
+
+    // A pure network gap (no server verdict) is this app's normal operating
+    // condition — it says nothing about the report. Requeue WITHOUT burning an
+    // attempt toward the dead-letter cap, and stop the drain: every report
+    // behind this one would hit the same dead network.
+    if (isNetworkFailure(failure)) {
+      await markDirtyRetry(report.id, message, { countAttempt: false });
+      summary.retried += 1;
+      break;
+    }
+
     const kind = classifySyncError(failure);
     const attempts = report.syncAttempts ?? 0;
-    const message = errorMessage(failure);
 
     if (kind === 'transient' && attempts < SYNC_MAX_ATTEMPTS) {
       await markDirtyRetry(report.id, message);
       summary.retried += 1;
     } else {
       // terminal, or a persistent transient that has hit the attempt cap.
-      await markSyncError(report.id, message);
+      await markSyncError(report.id, message, report.rowRevision ?? 1);
       summary.deadLettered += 1;
     }
   }

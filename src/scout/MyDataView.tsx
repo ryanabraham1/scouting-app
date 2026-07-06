@@ -9,8 +9,6 @@ import { useSession } from '@/auth/useSession';
 import { listReports } from '@/db/localStore';
 import type { LocalMatchReport } from '@/db/types';
 
-const CLIMB_LABEL = ['No climb', 'Level 1', 'Level 2', 'Level 3'] as const;
-
 function fmtSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
@@ -73,14 +71,17 @@ export default function MyDataView(): JSX.Element {
         </Link>
         <h1 className="text-2xl font-bold">My Data</h1>
         <span className="ml-auto text-sm text-muted-foreground">
-          {reports.length} {reports.length === 1 ? 'match' : 'matches'}
+          <span className="font-mono font-semibold tabular-nums text-foreground">
+            {reports.length}
+          </span>{' '}
+          {reports.length === 1 ? 'match' : 'matches'}
         </span>
       </header>
 
       {showUpdated && (
         <div
           data-testid="my-data-updated-toast"
-          className="rounded-md border border-success/40 bg-success/15 px-3 py-2 text-sm font-medium text-success"
+          className="rounded-lg border border-success/40 bg-success/15 px-3 py-2 text-sm font-medium text-success motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2"
         >
           Report updated — re-uploading the correction.
         </div>
@@ -101,7 +102,7 @@ export default function MyDataView(): JSX.Element {
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="flex items-baseline gap-2">
-                <span className="font-mono text-lg font-semibold">{r.matchKey}</span>
+                <span className="font-mono text-lg font-semibold tabular-nums">{r.matchKey}</span>
                 {r.rowRevision > 1 && (
                   <span
                     data-testid={`my-data-rev-${r.id}`}
@@ -111,36 +112,37 @@ export default function MyDataView(): JSX.Element {
                   </span>
                 )}
               </span>
-              <span className="text-base font-medium text-brand tabular-nums">
-                Team #{r.targetTeamNumber}
+              <span className="text-base font-medium text-brand">
+                Team{' '}
+                <span className="font-mono font-semibold tabular-nums">#{r.targetTeamNumber}</span>
               </span>
             </div>
-            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-muted-foreground">Fuel points</dt>
-                <dd className="font-semibold text-energy tabular-nums">{r.fuelPoints}</dd>
+            <dl className="mt-3 grid grid-cols-4 gap-x-3">
+              <div className="flex flex-col gap-0.5">
+                <dt className="eyebrow text-muted-foreground">Fuel</dt>
+                <dd className="font-mono text-base font-semibold text-energy tabular-nums">
+                  {r.fuelPoints}
+                </dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Climb</dt>
-                <dd>
-                  <span
-                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${
-                      r.climbLevel > 0
-                        ? 'border-success/40 bg-success/15 text-success'
-                        : 'border-border bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {CLIMB_LABEL[r.climbLevel]}
+              <div className="flex flex-col gap-0.5">
+                <dt className="eyebrow text-muted-foreground">Climb</dt>
+                <dd className="font-mono text-base font-semibold tabular-nums">
+                  <span className={r.climbLevel > 0 ? 'text-success' : 'text-muted-foreground'}>
+                    {r.climbLevel > 0 ? `L${r.climbLevel}` : '—'}
                   </span>
                 </dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Defense</dt>
-                <dd className="font-medium text-brand tabular-nums">{fmtSeconds(r.defenseDurationMs)}</dd>
+              <div className="flex flex-col gap-0.5">
+                <dt className="eyebrow text-muted-foreground">Defense</dt>
+                <dd className="font-mono text-base font-semibold text-brand tabular-nums">
+                  {fmtSeconds(r.defenseDurationMs)}
+                </dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Defended</dt>
-                <dd className="font-medium tabular-nums">{fmtSeconds(r.defendedDurationMs)}</dd>
+              <div className="flex flex-col gap-0.5">
+                <dt className="eyebrow text-muted-foreground">Defended</dt>
+                <dd className="font-mono text-base font-semibold tabular-nums">
+                  {fmtSeconds(r.defendedDurationMs)}
+                </dd>
               </div>
             </dl>
             {r.notes && (

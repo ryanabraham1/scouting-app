@@ -25,7 +25,7 @@ import {
   type TeamRow,
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
-import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
+import { aggregateEvent, LOW_CONFIDENCE_THRESHOLD, type TeamAgg } from '@/dash/aggregate';
 import { formatMatchKeyRaw, formatMatchShort, compareMatchKeys, isQualLevel } from '@/lib/formatMatch';
 import PlayoffPath from '@/dash/PlayoffPath';
 import { predictMatch, type TeamPrediction } from '@/dash/predict';
@@ -278,7 +278,12 @@ function TeamRowView({ pred, agg, nickname }: TeamRowViewProps) {
             {agg ? agg.avgDefenseRating.toFixed(1) : '—'}
           </span>
         </span>
-        <FuelLowConfidenceChip />
+        {/* Only when THIS team's fuel data is actually low-confidence — the
+            same gate TeamView uses. Unconditional, it was noise on every row
+            (including unscouted teams with no fuel estimate at all). */}
+        {agg && agg.meanFuelConfidence < LOW_CONFIDENCE_THRESHOLD ? (
+          <FuelLowConfidenceChip />
+        ) : null}
       </div>
     </li>
   );
@@ -306,7 +311,7 @@ function AllianceColumn({ side, label, score, teams, agg, allTeams }: AllianceCo
         <span
           data-testid={`dash-next-${side}-score`}
           className={cn(
-            'tabular-nums text-2xl font-bold',
+            'font-mono tabular-nums text-2xl font-bold',
             side === 'red' ? 'text-red-400' : 'text-blue-400',
           )}
         >
@@ -366,9 +371,9 @@ function WinProbBanner({
         </span>
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Projected{' '}
-          <span className="tabular-nums font-semibold text-red-400">{round(redScore)}</span>
+          <span className="font-mono tabular-nums font-semibold text-red-400">{round(redScore)}</span>
           {' – '}
-          <span className="tabular-nums font-semibold text-blue-400">{round(blueScore)}</span>
+          <span className="font-mono tabular-nums font-semibold text-blue-400">{round(blueScore)}</span>
         </span>
       </div>
 
@@ -381,7 +386,7 @@ function WinProbBanner({
           <span
             data-testid="dash-next-red-winprob"
             className={cn(
-              'tabular-nums font-black leading-none text-red-400',
+              'font-mono tabular-nums font-black leading-none text-red-400',
               redFavored ? 'text-5xl sm:text-6xl' : 'text-3xl sm:text-4xl',
               blueFavored && 'opacity-70',
             )}
@@ -396,7 +401,7 @@ function WinProbBanner({
           <span
             data-testid="dash-next-blue-winprob"
             className={cn(
-              'tabular-nums font-black leading-none text-blue-400',
+              'font-mono tabular-nums font-black leading-none text-blue-400',
               blueFavored ? 'text-5xl sm:text-6xl' : 'text-3xl sm:text-4xl',
               redFavored && 'opacity-70',
             )}
@@ -614,13 +619,39 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // or a stale pin) — used to offer the "Track our next match" button.
   const driftedFromTracked = !tracking || (trackedKey != null && match?.match_key !== trackedKey);
 
-  const redTeams = match ? redTeamsOf(match) : [];
-  const blueTeams = match ? blueTeamsOf(match) : [];
-  const sixTeams = [...redTeams, ...blueTeams];
+  const redTeams = useMemo(() => (match ? redTeamsOf(match) : []), [match]);
+  const blueTeams = useMemo(() => (match ? blueTeamsOf(match) : []), [match]);
+  const sixTeams = useMemo(() => [...redTeams, ...blueTeams], [redTeams, blueTeams]);
 
   // Always call the hook (stable order); it is disabled internally when empty.
   // Pass matches so EPA can fall back to a local computation when Statbotics is down.
   const epaQ = useEventEpa(sixTeams, eventKey, allMatches);
+
+  // Memoized: this view re-renders every 10s Nexus poll / 30s clock tick /
+  // realtime invalidation, and aggregateEvent + predictMatch are O(reports)
+  // passes that TeamView/RankingView already memoize for the same reason.
+  const reports = useMemo(() => reportsQ.data ?? [], [reportsQ.data]);
+  const agg = useMemo(() => aggregateEvent(reports), [reports]);
+  const epa = useMemo(
+    () =>
+      epaQ.data ?? {
+        epaByTeam: new Map<number, number | null>(),
+        available: false,
+        source: 'none' as const,
+      },
+    [epaQ.data],
+  );
+  const pred = useMemo(
+    () =>
+      predictMatch({
+        redTeams,
+        blueTeams,
+        agg,
+        epaByTeam: epa.epaByTeam,
+        statboticsAvailable: epa.available,
+      }),
+    [redTeams, blueTeams, agg, epa],
+  );
 
   const loading = matchesQ.isLoading || reportsQ.isLoading || teamsQ.isLoading;
 
@@ -647,22 +678,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
     );
   }
 
-  const reports = reportsQ.data ?? [];
   const allTeams = teamsQ.data ?? [];
-  const epa = epaQ.data ?? {
-    epaByTeam: new Map<number, number | null>(),
-    available: false,
-    source: 'none' as const,
-  };
-
-  const agg = aggregateEvent(reports);
-  const pred = predictMatch({
-    redTeams,
-    blueTeams,
-    agg,
-    epaByTeam: epa.epaByTeam,
-    statboticsAvailable: epa.available,
-  });
 
 
   const status = nexusLive ? nexus.status : null;

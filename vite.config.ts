@@ -13,7 +13,10 @@ export default defineConfig({
       manifest: false,
       includeAssets: ['manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'],
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
+        // woff2: the self-hosted mono telemetry font must be PREcached, or an
+        // installed-then-offline device silently falls back to system mono
+        // (the /assets/ runtime rule only caches it after a first online render).
+        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest,woff2}'],
         navigateFallback: '/index.html',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [

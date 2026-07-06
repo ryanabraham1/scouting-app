@@ -103,8 +103,17 @@ export async function countUnsynced(): Promise<number> {
   return unsynced.length;
 }
 
-export async function markSynced(id: string): Promise<void> {
-  await db.reports.update(id, { syncState: 'synced' });
+// Success. When `uploadedRevision` is given, the transition applies ONLY if the
+// row still holds that revision — an edit made while the upload was in flight
+// bumps rowRevision and re-dirties the row, and marking THAT synced would
+// silently strand the newer revision locally forever (the server would keep the
+// stale content). A successful upload also resets the attempt counter.
+export async function markSynced(id: string, uploadedRevision?: number): Promise<void> {
+  await db.reports
+    .where('id')
+    .equals(id)
+    .and((r) => uploadedRevision == null || (r.rowRevision ?? 1) === uploadedRevision)
+    .modify({ syncState: 'synced', syncAttempts: 0, lastSyncError: null });
 }
 
 // Upload in flight: set immediately before the RPC call.
@@ -112,15 +121,33 @@ export async function markPending(id: string): Promise<void> {
   await db.reports.update(id, { syncState: 'pending' });
 }
 
-// DEAD-LETTER: terminal failure; NOT auto-retried, surfaced in the UI.
-export async function markSyncError(id: string, message: string): Promise<void> {
-  await db.reports.update(id, { syncState: 'error', lastSyncError: message });
+// DEAD-LETTER: terminal failure; NOT auto-retried, surfaced in the UI. The same
+// revision guard as markSynced: if the row was edited mid-flight, the verdict
+// belongs to the STALE upload — leave the newer dirty revision queued instead of
+// dead-lettering it unattempted.
+export async function markSyncError(
+  id: string,
+  message: string,
+  uploadedRevision?: number,
+): Promise<void> {
+  await db.reports
+    .where('id')
+    .equals(id)
+    .and((r) => uploadedRevision == null || (r.rowRevision ?? 1) === uploadedRevision)
+    .modify({ syncState: 'error', lastSyncError: message });
 }
 
-// Transient failure: back to the queue, bump the attempt counter for backoff.
-export async function markDirtyRetry(id: string, message: string): Promise<void> {
+// Transient failure: back to the queue. Bumps the attempt counter (which feeds
+// the SYNC_MAX_ATTEMPTS dead-letter cap) unless `countAttempt: false` — used for
+// pure network gaps, which say nothing about the report itself.
+export async function markDirtyRetry(
+  id: string,
+  message: string,
+  opts?: { countAttempt?: boolean },
+): Promise<void> {
   const existing = await db.reports.get(id);
-  const attempts = (existing?.syncAttempts ?? 0) + 1;
+  const bump = opts?.countAttempt === false ? 0 : 1;
+  const attempts = (existing?.syncAttempts ?? 0) + bump;
   await db.reports.update(id, {
     syncState: 'dirty',
     syncAttempts: attempts,
@@ -173,6 +200,14 @@ export async function requeueReport(id: string): Promise<void> {
     syncAttempts: 0,
     lastSyncError: null,
   });
+}
+
+// Permanently drop a report from the local outbox. The recovery path for a
+// dead-letter that can NEVER sync — e.g. one bound to an event that has since
+// been deleted (scout_event_key_fkey), where neither Retry nor a match/team fix
+// can help. Removing it is the only way to clear the stuck badge.
+export async function deleteReport(id: string): Promise<void> {
+  await db.reports.delete(id);
 }
 
 export async function saveDraft(draftKey: string, state: unknown): Promise<void> {
@@ -247,13 +282,26 @@ export async function markMatchupPending(key: string): Promise<void> {
   await db.matchupNotes.update(key, { syncState: 'pending' });
 }
 
-export async function markMatchupSynced(key: string): Promise<void> {
-  await db.matchupNotes.update(key, { syncState: 'synced', lastSyncError: null });
+// Success/dead-letter guards mirror markSynced/markSyncError: when
+// `uploadedUpdatedAt` is given, the transition applies only if the note wasn't
+// edited while the upload was in flight (edits rewrite updatedAt + re-dirty),
+// so a stale upload's verdict can never strand or dead-letter a newer edit.
+export async function markMatchupSynced(key: string, uploadedUpdatedAt?: string): Promise<void> {
+  await db.matchupNotes
+    .where('key')
+    .equals(key)
+    .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
+    .modify({ syncState: 'synced', syncAttempts: 0, lastSyncError: null });
 }
 
-export async function markMatchupDirtyRetry(key: string, message: string): Promise<void> {
+export async function markMatchupDirtyRetry(
+  key: string,
+  message: string,
+  opts?: { countAttempt?: boolean },
+): Promise<void> {
   const existing = await db.matchupNotes.get(key);
-  const attempts = (existing?.syncAttempts ?? 0) + 1;
+  const bump = opts?.countAttempt === false ? 0 : 1;
+  const attempts = (existing?.syncAttempts ?? 0) + bump;
   await db.matchupNotes.update(key, {
     syncState: 'dirty',
     syncAttempts: attempts,
@@ -261,8 +309,16 @@ export async function markMatchupDirtyRetry(key: string, message: string): Promi
   });
 }
 
-export async function markMatchupSyncError(key: string, message: string): Promise<void> {
-  await db.matchupNotes.update(key, { syncState: 'error', lastSyncError: message });
+export async function markMatchupSyncError(
+  key: string,
+  message: string,
+  uploadedUpdatedAt?: string,
+): Promise<void> {
+  await db.matchupNotes
+    .where('key')
+    .equals(key)
+    .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
+    .modify({ syncState: 'error', lastSyncError: message });
 }
 
 // Reset a matchup-note dead-letter to 'dirty' for a manual retry.

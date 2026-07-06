@@ -5,7 +5,7 @@
 // TO 0 and a fuel burst is committed at the dragged rate.
 //
 // This replaces the old vertical track + separate 1..5 rate slider.
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Flame, Send } from 'lucide-react';
 
 export const DEFAULT_MAX_BPS = 30;
@@ -160,6 +160,14 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
     onShootRate?.(0);
     onShootEnd(finalRate);
   }, [onShootEnd, onShootRate]);
+
+  // Commit an in-flight hold if the control unmounts mid-gesture (screen swap
+  // to the GO interstitial / review) — otherwise onShootEnd never fires and the
+  // integrated balls are silently dropped while the session's hold refs keep
+  // ghost-integrating.
+  const endRef = useRef(end);
+  endRef.current = end;
+  useEffect(() => () => endRef.current(), []);
 
   const pct = max > 0 ? (rate / max) * 100 : 0;
   // The thumb is half its own width (size-16 = 4rem → 2rem radius). Inset its

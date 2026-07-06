@@ -26,6 +26,8 @@ function relativeTime(iso: string | null): string {
 export function OfflineReadyBadge(props: {
   eventKey: string | null;
   scoutId?: string;
+  /** Extra classes on the root — e.g. `w-full justify-between` to pin the button right. */
+  className?: string;
 }): JSX.Element | null {
   const { status, lastPreloadAt, errors, refresh } = useOfflinePreload(
     props.eventKey,
@@ -53,20 +55,23 @@ export function OfflineReadyBadge(props: {
     <div
       data-testid="offline-ready-badge"
       className={cn(
-        'flex flex-wrap items-center gap-2 text-sm text-muted-foreground',
+        'flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground',
         hasErrors && 'text-destructive',
+        props.className,
       )}
     >
-      <Icon
-        className={cn('size-4 shrink-0', running && 'animate-spin', ready && 'text-emerald-500')}
-        aria-hidden
-      />
-      <span>{label}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <Icon
+          className={cn('size-4 shrink-0', running && 'animate-spin', ready && 'text-emerald-500')}
+          aria-hidden
+        />
+        <span className="truncate">{label}</span>
+      </span>
       <Button
         data-testid="offline-download"
         size="sm"
         variant="secondary"
-        className="h-9 min-h-[44px] px-3"
+        className="ml-auto h-9 min-h-[44px] shrink-0 px-3"
         disabled={running}
         onClick={() => refresh()}
       >

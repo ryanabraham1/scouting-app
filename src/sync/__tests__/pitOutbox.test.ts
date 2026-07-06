@@ -103,7 +103,7 @@ describe('syncPitOnce', () => {
     expect(rec?.photoBlob ?? null).toBeNull();
   });
 
-  it('transient (photo upload throws network): returns to dirty and increments attempts', async () => {
+  it('network gap (photo upload throws): returns to dirty WITHOUT burning an attempt', async () => {
     uploadPitPhoto.mockRejectedValue(new TypeError('Failed to fetch'));
     const blob = new Blob(['x'], { type: 'image/jpeg' });
     await enqueuePitReport(makeReport(), blob);
@@ -113,8 +113,21 @@ describe('syncPitOnce', () => {
     expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
     const rec = await getRec('2026casj:254');
     expect(rec?.syncState).toBe('dirty');
-    expect(rec?.syncAttempts).toBe(1);
+    // A pure network gap never walks a report toward the dead-letter cap.
+    expect(rec?.syncAttempts).toBe(0);
     expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it('transient (5xx upsert): returns to dirty and increments attempts', async () => {
+    upsertMock.mockResolvedValue({ error: { message: 'service unavailable', status: 503 } });
+    await enqueuePitReport(makeReport());
+
+    const summary = await syncPitOnce();
+
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
+    const rec = await getRec('2026casj:254');
+    expect(rec?.syncState).toBe('dirty');
+    expect(rec?.syncAttempts).toBe(1);
   });
 
   it('terminal ({ error } with 42501): dead-letters the report', async () => {
@@ -129,7 +142,7 @@ describe('syncPitOnce', () => {
   });
 
   it('cap: a transient at SYNC_MAX_ATTEMPTS dead-letters', async () => {
-    upsertMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    upsertMock.mockResolvedValue({ error: { message: 'service unavailable', status: 503 } });
     await enqueuePitReport(makeReport());
     await pitDb.pitReports.update('2026casj:254', { syncAttempts: SYNC_MAX_ATTEMPTS });
 

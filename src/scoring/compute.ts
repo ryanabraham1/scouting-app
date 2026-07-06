@@ -11,7 +11,12 @@ function roundHalfUp(value: number): number {
 }
 
 function burstFuel(rate: number, startMs: number, endMs: number): number {
-  return (rate * (endMs - startMs)) / 1000;
+  // Clamp the duration to >= 0: a corrupt/merged burst with endMs < startMs
+  // must contribute zero fuel, not NEGATIVE fuel (which would silently deflate
+  // the window totals and skew roundHalfUp's floor(x + 0.5) around zero).
+  // Mirrored byte-equivalently in the server recompute (migration 0040) — see
+  // docs/game-migration/04-scoring-sync-contract.md.
+  return (rate * Math.max(0, endMs - startMs)) / 1000;
 }
 
 export function computeAggregates(input: MatchReportInputs): MatchReportAggregates {

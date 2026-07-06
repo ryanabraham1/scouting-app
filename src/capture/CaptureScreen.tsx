@@ -79,10 +79,31 @@ export function shouldLock(
  * recording is unchanged); this component only translates the pointer gesture
  * into begin/commit/lock calls.
  */
+// The two timers get distinct color identities so they never look alike, while
+// keeping the original hold→slide→lock vibe: hold on one hue, and a subtle
+// translucent wash of the LOCK hue grows from the left as you slide, previewing
+// where the lock lands. Playing defense = green → amber (calm, mirrors the old
+// green→warm feel); getting defended = indigo → red (its own hue, red = "under
+// threat"). No bright edge / glow — the fill stays understated.
+type DefenseTone = 'defense' | 'defended';
+const DEFENSE_TONE: Record<DefenseTone, { active: string; locked: string; slide: string }> = {
+  defense: {
+    active: 'bg-emerald-600 text-white hover:bg-emerald-600',
+    locked: 'bg-amber-500 text-neutral-900 hover:bg-amber-500',
+    slide: 'bg-amber-400/40',
+  },
+  defended: {
+    active: 'bg-indigo-600 text-white hover:bg-indigo-600',
+    locked: 'bg-rose-500 text-white hover:bg-rose-500',
+    slide: 'bg-rose-400/40',
+  },
+};
+
 function HoldSlideLockButton(props: {
   testid: string;
   label: string;
   icon: JSX.Element;
+  tone: DefenseTone;
   active: boolean;
   locked: boolean;
   timerText: string;
@@ -93,7 +114,8 @@ function HoldSlideLockButton(props: {
   /** latch locked-on */
   onLock: () => void;
 }): JSX.Element {
-  const { testid, label, icon, active, locked, timerText, onBegin, onCommit, onLock } = props;
+  const { testid, label, icon, tone, active, locked, timerText, onBegin, onCommit, onLock } = props;
+  const toneCls = DEFENSE_TONE[tone];
   // startX must survive re-renders (onBegin flips parent state → this re-renders;
   // a useState start would reset to its initial value and the dx math would zero
   // out). A ref is the correct home for the gesture's anchor X.
@@ -176,11 +198,7 @@ function HoldSlideLockButton(props: {
       variant={active ? 'default' : 'secondary'}
       size="xl"
       className={`relative h-full w-full touch-none select-none flex-col gap-0.5 overflow-hidden rounded-2xl px-2 text-base ${
-        locked
-          ? 'bg-energy text-energy-foreground hover:bg-energy'
-          : active
-            ? 'bg-success text-success-foreground hover:bg-success'
-            : ''
+        locked ? toneCls.locked : active ? toneCls.active : ''
       }`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -192,7 +210,7 @@ function HoldSlideLockButton(props: {
       {active && !locked && (
         <div
           data-testid={`${testid}-slide`}
-          className="pointer-events-none absolute inset-y-0 left-0 bg-energy/40"
+          className={`pointer-events-none absolute inset-y-0 left-0 ${toneCls.slide}`}
           style={{ width: `${slideProgress * 100}%` }}
         />
       )}
@@ -523,7 +541,7 @@ export function CaptureScreen(props: {
         </span>
         <span
           data-testid="capture-clock"
-          className="flex shrink-0 items-center gap-1 text-xl font-bold tabular-nums"
+          className="flex shrink-0 items-center gap-1 font-mono text-xl font-bold tabular-nums"
         >
           <Timer className="size-5 max-[380px]:hidden" /> {mmss(remaining)}
         </span>
@@ -548,7 +566,15 @@ export function CaptureScreen(props: {
             size="icon"
             className="size-11 shrink-0"
             aria-label="Exit capture"
-            onClick={props.onExit}
+            onClick={() => {
+              // The draft is resumable — commit open timers/holds into it
+              // before leaving so they aren't silently dropped.
+              commitDefense();
+              commitDefended();
+              s.holdEnd();
+              s.feedHoldEnd();
+              props.onExit?.();
+            }}
           >
             <X className="size-5" />
           </Button>
@@ -564,7 +590,7 @@ export function CaptureScreen(props: {
           <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-energy/30 bg-energy/10 px-3 py-1.5">
             <span
               data-testid="capture-running-fuel"
-              className="shrink-0 text-4xl font-bold leading-none tabular-nums text-energy"
+              className="shrink-0 font-mono text-4xl font-bold leading-none tabular-nums text-energy"
             >
               {fuelCount}
             </span>
@@ -580,7 +606,7 @@ export function CaptureScreen(props: {
           <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-brand/30 bg-brand/10 px-3 py-1.5">
             <span
               data-testid="capture-running-feed"
-              className="shrink-0 text-4xl font-bold leading-none tabular-nums text-brand"
+              className="shrink-0 font-mono text-4xl font-bold leading-none tabular-nums text-brand"
             >
               {s.liveFeedingCount}
             </span>
@@ -602,7 +628,20 @@ export function CaptureScreen(props: {
           </Button>
         )}
         {(phase === 'auto' || phase === 'pause') && (
-          <Button data-testid="capture-go" size="xl" className="h-12 shrink-0 rounded-2xl bg-energy text-energy-foreground hover:bg-energy text-xl" onClick={() => setShowGo(true)}>
+          <Button
+            data-testid="capture-go"
+            size="xl"
+            className="h-12 shrink-0 rounded-2xl bg-energy text-energy-foreground hover:bg-energy text-xl"
+            onClick={() => {
+              // Commit any in-flight slider hold NOW: the interstitial swap
+              // unmounts the sliders, so onShootEnd would never fire — the
+              // integrated balls would be dropped and the live readout would
+              // keep ghost-integrating against the stale hold refs.
+              s.holdEnd();
+              s.feedHoldEnd();
+              setShowGo(true);
+            }}
+          >
             <FastForward /> GO (Teleop)
           </Button>
         )}
@@ -619,6 +658,7 @@ export function CaptureScreen(props: {
               testid="capture-defense"
               label="Playing defense"
               icon={<Shield className="size-5" />}
+              tone="defense"
               active={defenseActive}
               locked={defenseLocked}
               timerText={secs(liveDefenseMs)}
@@ -632,6 +672,7 @@ export function CaptureScreen(props: {
               testid="capture-defended"
               label="Getting defended"
               icon={<ShieldAlert className="size-5" />}
+              tone="defended"
               active={defendedActive}
               locked={defendedLocked}
               timerText={secs(liveDefendedMs)}
@@ -708,7 +749,23 @@ export function CaptureScreen(props: {
           )}
         </div>
 
-        <Button data-testid="capture-to-review" variant="secondary" size="big" className="h-11 shrink-0 rounded-2xl" onClick={props.onToReview}>
+        <Button
+          data-testid="capture-to-review"
+          variant="secondary"
+          size="big"
+          className="h-11 shrink-0 rounded-2xl"
+          onClick={() => {
+            // CaptureScreen unmounts on the stage switch. Commit anything still
+            // open — a slide-LOCKED defense/defended timer (the lock exists
+            // precisely so no finger is on it at match end) and any in-flight
+            // slider hold — or that data silently vanishes from the report.
+            commitDefense();
+            commitDefended();
+            s.holdEnd();
+            s.feedHoldEnd();
+            props.onToReview();
+          }}
+        >
           To Review
         </Button>
       </div>

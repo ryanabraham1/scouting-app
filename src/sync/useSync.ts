@@ -48,6 +48,11 @@ export function useSync(): UseSyncResult {
   // Overlap guard: a ref so concurrent callers see the live value synchronously
   // (state updates are async and would let a second run slip through).
   const runningRef = useRef(false);
+  // A run() requested while a drain is in flight must not be DROPPED — the
+  // in-flight drain snapshotted the queue before the new work was enqueued, so
+  // dropping the request strands the new report until the next poll. Coalesce:
+  // remember the request and loop one more drain before releasing the guard.
+  const rerunRequestedRef = useRef(false);
   const mountedRef = useRef(true);
   // Auto-requeue auth/RLS-class dead-letters AT MOST ONCE per session. After a
   // server-side RLS/RPC fix (migration 0012) ships, reports that were wrongly
@@ -74,7 +79,10 @@ export function useSync(): UseSyncResult {
   }, []);
 
   const run = useCallback(async () => {
-    if (runningRef.current) return;
+    if (runningRef.current) {
+      rerunRequestedRef.current = true;
+      return;
+    }
     runningRef.current = true;
     if (mountedRef.current) setSyncing(true);
     // Only stamp lastSyncedAt when ALL drains resolved without throwing — a
@@ -82,9 +90,12 @@ export function useSync(): UseSyncResult {
     // SUCCESSFUL sync"). Tracked via a local flag so the finally can read it.
     let ok = false;
     try {
-      await syncOnce();
-      await syncPitOnce();
-      await syncMatchupNotesOnce();
+      do {
+        rerunRequestedRef.current = false;
+        await syncOnce();
+        await syncPitOnce();
+        await syncMatchupNotesOnce();
+      } while (rerunRequestedRef.current);
       ok = true;
     } catch {
       // A drain threw (transient/terminal failures are already classified into

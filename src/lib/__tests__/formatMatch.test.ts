@@ -137,4 +137,18 @@ describe('compareMatchKeys', () => {
       '2026casnv_f1',
     ]);
   });
+  it('orders games within a playoff set (f1m1 < f1m2 < f1m3; sf3m1 < sf3m2)', () => {
+    // Without the m<game> suffix in the sort key, all games of a set compared
+    // EQUAL — breaking next-match tracking + "last match" during finals.
+    const keys = ['2026casnv_f1m3', '2026casnv_f1m1', '2026casnv_sf3m2', '2026casnv_f1m2', '2026casnv_sf3m1'];
+    expect(keys.slice().sort(compareMatchKeys)).toEqual([
+      '2026casnv_sf3m1',
+      '2026casnv_sf3m2',
+      '2026casnv_f1m1',
+      '2026casnv_f1m2',
+      '2026casnv_f1m3',
+    ]);
+    expect(compareMatchKeys('2026casnv_f1m1', '2026casnv_f1m2')).toBeLessThan(0);
+    expect(compareMatchKeys('2026casnv_f1m2', '2026casnv_f1m1')).toBeGreaterThan(0);
+  });
 });

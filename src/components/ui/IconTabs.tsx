@@ -48,9 +48,12 @@ export function IconTabs<T extends string>({
             disabled={tab.disabled}
             onClick={() => onChange(tab.value)}
             className={cn(
-              'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-1.5 text-xs font-semibold transition-colors landscape:flex-1 landscape:basis-24 [&_svg]:size-5',
+              'relative flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-1.5 text-xs font-semibold transition-colors landscape:flex-1 landscape:basis-24 [&_svg]:size-5',
+              // Active tab wears the brand accent (E3) — a cyan-tinted surface,
+              // brand text, and a top hairline that reads like a lit indicator —
+              // so navigation state matches the rest of the color language.
               selected
-                ? 'border-foreground/25 bg-accent text-foreground'
+                ? 'border-brand/50 bg-brand/10 text-brand shadow-[inset_0_2px_0_hsl(var(--brand))]'
                 : 'border-border bg-card/50 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
               tab.disabled ? 'pointer-events-none opacity-40' : '',
             )}

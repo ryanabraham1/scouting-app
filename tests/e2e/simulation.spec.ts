@@ -94,6 +94,8 @@ async function capture(page: Page, matchKey: string, team: number, climb = 3): P
   await page.getByTestId('scout-start-capture').click();
 
   await expect(page.getByTestId('capture-placement-submit')).toBeVisible({ timeout: 15_000 });
+  // The Start button is disabled until the robot is PLACED — tap the field.
+  await page.getByTestId('capture-half-clip').click();
   await page.getByTestId('capture-placement-submit').click();
 
   await page.getByTestId('capture-start').click();
@@ -132,8 +134,8 @@ async function capture(page: Page, matchKey: string, team: number, climb = 3): P
 }
 
 async function expectDrained(page: Page): Promise<void> {
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 25_000 });
-  await expect(page.getByTestId('sync-deadletters')).toHaveText('⚠0', { timeout: 25_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 25_000 });
+  await expect(page.getByTestId('sync-deadletters')).toHaveText('0', { timeout: 25_000 });
 }
 
 test.beforeAll(async () => {
@@ -247,7 +249,7 @@ test('offline capture queues and drains on reconnect', async ({ browser }) => {
     await pick(page, NAMES[0]);
     await ctx.setOffline(true);
     await capture(page, matchKey, team);
-    await expect(page.getByTestId('sync-queued')).toHaveText('↑1', { timeout: 15_000 });
+    await expect(page.getByTestId('sync-queued')).toHaveText('1', { timeout: 15_000 });
     await ctx.setOffline(false);
     await expectDrained(page);
     expect(await reportCount(matchKey, team)).toBe(1);
@@ -302,9 +304,17 @@ test('pit scouting submits and syncs', async ({ browser }) => {
     await page.getByTestId('pit-team-input').fill(String(team));
     await page.getByTestId('pit-team-go').click();
     await expect(page.getByTestId('pit-screen')).toBeVisible({ timeout: 15_000 });
+    // The pit form is a 6-step wizard: drive it step-by-step (Playwright's
+    // actionability check requires visibility, and inactive panels are hidden).
+    // Step 1: drivetrain & mechanisms.
     await page.getByTestId('pit-drivetrain').selectOption('swerve');
+    await page.getByTestId('pit-next').click(); // -> step 2: capabilities & intake
+    await page.getByTestId('pit-next').click(); // -> step 3: strategy, vision & power
     await page.getByTestId('pit-vision').fill('Limelight 3');
     await page.getByTestId('pit-battery-count').fill('6');
+    await page.getByTestId('pit-next').click(); // -> step 4: robot dimensions
+    await page.getByTestId('pit-next').click(); // -> step 5: preferred auto
+    await page.getByTestId('pit-next').click(); // -> step 6: notes & photo (submit)
     await page.getByTestId('pit-submit').click();
     // onDone returns to the team picker after a successful queue.
     await expect(page.getByTestId('pit-team-input')).toBeVisible({ timeout: 15_000 });

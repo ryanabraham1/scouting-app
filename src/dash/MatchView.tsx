@@ -555,61 +555,93 @@ function ScoutingStatusSummary(props: {
   const tone = statusTone(stations, COVERAGE_STATION_CAP);
   const missing = coverage.missingScouts;
 
+  // Coverage bar fill + tone: success when every station is covered, warning
+  // while partial, muted when nothing's in yet.
+  const pctCovered = COVERAGE_STATION_CAP > 0 ? (stations / COVERAGE_STATION_CAP) * 100 : 0;
+  const barColor = full ? 'bg-success' : stations > 0 ? 'bg-warning' : 'bg-muted-foreground/40';
+  const countColor = full ? 'text-success' : stations > 0 ? 'text-warning' : 'text-muted-foreground';
+
   return (
-    <div className="flex flex-col gap-2">
-      {/* Slim one-line summary pill. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        <span
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium tabular-nums',
-            tone,
-          )}
+    <div className="flex flex-col gap-3">
+      {/* Lead: clear coverage indicator + slim coverage bar. */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs font-medium tabular-nums',
+                tone,
+              )}
+            >
+              {full ? <CheckCircle2 className="size-3.5" /> : <Activity className="size-3.5" />}
+              <span className={countColor}>
+                {stations}/{COVERAGE_STATION_CAP}
+              </span>{' '}
+              stations
+            </span>
+          </span>
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {coverage.scoutsCovered} synced · {rel}
+          </span>
+        </div>
+        {/* Slim coverage bar. */}
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted/50"
+          role="presentation"
         >
-          {full ? <CheckCircle2 className="size-3.5" /> : <Activity className="size-3.5" />}
-          {stations}/{COVERAGE_STATION_CAP} stations
-        </span>
-        <span className="tabular-nums text-muted-foreground">
-          {coverage.scoutsCovered} scout{coverage.scoutsCovered === 1 ? '' : 's'} synced · last report{' '}
-          {rel}
-        </span>
+          <div
+            className={cn('h-full rounded-full motion-safe:transition-all', barColor)}
+            style={{ width: `${pctCovered}%` }}
+          />
+        </div>
       </div>
 
-      {/* Dense, secondary reported row. */}
+      {/* Reporter chips on their own row. */}
       {reported.length > 0 ? (
-        <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {reported.map((r, i) => (
-            <li
-              key={`${r.scout_id ?? 'na'}-${r.station}-${i}`}
-              data-testid={`match-scout-reported-${r.scout_id ?? 'unassigned'}`}
-              className="inline-flex items-center gap-1.5"
-            >
-              <span className="font-medium text-foreground">{scoutName(r.scout_id)}</span>
-              <span className="rounded border border-border bg-muted/40 px-1 py-0.5 text-[10px] tabular-nums">
-                {stationLabel(r)}
-              </span>
-              <span className="tabular-nums">{relativeTime(r.server_received_at ?? null, nowMs)}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-1">
+          <span className="eyebrow">Reported</span>
+          <ul className="flex flex-wrap items-center gap-1.5">
+            {reported.map((r, i) => (
+              <li
+                key={`${r.scout_id ?? 'na'}-${r.station}-${i}`}
+                data-testid={`match-scout-reported-${r.scout_id ?? 'unassigned'}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground"
+              >
+                <span className="font-medium text-foreground">{scoutName(r.scout_id)}</span>
+                <span className="rounded border border-border bg-muted/50 px-1 py-0.5 font-mono text-[10px] tabular-nums">
+                  {stationLabel(r)}
+                </span>
+                <span className="font-mono tabular-nums">
+                  {relativeTime(r.server_received_at ?? null, nowMs)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
-      {/* Collapsed "N not reported" toggle — the bulky roster list lives behind it. */}
+      {/* Clearly-labeled collapsible "not reported" section. */}
       {missing.length > 0 ? (
-        <div className="text-xs">
+        <div className="flex flex-col gap-1">
           <button
             type="button"
             data-testid="match-scout-missing-toggle"
             aria-expanded={showMissing}
             onClick={() => setShowMissing((v) => !v)}
-            className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 self-start text-muted-foreground hover:text-foreground"
           >
             <ChevronDown
-              className={cn('size-3.5 transition-transform', showMissing && 'rotate-180')}
+              className={cn(
+                'size-3.5 motion-safe:transition-transform',
+                showMissing && 'rotate-180',
+              )}
             />
-            {missing.length} scout{missing.length === 1 ? '' : 's'} not reported
+            <span className="eyebrow">
+              {missing.length} not reported
+            </span>
           </button>
           {showMissing ? (
-            <ul className="mt-1 flex flex-col gap-0.5 pl-5">
+            <ul className="flex flex-col gap-0.5 pl-5 text-xs">
               {missing.map((s) => (
                 <li
                   key={s.id}

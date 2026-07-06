@@ -1,3 +1,8 @@
+/* Self-hosted webfonts (F1) are imported as JS modules in main.tsx so Vite
+   resolves the scoped @fontsource packages reliably (a CSS @import of a bare
+   package specifier doesn't resolve through PostCSS). They're bundled, so the
+   app renders its display/mono faces fully offline — the point of an arena PWA. */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -37,7 +42,46 @@
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground; }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Headings keep the clean system sans (no decorative display face) — just a
+     touch tighter tracking so titles feel intentional. Per-heading sizes live
+     with each component so density is unaffected. */
+  h1, h2, h3 {
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+  /* F4 — the top rung of a two-tier heading scale. An eyebrow is a small
+     mono caption that sits ABOVE a section title, encoding what the block is
+     ("MATCH 12", "SCOUT HEARTBEAT") without competing with the title itself.
+     Pairs with a display-font section title beneath it. */
+  .eyebrow {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground;
+  }
+  /* Numeric telemetry: opt any run of scores/timers/ratios into the mono data
+     face with lining tabular figures so columns of numbers align like a readout. */
+  .tnum {
+    @apply font-mono tabular-nums;
+    font-feature-settings: 'tnum' 1, 'lnum' 1;
+  }
+}
+
+/* E5 — reduced-motion quality floor. Anyone who asks the OS to minimize motion
+   gets near-instant transitions/animations everywhere, no matter what a component
+   opts into. Individual eye-candy is additionally gated behind `motion-safe:`. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @layer utilities {

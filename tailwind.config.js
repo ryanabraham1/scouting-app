@@ -7,6 +7,19 @@ export default {
   theme: {
     container: { center: true, padding: '1rem', screens: { '2xl': '1400px' } },
     extend: {
+      // Two roles (F1 — see docs/ui-redesign):
+      //  · sans/display → the platform system stack (what the app used before).
+      //    Headings and `font-display` both resolve here, so the UI keeps its
+      //    familiar clean sans voice — no decorative display face.
+      //  · mono → JetBrains Mono: reserved for numeric telemetry (scores, timers,
+      //    EPA, team numbers) so columns of data align like an instrument readout.
+      // Mono falls back to the platform monospace stack before the bundled,
+      // offline-first webfont loads.
+      fontFamily: {
+        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+        display: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+        mono: ['JetBrains Mono Variable', 'JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
       colors: {
         border: 'hsl(var(--border))', input: 'hsl(var(--input))', ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))', foreground: 'hsl(var(--foreground))',

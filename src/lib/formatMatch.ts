@@ -56,23 +56,30 @@ export function isQualMatchKey(matchKey: string | null | undefined): boolean {
 /** Play order for comp levels: qual → playoffs → final. */
 const LEVEL_SORT: Record<string, number> = { qm: 0, q: 0, qual: 0, ef: 1, qf: 2, sf: 3, f: 4, final: 4 };
 
-/** Parse a raw match key into a [levelRank, matchNumber] sort key. */
-function matchSortKey(matchKey: string): [number, number] {
+/** Parse a raw match key into a [levelRank, setNumber, gameNumber] sort key. */
+function matchSortKey(matchKey: string): [number, number, number] {
   const tail = matchKey.includes('_') ? matchKey.slice(matchKey.lastIndexOf('_') + 1) : matchKey;
-  const m = tail.match(/^([a-zA-Z]+)(\d+)/);
-  if (!m) return [9, Number.MAX_SAFE_INTEGER];
-  return [LEVEL_SORT[m[1].toLowerCase()] ?? 9, Number(m[2])];
+  // The optional "m<game>" suffix (best-of-3 finals "f1m2", double-elim replays
+  // "sf3m2") must participate in the sort — without it every game of a playoff
+  // set compares EQUAL, so finals games tie (breaking next-match tracking and
+  // "last match" ordering exactly when the dashboard is most watched).
+  const m = tail.match(/^([a-zA-Z]+)(\d+)(?:m(\d+))?/);
+  if (!m) return [9, Number.MAX_SAFE_INTEGER, 0];
+  return [LEVEL_SORT[m[1].toLowerCase()] ?? 9, Number(m[2]), m[3] != null ? Number(m[3]) : 0];
 }
 
 /**
- * Compare two raw match keys in PLAY order (comp level, then match number).
- * A plain string compare orders "qm10" before "qm2"; this parses the trailing
- * "<level><number>" so "qm2" precedes "qm10" and quals precede playoffs.
+ * Compare two raw match keys in PLAY order (comp level, then set number, then
+ * game-within-set). A plain string compare orders "qm10" before "qm2"; this
+ * parses the trailing "<level><set>[m<game>]" so "qm2" precedes "qm10", quals
+ * precede playoffs, and "f1m1" precedes "f1m2".
  */
 export function compareMatchKeys(a: string, b: string): number {
-  const [la, na] = matchSortKey(a);
-  const [lb, nb] = matchSortKey(b);
-  return la !== lb ? la - lb : na - nb;
+  const [la, na, ga] = matchSortKey(a);
+  const [lb, nb, gb] = matchSortKey(b);
+  if (la !== lb) return la - lb;
+  if (na !== nb) return na - nb;
+  return ga - gb;
 }
 
 /**

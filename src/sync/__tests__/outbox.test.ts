@@ -113,9 +113,11 @@ describe('syncOnce', () => {
     expect((await getReport('c'))?.syncState).toBe('synced');
   });
 
-  it('transient (rpc throws): returns the report to dirty, increments syncAttempts, no dead-letter', async () => {
+  it('transient (5xx): returns the report to dirty, increments syncAttempts, no dead-letter', async () => {
     await saveReport(makeReport({ id: 't1', syncAttempts: 0 }));
-    const rpc = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const rpc = vi.fn().mockResolvedValue({
+      error: { message: 'service unavailable', status: 503 },
+    });
 
     const summary = await syncOnce(rpc);
 
@@ -124,6 +126,42 @@ describe('syncOnce', () => {
     expect(got?.syncState).toBe('dirty');
     expect(got?.syncAttempts).toBe(1);
     expect(got?.lastSyncError).toBeTruthy();
+  });
+
+  it('network gap (rpc throws): back to dirty WITHOUT burning an attempt; drain stops', async () => {
+    await saveReport(makeReport({ id: 'n1', syncAttempts: 0, createdAt: '2026-06-23T00:00:00.000Z' }));
+    await saveReport(makeReport({ id: 'n2', syncAttempts: 0, createdAt: '2026-06-23T00:00:01.000Z' }));
+    const rpc = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const summary = await syncOnce(rpc);
+
+    // Only the first report is attempted — everything behind it faces the same
+    // dead network, so the drain stops instead of hammering it.
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const got = await getReport('n1');
+    expect(got?.syncState).toBe('dirty');
+    // A pure network gap says nothing about the report — no attempt burned, so
+    // flaky venue wifi can never walk a report toward the dead-letter cap.
+    expect(got?.syncAttempts).toBe(0);
+    expect((await getReport('n2'))?.syncState).toBe('dirty');
+  });
+
+  it('network gap (supabase resolved fetch-failure shape, code:"") does not dead-letter', async () => {
+    // supabase-js does NOT throw on transport failure — it resolves with this
+    // exact error shape. Regression test: code:'' used to classify terminal
+    // and instantly dead-letter every report on a wifi blip.
+    await saveReport(makeReport({ id: 'n3', syncAttempts: 0 }));
+    const rpc = vi.fn().mockResolvedValue({
+      error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' },
+    });
+
+    const summary = await syncOnce(rpc);
+
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
+    const got = await getReport('n3');
+    expect(got?.syncState).toBe('dirty');
+    expect(got?.syncAttempts).toBe(0);
   });
 
   it('terminal ({ error }): dead-letters the report and records lastSyncError', async () => {
@@ -140,13 +178,58 @@ describe('syncOnce', () => {
 
   it('cap: a transient failure at SYNC_MAX_ATTEMPTS dead-letters (terminal by cap)', async () => {
     await saveReport(makeReport({ id: 'cap1', syncAttempts: SYNC_MAX_ATTEMPTS }));
-    const rpc = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const rpc = vi.fn().mockResolvedValue({
+      error: { message: 'service unavailable', status: 503 },
+    });
 
     const summary = await syncOnce(rpc);
 
     expect(summary).toEqual({ attempted: 1, synced: 0, retried: 0, deadLettered: 1 });
     const got = await getReport('cap1');
     expect(got?.syncState).toBe('error');
+  });
+
+  it('success resets syncAttempts so past blips never accumulate toward the cap', async () => {
+    await saveReport(makeReport({ id: 'reset1', syncAttempts: SYNC_MAX_ATTEMPTS - 1 }));
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+
+    await syncOnce(rpc);
+
+    const got = await getReport('reset1');
+    expect(got?.syncState).toBe('synced');
+    expect(got?.syncAttempts).toBe(0);
+    expect(got?.lastSyncError).toBeNull();
+  });
+
+  it('revision guard: a mid-flight edit is not clobbered by the stale upload marking synced', async () => {
+    // The scout edits the report WHILE its rev-1 snapshot is uploading: save()
+    // bumps rowRevision and re-dirties the row. markSynced(rev 1) must not
+    // flip the rev-2 row to synced — that would strand the edit locally forever.
+    await saveReport(makeReport({ id: 'race1', rowRevision: 1 }));
+    const rpc = vi.fn().mockImplementation(async () => {
+      await saveReport(makeReport({ id: 'race1', rowRevision: 2, syncState: 'dirty' }));
+      return { error: null };
+    });
+
+    await syncOnce(rpc);
+
+    const got = await getReport('race1');
+    expect(got?.rowRevision).toBe(2);
+    expect(got?.syncState).toBe('dirty');
+  });
+
+  it('revision guard: a stale upload’s terminal verdict does not dead-letter a newer edit', async () => {
+    await saveReport(makeReport({ id: 'race2', rowRevision: 1 }));
+    const rpc = vi.fn().mockImplementation(async () => {
+      await saveReport(makeReport({ id: 'race2', rowRevision: 2, syncState: 'dirty' }));
+      return { error: { code: '23503', message: 'bad fk' } };
+    });
+
+    await syncOnce(rpc);
+
+    const got = await getReport('race2');
+    expect(got?.rowRevision).toBe(2);
+    expect(got?.syncState).toBe('dirty');
   });
 
   it('idempotency: re-running after success is a no-op (empty queue)', async () => {

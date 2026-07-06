@@ -8,7 +8,7 @@
 // scratchpad persisted to localStorage — no server table, no migration. Degrades
 // fully offline.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Gavel, Star, X, RotateCcw, Search, Trophy, Ban, Lock, StickyNote } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -164,9 +164,22 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
 
   // --- Draft scratch state (ephemeral, persisted per event) ------------------
   const [state, setState] = useState<DraftState>(() => loadDraftState(eventKey));
+  // Which event the in-memory `state` belongs to. On an event switch, the
+  // reload effect schedules setState but the save effect runs in the SAME
+  // commit — before the re-render — so without this guard it would write the
+  // OLD event's picks into the NEW event's storage key (permanently, if the
+  // component unmounted before the corrective re-render).
+  const stateEventRef = useRef(eventKey);
   // Reload when the active event changes; persist on every change.
-  useEffect(() => setState(loadDraftState(eventKey)), [eventKey]);
-  useEffect(() => saveDraftState(eventKey, state), [eventKey, state]);
+  useEffect(() => {
+    if (stateEventRef.current === eventKey) return;
+    stateEventRef.current = eventKey;
+    setState(loadDraftState(eventKey));
+  }, [eventKey]);
+  useEffect(() => {
+    if (stateEventRef.current !== eventKey) return; // stale state from the previous event
+    saveDraftState(eventKey, state);
+  }, [eventKey, state]);
 
   const [search, setSearch] = useState('');
 
@@ -357,64 +370,128 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
             </div>
           ) : (
             <ol data-testid="draft-best" className="flex flex-col gap-2">
-              {best.map((r, i) => (
-                <li
-                  key={r.teamNumber}
-                  data-testid={`draft-best-${r.teamNumber}`}
-                  className={cn(
-                    'flex flex-col gap-1 rounded-xl border px-3 py-2',
-                    i === 0 ? 'border-brand/60 bg-brand/10' : 'border-border bg-muted/30',
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex min-w-0 items-center gap-2">
-                      {i === 0 ? <Star className="size-4 shrink-0 text-brand" /> : null}
-                      <TeamNumber
-                        team={r.teamNumber}
-                        onSelect={onSelectTeam}
-                        testid={`draft-best-team-${r.teamNumber}`}
-                        className="font-semibold tabular-nums text-brand"
-                      />
-                      {r.nickname ? (
-                        <span className="truncate text-sm text-muted-foreground">{r.nickname}</span>
-                      ) : null}
-                    </span>
-                    <span className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
-                      <span>EPA {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
-                      <span className="hidden sm:inline">{fmt(r.expectedPoints, 1)} pts</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        data-testid={`draft-pick-ours-${r.teamNumber}`}
-                        onClick={() => toggle(r.teamNumber, 'ours')}
+              {best.map((r, i) =>
+                i === 0 ? (
+                  // #1 — the recommended action. Brand-filled, oversized number,
+                  // a loud PICK NEXT eyebrow, and a primary Pick button.
+                  <li
+                    key={r.teamNumber}
+                    data-testid={`draft-best-${r.teamNumber}`}
+                    className="flex flex-col gap-2 rounded-xl border-2 border-brand bg-brand/15 px-4 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span className="eyebrow flex items-center gap-1.5 text-brand">
+                          <Star className="size-3.5 shrink-0" /> Pick next
+                        </span>
+                        <div className="flex min-w-0 items-baseline gap-2.5">
+                          <TeamNumber
+                            team={r.teamNumber}
+                            onSelect={onSelectTeam}
+                            testid={`draft-best-team-${r.teamNumber}`}
+                            className="font-display text-3xl leading-none tabular-nums text-brand"
+                          />
+                          {r.nickname ? (
+                            <span className="truncate text-sm text-muted-foreground">
+                              {r.nickname}
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
+                          <span>EPA {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
+                          <span>{fmt(r.expectedPoints, 1)} pts</span>
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="default"
+                          data-testid={`draft-pick-ours-${r.teamNumber}`}
+                          onClick={() => toggle(r.teamNumber, 'ours')}
+                        >
+                          <Star /> Pick
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          data-testid={`draft-pick-taken-${r.teamNumber}`}
+                          onClick={() => toggle(r.teamNumber, 'taken')}
+                        >
+                          <X /> Taken
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Scouting note for this team from the picklist, so the lead sees
+                        WHY it's a good pick without leaving the draft. */}
+                    {r.note ? (
+                      <p
+                        data-testid={`draft-best-note-${r.teamNumber}`}
+                        className="flex items-start gap-1.5 border-t border-brand/25 pt-2 text-xs text-muted-foreground"
                       >
-                        <Star /> Pick
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        data-testid={`draft-pick-taken-${r.teamNumber}`}
-                        onClick={() => toggle(r.teamNumber, 'taken')}
+                        <StickyNote className="mt-0.5 size-3 shrink-0 text-brand/70" />
+                        <span className="min-w-0">{r.note}</span>
+                      </p>
+                    ) : null}
+                  </li>
+                ) : (
+                  // #2 / #3 — quieter, smaller runners-up.
+                  <li
+                    key={r.teamNumber}
+                    data-testid={`draft-best-${r.teamNumber}`}
+                    className="flex flex-col gap-1 rounded-lg border border-border bg-muted/30 px-3 py-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="eyebrow shrink-0 text-muted-foreground">#{i + 1}</span>
+                        <TeamNumber
+                          team={r.teamNumber}
+                          onSelect={onSelectTeam}
+                          testid={`draft-best-team-${r.teamNumber}`}
+                          className="font-mono text-sm font-semibold tabular-nums text-brand"
+                        />
+                        {r.nickname ? (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {r.nickname}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
+                        <span>EPA {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
+                        <span className="hidden sm:inline">{fmt(r.expectedPoints, 1)} pts</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          data-testid={`draft-pick-ours-${r.teamNumber}`}
+                          onClick={() => toggle(r.teamNumber, 'ours')}
+                        >
+                          <Star /> Pick
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          data-testid={`draft-pick-taken-${r.teamNumber}`}
+                          onClick={() => toggle(r.teamNumber, 'taken')}
+                        >
+                          <X /> Taken
+                        </Button>
+                      </span>
+                    </div>
+                    {r.note ? (
+                      <p
+                        data-testid={`draft-best-note-${r.teamNumber}`}
+                        className="flex items-start gap-1.5 border-t border-border/50 pt-1 text-xs text-muted-foreground"
                       >
-                        <X /> Taken
-                      </Button>
-                    </span>
-                  </div>
-                  {/* Scouting note for this team from the picklist, so the lead sees
-                      WHY it's a good pick without leaving the draft. */}
-                  {r.note ? (
-                    <p
-                      data-testid={`draft-best-note-${r.teamNumber}`}
-                      className="flex items-start gap-1.5 border-t border-border/50 pt-1 text-xs text-muted-foreground"
-                    >
-                      <StickyNote className="mt-0.5 size-3 shrink-0 text-brand/70" />
-                      <span className="min-w-0">{r.note}</span>
-                    </p>
-                  ) : null}
-                </li>
-              ))}
+                        <StickyNote className="mt-0.5 size-3 shrink-0 text-brand/70" />
+                        <span className="min-w-0">{r.note}</span>
+                      </p>
+                    ) : null}
+                  </li>
+                ),
+              )}
             </ol>
           )}
         </CardContent>
@@ -601,33 +678,98 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   key={r.teamNumber}
                   data-testid={`draft-row-${r.teamNumber}`}
                   className={cn(
-                    'flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border px-3 py-2 text-sm',
+                    'flex flex-col gap-2 rounded-xl border px-3 py-2 text-sm',
                     rowTone(r.status),
                     // Teams we can't pick (ranked above us, or a top-8 seed after
                     // our first pick) read as taken — dimmed + struck through.
                     (r.blockedByRank || r.blockedTop8) && r.status === 'available' && 'opacity-55',
                   )}
                 >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                      {i + 1}
+                  {/* Line 1 — identity on the left, primary action on the right. */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                        {i + 1}
+                      </span>
+                      <TeamNumber
+                        team={r.teamNumber}
+                        onSelect={onSelectTeam}
+                        testid={`draft-team-${r.teamNumber}`}
+                        className={cn(
+                          'font-display text-base font-semibold tabular-nums text-brand',
+                          (r.status === 'taken' || r.blockedByRank || r.blockedTop8) &&
+                            'line-through',
+                        )}
+                      />
+                      {r.nickname ? (
+                        <span className="truncate text-xs text-muted-foreground">{r.nickname}</span>
+                      ) : null}
                     </span>
-                    <TeamNumber
-                      team={r.teamNumber}
-                      onSelect={onSelectTeam}
-                      testid={`draft-team-${r.teamNumber}`}
-                      className={cn(
-                        'font-semibold tabular-nums text-brand',
-                        (r.status === 'taken' || r.blockedByRank || r.blockedTop8) && 'line-through',
-                      )}
-                    />
-                    {r.nickname ? (
-                      <span className="truncate text-xs text-muted-foreground">{r.nickname}</span>
-                    ) : null}
+                    <span className="flex shrink-0 items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={r.status === 'ours' ? 'default' : 'outline'}
+                        data-testid={`draft-ours-${r.teamNumber}`}
+                        // Can't add ourselves, a team ranked above us, or (after our
+                        // first pick) a top-8 seed to our alliance.
+                        disabled={
+                          r.isUs || ((r.blockedByRank || r.blockedTop8) && r.status !== 'ours')
+                        }
+                        title={
+                          r.isUs
+                            ? "That's us — you're the captain"
+                            : r.blockedByRank
+                              ? `Ranked above us (#${r.tbaRank}) — can't pick`
+                              : r.blockedTop8
+                                ? `Top-8 seed (#${r.tbaRank}) — unavailable by our 2nd pick`
+                                : undefined
+                        }
+                        onClick={() => toggle(r.teamNumber, 'ours')}
+                      >
+                        <Star /> Ours
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={r.status === 'taken' ? 'secondary' : 'ghost'}
+                        data-testid={`draft-taken-${r.teamNumber}`}
+                        // We can't be "taken" by another alliance — we're a captain.
+                        disabled={r.isUs}
+                        onClick={() => toggle(r.teamNumber, 'taken')}
+                      >
+                        {r.status === 'taken' ? (
+                          <>
+                            <RotateCcw /> Undo
+                          </>
+                        ) : (
+                          <>
+                            <X /> Taken
+                          </>
+                        )}
+                      </Button>
+                    </span>
+                  </div>
+                  {/* Line 2 — compact stat strip + small badges, aligned. */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8">
+                    <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
+                      <span>
+                        <span className="text-muted-foreground/60">EPA</span>{' '}
+                        {r.epa == null ? EM_DASH : fmt(r.epa)}
+                      </span>
+                      <span>
+                        {fmt(r.expectedPoints, 1)}
+                        <span className="text-muted-foreground/60"> pts</span>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground/60">climb</span>{' '}
+                        {pct(r.climbSuccessRate)}
+                      </span>
+                    </span>
                     {r.picklistRank != null ? (
                       <span
                         data-testid={`draft-picklist-rank-${r.teamNumber}`}
-                        className="rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand"
+                        className="rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 font-mono text-[10px] font-medium tabular-nums text-brand"
                         title="Position on your picklist"
                       >
                         #{r.picklistRank + 1}
@@ -672,54 +814,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         {r.tier}
                       </span>
                     ) : null}
-                  </span>
-                  <span className="flex items-center gap-2 text-xs tabular-nums text-muted-foreground">
-                    <span>EPA {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
-                    <span className="hidden sm:inline">{fmt(r.expectedPoints, 1)} pts</span>
-                    <span className="hidden md:inline">climb {pct(r.climbSuccessRate)}</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={r.status === 'ours' ? 'default' : 'outline'}
-                      data-testid={`draft-ours-${r.teamNumber}`}
-                      // Can't add ourselves, a team ranked above us, or (after our
-                      // first pick) a top-8 seed to our alliance.
-                      disabled={
-                        r.isUs || ((r.blockedByRank || r.blockedTop8) && r.status !== 'ours')
-                      }
-                      title={
-                        r.isUs
-                          ? "That's us — you're the captain"
-                          : r.blockedByRank
-                            ? `Ranked above us (#${r.tbaRank}) — can't pick`
-                            : r.blockedTop8
-                              ? `Top-8 seed (#${r.tbaRank}) — unavailable by our 2nd pick`
-                              : undefined
-                      }
-                      onClick={() => toggle(r.teamNumber, 'ours')}
-                    >
-                      <Star /> Ours
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={r.status === 'taken' ? 'secondary' : 'ghost'}
-                      data-testid={`draft-taken-${r.teamNumber}`}
-                      // We can't be "taken" by another alliance — we're a captain.
-                      disabled={r.isUs}
-                      onClick={() => toggle(r.teamNumber, 'taken')}
-                    >
-                      {r.status === 'taken' ? (
-                        <>
-                          <RotateCcw /> Undo
-                        </>
-                      ) : (
-                        <>
-                          <X /> Taken
-                        </>
-                      )}
-                    </Button>
-                  </span>
+                  </div>
                 </li>
               ))}
             </ul>

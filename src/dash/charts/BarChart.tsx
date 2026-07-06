@@ -27,10 +27,14 @@ export interface BarChartProps {
 // viewBox geometry — width 100% via the parent; the viewBox keeps it crisp.
 const VB_W = 320;
 const VB_H = 180;
-const PAD_L = 34;
+// Extra left room so 3-digit y-axis values (e.g. "120") don't clip the plot.
+const PAD_L = 40;
 const PAD_R = 8;
 const PAD_T = 10;
 const PAD_B = 30;
+
+// Monospace so SVG axis labels read as instrument telemetry (matches font-mono).
+const AXIS_FONT = "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace";
 
 function niceMax(max: number): number {
   if (max <= 0) return 1;
@@ -72,7 +76,7 @@ export function BarChart({
   return (
     <figure data-testid={testid} className="m-0 w-full" role="group" aria-label={title}>
       {title ? (
-        <figcaption className="mb-1 text-sm font-medium text-muted-foreground">{title}</figcaption>
+        <figcaption className="eyebrow mb-1">{title}</figcaption>
       ) : null}
       <svg
         viewBox={`0 0 ${VB_W} ${VB_H}`}
@@ -97,6 +101,7 @@ export function BarChart({
                 y={y + 3}
                 textAnchor="end"
                 fontSize={9}
+                fontFamily={AXIS_FONT}
                 fill={CHART_COLORS.axis}
               >
                 {Math.round(t)}
@@ -129,6 +134,7 @@ export function BarChart({
                   y={VB_H - PAD_B + 12}
                   textAnchor="middle"
                   fontSize={8}
+                  fontFamily={AXIS_FONT}
                   fill={CHART_COLORS.axis}
                 >
                   {d.label}

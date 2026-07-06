@@ -85,6 +85,44 @@ const initialDeferred: DeferredState = {
   notes: '',
 };
 
+/**
+ * Re-fit recorded intervals to a hand-corrected total duration so the uploaded
+ * report keeps the invariant "Σ intervals == duration" (when intervals exist).
+ * The correction is absorbed at the END — mirroring undo's pop-the-last
+ * semantics — so the earlier intervals' true timeline positions survive:
+ *   - increase → the last interval's end extends by the delta;
+ *   - decrease → intervals shrink (and drop when emptied) from the end.
+ * An empty list stays empty: a scalar entered in Review for a match with no
+ * live-captured intervals has no known timeline placement, and fabricating one
+ * would be worse than the (long-standing, downstream-tolerated) scalar-only
+ * shape. Pure + exported for tests.
+ */
+export function adjustIntervalsTotal(
+  intervals: TimeInterval[],
+  targetMs: number,
+): TimeInterval[] {
+  if (intervals.length === 0) return intervals;
+  const total = intervals.reduce((sum, iv) => sum + Math.max(0, iv.endMs - iv.startMs), 0);
+  let delta = Math.max(0, targetMs) - total;
+  if (delta === 0) return intervals;
+  const out = intervals.map((iv) => ({ ...iv }));
+  if (delta > 0) {
+    out[out.length - 1] = {
+      ...out[out.length - 1],
+      endMs: out[out.length - 1].endMs + delta,
+    };
+    return out;
+  }
+  for (let i = out.length - 1; i >= 0 && delta < 0; i -= 1) {
+    const dur = Math.max(0, out[i].endMs - out[i].startMs);
+    const cut = Math.min(dur, -delta);
+    out[i] = { ...out[i], endMs: out[i].endMs - cut };
+    delta += cut;
+    if (out[i].endMs - out[i].startMs <= 0) out.splice(i, 1);
+  }
+  return out;
+}
+
 interface DraftPayload {
   bursts: FuelBurst[];
   inactiveFirst: boolean | null;
@@ -127,8 +165,18 @@ export function useCaptureSession(target: CaptureTarget) {
   const holdAccumRef = useRef(0);
   const holdRateRef = useRef(0);
   const holdSampleMsRef = useRef<number | null>(null);
+  // Monotonic wall-clock stamp of the hold start, so a hold whose phase clock
+  // jumped BACKWARDS mid-gesture (the 0:30 endgame cue re-anchors the teleop
+  // clock) still commits its true duration instead of zeroing the balls out.
+  const holdWallRef = useRef<number | null>(null);
   const [, setHoldTick] = useState(0); // force re-render of the live readout
   const hydratedRef = useRef(false);
+  // A persist requested BEFORE hydration settles (a very fast first tap racing
+  // the async draft/report load). Writing it through immediately would stomp a
+  // stored draft with near-empty state (or, in edit mode — where editIdRef is
+  // still null — write a phantom draft). It's parked here and flushed after
+  // hydration iff no stored draft was found; otherwise the resumed state wins.
+  const pendingPersistRef = useRef<DraftPayload | null>(null);
 
   // ── Edit-mode (report correction) refs ───────────────────────────────────────
   // Populated by the load-existing effect when target.editingReportId is set. They
@@ -151,6 +199,7 @@ export function useCaptureSession(target: CaptureTarget) {
   const feedAccumRef = useRef(0);
   const feedRateRef = useRef(0);
   const feedSampleMsRef = useRef<number | null>(null);
+  const feedWallRef = useRef<number | null>(null);
 
   // Open-interval starts for the defense / getting-defended timers. Each holds the
   // phase-elapsed ms AND the phase it began in, so the committed interval lands on
@@ -225,6 +274,7 @@ export function useCaptureSession(target: CaptureTarget) {
       const r = await getReport(editId);
       if (cancelled || !r) {
         hydratedRef.current = true;
+        pendingPersistRef.current = null;
         return;
       }
       editIdRef.current = r.id;
@@ -232,6 +282,8 @@ export function useCaptureSession(target: CaptureTarget) {
       editRevRef.current = r.rowRevision ?? 1;
       reconstituteFrom(r);
       hydratedRef.current = true;
+      // Edit mode never writes drafts — discard any raced pre-hydration persist.
+      pendingPersistRef.current = null;
     })();
     return () => {
       cancelled = true;
@@ -248,7 +300,8 @@ export function useCaptureSession(target: CaptureTarget) {
       if (cancelled) {
         return;
       }
-      if (d && d.state && typeof d.state === 'object') {
+      const found = Boolean(d && d.state && typeof d.state === 'object');
+      if (d && found) {
         const s = d.state as Partial<DraftPayload>;
         if (s.bursts) {
           setBursts(s.bursts);
@@ -269,6 +322,19 @@ export function useCaptureSession(target: CaptureTarget) {
         setDraftResumed(true);
       }
       hydratedRef.current = true;
+      // Flush a persist that raced hydration — only when NO stored draft was
+      // found. When one was found, the resumed state just applied above wins
+      // and the raced payload (built from pre-resume state) must not clobber
+      // the stored draft.
+      const pending = pendingPersistRef.current;
+      pendingPersistRef.current = null;
+      if (pending && !found) {
+        void saveDraft(draftKey, {
+          ...pending,
+          feedingBursts: pending.feedingBursts ?? feedingBurstsRef.current,
+          target,
+        });
+      }
     })();
     return () => {
       cancelled = true;
@@ -287,6 +353,13 @@ export function useCaptureSession(target: CaptureTarget) {
       // later as a phantom new draft (and so a pre-existing fresh draft for the
       // same matchKey:scoutId:team key survives the edit untouched).
       if (editIdRef.current) return;
+      // Before hydration settles, park the payload instead of writing through:
+      // the hydration effect flushes it (fresh capture) or discards it (a
+      // stored draft / edit target won). Latest-wins if several taps race.
+      if (!hydratedRef.current) {
+        pendingPersistRef.current = next;
+        return;
+      }
       // Always pin the current feedingBursts from the ref so callers that only
       // know about fuel/deferred state don't wipe feeding data on persist.
       void saveDraft(draftKey, {
@@ -321,6 +394,7 @@ export function useCaptureSession(target: CaptureTarget) {
     holdAccumRef.current = 0;
     holdRateRef.current = 0;
     holdSampleMsRef.current = start;
+    holdWallRef.current = performance.now();
   }, [clock.state.phase, clock.teleopElapsedMs, clock.autoElapsedMs]);
 
   // Called as the slider rate changes mid-hold. Integrates the PREVIOUS rate over
@@ -349,6 +423,7 @@ export function useCaptureSession(target: CaptureTarget) {
     const end = phaseElapsed();
     const finalSegRate = rateOverride ?? holdRateRef.current;
     const sampleMs = holdSampleMsRef.current ?? start;
+    const wallStart = holdWallRef.current;
     const balls =
       holdAccumRef.current + (finalSegRate * Math.max(0, end - sampleMs)) / 1000;
     holdStartMsRef.current = null;
@@ -356,13 +431,21 @@ export function useCaptureSession(target: CaptureTarget) {
     holdAccumRef.current = 0;
     holdRateRef.current = 0;
     holdSampleMsRef.current = null;
+    holdWallRef.current = null;
 
-    const durationMs = Math.max(0, end - start);
+    let durationMs = Math.max(0, end - start);
+    if (durationMs <= 0 && wallStart !== null) {
+      // The phase clock jumped BACKWARDS mid-hold (0:30 endgame cue re-anchor
+      // with a fast local clock): the live end reads before the start. Fall
+      // back to the monotonic wall-clock duration so the integrated balls
+      // survive instead of committing a zero-length (zero-ball) burst.
+      durationMs = Math.max(0, performance.now() - wallStart);
+    }
     // Store an EFFECTIVE constant rate so the existing burst model
     // (rate*(end-start)/1000) reproduces the integrated ball count exactly.
     const effRate = durationMs > 0 ? (balls * 1000) / durationMs : 0;
     const window = windowForBurst(clock.state.phase, clock.teleopElapsedMs);
-    const burst: FuelBurst = { startMs: start, endMs: Math.max(end, start), rate: effRate, window };
+    const burst: FuelBurst = { startMs: start, endMs: start + durationMs, rate: effRate, window };
     const nextBursts = [...bursts, burst];
     setBursts(nextBursts);
     persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred });
@@ -385,6 +468,7 @@ export function useCaptureSession(target: CaptureTarget) {
     feedAccumRef.current = 0;
     feedRateRef.current = 0;
     feedSampleMsRef.current = start;
+    feedWallRef.current = performance.now();
   }, [clock.state.phase, clock.teleopElapsedMs, clock.autoElapsedMs]);
 
   const feedHoldSample = useCallback(
@@ -407,17 +491,23 @@ export function useCaptureSession(target: CaptureTarget) {
       const end = phaseElapsed();
       const finalSegRate = rateOverride ?? feedRateRef.current;
       const sampleMs = feedSampleMsRef.current ?? start;
+      const wallStart = feedWallRef.current;
       const balls = feedAccumRef.current + (finalSegRate * Math.max(0, end - sampleMs)) / 1000;
       feedStartMsRef.current = null;
       setFeedStartMs(null);
       feedAccumRef.current = 0;
       feedRateRef.current = 0;
       feedSampleMsRef.current = null;
+      feedWallRef.current = null;
 
-      const durationMs = Math.max(0, end - start);
+      let durationMs = Math.max(0, end - start);
+      if (durationMs <= 0 && wallStart !== null) {
+        // Backwards re-anchor mid-hold — see holdEnd. Wall-clock fallback.
+        durationMs = Math.max(0, performance.now() - wallStart);
+      }
       const effRate = durationMs > 0 ? (balls * 1000) / durationMs : 0;
       const window = windowForBurst(clock.state.phase, clock.teleopElapsedMs);
-      const burst: FuelBurst = { startMs: start, endMs: Math.max(end, start), rate: effRate, window };
+      const burst: FuelBurst = { startMs: start, endMs: start + durationMs, rate: effRate, window };
       const next = [...feedingBurstsRef.current, burst];
       feedingBurstsRef.current = next;
       setFeedingBursts(next);
@@ -454,10 +544,15 @@ export function useCaptureSession(target: CaptureTarget) {
       // its true length instead of computing ≤ 0 and being dropped.
       const wallDurationMs = Math.max(0, performance.now() - s.wall);
       const samePhase = phaseTag() === s.phase;
-      // Same phase: end on the live phase clock (keeps timeline coords exact).
-      // Crossed the boundary: anchor end off start + the real elapsed duration.
-      const endMs = samePhase ? Math.max(phaseElapsed(), startMs) : startMs + wallDurationMs;
-      const durationMs = samePhase ? Math.max(0, endMs - startMs) : wallDurationMs;
+      // Same phase with a forward-moving clock: end on the live phase clock
+      // (keeps timeline coords exact). Crossed the boundary — OR the phase clock
+      // jumped BACKWARDS mid-interval (0:30 cue re-anchor): anchor end off
+      // start + the real wall-clock duration, so the interval isn't computed
+      // as ≤ 0 and silently dropped.
+      const liveEndMs = phaseElapsed();
+      const useLiveClock = samePhase && liveEndMs > startMs;
+      const endMs = useLiveClock ? liveEndMs : startMs + wallDurationMs;
+      const durationMs = useLiveClock ? endMs - startMs : wallDurationMs;
       if (durationMs <= 0) return;
       setDeferred((prev) => {
         const next: DeferredState = {
@@ -553,6 +648,29 @@ export function useCaptureSession(target: CaptureTarget) {
     <K extends keyof DeferredState>(key: K, value: DeferredState[K]) => {
       setDeferred((prev) => {
         const next = { ...prev, [key]: value };
+        persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+        return next;
+      });
+    },
+    [bursts, inactiveFirst, rate, persistDraft],
+  );
+
+  // Hand-corrected defense/defended TOTAL from the Review step. Updates the
+  // scalar AND re-fits the recorded intervals in one atomic write, so the
+  // uploaded report never ships duration ≠ Σ intervals (which made the match
+  // timeline disagree with the ranked totals).
+  const setDurationAdjusted = useCallback(
+    (
+      durationKey: 'defenseDurationMs' | 'defendedDurationMs',
+      intervalsKey: 'defenseIntervals' | 'defendedIntervals',
+      ms: number,
+    ) => {
+      setDeferred((prev) => {
+        const next: DeferredState = {
+          ...prev,
+          [durationKey]: ms,
+          [intervalsKey]: adjustIntervalsTotal(prev[intervalsKey], ms),
+        };
         persistDraft({ bursts, inactiveFirst, rate, deferred: next });
         return next;
       });
@@ -733,9 +851,11 @@ export function useCaptureSession(target: CaptureTarget) {
     agility: deferred.agility,
     setAgility: (v: 0 | 1 | 2 | 3) => updateDeferred('agility', v),
     defenseDurationMs: deferred.defenseDurationMs,
-    setDefenseDurationMs: (v: number) => updateDeferred('defenseDurationMs', v),
+    setDefenseDurationMs: (v: number) =>
+      setDurationAdjusted('defenseDurationMs', 'defenseIntervals', v),
     defendedDurationMs: deferred.defendedDurationMs,
-    setDefendedDurationMs: (v: number) => updateDeferred('defendedDurationMs', v),
+    setDefendedDurationMs: (v: number) =>
+      setDurationAdjusted('defendedDurationMs', 'defendedIntervals', v),
     // Timestamped interval timers — call begin* on activate, end* on commit.
     defenseIntervals: deferred.defenseIntervals,
     defendedIntervals: deferred.defendedIntervals,

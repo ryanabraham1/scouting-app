@@ -107,6 +107,13 @@ export interface TeamAgg {
 }
 
 /**
+ * meanFuelConfidence below this surfaces the rate-FUEL low-confidence chip.
+ * Shared by TeamView and NextMatchView so the chip fires at one threshold
+ * everywhere. Purely a display gate — confidence never weights points.
+ */
+export const LOW_CONFIDENCE_THRESHOLD = 0.7;
+
+/**
  * Population std-dev (`/n`, not `/(n-1)`) — these are display statistics over a
  * complete observed set, and n=1 must yield 0, not NaN.
  */
@@ -222,8 +229,9 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
     sumEndgame += r.endgame_fuel;
     sumTotal += r.auto_fuel + r.teleop_fuel_active + r.teleop_fuel_inactive + r.endgame_fuel;
     sumFuelPoints += r.fuel_points;
-    // Coalesce legacy NULL confidence to the documented 0.3 so rate-FUEL is
-    // down-weighted to 0.3x, not zeroed. (0008 backfills the server column.)
+    // Coalesce legacy NULL confidence to the documented 0.3 so the rate-FUEL
+    // low-confidence chip still fires for pre-0008 rows. Display flag only —
+    // confidence no longer weights any points. (0008 backfills the column.)
     sumFuelConfidence += r.fuel_estimate_confidence ?? 0.3;
     if (r.climb_success) climbSuccessCount += 1;
     sumClimbLevel += r.climb_level;
@@ -508,8 +516,11 @@ export const F_DEFAULT: ComponentFraction = { fAuto: 0.15, fFuel: 0.55, fClimb: 
 export function aggregateTeamComponentSplit(agg: TeamAgg): ComponentSplit {
   const fp = SCORING.FUEL_POINTS;
   const rawAuto = agg.meanAutoFuel * fp;
-  const rawFuel =
-    (agg.meanTeleopFuelActive + agg.meanTeleopFuelInactive + agg.meanEndgameFuel) * fp;
+  // ONLY point-scoring fuel: `meanFuelPoints` (the basis being split) counts
+  // active windows exclusively, so inactive-shift fuel must not enter the
+  // ratio — it earned zero of the points being attributed, and including it
+  // skewed the auto share low for every feed-heavy team.
+  const rawFuel = (agg.meanTeleopFuelActive + agg.meanEndgameFuel) * fp;
   const fuelTot = rawAuto + rawFuel;
   const fuelBasis = agg.meanFuelPoints;
   // Guard a zero FUEL total: route all fuel points to the fuel bucket so we
@@ -1074,12 +1085,14 @@ function coverageFromBucket(
   stationCap: number,
 ): MatchScoutCoverage {
   const reportedScoutIds = new Set<string>();
-  const stations = new Set<number>();
+  // Station numbers are 1|2|3 PER ALLIANCE — key by alliance+station or red 1
+  // and blue 1 collapse into one entry and coverage tops out at 3/6 forever.
+  const stations = new Set<string>();
   let unattributed = 0;
   for (const r of bucket) {
     if (r.scout_id == null) unattributed += 1;
     else reportedScoutIds.add(r.scout_id);
-    if (r.station != null) stations.add(r.station);
+    if (r.station != null) stations.add(`${r.alliance_color}:${r.station}`);
   }
   const missingScouts: ScoutLite[] = scouts
     .filter((s) => !reportedScoutIds.has(s.id))

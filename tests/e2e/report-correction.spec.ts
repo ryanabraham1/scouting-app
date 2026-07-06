@@ -46,6 +46,8 @@ async function captureBaseline(page: import('@playwright/test').Page): Promise<v
   await page.getByTestId('scout-start-capture').click();
 
   await expect(page.getByTestId('capture-placement-submit')).toBeVisible();
+  // The Start button is disabled until the robot is PLACED — tap the field.
+  await page.getByTestId('capture-half-clip').click();
   await page.getByTestId('capture-placement-submit').click();
 
   await expect(page.getByTestId('capture-start')).toBeVisible();
@@ -103,7 +105,7 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
 
   // 1. Baseline report, online so it syncs.
   await captureBaseline(page);
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 30_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
 
   // 2. My Data → there's a row with an Edit button.
   await page.getByTestId('nav-my-data').click();
@@ -134,7 +136,7 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
   // 7. Server assertion once the queue drains: revision bumped, climb updated,
   //    exactly one row for that id (UPDATE path, not a duplicate insert).
   await page.goto('/scout');
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 30_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
   const res = await admin
     .from('match_scouting_report')
     .select('row_revision, climb_level')
@@ -147,7 +149,7 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
   // Scenario B: idempotent resubmit — re-trigger sync without editing; revision
   // stays 2 and there's still exactly one active row.
   await page.reload();
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 30_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
   const again = await admin
     .from('match_scouting_report')
     .select('row_revision')
@@ -239,10 +241,10 @@ test('Scenario D: offline edit queues then drains', async ({ page }) => {
 
   await setActiveEvent(admin, E2E_EVENT_KEY);
   await pickScouter(page, SCOUTER);
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 30_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
 
   await captureBaseline(page);
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 30_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
 
   await page.getByTestId('nav-my-data').click();
   const editTestid = await page
@@ -259,11 +261,11 @@ test('Scenario D: offline edit queues then drains', async ({ page }) => {
 
   await page.goto('/scout');
   await expect(page.getByTestId('sync-indicator').getByLabel('offline')).toBeVisible();
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑1');
+  await expect(page.getByTestId('sync-queued')).toHaveText('1');
 
   // Back online: drains to ↑0 and the server shows revision 2.
   await page.context().setOffline(false);
-  await expect(page.getByTestId('sync-queued')).toHaveText('↑0', { timeout: 30_000 });
+  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
   const res = await admin
     .from('match_scouting_report')
     .select('row_revision')

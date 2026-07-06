@@ -218,7 +218,7 @@ describe('useSync', () => {
     expect(result.current.lastSyncedAt).toBeNull();
   });
 
-  it('guards overlapping runs: a syncNow while a run is in flight does not double-run', async () => {
+  it('coalesces overlapping runs: a syncNow while a run is in flight queues ONE follow-up drain', async () => {
     let resolveRun: (() => void) | undefined;
     syncOnceMock.mockImplementation(
       () =>
@@ -232,17 +232,28 @@ describe('useSync', () => {
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
     expect(result.current.syncing).toBe(true);
 
-    // Try to trigger another while the first is still running.
+    // Requests while the first is still running must not start a CONCURRENT
+    // drain — but must not be DROPPED either (the in-flight drain snapshotted
+    // the queue before this work was enqueued). Multiple requests coalesce.
     await act(async () => {
+      result.current.syncNow();
       result.current.syncNow();
     });
     expect(syncOnceMock).toHaveBeenCalledTimes(1);
 
-    // Finish the in-flight run.
+    // Finishing the in-flight drain triggers exactly one follow-up drain.
+    await act(async () => {
+      resolveRun?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(2));
+
+    // Finishing the follow-up (no new requests) ends the run.
     await act(async () => {
       resolveRun?.();
       await Promise.resolve();
     });
     await waitFor(() => expect(result.current.syncing).toBe(false));
+    expect(syncOnceMock).toHaveBeenCalledTimes(2);
   });
 });
