@@ -183,18 +183,21 @@ function Stat(props: {
 function ChipRow(props: {
   icon: JSX.Element;
   label: string;
-  items: string[];
+  // Tolerates undefined: a TeamPit rehydrated from the persisted query cache
+  // can predate newer array fields (e.g. matchStrategy) and omit them.
+  items: string[] | undefined;
   testid: string;
 }): JSX.Element {
+  const items = props.items ?? [];
   return (
     <div className="flex flex-col gap-1.5" data-testid={props.testid}>
       <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
         {props.icon}
         {props.label}
       </span>
-      {props.items.length ? (
+      {items.length ? (
         <div className="flex flex-wrap gap-1.5">
-          {props.items.map((it) => (
+          {items.map((it) => (
             <span
               key={it}
               className="rounded-lg border border-border bg-muted/40 px-2.5 py-1 text-sm text-foreground"

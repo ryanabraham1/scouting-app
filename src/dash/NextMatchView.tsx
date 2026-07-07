@@ -771,7 +771,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/30 px-4 py-3">
         <h2
           data-testid="dash-next-event-title"
-          className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight text-foreground"
+          className="min-w-[12rem] flex-1 truncate text-2xl font-bold tracking-tight text-foreground"
         >
           {eventInfo.name ?? eventKey}
         </h2>

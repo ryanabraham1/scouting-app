@@ -582,8 +582,11 @@ export function CaptureScreen(props: {
       </header>
 
       {/* Body fills the remaining height; the defense + slider regions flex to
-          absorb slack so EVERYTHING (incl. To Review) stays on-screen — no scroll. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
+          absorb slack so EVERYTHING (incl. To Review) stays on-screen — no scroll
+          in portrait. When the viewport is shorter than the regions' minimum
+          heights (landscape phone), overflow-y-auto kicks in so Foul/To Review
+          stay reachable instead of being clipped by the overflow-hidden root. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         {/* Running ball counts. Compact so two cards never overflow the right
             edge on a narrow portrait phone (min-w-0 + truncate). */}
         <div className="flex shrink-0 items-stretch gap-2">

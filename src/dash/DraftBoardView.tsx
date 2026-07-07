@@ -726,8 +726,11 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                                 : undefined
                         }
                         onClick={() => toggle(r.teamNumber, 'ours')}
+                        aria-label={`Mark team ${r.teamNumber} as ours`}
                       >
-                        <Star /> Ours
+                        {/* Icon-only under 420px so the team nickname keeps
+                            readable width on phones. */}
+                        <Star /> <span className="max-[420px]:hidden">Ours</span>
                       </Button>
                       <Button
                         type="button"
@@ -737,14 +740,19 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         // We can't be "taken" by another alliance — we're a captain.
                         disabled={r.isUs}
                         onClick={() => toggle(r.teamNumber, 'taken')}
+                        aria-label={
+                          r.status === 'taken'
+                            ? `Undo taken for team ${r.teamNumber}`
+                            : `Mark team ${r.teamNumber} as taken`
+                        }
                       >
                         {r.status === 'taken' ? (
                           <>
-                            <RotateCcw /> Undo
+                            <RotateCcw /> <span className="max-[420px]:hidden">Undo</span>
                           </>
                         ) : (
                           <>
-                            <X /> Taken
+                            <X /> <span className="max-[420px]:hidden">Taken</span>
                           </>
                         )}
                       </Button>

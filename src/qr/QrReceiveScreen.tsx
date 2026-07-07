@@ -310,10 +310,10 @@ function QrReceiveScanner() {
       data-testid="qr-receive"
       className="flex min-h-screen flex-col bg-background px-safe py-safe text-foreground"
     >
-      <header className="mb-4 flex items-center gap-3">
+      <header className="mb-4 flex items-start gap-3">
         <BackLink to="/scout" label="Back" icon="back" />
         <Camera
-          className={`size-7 shrink-0 ${phase === 'error' ? 'text-destructive' : 'text-brand'}`}
+          className={`mt-2 size-7 shrink-0 ${phase === 'error' ? 'text-destructive' : 'text-brand'}`}
           aria-hidden
         />
         <div className="min-w-0">
