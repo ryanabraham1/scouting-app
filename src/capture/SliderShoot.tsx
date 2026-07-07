@@ -136,8 +136,13 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
       }
       activeRef.current = true;
       setActive(true);
-      setFromPointer(e.clientX);
+      // Start the hold BEFORE reporting the press position: the session's
+      // holdSample() ignores samples while no hold is active, so the old order
+      // (sample → start) dropped the initial rate and left the hold integrating
+      // at 0 BPS until the finger moved — pressing directly at a rate and
+      // holding still never counted anything.
       onShootStart();
+      setFromPointer(e.clientX);
     },
     [disabled, setFromPointer, onShootStart],
   );

@@ -28,6 +28,11 @@ export function OfflineReadyBadge(props: {
   scoutId?: string;
   /** Extra classes on the root — e.g. `w-full justify-between` to pin the button right. */
   className?: string;
+  /** Single-control mode for the scout home status strip. The happy path
+   *  (data cached) collapses to one icon button — the full label moves into the
+   *  tooltip/aria-label — while the needs-attention states (never downloaded,
+   *  errors) keep a small labeled button so the CTA stays visible. */
+  compact?: boolean;
 }): JSX.Element | null {
   const { status, lastPreloadAt, errors, refresh } = useOfflinePreload(
     props.eventKey,
@@ -50,6 +55,37 @@ export function OfflineReadyBadge(props: {
       : hasErrors
         ? 'Some data couldn’t download'
         : 'Tap to download for offline';
+
+  if (props.compact) {
+    const needsAttention = !ready && !running;
+    return (
+      <div
+        data-testid="offline-ready-badge"
+        className={cn('flex shrink-0 items-center', props.className)}
+      >
+        <Button
+          data-testid="offline-download"
+          size="sm"
+          variant={needsAttention ? 'secondary' : 'ghost'}
+          aria-label={`${label} — download event data for offline`}
+          title={label}
+          className={cn(
+            'min-h-0',
+            needsAttention ? 'h-9 gap-1.5 px-2.5' : 'size-10 p-0',
+            hasErrors && 'text-destructive',
+          )}
+          disabled={running}
+          onClick={() => refresh()}
+        >
+          <Icon
+            className={cn('size-4 shrink-0', running && 'animate-spin', ready && 'text-emerald-500')}
+            aria-hidden
+          />
+          {needsAttention ? <span className="text-xs font-medium">Download</span> : null}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div

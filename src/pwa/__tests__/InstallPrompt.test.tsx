@@ -48,6 +48,20 @@ describe('InstallPrompt', () => {
     expect(screen.getByText(/Add to Home Screen/i)).toBeTruthy();
   });
 
+  it('opens (and closes) the step-by-step guide from the iOS "Show me" button', () => {
+    state.ios = true;
+    render(<InstallPrompt />);
+    fireEvent.click(screen.getByTestId('install-prompt-how'));
+    const guide = screen.getByTestId('install-guide');
+    expect(guide).toBeTruthy();
+    // The three-step sequence is present, in order.
+    expect(guide.textContent).toMatch(/Tap the Share button.*Add to Home Screen.*Tap Add/s);
+    fireEvent.click(screen.getByTestId('install-guide-close'));
+    expect(screen.queryByTestId('install-guide')).toBeNull();
+    // Banner remains (guide close is not a dismiss).
+    expect(screen.getByTestId('install-prompt')).toBeTruthy();
+  });
+
   it('renders nothing when already installed / standalone', () => {
     state.canPrompt = true;
     state.standalone = true;

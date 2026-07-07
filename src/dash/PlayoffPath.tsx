@@ -159,7 +159,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
       if (last.isFinal) {
         const ourWins = ourOrdered.filter((o) => o.isFinal && ourSide(o.row, baseTeam)?.color === o.row.winner).length;
         if (ourWins >= 2) {
-          title = 'Champions — you won the event! 🏆';
+          title = 'Champions — you won the event!';
           tone = 'text-success';
           icon = <Trophy className="size-4 text-success" />;
         } else {

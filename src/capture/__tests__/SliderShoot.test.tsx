@@ -61,6 +61,33 @@ describe('SliderShoot gesture', () => {
     expect(el.getAttribute('data-rate')).toBe('0');
     expect(el.getAttribute('data-active')).toBe('false');
   });
+
+  // Regression: pressing directly at a position (no drag) must report the press
+  // rate AFTER the hold has started. The session's holdSample() drops samples
+  // while no hold is active, so the old sample→start order integrated the whole
+  // still-finger hold at 0 BPS — the counter never moved until the slider was
+  // wiggled to a different value.
+  it('starts the hold before reporting the initial press rate', () => {
+    const order: string[] = [];
+    const onShootStart = vi.fn(() => order.push('start'));
+    const onShootRate = vi.fn(() => order.push('rate'));
+    render(
+      <SliderShoot
+        data-testid="ss"
+        onShootStart={onShootStart}
+        onShootRate={onShootRate}
+        onShootEnd={vi.fn()}
+      />,
+    );
+    // jsdom's PointerEvent drops clientX; a MouseEvent-typed pointerdown
+    // carries the coordinate so setFromPointer's Number.isFinite guard passes.
+    const down = new MouseEvent('pointerdown', { bubbles: true, clientX: 50 });
+    Object.defineProperty(down, 'pointerId', { value: 1 });
+    screen.getByTestId('ss').dispatchEvent(down);
+    expect(onShootStart).toHaveBeenCalledTimes(1);
+    expect(onShootRate).toHaveBeenCalled();
+    expect(order[0]).toBe('start');
+  });
 });
 
 describe('SliderShoot tone variant', () => {

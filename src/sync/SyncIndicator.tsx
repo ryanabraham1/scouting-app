@@ -16,11 +16,16 @@ import { listPitDeadLetters, requeuePitReport } from '@/pit/pitStore';
 export function SyncIndicator({
   className,
   detailsHref,
+  compact,
 }: {
   className?: string;
   /** When set, the status cluster becomes a link to the full sync-status screen
    *  (needs a Router in context). Omitted in standalone/test renders. */
   detailsHref?: string;
+  /** Single-line mode for the scout home status strip: the Sync action shrinks
+   *  to an icon button so the row stays one thin line. Retry-all (an attention
+   *  state) keeps its text. */
+  compact?: boolean;
 } = {}): JSX.Element {
   const { online, queued, deadLetters, syncing, syncNow, lastSyncedAt } = useSync();
   const [retrying, setRetrying] = useState(false);
@@ -113,12 +118,16 @@ export function SyncIndicator({
         <Button
           data-testid="sync-now"
           size="sm"
-          variant="secondary"
-          className="h-9 min-h-[44px] px-3"
+          variant={compact ? 'ghost' : 'secondary'}
+          aria-label="Sync now"
+          title="Sync now"
+          className={compact ? 'size-10 min-h-0 p-0' : 'h-9 min-h-[44px] px-3'}
           disabled={syncing || !online}
           onClick={() => syncNow()}
         >
-          {syncing ? (
+          {compact ? (
+            <RefreshCw className={cn('size-4', syncing && 'animate-spin')} />
+          ) : syncing ? (
             <>
               <RefreshCw className="size-4 animate-spin" /> Syncing…
             </>
@@ -131,7 +140,7 @@ export function SyncIndicator({
             data-testid="sync-retry-all"
             size="sm"
             variant="outline"
-            className="h-9 min-h-[44px] px-3"
+            className={compact ? 'h-9 px-2.5' : 'h-9 min-h-[44px] px-3'}
             disabled={retrying || !online}
             onClick={() => void retryAll()}
           >

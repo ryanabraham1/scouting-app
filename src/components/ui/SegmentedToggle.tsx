@@ -50,8 +50,10 @@ export function SegmentedToggle<T extends string>({
             aria-selected={selected}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 font-semibold transition-colors [&_svg]:size-5',
-              size === 'big' ? 'min-h-[52px] text-base' : 'min-h-[40px] text-sm',
+              'inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg font-semibold transition-colors [&_svg]:size-5',
+              // Default (compact) tabs get tight padding so three counted labels
+              // fit one line on a 390px phone instead of wrapping raggedly.
+              size === 'big' ? 'min-h-[52px] px-4 text-base' : 'min-h-[40px] px-2 text-sm',
               selected
                 ? cn('border border-border bg-background text-foreground shadow-sm', opt.activeClassName)
                 : 'border border-transparent text-muted-foreground hover:bg-background/50 hover:text-foreground',

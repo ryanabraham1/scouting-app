@@ -725,7 +725,7 @@ export function CaptureScreen(props: {
             data-testid="capture-foul"
             variant="outline"
             size="big"
-            className={`h-11 rounded-2xl ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
+            className={`h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5 ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
             onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); buzz(); }}
           >
             <Flag /> Foul ({s.foulsMinor})
@@ -734,7 +734,7 @@ export function CaptureScreen(props: {
             <Button
               variant={s.autoLeftStartingLine ? 'default' : 'outline'}
               size="big"
-              className="h-11 rounded-2xl"
+              className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
               onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); buzz(); }}
             >
               <MoveUpRight /> Left Line
@@ -744,7 +744,7 @@ export function CaptureScreen(props: {
             <Button
               variant={s.autoClimbLevel1 ? 'default' : 'outline'}
               size="big"
-              className="h-11 rounded-2xl"
+              className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
               onClick={() => { const prev = s.autoClimbLevel1; s.setAutoClimbLevel1(!prev); events.recordToggle({ key: 'autoClimbLevel1', value: !prev, prev }); buzz(); }}
             >
               <Plane /> Auto Climb

@@ -119,8 +119,9 @@ vi.mock('@/sync/useSync', () => ({
   useSync: () => ({ online: true, queued: 0, deadLetters: 0, syncing: false, syncNow: () => {} }),
 }));
 
-import ScoutHome, { normalizeManualMatchKey } from '@/capture/ScoutHome';
+import ScoutHome, { normalizeManualMatchKey, deriveSlotForTeam } from '@/capture/ScoutHome';
 import { db, saveDraft } from '@/db/localStore';
+import type { CachedMatch } from '@/db/types';
 
 describe('normalizeManualMatchKey (BUG-1)', () => {
   const ev = '2026txhou1';
@@ -159,6 +160,7 @@ function renderHome(route = '/scout') {
 beforeEach(async () => {
   await db.reports.clear();
   await db.drafts.clear();
+  await db.cachedMatches.clear();
   forgetScouterName.mockClear();
   markScouterLoggedOut.mockClear();
   loggedOutFlag = false;
@@ -185,6 +187,45 @@ describe('ScoutHome', () => {
   });
 });
 
+describe('deriveSlotForTeam', () => {
+  const row = { red1: 254, red2: 1678, red3: 100, blue1: 200, blue2: 300, blue3: 400 };
+  it('finds a red slot with its 1-based station', () => {
+    expect(deriveSlotForTeam(row, 254)).toEqual({ alliance: 'red', station: 1 });
+    expect(deriveSlotForTeam(row, 100)).toEqual({ alliance: 'red', station: 3 });
+  });
+  it('finds a blue slot with its 1-based station', () => {
+    expect(deriveSlotForTeam(row, 300)).toEqual({ alliance: 'blue', station: 2 });
+  });
+  it('returns null for a team not in the lineup, an unknown row, or bad input', () => {
+    expect(deriveSlotForTeam(row, 9999)).toBeNull();
+    expect(deriveSlotForTeam(undefined, 254)).toBeNull();
+    expect(deriveSlotForTeam(row, NaN)).toBeNull();
+    expect(deriveSlotForTeam(row, 0)).toBeNull();
+  });
+  it('skips null (TBD) slots without matching them', () => {
+    expect(
+      deriveSlotForTeam({ red1: null, red2: null, red3: null, blue1: null, blue2: null, blue3: null }, 254),
+    ).toBeNull();
+  });
+});
+
+// Full CachedMatch row for the preload cache (deriveSlotForTeam reads the
+// lineup; the rest satisfies the row shape).
+function mkCachedMatch(over: Partial<CachedMatch>): CachedMatch {
+  return {
+    match_key: '2026demo_qm5',
+    event_key: '2026demo',
+    comp_level: 'qm',
+    match_number: 5,
+    scheduled_time: null,
+    red1: 254, red2: 1678, red3: 100,
+    blue1: 200, blue2: 300, blue3: 400,
+    actual_red_score: null, actual_blue_score: null,
+    winner: null, result_synced_at: null,
+    ...over,
+  };
+}
+
 describe('ScoutHome manual pick', () => {
   it('disables start until match + team provided', async () => {
     renderHome();
@@ -193,6 +234,53 @@ describe('ScoutHome manual pick', () => {
     fireEvent.change(screen.getByLabelText('Match'), { target: { value: 'qm5' } });
     fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '111' } });
     expect((screen.getByTestId('scout-start-capture') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('derives alliance/station from the cached schedule and hides the selects', async () => {
+    await db.cachedMatches.put(mkCachedMatch({}));
+    renderHome();
+    fireEvent.change(screen.getByLabelText('Match'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '300' } });
+    // Derived chip appears (blue 2 for team 300); manual selects never show.
+    const chip = await screen.findByTestId('scout-manual-derived');
+    expect(chip.textContent).toContain('blue 2');
+    expect(screen.queryByLabelText('Alliance')).toBeNull();
+    expect(screen.queryByLabelText('Station')).toBeNull();
+    // Starting opens the placement step on the BLUE (right) half — the derived
+    // alliance actually drives the capture target.
+    fireEvent.click(screen.getByTestId('scout-start-capture'));
+    const clip = await screen.findByTestId('capture-half-clip');
+    expect(clip.getAttribute('data-half')).toBe('right');
+  });
+
+  it('falls back to alliance/station selects when the match is not in the cache', async () => {
+    // Cache is EMPTY (offline fresh device): typing both fields surfaces the
+    // fallback selects instead of a derived chip.
+    renderHome();
+    expect(screen.queryByLabelText('Alliance')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Match'), { target: { value: 'qm9' } });
+    fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '111' } });
+    expect(screen.getByLabelText('Alliance')).toBeTruthy();
+    expect(screen.getByLabelText('Station')).toBeTruthy();
+    expect(screen.queryByTestId('scout-manual-derived')).toBeNull();
+  });
+
+  it('blocks a team that is not playing in a fully-known lineup', async () => {
+    await db.cachedMatches.put(mkCachedMatch({}));
+    renderHome();
+    fireEvent.change(screen.getByLabelText('Match'), { target: { value: '5' } });
+    // First type a team that IS in the lineup and wait for its derived chip —
+    // that's the visible signal the cached schedule has finished loading, so
+    // the click below can't race the async cache read and start a capture.
+    fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '300' } });
+    await screen.findByTestId('scout-manual-derived');
+    fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '111' } });
+    fireEvent.click(screen.getByTestId('scout-start-capture'));
+    expect(screen.getByTestId('scout-manual-warning').textContent).toMatch(
+      /isn’t playing in Qualification 5/,
+    );
+    // Capture did NOT start.
+    expect(screen.queryByTestId('capture-half-clip')).toBeNull();
   });
 });
 

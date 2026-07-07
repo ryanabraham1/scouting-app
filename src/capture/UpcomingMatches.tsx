@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, CheckCircle2 } from 'lucide-react';
+import { CalendarClock, CheckCircle2, PartyPopper } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { supabase } from '@/lib/supabase';
@@ -284,14 +284,15 @@ export function UpcomingMatches({
           <OnDeckAlert result={onDeck} onStart={onStart} />
         </div>
       ) : null}
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      {/* Title on its own line, filter tabs full-width below — side-by-side the
+          three counted tabs wrapped into a ragged second line on phones. */}
+      <div className="mb-3 flex flex-col gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <CalendarClock className="size-5 text-brand" /> Your matches to scout
         </h2>
         {hasAny ? (
           <SegmentedToggle<'todo' | 'done' | 'missed'>
             ariaLabel="Show matches to scout, not finished, or already completed"
-            className="w-auto"
             size="default"
             value={view}
             onChange={setView}
@@ -299,12 +300,12 @@ export function UpcomingMatches({
               { value: 'todo', label: `To scout (${todoList.length})` },
               {
                 value: 'missed',
-                label: `Not finished (${missedList.length})`,
+                label: `Missed (${missedList.length})`,
                 activeClassName: 'text-warning',
               },
               {
                 value: 'done',
-                label: `Completed (${doneList.length})`,
+                label: `Done (${doneList.length})`,
                 activeClassName: 'text-success',
               },
             ]}
@@ -318,12 +319,20 @@ export function UpcomingMatches({
           No matches assigned to you. Use Manual pick below if you need to scout one.
         </p>
       ) : shown.length === 0 ? (
-        <p data-testid={`scout-upcoming-empty-${view}`} className="text-sm text-muted-foreground">
-          {view === 'done'
-            ? 'No completed matches yet — scouted matches will show up here.'
-            : view === 'missed'
-              ? 'Nothing unfinished — assigned matches you missed will show here.'
-              : "All caught up — no upcoming assigned matches left. 🎉"}
+        <p
+          data-testid={`scout-upcoming-empty-${view}`}
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
+          {view === 'done' ? (
+            'No completed matches yet — scouted matches will show up here.'
+          ) : view === 'missed' ? (
+            'Nothing unfinished — assigned matches you missed will show here.'
+          ) : (
+            <>
+              <PartyPopper className="size-4 shrink-0 text-success" />
+              All caught up — no upcoming assigned matches left.
+            </>
+          )}
         </p>
       ) : (
         <ul className="flex flex-col gap-2 landscape:grid landscape:grid-cols-2">
@@ -339,12 +348,12 @@ export function UpcomingMatches({
                 variant="outline"
                 size="big"
                 className={cn(
-                  'flex h-auto w-full flex-col items-stretch gap-1 border-l-2 py-3 text-left',
+                  'flex h-auto w-full flex-col items-stretch gap-2 rounded-xl border-l-4 px-3 py-3 text-left',
                   isDone
                     ? 'border-l-success/70 opacity-90'
                     : isMissed
                       ? 'border-l-warning/60 opacity-90'
-                      : 'border-l-brand/40',
+                      : 'border-l-brand/50',
                   liveStatus && 'border-l-success ring-2 ring-success',
                 )}
                 onClick={() => onStart(a)}
@@ -368,24 +377,27 @@ export function UpcomingMatches({
                       </span>
                     ) : null}
                   </span>
+                  {/* Assignment chip: the target team is the hero number; the
+                      alliance/station detail sits under it in small caps. */}
                   <span
                     className={cn(
-                      'shrink-0 rounded px-1.5 py-0.5 font-mono text-xs',
+                      'flex shrink-0 flex-col items-end rounded-lg px-2 py-1 leading-tight',
                       a.alliance_color === 'red'
                         ? 'bg-red-500/15 text-red-300'
                         : 'bg-blue-500/15 text-blue-300',
                     )}
                   >
-                    {isDone ? 'Scouted' : 'You scout'}{' '}
                     <span
                       className={cn(
-                        'font-bold',
+                        'font-mono text-sm font-bold tabular-nums',
                         a.alliance_color === 'red' ? 'text-red-200' : 'text-blue-200',
                       )}
                     >
                       #{a.target_team_number}
-                    </span>{' '}
-                    · {a.alliance_color} {a.station}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide opacity-90">
+                      {isDone ? 'scouted' : `${a.alliance_color} ${a.station}`}
+                    </span>
                   </span>
                 </div>
                 {m ? (
