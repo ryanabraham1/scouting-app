@@ -201,6 +201,23 @@ export function useCaptureSession(target: CaptureTarget) {
   const feedSampleMsRef = useRef<number | null>(null);
   const feedWallRef = useRef<number | null>(null);
 
+  // While a hold is active, tick every animation frame so the live ball readout
+  // climbs 1 at a time and reacts to the press within a frame. Without this the
+  // readout only repaints on the 200ms clock tick — at 30 BPS that's a +6..8
+  // jump per repaint, and a press-and-hold-still looks unregistered until the
+  // next tick. (At 60fps the max per-frame delta is 0.5 balls, so the rounded
+  // count can only ever step by 1.) Scoped to active holds so idle screens keep
+  // the cheap 200ms cadence.
+  const anyHoldActive = holdStartMs !== null || feedStartMs !== null;
+  useEffect(() => {
+    if (!anyHoldActive || typeof requestAnimationFrame !== 'function') return;
+    let raf = requestAnimationFrame(function loop() {
+      setHoldTick((t) => t + 1);
+      raf = requestAnimationFrame(loop);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [anyHoldActive]);
+
   // Open-interval starts for the defense / getting-defended timers. Each holds the
   // phase-elapsed ms AND the phase it began in, so the committed interval lands on
   // the right part of the match timeline. `wall` is a monotonic performance.now()

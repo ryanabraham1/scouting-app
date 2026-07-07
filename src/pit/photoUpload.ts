@@ -22,9 +22,12 @@ export async function uploadPitPhoto(
 }
 
 export async function signedPitPhotoUrl(path: string): Promise<string | null> {
+  // 7-day expiry: a URL signed while online Friday must still be fetchable on
+  // Sunday — dashboards persist the query result across the whole competition
+  // weekend and can't re-sign while offline.
   const { data, error } = await supabase.storage
     .from(BUCKET)
-    .createSignedUrl(path, 3600);
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
   if (error || !data) {
     return null;
   }

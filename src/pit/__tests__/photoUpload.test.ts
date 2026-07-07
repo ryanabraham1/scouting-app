@@ -50,13 +50,13 @@ describe('signedPitPhotoUrl', () => {
     createSignedUrlMock.mockReset();
   });
 
-  it('returns the signed url for a 1h expiry', async () => {
+  it('returns the signed url for a 7-day expiry (offline weekend survival)', async () => {
     createSignedUrlMock.mockResolvedValue({
       data: { signedUrl: 'https://signed/url' },
       error: null,
     });
     const url = await signedPitPhotoUrl('2026casj/254/a.jpg');
-    expect(createSignedUrlMock).toHaveBeenCalledWith('2026casj/254/a.jpg', 3600);
+    expect(createSignedUrlMock).toHaveBeenCalledWith('2026casj/254/a.jpg', 60 * 60 * 24 * 7);
     expect(url).toBe('https://signed/url');
   });
 

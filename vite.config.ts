@@ -67,15 +67,40 @@ export default defineConfig({
             },
           },
           {
-            // Supabase storage (pit photos).
+            // Supabase storage (pit photos). ignoreSearch: signed URLs embed a
+            // rotating ?token= — without it every re-signed URL is a cache miss,
+            // so a photo cached online Friday is unreachable offline Saturday.
+            // Object paths are deterministic (event/team.jpg), so path-only
+            // matching is safe.
             urlPattern: ({ url }) =>
               url.hostname.endsWith('.supabase.co') && url.pathname.startsWith('/storage/v1/'),
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'supabase-storage',
+              matchOptions: { ignoreSearch: true },
               expiration: {
                 maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+          {
+            // Cross-origin images (TBA team media: imgur/instagram direct_urls).
+            // Opaque responses cache fine; once viewed online they keep working
+            // offline instead of turning into broken images.
+            urlPattern: ({ request, sameOrigin, url }) =>
+              !sameOrigin &&
+              request.destination === 'image' &&
+              !url.hostname.endsWith('.supabase.co'),
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'external-images',
+              expiration: {
+                maxEntries: 60,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
               },
             },
           },
