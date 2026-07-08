@@ -90,7 +90,8 @@ vi.mock('@/dash/CombinedAutoField', () => ({
       data-blue={props.blueTeams.join(',')}
     />
   ),
-  defaultMatchupOverlays: () => [],
+  matchupTeamAutos: () => [],
+  overlayForAutoOption: () => ({ color: '#fff', startPosition: null, path: null }),
 }));
 
 import StrategyView from '@/dash/strategy/StrategyView';

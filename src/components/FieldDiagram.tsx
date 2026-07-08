@@ -63,7 +63,9 @@ function clamp01(n: number): number {
 // "none"), so a VISUAL square needs its width pre-divided by the field image's
 // aspect (3902/1584): height is the real robot fraction of field height, width
 // the matching fraction of field width.
-const ROBOT_MARK_H = 0.095;
+// Display-only marker, kept a touch smaller than a true bumpered footprint
+// (the image's border padding makes 9.5% of image height read oversized).
+const ROBOT_MARK_H = 0.062;
 const ROBOT_MARK_W = ROBOT_MARK_H * (1584 / 3902);
 
 /** Robot-footprint start marker. `data-cx`/`data-cy` carry the CENTER (the

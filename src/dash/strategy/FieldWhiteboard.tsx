@@ -552,17 +552,17 @@ export default function FieldWhiteboard({
                 />
               )}
               {o.startPosition && (
-                // Robot-footprint square (matches FieldDiagram's start markers
-                // and the draggable squares' visual language).
+                // Display-only start square (matches FieldDiagram's marker size;
+                // the DRAGGABLE squares stay bigger for grabbability).
                 <rect
-                  x={o.startPosition.x * FIELD_W - (FIELD_H * 0.095) / 2}
-                  y={o.startPosition.y * FIELD_H - (FIELD_H * 0.095) / 2}
-                  width={FIELD_H * 0.095}
-                  height={FIELD_H * 0.095}
-                  rx={FIELD_H * 0.008}
+                  x={o.startPosition.x * FIELD_W - (FIELD_H * 0.062) / 2}
+                  y={o.startPosition.y * FIELD_H - (FIELD_H * 0.062) / 2}
+                  width={FIELD_H * 0.062}
+                  height={FIELD_H * 0.062}
+                  rx={FIELD_H * 0.006}
                   fill={o.color}
                   stroke="#ffffff"
-                  strokeWidth={FIELD_H * 0.005}
+                  strokeWidth={FIELD_H * 0.004}
                 />
               )}
             </g>

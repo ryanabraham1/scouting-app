@@ -57,7 +57,10 @@ import {
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { useEventPits } from '@/dash/useTeamPit';
 import { useTeamEpaTrends } from '@/dash/strategy/useTeamEpaTrends';
-import CombinedAutoField, { defaultMatchupOverlays } from '@/dash/CombinedAutoField';
+import CombinedAutoField, {
+  matchupTeamAutos,
+  overlayForAutoOption,
+} from '@/dash/CombinedAutoField';
 import MatchupNotesModal from '@/dash/MatchupNotesModal';
 import { useMatchupNotes } from '@/dash/useEventData';
 import { normalizeMatchup, keyFor } from '@/dash/matchupNotesClient';
@@ -579,18 +582,25 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
     }));
   }, [ourSide, redTeams, blueTeams]);
 
-  // Auto-routine underlay toggle for the whiteboard. OUR teams' scouted-auto
-  // previews are recolored to their assigned robot color (overlay labels are
-  // team numbers) so the preview matches the squares/key; opponents keep the
-  // red-shade palette.
+  // Auto-routine underlays for the whiteboard, with a PER-TEAM auto-option
+  // switcher (the same shape-clustered A/B/C groups the auto-routines card
+  // shows). OUR teams' previews are recolored to their assigned robot color
+  // (overlay labels are team numbers) so the preview matches the squares/key;
+  // opponents keep the red-shade palette.
   const [showAutos, setShowAutos] = useState(true);
+  const [autoSel, setAutoSel] = useState<Record<number, number>>({});
+  const teamAutos = useMemo(
+    () =>
+      showAutos && phase === 'auto' ? matchupTeamAutos(redTeams, blueTeams, reports) : [],
+    [showAutos, phase, redTeams, blueTeams, reports],
+  );
   const underlays = useMemo(() => {
-    if (!showAutos || phase !== 'auto') return [];
     const seedColor = new Map(robotSeeds.map((seed) => [seed.key, seed.color]));
-    return defaultMatchupOverlays(redTeams, blueTeams, reports).map((o) =>
-      o.label && seedColor.has(o.label) ? { ...o, color: seedColor.get(o.label)! } : o,
-    );
-  }, [showAutos, phase, redTeams, blueTeams, reports, robotSeeds]);
+    return teamAutos.map((t) => {
+      const o = overlayForAutoOption(t, autoSel[t.team] ?? t.defaultIdx);
+      return o.label && seedColor.has(o.label) ? { ...o, color: seedColor.get(o.label)! } : o;
+    });
+  }, [teamAutos, autoSel, robotSeeds]);
 
   const loading = matchesQ.isLoading || reportsQ.isLoading || teamsQ.isLoading;
 
@@ -791,6 +801,61 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               robotSeeds={robotSeeds}
               onDrawingActiveChange={setDrawingActive}
             />
+            {/* Per-team auto-option switcher — flip any preview to another
+                routine that team has been scouted running (A/B/C = the same
+                shape clusters as the Auto routines card, • = most recent). */}
+            {teamAutos.some((t) => t.groups.length > 1) ? (
+              <div
+                data-testid="wb-auto-options"
+                className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground"
+              >
+                <span className="font-semibold uppercase tracking-wide">Auto options</span>
+                {teamAutos
+                  .filter((t) => t.groups.length > 1)
+                  .map((t) => {
+                    const seed = robotSeeds.find((r) => r.key === String(t.team));
+                    const color = seed?.color ?? t.color;
+                    const idx = Math.min(autoSel[t.team] ?? t.defaultIdx, t.groups.length - 1);
+                    return (
+                      <span
+                        key={t.team}
+                        role="group"
+                        aria-label={`Auto option for team ${t.team}`}
+                        className="inline-flex flex-wrap items-center gap-1"
+                      >
+                        <span
+                          aria-hidden
+                          className="inline-block size-3 rounded-[3px] ring-1 ring-white/50"
+                          style={{ background: color }}
+                        />
+                        <span className="tabular-nums font-medium text-foreground">{t.team}</span>
+                        {t.groups.map((g, i) => (
+                          <button
+                            key={g.id}
+                            type="button"
+                            data-testid={`wb-auto-opt-${t.team}-${i}`}
+                            aria-pressed={i === idx}
+                            title={`Ran ${g.members.length}×${i === t.defaultIdx ? ' · most recent' : ''}`}
+                            onClick={() => setAutoSel((sel) => ({ ...sel, [t.team]: i }))}
+                            className={cn(
+                              'rounded px-1.5 py-0.5 text-xs font-medium tabular-nums transition-colors',
+                              i === idx
+                                ? 'bg-zinc-100 text-zinc-900'
+                                : 'border border-zinc-700 text-zinc-400 hover:text-zinc-200',
+                            )}
+                          >
+                            {String.fromCharCode(65 + (i % 26))}
+                            <span className="ml-1 opacity-70">{g.members.length}×</span>
+                            {i === t.defaultIdx ? (
+                              <span aria-hidden className="ml-0.5 text-brand">•</span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </span>
+                    );
+                  })}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : (

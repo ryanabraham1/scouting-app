@@ -35,7 +35,7 @@ function optionLetter(i: number): string {
   return String.fromCharCode(65 + (i % 26));
 }
 
-interface TeamAuto {
+export interface TeamAuto {
   team: number;
   color: string;
   /** The alliance side this team plays in the upcoming match. */
@@ -80,24 +80,42 @@ function buildSide(teams: number[], side: AllianceColor, reports: MsrRow[], pale
 }
 
 /**
+ * Every matchup team's shape-clustered auto options (the same grouping the
+ * interactive card below and the Team tab use), red side first. Pure — the
+ * Strategy tab's whiteboard uses this to offer a per-team A/B/C switcher.
+ */
+export function matchupTeamAutos(
+  redTeams: number[],
+  blueTeams: number[],
+  reports: MsrRow[],
+): TeamAuto[] {
+  return [
+    ...buildSide(redTeams, 'red', reports, RED_PALETTE),
+    ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
+  ];
+}
+
+/** One team's chosen auto option as a read-only overlay, re-framed onto the
+ *  side it will play. `idx` is clamped so a stale selection can't throw. */
+export function overlayForAutoOption(t: TeamAuto, idx: number): RoutineOverlay {
+  const safe = Math.min(Math.max(0, idx), t.groups.length - 1);
+  const rep = autoPathToFrame(t.groups[safe].representative, t.side);
+  return { color: t.color, startPosition: rep.start, path: rep.path, label: String(t.team) };
+}
+
+/**
  * Each matchup team's DEFAULT (most-recently-run) auto routine, re-framed onto
  * the side it will play, as read-only overlays — the Strategy tab's whiteboard
  * renders these UNDER the ink so a coach can draw plays over real routines.
- * Pure: reuses the exact grouping/framing the interactive card below uses.
  */
 export function defaultMatchupOverlays(
   redTeams: number[],
   blueTeams: number[],
   reports: MsrRow[],
 ): RoutineOverlay[] {
-  const teams = [
-    ...buildSide(redTeams, 'red', reports, RED_PALETTE),
-    ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
-  ];
-  return teams.map((t) => {
-    const rep = autoPathToFrame(t.groups[t.defaultIdx].representative, t.side);
-    return { color: t.color, startPosition: rep.start, path: rep.path, label: String(t.team) };
-  });
+  return matchupTeamAutos(redTeams, blueTeams, reports).map((t) =>
+    overlayForAutoOption(t, t.defaultIdx),
+  );
 }
 
 export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.Element {
