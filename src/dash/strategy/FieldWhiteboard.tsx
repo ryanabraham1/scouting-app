@@ -575,9 +575,10 @@ export default function FieldWhiteboard({
           )}
           {/* Live (in-progress) stroke — mutated directly via rAF, never React. */}
           <path ref={livePathRef} fill={color} data-testid="wb-live-stroke" />
-          {/* Robot start squares (auto board) — the same square-with-white-border
-              language as FieldDiagram's pick-start marker, one color per team. */}
-          {robotSeeds?.map((seed) => {
+          {/* Robot start squares (AUTO board only) — the same square-with-white-
+              border language as FieldDiagram's pick-start marker, one color per
+              team. The color KEY below stays on every board. */}
+          {phase === 'auto' && robotSeeds?.map((seed) => {
             const pos = robotPosition(seed);
             return (
               <g
@@ -621,13 +622,16 @@ export default function FieldWhiteboard({
         </svg>
       </div>
 
-      {/* Color key: which square is which of OUR alliance robots (auto board). */}
+      {/* Color key: which color is which of OUR alliance robots — visible on
+          EVERY phase board (colors also lead the pen palette). */}
       {robotSeeds && robotSeeds.length > 0 ? (
         <div
           data-testid="wb-robot-key"
           className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
         >
-          <span className="font-semibold uppercase tracking-wide">Start squares</span>
+          <span className="font-semibold uppercase tracking-wide">
+            {phase === 'auto' ? 'Start squares' : 'Robot colors'}
+          </span>
           {robotSeeds.map((seed) => (
             <span key={seed.key} className="inline-flex items-center gap-1.5">
               <span
@@ -638,7 +642,9 @@ export default function FieldWhiteboard({
               <span className="tabular-nums font-medium text-foreground">{seed.team}</span>
             </span>
           ))}
-          <span className="text-muted-foreground/70">drag a square to place its start</span>
+          {phase === 'auto' ? (
+            <span className="text-muted-foreground/70">drag a square to place its start</span>
+          ) : null}
         </div>
       ) : null}
 

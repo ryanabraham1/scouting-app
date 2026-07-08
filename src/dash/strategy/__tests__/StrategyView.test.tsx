@@ -435,7 +435,7 @@ describe('StrategyView', () => {
     expect(getByTestId('field-whiteboard').getAttribute('data-phase')).toBe('endgame');
   });
 
-  it('shows draggable robot start squares + a color key for OUR alliance on the auto board only', () => {
+  it('shows robot squares on the auto board only, but the color key on EVERY board', () => {
     setupHappyPath(true);
     const { getByTestId, getByRole, queryByTestId } = render(
       <StrategyView eventKey="2026evt" />,
@@ -446,10 +446,12 @@ describe('StrategyView', () => {
     const key = getByTestId('wb-robot-key');
     for (const t of RED) expect(key.textContent).toContain(String(t));
 
-    // Not on the other phase boards.
+    // Other phase boards: squares gone, but the team↔color key STAYS.
     fireEvent.click(getByRole('tab', { name: 'Active' }));
     expect(queryByTestId(`wb-robot-${OUR_TEAM}`)).toBeNull();
-    expect(queryByTestId('wb-robot-key')).toBeNull();
+    const keyOnActive = getByTestId('wb-robot-key');
+    for (const t of RED) expect(keyOnActive.textContent).toContain(String(t));
+    expect(keyOnActive.textContent).toMatch(/Robot colors/i);
   });
 
   it('lists ONLY our matches in the selector', () => {

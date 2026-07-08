@@ -560,21 +560,13 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
   const boardMatchKey = match?.match_key ?? MANUAL_MATCH_KEY;
   const canvasQ = useStrategyCanvas(eventKey, boardMatchKey, phase);
 
-  // Auto-routine underlay toggle for the whiteboard.
-  const [showAutos, setShowAutos] = useState(true);
-  const underlays = useMemo(
-    () =>
-      showAutos && phase === 'auto'
-        ? defaultMatchupOverlays(redTeams, blueTeams, reports)
-        : [],
-    [showAutos, phase, redTeams, blueTeams, reports],
-  );
-
-  // Robot start squares (auto board): OUR alliance's teams, one stable color
-  // each — the same assignment the color key under the board shows. Defaults
-  // spread down our side of the field.
+  // Robot color seeds: OUR alliance's teams, one stable color each — the same
+  // assignment everywhere (draggable squares, pen palette, color key, and the
+  // scouted-auto previews below). Phase-INDEPENDENT so the color key stays
+  // visible on every board; FieldWhiteboard renders the draggable squares only
+  // on the auto board.
   const robotSeeds = useMemo<RobotSeed[]>(() => {
-    if (phase !== 'auto' || !ourSide) return [];
+    if (!ourSide) return [];
     const teams = ourSide === 'red' ? redTeams : blueTeams;
     const x = ourSide === 'red' ? 0.12 : 0.88;
     const ys = [0.26, 0.5, 0.74];
@@ -585,7 +577,20 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
       defaultX: x,
       defaultY: ys[i] ?? 0.5,
     }));
-  }, [phase, ourSide, redTeams, blueTeams]);
+  }, [ourSide, redTeams, blueTeams]);
+
+  // Auto-routine underlay toggle for the whiteboard. OUR teams' scouted-auto
+  // previews are recolored to their assigned robot color (overlay labels are
+  // team numbers) so the preview matches the squares/key; opponents keep the
+  // red-shade palette.
+  const [showAutos, setShowAutos] = useState(true);
+  const underlays = useMemo(() => {
+    if (!showAutos || phase !== 'auto') return [];
+    const seedColor = new Map(robotSeeds.map((seed) => [seed.key, seed.color]));
+    return defaultMatchupOverlays(redTeams, blueTeams, reports).map((o) =>
+      o.label && seedColor.has(o.label) ? { ...o, color: seedColor.get(o.label)! } : o,
+    );
+  }, [showAutos, phase, redTeams, blueTeams, reports, robotSeeds]);
 
   const loading = matchesQ.isLoading || reportsQ.isLoading || teamsQ.isLoading;
 
