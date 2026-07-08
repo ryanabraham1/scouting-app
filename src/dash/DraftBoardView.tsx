@@ -161,19 +161,26 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     return m;
   }, [teamsQuery.data]);
 
-  // teamNumber → its picklist entry (either list; flags/notes apply globally).
-  const picklistByTeam = useMemo(() => {
-    const m = new Map<number, PicklistEntry>();
-    for (const entry of picklistQuery.data ?? []) m.set(entry.teamNumber, entry);
-    return m;
-  }, [picklistQuery.data]);
-
   // --- Draft scratch state (ephemeral, persisted per event) ------------------
   const [state, setState] = useState<DraftState>(() => loadDraftState(eventKey));
 
   // Which picklist drives the ranking: the 1st-pick list until our alliance's
   // first pick lands (auto-switch below), manually switchable any time.
   const activeList = draftActiveList(state);
+
+  // teamNumber → its picklist entry. A team may have one entry PER list; the
+  // ACTIVE list's entry wins for per-team annotations (note/tier) so the board
+  // shows the rationale written for THIS pick round.
+  const picklistByTeam = useMemo(() => {
+    const m = new Map<number, PicklistEntry>();
+    for (const entry of picklistQuery.data ?? []) {
+      const prev = m.get(entry.teamNumber);
+      if (!prev || (!(entry.dnp ?? false) && entryList(entry) === activeList)) {
+        m.set(entry.teamNumber, entry);
+      }
+    }
+    return m;
+  }, [picklistQuery.data, activeList]);
   // teamNumber → 0-based rank on the ACTIVE list (DNP markers excluded).
   const activeRankByTeam = useMemo(() => {
     const m = new Map<number, number>();

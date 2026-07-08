@@ -23,7 +23,7 @@ describe('validateAddTeam', () => {
   it('rejects a team already on the picklist', () => {
     const res = validateAddTeam('254', new Set([254]), EVENT);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.reason).toMatch(/already on the picklist/i);
+    if (!res.ok) expect(res.reason).toMatch(/already on this list/i);
   });
 
   it('rejects non-numeric, zero, negative, and fractional input', () => {

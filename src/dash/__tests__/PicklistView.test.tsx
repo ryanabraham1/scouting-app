@@ -451,13 +451,57 @@ describe('PicklistView', () => {
     expect(entries.find((e) => e.teamNumber === 9999)?.tierType).toBe('second');
   });
 
-  it('rejects adding a team that is already on the OTHER list', async () => {
+  it('allows a team on BOTH lists (adding to the 2nd while on the 1st)', async () => {
     const { getByTestId } = await renderLoaded();
     fireEvent.click(getByTestId('pick-list-second'));
     const input = getByTestId('pick-add-input') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '254' } }); // on the 1st list
+    fireEvent.change(input, { target: { value: '254' } }); // already on the 1st list
     fireEvent.click(getByTestId('pick-add'));
-    expect(getByTestId('pick-add-error').textContent).toMatch(/already on the picklist/i);
+    await waitFor(() => expect(getByTestId('pick-row-254')).toBeTruthy());
+    // Still on the 1st list too, now with the "also on the other list" chip.
+    fireEvent.click(getByTestId('pick-list-first'));
+    expect(getByTestId('pick-row-254')).toBeTruthy();
+    expect(getByTestId('pick-both-254').textContent).toMatch(/also 2nd/i);
+
+    await waitFor(() => expect(savePicklistMock).toHaveBeenCalled(), { timeout: 3000 });
+    const entries = savePicklistMock.mock.calls.at(-1)![1] as PicklistEntry[];
+    const own = entries.filter((e) => e.teamNumber === 254);
+    expect(own.map((e) => e.tierType ?? null).sort()).toEqual([null, 'second']);
+  });
+
+  it('rejects a duplicate on the SAME list only', async () => {
+    const { getByTestId } = await renderLoaded();
+    const input = getByTestId('pick-add-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '254' } }); // already on the 1st list
+    fireEvent.click(getByTestId('pick-add'));
+    expect(getByTestId('pick-add-error').textContent).toMatch(/already on this list/i);
+  });
+
+  it('removing from one list keeps the other list entry', async () => {
+    getPicklistMock.mockResolvedValue([
+      { teamNumber: 254, tier: null, note: null, tierType: null, dnp: false },
+      { teamNumber: 254, tier: null, note: null, tierType: 'second', dnp: false },
+      { teamNumber: 1678, tier: null, note: null, tierType: null, dnp: false },
+    ]);
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-remove-254')); // remove from the 1st list
+    await waitFor(() => expect(queryByTestId('pick-row-254')).toBeNull());
+    fireEvent.click(getByTestId('pick-list-second'));
+    expect(getByTestId('pick-row-254')).toBeTruthy(); // 2nd-list entry survives
+  });
+
+  it('move merges when the team is already on both lists (no duplicate row)', async () => {
+    getPicklistMock.mockResolvedValue([
+      { teamNumber: 254, tier: null, note: null, tierType: null, dnp: false },
+      { teamNumber: 254, tier: null, note: 'defense bot', tierType: 'second', dnp: false },
+    ]);
+    const { getByTestId, getAllByTestId, queryByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-move-list-254')); // 1st → merge into 2nd
+    expect(queryByTestId('pick-row-254')).toBeNull();
+    fireEvent.click(getByTestId('pick-list-second'));
+    expect(getAllByTestId('pick-row-254')).toHaveLength(1);
+    // The 2nd list's own entry (with its note) is the survivor.
+    expect((getByTestId('pick-note-254') as HTMLInputElement).value).toBe('defense bot');
   });
 
   it('reorders within a list without disturbing the other list', async () => {

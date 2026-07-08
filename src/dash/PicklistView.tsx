@@ -67,9 +67,10 @@ export type AddTeamValidation =
 
 /**
  * Pure validation for the "add team" input (BUG-11). Rejects non-positive /
- * non-integer values, teams already on the picklist, and — crucially — any team
- * not present in the event's team list (`eventTeams`), which previously let a
- * bogus number like 99999 onto the picklist with no name. When `eventTeams` is
+ * non-integer values, teams already on the TARGET list (`existing` is per-list —
+ * a team may sit on both the 1st- and 2nd-pick lists), and — crucially — any
+ * team not present in the event's team list (`eventTeams`), which previously let
+ * a bogus number like 99999 onto the picklist with no name. When `eventTeams` is
  * empty (team list still loading / unavailable) we DON'T gate on membership, so
  * the picklist stays usable offline rather than rejecting everything.
  */
@@ -83,7 +84,7 @@ export function validateAddTeam(
     return { ok: false, reason: 'Enter a valid team number.' };
   }
   if (existing.has(n)) {
-    return { ok: false, reason: `Team ${n} is already on the picklist.` };
+    return { ok: false, reason: `Team ${n} is already on this list.` };
   }
   if (eventTeams.size > 0 && !eventTeams.has(n)) {
     return { ok: false, reason: `Team ${n} is not competing at this event.` };
@@ -95,6 +96,8 @@ interface PickRowProps {
   entry: PicklistEntry;
   index: number;
   total: number;
+  /** True when this team ALSO has an entry on the other picklist. */
+  alsoOnOtherList: boolean;
   onMove: (index: number, delta: number) => void;
   onRemove: (teamNumber: number) => void;
   onUpdateField: (teamNumber: number, field: 'tier' | 'note', value: string) => void;
@@ -109,8 +112,17 @@ interface PickRowProps {
  * fallback. Pure presentational + the passed-in mutators.
  */
 function SortablePickRow(props: PickRowProps): JSX.Element {
-  const { entry: e, index: i, total, onMove, onRemove, onUpdateField, onSendToOtherList, onSelectTeam } =
-    props;
+  const {
+    entry: e,
+    index: i,
+    total,
+    alsoOnOtherList,
+    onMove,
+    onRemove,
+    onUpdateField,
+    onSendToOtherList,
+    onSelectTeam,
+  } = props;
   // The list this row would MOVE TO (it renders only inside its current list).
   const moveTarget = entryList(e) === 'first' ? '2nd' : '1st';
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
@@ -214,14 +226,28 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
       />
 
-      {/* Send the team to the OTHER picklist (1st ↔ 2nd). */}
-      <div className="col-span-2 flex shrink-0 items-center gap-1 sm:col-span-1">
+      {/* Send the team to the OTHER picklist (1st ↔ 2nd). Already on both →
+          the move merges (drops this row, keeps the other list's entry). */}
+      <div className="col-span-2 flex shrink-0 items-center gap-1.5 sm:col-span-1">
+        {alsoOnOtherList ? (
+          <span
+            data-testid={`pick-both-${e.teamNumber}`}
+            title={`Also on the ${moveTarget} pick list`}
+            className="whitespace-nowrap rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+          >
+            also {moveTarget}
+          </span>
+        ) : null}
         <button
           type="button"
           data-testid={`pick-move-list-${e.teamNumber}`}
           onClick={() => onSendToOtherList(e.teamNumber)}
           aria-label={`Move team ${e.teamNumber} to the ${moveTarget} pick list`}
-          title={`Move to the ${moveTarget} pick list`}
+          title={
+            alsoOnOtherList
+              ? `Already on the ${moveTarget} pick list — removes it from this one`
+              : `Move to the ${moveTarget} pick list`
+          }
           className={cn(
             'inline-flex h-11 min-w-[44px] items-center justify-center whitespace-nowrap rounded-md border px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
             moveTarget === '2nd'
@@ -313,22 +339,29 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const picks = useMemo(() => entries.filter((e) => !(e.dnp ?? false)), [entries]);
   const dnpEntries = useMemo(() => entries.filter((e) => e.dnp ?? false), [entries]);
   // The two picklists are filtered views of the ONE stored array — array order
-  // is the order within each list, so filtering preserves both orderings.
+  // is the order within each list, so filtering preserves both orderings. A team
+  // may sit on BOTH lists (one entry per list), so membership is per-list.
   const firstPicks = useMemo(() => picks.filter((e) => entryList(e) === 'first'), [picks]);
   const secondPicks = useMemo(() => picks.filter((e) => entryList(e) === 'second'), [picks]);
   const activePicks = activeList === 'first' ? firstPicks : secondPicks;
-  // Teams already PICKED (drives the EPA board's added/disabled state).
-  const inListTeams = useMemo(() => new Set(picks.map((e) => e.teamNumber)), [picks]);
+  const otherPicks = activeList === 'first' ? secondPicks : firstPicks;
+  // Teams on the ACTIVE list (drives add-dedupe + the EPA board's added state).
+  const activeListTeams = useMemo(
+    () => new Set(activePicks.map((e) => e.teamNumber)),
+    [activePicks],
+  );
+  // Teams on the INACTIVE list (drives the "also on the other list" chips).
+  const otherListTeams = useMemo(() => new Set(otherPicks.map((e) => e.teamNumber)), [otherPicks]);
   // Teams flagged do-not-pick (drives the EPA board's DNP toggle state).
   const dnpTeams = useMemo(() => new Set(dnpEntries.map((e) => e.teamNumber)), [dnpEntries]);
 
   // Live identity preview: the nickname of a valid, not-yet-added event team the
   // lead is currently typing (BUG-11: confirm the team exists before adding).
   const addPreviewName = useMemo(() => {
-    const result = validateAddTeam(addValue, inListTeams, eventTeamSet);
+    const result = validateAddTeam(addValue, activeListTeams, eventTeamSet);
     if (!result.ok) return null;
     return nameByTeam.get(result.teamNumber) ?? `Team ${result.teamNumber}`;
-  }, [addValue, inListTeams, eventTeamSet, nameByTeam]);
+  }, [addValue, activeListTeams, eventTeamSet, nameByTeam]);
 
   // Load the picklist on mount / event change.
   useEffect(() => {
@@ -391,22 +424,22 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   }
 
   /**
-   * Append a team to the ACTIVE picklist with the standard dedupe guard. Single
-   * source of the add path so the text-input `addTeam` and the EPA board's
-   * one-tap add share identical validation + dedupe (and both land dirty). A
-   * team lives on at most ONE list. Returns true when a row was actually added.
+   * Append a team to the ACTIVE picklist with the standard per-list dedupe
+   * guard. Single source of the add path so the text-input `addTeam` and the
+   * EPA board's one-tap add share identical validation + dedupe (and both land
+   * dirty). A team may be on BOTH lists (one entry per list) — only a duplicate
+   * on the SAME list is rejected. Returns true when a row was actually added.
    */
   function addTeamNumber(n: number): boolean {
     if (!Number.isInteger(n) || n <= 0) return false; // invalid
-    const existing = entries.find((e) => e.teamNumber === n);
-    if (existing && !(existing.dnp ?? false)) return false; // already a pick
-    // A do-not-pick team being explicitly added flips to a pick (clears DNP).
-    if (existing?.dnp) {
-      mutate(
-        entries.map((e) =>
-          e.teamNumber === n ? { ...e, dnp: false, tierType: activeList } : e,
-        ),
-      );
+    if (activeListTeams.has(n)) return false; // already on this list
+    // A do-not-pick team being explicitly added flips to a pick on this list
+    // (clears the marker — DNP is global, so it can't coexist with a pick).
+    if (dnpTeams.has(n)) {
+      mutate([
+        ...entries.filter((e) => e.teamNumber !== n),
+        { teamNumber: n, tier: null, note: null, tierType: activeList, dnp: false },
+      ]);
       return true;
     }
     mutate([...entries, { teamNumber: n, tier: null, note: null, tierType: activeList }]);
@@ -414,7 +447,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   }
 
   function addTeam(): void {
-    const result = validateAddTeam(addValue, inListTeams, eventTeamSet);
+    const result = validateAddTeam(addValue, activeListTeams, eventTeamSet);
     if (!result.ok) {
       setAddError(result.reason);
       return; // keep the typed value so the lead can correct it
@@ -424,8 +457,14 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     setAddValue('');
   }
 
+  /** Remove a team from the ACTIVE list only (its other-list entry survives). */
   function removeTeam(teamNumber: number): void {
-    mutate(entries.filter((e) => e.teamNumber !== teamNumber));
+    mutate(
+      entries.filter(
+        (e) =>
+          e.teamNumber !== teamNumber || (e.dnp ?? false) || entryList(e) !== activeList,
+      ),
+    );
   }
 
   /**
@@ -455,62 +494,77 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     if (from !== -1 && to !== -1) reorder(from, to);
   }
 
+  // Edits land on the ACTIVE list's entry only — a team on both lists keeps an
+  // independent note per list (why it fits THAT pick round).
   function updateField(teamNumber: number, field: 'tier' | 'note', value: string): void {
     mutate(
       entries.map((e) =>
-        e.teamNumber === teamNumber ? { ...e, [field]: value === '' ? null : value } : e,
+        e.teamNumber === teamNumber && !(e.dnp ?? false) && entryList(e) === activeList
+          ? { ...e, [field]: value === '' ? null : value }
+          : e,
       ),
     );
   }
 
   /**
-   * Toggle a team's do-not-pick flag from the EPA board. A team not yet tracked
-   * gets a DNP-only entry; clearing DNP removes that entry entirely (so it never
-   * lingers as a phantom pick). A real pick is never DNP'd from the board (the
-   * board hides the DNP control for picked teams), but the defensive branch keeps
-   * the flag coherent if it ever is.
+   * Toggle a team's do-not-pick flag from the EPA board. DNP is GLOBAL: flagging
+   * a team drops it from BOTH lists and leaves a single DNP marker; clearing DNP
+   * removes that marker entirely (so it never lingers as a phantom pick).
    */
   function toggleDnp(teamNumber: number): void {
     setEntries((prev) => {
-      const existing = prev.find((e) => e.teamNumber === teamNumber);
-      if (existing?.dnp) return prev.filter((e) => e.teamNumber !== teamNumber);
-      if (existing) return prev.map((e) => (e.teamNumber === teamNumber ? { ...e, dnp: true } : e));
-      return [...prev, { teamNumber, tier: null, note: null, tierType: null, dnp: true }];
+      const own = prev.filter((e) => e.teamNumber === teamNumber);
+      if (own.some((e) => e.dnp ?? false)) {
+        return prev.filter((e) => e.teamNumber !== teamNumber);
+      }
+      return [
+        ...prev.filter((e) => e.teamNumber !== teamNumber),
+        { teamNumber, tier: null, note: null, tierType: null, dnp: true },
+      ];
     });
   }
 
-  /** Move a team to the OTHER picklist (appended at that list's end). */
+  /**
+   * Move a team from the ACTIVE list to the other one (appended at that list's
+   * end, carrying its note). When it's already on BOTH lists this is a merge:
+   * just drop the active-list entry, keeping the target's existing row intact.
+   */
   function sendToOtherList(teamNumber: number): void {
-    const entry = picks.find((e) => e.teamNumber === teamNumber);
+    const entry = activePicks.find((e) => e.teamNumber === teamNumber);
     if (!entry) return;
-    const target: PicklistId = entryList(entry) === 'first' ? 'second' : 'first';
+    const target: PicklistId = activeList === 'first' ? 'second' : 'first';
+    const rest = entries.filter((e) => e !== entry);
+    if (otherListTeams.has(teamNumber)) {
+      mutate(rest);
+      return;
+    }
     // Remove + re-append so it lands at the END of the target list; `mutate`
     // canonicalizes the storage order.
-    mutate([
-      ...entries.filter((e) => e.teamNumber !== teamNumber),
-      { ...entry, tierType: target },
-    ]);
+    mutate([...rest, { ...entry, tierType: target }]);
   }
 
   /**
    * Seed the ACTIVE list from the dialog. Replace swaps out only the active
-   * list (the other list + DNP flags survive, except teams the seed claims);
-   * append keeps everything and adds only the seeded teams not already present
-   * on either list (preserving the seeded order). Lands dirty like a manual edit.
+   * list — the other list survives untouched (a team may sit on both), and DNP
+   * markers survive unless the seed claims the team as a pick. Append keeps
+   * everything and adds only the seeded teams not already on the active list
+   * (nor DNP-flagged), preserving the seeded order. Lands dirty like an edit.
    */
   function handleSeed(seeded: PicklistEntry[], mode: 'replace' | 'append'): void {
     const stamped = seeded.map((e) => ({ ...e, tierType: activeList }));
     if (mode === 'replace') {
       const seededTeams = new Set(stamped.map((e) => e.teamNumber));
-      const keep = entries.filter(
-        (e) =>
-          !seededTeams.has(e.teamNumber) &&
-          ((e.dnp ?? false) || entryList(e) !== activeList),
+      const keep = entries.filter((e) =>
+        (e.dnp ?? false) ? !seededTeams.has(e.teamNumber) : entryList(e) !== activeList,
       );
       mutate([...keep, ...stamped]);
     } else {
-      const have = new Set(entries.map((e) => e.teamNumber));
-      mutate([...entries, ...stamped.filter((e) => !have.has(e.teamNumber))]);
+      const skip = new Set(
+        entries
+          .filter((e) => (e.dnp ?? false) || entryList(e) === activeList)
+          .map((e) => e.teamNumber),
+      );
+      mutate([...entries, ...stamped.filter((e) => !skip.has(e.teamNumber))]);
     }
     setSeedOpen(false);
   }
@@ -779,6 +833,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                       entry={e}
                       index={i}
                       total={activePicks.length}
+                      alsoOnOtherList={otherListTeams.has(e.teamNumber)}
                       onMove={move}
                       onRemove={removeTeam}
                       onUpdateField={updateField}
@@ -793,11 +848,13 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
         </CardContent>
       </Card>
 
+      {/* The board's add + added-check reflect the ACTIVE list (a team on the
+          other list can still be one-tap added to this one). */}
       <PicklistEpaBoard
         teams={allTeams}
         epa={epaQuery.data}
         aggByTeam={aggByTeam}
-        inListTeams={inListTeams}
+        inListTeams={activeListTeams}
         onAdd={addTeamNumber}
         dnpTeams={dnpTeams}
         onToggleDnp={toggleDnp}
