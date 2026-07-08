@@ -273,8 +273,10 @@ export function AllianceColumn({
     <Card
       className={cn(
         'border',
+        // Alliance color stays the border everywhere — the "our alliance" chip
+        // (and the amber base-team row) carry the "us" signal; an amber ring
+        // here just muddied the blue column's outline.
         side === 'red' ? 'border-red-500/40' : 'border-blue-500/40',
-        isOurs && 'ring-1 ring-amber-400/50',
       )}
     >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4">
