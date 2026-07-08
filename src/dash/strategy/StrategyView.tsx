@@ -67,11 +67,7 @@ import {
   WHITEBOARD_PHASES,
   type WhiteboardPhase,
 } from '@/dash/strategy/strokes';
-import {
-  WinProbBanner,
-  AllianceColumn,
-  EpaBanners,
-} from '@/dash/strategy/PredictionPanel';
+import { WinProbBanner, AllianceColumn } from '@/dash/strategy/PredictionPanel';
 import type { MsrRow } from '@/dash/types';
 
 export interface StrategyViewProps {
@@ -91,6 +87,66 @@ const PHASE_LABEL: Record<WhiteboardPhase, string> = {
 
 /** Stable per-slot colors for OUR alliance's start squares (and their key). */
 const ROBOT_COLORS = ['#f59e0b', '#22d3ee', '#a855f7'];
+
+/** One alliance's half of the matchup strip: big tappable-size team chips in
+ *  alliance colors, the base team in amber, OUR side badged. Always visible —
+ *  including on the whiteboard view — so the matchup never needs the selector
+ *  to read. */
+function MatchupAllianceChips({
+  side,
+  teams,
+  baseTeam,
+  isOurs,
+}: {
+  side: 'red' | 'blue';
+  teams: number[];
+  baseTeam: number;
+  isOurs: boolean;
+}): JSX.Element {
+  return (
+    <div
+      data-testid={`dash-strategy-matchup-${side}`}
+      className={cn(
+        'flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border px-2.5 py-1.5',
+        side === 'red' ? 'border-red-500/40 bg-red-950/30' : 'border-blue-500/40 bg-blue-950/30',
+        isOurs && 'ring-1 ring-amber-400/60',
+      )}
+    >
+      <span
+        className={cn(
+          'text-[10px] font-bold uppercase tracking-wider',
+          side === 'red' ? 'text-red-400' : 'text-blue-400',
+        )}
+      >
+        {side}
+      </span>
+      {isOurs ? (
+        <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-neutral-900">
+          us
+        </span>
+      ) : null}
+      {teams.length === 0 ? (
+        <span className="px-1 text-sm text-muted-foreground">—</span>
+      ) : (
+        teams.map((t) => (
+          <span
+            key={t}
+            className={cn(
+              'rounded-md px-2 py-1 font-mono text-base font-bold tabular-nums sm:text-lg',
+              t === baseTeam
+                ? 'bg-amber-400 text-neutral-900'
+                : side === 'red'
+                  ? 'bg-red-950/80 text-red-100'
+                  : 'bg-blue-950/80 text-blue-100',
+            )}
+          >
+            {t}
+          </span>
+        ))
+      )}
+    </div>
+  );
+}
 
 interface ManualTeams {
   red: number[];
@@ -438,10 +494,11 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
         fullscreen.isFullscreen && 'h-screen w-screen overflow-y-auto bg-background p-6',
       )}
     >
-      {/* Header: match identity + selector + tracking + teams + fullscreen. */}
+      {/* Header row: match identity (left) + selector INLINE with it on wide
+          screens (iPad/desktop) + actions (right). Wraps on phones. */}
       <div className="flex flex-col gap-2 rounded-lg bg-black/30 px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h2 className="flex shrink-0 items-center text-2xl font-bold tracking-tight text-foreground">
             <span data-testid="dash-strategy-title">
               {match ? formatMatchKeyRaw(match.match_key) : 'Manual matchup'}
             </span>
@@ -468,7 +525,31 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               </span>
             ) : null}
           </h2>
-          <div className="flex items-center gap-2">
+          {ourMatches.length > 0 ? (
+            <select
+              id="dash-next-match-select"
+              data-testid="dash-next-match-select"
+              aria-label="Match to strategize"
+              value={match?.match_key ?? ''}
+              onChange={(e) => selectMatch(e.target.value)}
+              className={cn(
+                'min-w-[16rem] max-w-xl flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground',
+                'min-h-[44px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              )}
+            >
+              {/* OUR matches only. A tracked/pinned match outside the list (edge:
+                  base team changed) still renders as a fallback option. */}
+              {match && !ourMatches.some((m) => m.match_key === match.match_key) ? (
+                <option value={match.match_key}>{matchOptionLabel(match)}</option>
+              ) : null}
+              {ourMatches.map((m) => (
+                <option key={m.match_key} value={m.match_key}>
+                  {matchOptionLabel(m)}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {match && driftedFromTracked && trackedKey ? (
               <Button
                 type="button"
@@ -507,36 +588,37 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             ) : null}
           </div>
         </div>
-        {ourMatches.length > 0 ? (
-          <select
-            id="dash-next-match-select"
-            data-testid="dash-next-match-select"
-            aria-label="Match to strategize"
-            value={match?.match_key ?? ''}
-            onChange={(e) => selectMatch(e.target.value)}
-            className={cn(
-              'w-full max-w-xl rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground',
-              'min-h-[44px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            )}
-          >
-            {/* OUR matches only. A tracked/pinned match outside the list (edge:
-                base team changed) still renders as a fallback option. */}
-            {match && !ourMatches.some((m) => m.match_key === match.match_key) ? (
-              <option value={match.match_key}>{matchOptionLabel(match)}</option>
-            ) : null}
-            {ourMatches.map((m) => (
-              <option key={m.match_key} value={m.match_key}>
-                {matchOptionLabel(m)}
-              </option>
-            ))}
-          </select>
-        ) : (
+        {ourMatches.length === 0 ? (
           <p data-testid="dash-strategy-no-schedule" className="text-sm text-muted-foreground">
             {noSchedule
               ? 'No schedule yet — enter the teams manually to start strategizing.'
               : `No matches for ${baseTeam} in the schedule — enter teams manually or change the base team in Setup.`}
           </p>
-        )}
+        ) : null}
+        {/* The matchup, glanceable from EVERY sub-view (the selector is too
+            compact to read across a table): who's with us, who we play. */}
+        {redTeams.length > 0 || blueTeams.length > 0 ? (
+          <div
+            data-testid="dash-strategy-matchup"
+            className="flex flex-wrap items-center gap-2"
+          >
+            <MatchupAllianceChips
+              side="red"
+              teams={redTeams}
+              baseTeam={baseTeam}
+              isOurs={ourSide === 'red'}
+            />
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              vs
+            </span>
+            <MatchupAllianceChips
+              side="blue"
+              teams={blueTeams}
+              baseTeam={baseTeam}
+              isOurs={ourSide === 'blue'}
+            />
+          </div>
+        ) : null}
         {editingTeams ? (
           <ManualTeamsEditor
             initialRed={redTeams}
@@ -548,8 +630,6 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
           />
         ) : null}
       </div>
-
-      <EpaBanners available={epa.available} source={epa.source} />
 
       {/* Whiteboard ↔ Analytics sub-view selector. */}
       <SegmentedToggle<SubView>

@@ -425,35 +425,6 @@ export function WinProbBanner({
   );
 }
 
-/** EPA source/health banners (moved verbatim from NextMatchView). */
-export function EpaBanners({
-  available,
-  source,
-}: {
-  available: boolean;
-  source: 'statbotics' | 'local' | 'none' | undefined;
-}): JSX.Element | null {
-  if (!available) {
-    return (
-      <div
-        data-testid="epa-unavailable"
-        role="status"
-        className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
-      >
-        Statbotics EPA unavailable — predictions use scouting only.
-      </div>
-    );
-  }
-  if (source === 'local') {
-    return (
-      <div
-        data-testid="epa-local"
-        role="status"
-        className="rounded-md border border-energy/40 bg-energy/10 px-3 py-2 text-sm text-energy"
-      >
-        Statbotics offline — EPA estimated from this event's results.
-      </div>
-    );
-  }
-  return null;
-}
+// The old EPA-health banners were dropped from the Strategy tab (vertical-space
+// cost on an iPad without decision value — the per-team source badges already
+// say where every number comes from).

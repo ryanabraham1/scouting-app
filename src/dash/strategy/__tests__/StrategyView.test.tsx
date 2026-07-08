@@ -272,14 +272,15 @@ describe('StrategyView', () => {
     expect(document.querySelector('[data-testid="epa-unavailable"]')).toBeNull();
   });
 
-  it('shows the epa-unavailable banner but still renders predictions when Statbotics is down', () => {
+  it('renders predictions with NO EPA banner when Statbotics is down (banner removed)', () => {
     setupHappyPath(false);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
-    const { getByTestId, getAllByTestId } = utils;
+    const { getByTestId, getAllByTestId, queryByTestId } = utils;
 
-    const banner = getByTestId('epa-unavailable');
-    expect(banner.textContent).toMatch(/EPA/i);
+    // The Statbotics-offline banner was removed from this tab (vertical space).
+    expect(queryByTestId('epa-unavailable')).toBeNull();
+    expect(queryByTestId('epa-local')).toBeNull();
     expect(getByTestId('dash-next-red-score').textContent).toMatch(/\d/);
 
     const badges = getAllByTestId('dash-next-source-badge');
@@ -287,6 +288,23 @@ describe('StrategyView', () => {
     const badgeText = badges.map((b) => b.textContent).join(' ');
     expect(badgeText).not.toMatch(/blend/);
     expect(badgeText).not.toMatch(/\bepa\b/);
+  });
+
+  it('shows the matchup strip on the whiteboard view with OUR alliance badged', () => {
+    setupHappyPath(true);
+    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
+
+    // Default sub-view is the whiteboard — the matchup must still be glanceable.
+    expect(getByTestId('field-whiteboard')).toBeTruthy();
+    const strip = getByTestId('dash-strategy-matchup');
+    for (const t of [...RED, ...BLUE]) {
+      expect(strip.textContent).toContain(String(t));
+    }
+    // We're on red in qm2 — the red chip group carries the "us" badge.
+    const red = getByTestId('dash-strategy-matchup-red');
+    expect(red.textContent?.toLowerCase()).toContain('us');
+    const blue = getByTestId('dash-strategy-matchup-blue');
+    expect(blue.textContent?.toLowerCase()).not.toContain('us');
   });
 
   it('renders per-team component lines that reconcile with the expected points', () => {
