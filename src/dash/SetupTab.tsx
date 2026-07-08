@@ -157,7 +157,15 @@ export default function SetupTab(): JSX.Element {
         await setActiveEvent(key, queryClient);
         await loadEvents();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to set active event.');
+        // Supabase/Postgrest errors are plain objects (not Error instances), so
+        // read `.message` off any object before falling back to the generic text.
+        const msg =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'object' && err && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : null;
+        setError(msg || 'Failed to set active event.');
       }
     },
     [queryClient, loadEvents],
