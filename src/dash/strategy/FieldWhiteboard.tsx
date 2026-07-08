@@ -537,36 +537,62 @@ export default function FieldWhiteboard({
             pointerEvents: 'none',
           }}
         >
-          {/* Auto-routine underlays — beneath the ink so drawn plays sit on top. */}
-          {underlays?.map((o, i) => (
-            <g key={i} opacity={0.55}>
-              {o.path && o.path.length >= 2 && (
-                <polyline
-                  fill="none"
-                  stroke={o.color}
-                  strokeWidth={FIELD_H * 0.012}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeDasharray={`${FIELD_H * 0.02} ${FIELD_H * 0.025}`}
-                  points={o.path.map((p) => `${p.x * FIELD_W},${p.y * FIELD_H}`).join(' ')}
-                />
-              )}
-              {o.startPosition && (
-                // Display-only start square (matches FieldDiagram's marker size;
-                // the DRAGGABLE squares stay bigger for grabbability).
-                <rect
-                  x={o.startPosition.x * FIELD_W - (FIELD_H * 0.062) / 2}
-                  y={o.startPosition.y * FIELD_H - (FIELD_H * 0.062) / 2}
-                  width={FIELD_H * 0.062}
-                  height={FIELD_H * 0.062}
-                  rx={FIELD_H * 0.006}
-                  fill={o.color}
-                  stroke="#ffffff"
-                  strokeWidth={FIELD_H * 0.004}
-                />
-              )}
-            </g>
-          ))}
+          {/* Auto-routine underlays — beneath the ink so drawn plays sit on top.
+              Each routine is LABELED with the team running it (at its start
+              square, or the path start when no start was scouted). */}
+          {underlays?.map((o, i) => {
+            const anchor = o.startPosition ?? (o.path && o.path.length > 0 ? o.path[0] : null);
+            return (
+              <g key={i} opacity={0.6} data-testid={`wb-underlay-${o.label ?? i}`}>
+                {o.path && o.path.length >= 2 && (
+                  <polyline
+                    fill="none"
+                    stroke={o.color}
+                    strokeWidth={FIELD_H * 0.012}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray={`${FIELD_H * 0.02} ${FIELD_H * 0.025}`}
+                    points={o.path.map((p) => `${p.x * FIELD_W},${p.y * FIELD_H}`).join(' ')}
+                  />
+                )}
+                {o.startPosition && (
+                  // Display-only start square (matches FieldDiagram's marker
+                  // size; the DRAGGABLE squares stay bigger for grabbability).
+                  <rect
+                    x={o.startPosition.x * FIELD_W - (FIELD_H * 0.062) / 2}
+                    y={o.startPosition.y * FIELD_H - (FIELD_H * 0.062) / 2}
+                    width={FIELD_H * 0.062}
+                    height={FIELD_H * 0.062}
+                    rx={FIELD_H * 0.006}
+                    fill={o.color}
+                    stroke="#ffffff"
+                    strokeWidth={FIELD_H * 0.004}
+                  />
+                )}
+                {o.label && anchor && (
+                  <text
+                    x={anchor.x * FIELD_W}
+                    y={
+                      o.startPosition
+                        ? anchor.y * FIELD_H
+                        : anchor.y * FIELD_H - FIELD_H * 0.02
+                    }
+                    textAnchor="middle"
+                    dominantBaseline={o.startPosition ? 'central' : 'auto'}
+                    fontSize={FIELD_H * 0.062 * 0.42}
+                    fontWeight={800}
+                    fill="#0b0f1a"
+                    stroke="#ffffff"
+                    strokeWidth={FIELD_H * 0.002}
+                    paintOrder="stroke"
+                    style={{ userSelect: 'none' }}
+                  >
+                    {o.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
           {/* Committed ink. */}
           {committedPaths.map((p) =>
             pendingErase.has(p.id) ? null : (

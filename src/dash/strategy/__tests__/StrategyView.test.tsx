@@ -365,17 +365,16 @@ describe('StrategyView', () => {
     expect(queryByTestId('dash-next-flags-111')).toBeNull();
   });
 
-  it('renders NO low-confidence chips (removed) and ONE combined auto field', () => {
+  it('renders NO low-confidence chips and NO auto-routines card (both removed)', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
-    const { getAllByTestId, getByTestId, queryByTestId } = utils;
+    const { getByTestId, queryByTestId } = utils;
 
     // The FUEL-low-confidence chip was removed from this tab entirely.
     expect(queryByTestId('fuel-low-confidence')).toBeNull();
-
-    const combined = getAllByTestId('combined-auto-stub');
-    expect(combined.length).toBe(1);
+    // The Auto routines card too — the whiteboard's labeled previews cover it.
+    expect(queryByTestId('combined-auto-stub')).toBeNull();
 
     const ourRow = getByTestId(`dash-next-team-${OUR_TEAM}`);
     expect(within(ourRow).getByTestId('dash-next-source-badge').textContent?.toLowerCase()).toContain('epa');

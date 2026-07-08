@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, Maximize2, Minimize2, Users } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { cn } from '@/lib/utils';
@@ -57,10 +57,7 @@ import {
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { useEventPits } from '@/dash/useTeamPit';
 import { useTeamEpaTrends } from '@/dash/strategy/useTeamEpaTrends';
-import CombinedAutoField, {
-  matchupTeamAutos,
-  overlayForAutoOption,
-} from '@/dash/CombinedAutoField';
+import { matchupTeamAutos, overlayForAutoOption } from '@/dash/CombinedAutoField';
 import MatchupNotesModal from '@/dash/MatchupNotesModal';
 import { useMatchupNotes } from '@/dash/useEventData';
 import { normalizeMatchup, keyFor } from '@/dash/matchupNotesClient';
@@ -905,16 +902,8 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             ourSide={ourSide}
           />
 
-          {/* ONE combined auto field for the whole matchup — each team's latest
-              auto drawn on the side they'll actually play. */}
-          <Card className="border-border">
-            <CardHeader className="p-4 pb-0">
-              <CardTitle className="text-foreground">Auto routines</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              <CombinedAutoField redTeams={redTeams} blueTeams={blueTeams} reports={reports} />
-            </CardContent>
-          </Card>
+          {/* (The old Auto routines card was dropped — the whiteboard's auto
+              board shows the same labeled, switchable previews.) */}
 
           {/* Broadcast-style matchup graphics (tale of the tape, alliance
               profile radar, per-team comparison) — anchors the bottom of the
