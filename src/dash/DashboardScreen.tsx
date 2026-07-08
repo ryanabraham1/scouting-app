@@ -1,11 +1,12 @@
 // src/dash/DashboardScreen.tsx — open (no login) lead/drive-coach hub. Landscape
-// tab bar with lucide icons: Next Match · Team · Scouters · Match · Ranking ·
-// Picklist · Setup. Initial tab is read from ?tab= so the legacy /admin ->
-// /dashboard?tab=setup alias lands on Setup; the retired ?tab=scouter and
-// ?tab=roster both resolve to the merged Scouters tab.
+// tab bar with lucide icons: Pit Display · Strategy · Team · Scouters · Match ·
+// Ranking · Picklist · Draft · Setup. Initial tab is read from ?tab= so the
+// legacy /admin -> /dashboard?tab=setup alias lands on Setup; the retired
+// ?tab=scouter and ?tab=roster both resolve to the merged Scouters tab.
 import { useState } from 'react';
 import {
-  Swords,
+  MonitorPlay,
+  Presentation,
   UserSearch,
   ListOrdered,
   ClipboardList,
@@ -21,6 +22,7 @@ import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
 import NextMatchView from '@/dash/NextMatchView';
+import StrategyView from '@/dash/strategy/StrategyView';
 import TeamView from '@/dash/TeamView';
 import MatchView from '@/dash/MatchView';
 import RankingView from '@/dash/RankingView';
@@ -32,6 +34,7 @@ import DraftBoardView from '@/dash/DraftBoardView';
 
 type Tab =
   | 'next'
+  | 'strategy'
   | 'team'
   | 'scouters'
   | 'match'
@@ -45,7 +48,9 @@ type Tab =
 // while removing its button from the tab bar. To bring a tab back, just delete
 // its `hidden: true`.
 const TABS: { key: Tab; label: string; icon: LucideIcon; needsEvent: boolean; hidden?: boolean }[] = [
-  { key: 'next', label: 'Next Match', icon: Swords, needsEvent: true },
+  // Tab id stays 'next' (URL/deep-link stability); the label is now Pit Display.
+  { key: 'next', label: 'Pit Display', icon: MonitorPlay, needsEvent: true },
+  { key: 'strategy', label: 'Strategy', icon: Presentation, needsEvent: true },
   { key: 'team', label: 'Team', icon: UserSearch, needsEvent: true },
   { key: 'scouters', label: 'Scouters', icon: UserCheck, needsEvent: false },
   { key: 'match', label: 'Match', icon: Grid3x3, needsEvent: true },
@@ -146,6 +151,7 @@ export default function DashboardScreen(): JSX.Element {
         ) : (
           <section className="flex-1">
             {tab === 'next' && <NextMatchView eventKey={eventKey} />}
+            {tab === 'strategy' && <StrategyView eventKey={eventKey} />}
             {tab === 'team' && (
               <TeamView
                 eventKey={eventKey}

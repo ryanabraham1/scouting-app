@@ -8,6 +8,7 @@ import type {
   CachedTeam,
   PreloadMeta,
   LocalMatchupNote,
+  LocalStrategyCanvas,
 } from './types';
 import {
   isAuthClassError,
@@ -28,6 +29,8 @@ export class ScoutingDb extends Dexie {
   // Per-opponent matchup notes (matchup-intelligence). Queues + drains through
   // the sync controller exactly like `reports` (dirty → pending → synced/error).
   matchupNotes!: Table<LocalMatchupNote, string>;
+  // Per-match strategy whiteboard docs (Strategy tab). Same sync-state machine.
+  strategyCanvas!: Table<LocalStrategyCanvas, string>;
 
   constructor() {
     super('scouting-db');
@@ -61,6 +64,19 @@ export class ScoutingDb extends Dexie {
       cachedTeams: 'id, event_key, team_number',
       preloadMeta: 'key',
       matchupNotes: 'key, eventKey, syncState, ourTeam, oppTeam',
+    });
+    // v4: add the strategy-whiteboard outbox. ALL prior v3 stores are redeclared
+    // unchanged (same hard merge-gate rule as v3 — see the comment above).
+    this.version(4).stores({
+      reports: 'id, syncState, matchKey, scoutId, targetTeamNumber',
+      drafts: 'draftKey, updatedAt',
+      cachedMatches: 'match_key, event_key',
+      cachedAssignments: 'id, scout_id, event_key, match_key',
+      cachedRoster: 'id, name',
+      cachedTeams: 'id, event_key, team_number',
+      preloadMeta: 'key',
+      matchupNotes: 'key, eventKey, syncState, ourTeam, oppTeam',
+      strategyCanvas: 'key, eventKey, syncState',
     });
   }
 }
@@ -324,6 +340,103 @@ export async function markMatchupSyncError(
 // Reset a matchup-note dead-letter to 'dirty' for a manual retry.
 export async function requeueMatchupNote(key: string): Promise<void> {
   await db.matchupNotes.update(key, {
+    syncState: 'dirty',
+    syncAttempts: 0,
+    lastSyncError: null,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Strategy whiteboard outbox (Strategy tab).
+//
+// Mirrors the matchup-note queue's sync-state machine. A doc is written 'dirty'
+// before any network call (so an offline draw always persists locally) and
+// drains through `strategyCanvasSync.ts` on the next online edge / poll / syncNow.
+// The server merges by stroke id (migration 0042), so re-sending is always safe.
+// ---------------------------------------------------------------------------
+
+function withStrategyDefaults(r: LocalStrategyCanvas): LocalStrategyCanvas {
+  return {
+    ...r,
+    deletedIds: r.deletedIds ?? [],
+    syncAttempts: r.syncAttempts ?? 0,
+    lastSyncError: r.lastSyncError ?? null,
+  };
+}
+
+/** Persist (upsert by key) a whiteboard doc as 'dirty'. */
+export async function saveStrategyCanvasLocal(doc: LocalStrategyCanvas): Promise<void> {
+  await db.strategyCanvas.put({ ...doc, syncState: doc.syncState ?? 'dirty' });
+}
+
+export async function getStrategyCanvasLocal(
+  key: string,
+): Promise<LocalStrategyCanvas | undefined> {
+  const r = await db.strategyCanvas.get(key);
+  return r ? withStrategyDefaults(r) : undefined;
+}
+
+/** Auto-retry worklist: dirty + pending, oldest first; EXCLUDES 'error'/'synced'. */
+export async function getStrategyCanvasSyncQueue(): Promise<LocalStrategyCanvas[]> {
+  const all = await db.strategyCanvas.toArray();
+  return all
+    .filter((r) => r.syncState === 'dirty' || r.syncState === 'pending')
+    .map(withStrategyDefaults)
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+}
+
+export async function listStrategyCanvasDeadLetters(): Promise<LocalStrategyCanvas[]> {
+  const all = await db.strategyCanvas.toArray();
+  return all.filter((r) => r.syncState === 'error').map(withStrategyDefaults);
+}
+
+export async function markStrategyCanvasPending(key: string): Promise<void> {
+  await db.strategyCanvas.update(key, { syncState: 'pending' });
+}
+
+// Same in-flight-edit guards as markMatchupSynced/markMatchupSyncError: the
+// verdict of an upload applies only to the revision that was uploaded.
+export async function markStrategyCanvasSynced(
+  key: string,
+  uploadedUpdatedAt?: string,
+): Promise<void> {
+  await db.strategyCanvas
+    .where('key')
+    .equals(key)
+    .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
+    .modify({ syncState: 'synced', syncAttempts: 0, lastSyncError: null });
+}
+
+export async function markStrategyCanvasDirtyRetry(
+  key: string,
+  message: string,
+  opts?: { countAttempt?: boolean },
+): Promise<void> {
+  const existing = await db.strategyCanvas.get(key);
+  const bump = opts?.countAttempt === false ? 0 : 1;
+  const attempts = (existing?.syncAttempts ?? 0) + bump;
+  await db.strategyCanvas.update(key, {
+    syncState: 'dirty',
+    syncAttempts: attempts,
+    lastSyncError: message,
+  });
+}
+
+export async function markStrategyCanvasSyncError(
+  key: string,
+  message: string,
+  uploadedUpdatedAt?: string,
+): Promise<void> {
+  await db.strategyCanvas
+    .where('key')
+    .equals(key)
+    .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
+    .modify({ syncState: 'error', lastSyncError: message });
+}
+
+/** Reset a whiteboard dead-letter to 'dirty' for a manual retry. */
+export async function requeueStrategyCanvas(key: string): Promise<void> {
+  await db.strategyCanvas.update(key, {
     syncState: 'dirty',
     syncAttempts: 0,
     lastSyncError: null,

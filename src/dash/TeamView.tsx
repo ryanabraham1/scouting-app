@@ -44,6 +44,7 @@ import {
   aggregateEvent,
   TREND_WINDOW,
   LOW_CONFIDENCE_THRESHOLD,
+  ratedMeanText,
   type TeamAgg,
 } from '@/dash/aggregate';
 import { computeTeamTempo } from '@/dash/tempo';
@@ -107,18 +108,8 @@ function pct(n: number): string {
   return `${(n * 100).toFixed(0)}%`;
 }
 
-/**
- * Mean of a 0–3 rating across the team's RATED matches (0 / null excluded), as
- * "2.3/3"; "—" when no match was rated. Pure over the team's reports — keeps the
- * super-scout averages off `TeamAgg` (no new aggregate field / fixture churn).
- */
-function ratedMeanText(matches: MsrRow[], sel: (m: MsrRow) => number | null | undefined): string {
-  const vals = matches
-    .map(sel)
-    .filter((v): v is number => typeof v === 'number' && v > 0);
-  if (vals.length === 0) return '—';
-  return `${(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)}/3`;
-}
+// ratedMeanText (super-scout rating means) moved to aggregate.ts so the
+// Strategy tab's team cards share the exact same computation.
 
 /** "30.0 ± 8.2" (mean ± std-dev); em-dash when the mean is not finite. */
 function fmtPM(mean: number, sd: number): string {

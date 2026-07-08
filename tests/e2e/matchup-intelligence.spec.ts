@@ -23,8 +23,8 @@ test.afterAll(async () => {
 
 test('synthesis panel + per-opponent note PERSISTS TO SERVER and resurfaces', async ({ page }) => {
   await setActiveEvent(admin, '2026casnv');
-  await page.goto('/dashboard'); // lands on Next Match tab (dash-next)
-  await expect(page.getByTestId('dash-next')).toBeVisible();
+  await page.goto('/dashboard?tab=strategy'); // the matchup panel lives on the Strategy tab
+  await expect(page.getByTestId('dash-strategy')).toBeVisible();
 
   // 1. Synthesis panel renders below the win-prob banner.
   const panel = page.getByTestId('dash-matchup-panel');
@@ -69,7 +69,7 @@ test('synthesis panel + per-opponent note PERSISTS TO SERVER and resurfaces', as
 
 test('offline save shows the unsynced state, then drains when back online', async ({ page }) => {
   await setActiveEvent(admin, '2026casnv');
-  await page.goto('/dashboard');
+  await page.goto('/dashboard?tab=strategy');
   await expect(page.getByTestId('dash-matchup-panel')).toBeVisible();
 
   // Go offline, save a note locally.

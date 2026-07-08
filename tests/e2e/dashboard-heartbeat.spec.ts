@@ -104,8 +104,8 @@ test('Scenario A — heartbeat reflects a freshly inserted report', async ({ pag
     timeout: 10_000,
   });
 
-  // Next Match no longer carries the heartbeat tile.
-  await page.getByRole('tab', { name: 'Next Match' }).click();
+  // Pit Display (formerly Next Match) no longer carries the heartbeat tile.
+  await page.getByRole('tab', { name: 'Pit Display' }).click();
   await expect(page.getByTestId('dash-next')).toBeVisible({ timeout: 25_000 });
   await expect(page.getByTestId('scout-heartbeat')).toHaveCount(0);
 });
@@ -152,7 +152,7 @@ test('Scenario C — offline shows last-synced, not a crash', async ({ page, con
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 25_000 });
   await expect(page.getByTestId('scout-heartbeat')).toBeVisible({ timeout: 10_000 });
 
-  // 2. Go offline and reload (the tab resets to the default Next Match on reload).
+  // 2. Go offline and reload (the tab resets to the default Pit Display on reload).
   await context.setOffline(true);
   await page.reload();
 

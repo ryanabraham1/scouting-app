@@ -1,8 +1,8 @@
 // tests/e2e/component-epa.spec.ts
 // Component-EPA estimation (component-epa-estimation): the Match tab grows a
 // "Scoring estimate" card decomposing each team's predicted points into
-// auto/fuel/climb (+ a scouting-only defense line), and Next Match grows a
-// per-team component line. Both are presentational decompositions of the value
+// auto/fuel/climb (+ a scouting-only defense line), and the Strategy tab carries
+// a per-team component line. Both are presentational decompositions of the value
 // the dashboard already shows — never new prediction numbers.
 //
 // Single-worker, live remote Supabase (2026casnv) — mirrors matchview-search.spec.ts.
@@ -81,19 +81,19 @@ test('Match tab shows a labeled Scoring estimate card (tolerant of an empty even
   await expect(page.getByTestId('route-error')).toHaveCount(0);
 });
 
-test('Next Match shows per-team component lines with rounding tolerance', async ({ page }) => {
+test('Strategy tab shows per-team component lines with rounding tolerance', async ({ page }) => {
   test.skip(!URL || !SECRET, 'env');
   await setActiveEvent(admin, eventKey);
 
   await page.goto('/dashboard');
   await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('tab', { name: 'Next Match' }).click();
+  await page.getByRole('tab', { name: 'Strategy' }).click();
 
-  const noMatch = page.getByTestId('dash-next-no-match');
+  const noMatch = page.getByTestId('dash-strategy-no-match');
   if (await noMatch.isVisible().catch(() => false)) {
     test.skip(true, 'No next match on the live event.');
   }
-  await expect(page.getByTestId('dash-next')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('dash-strategy')).toBeVisible({ timeout: 15_000 });
 
   // Find a rendered team row; its expected + component line must reconcile within
   // ±1/component (3) on ROUNDED ints. The exact unrounded invariant is unit-tested.

@@ -79,6 +79,27 @@ function buildSide(teams: number[], side: AllianceColor, reports: MsrRow[], pale
   return out;
 }
 
+/**
+ * Each matchup team's DEFAULT (most-recently-run) auto routine, re-framed onto
+ * the side it will play, as read-only overlays — the Strategy tab's whiteboard
+ * renders these UNDER the ink so a coach can draw plays over real routines.
+ * Pure: reuses the exact grouping/framing the interactive card below uses.
+ */
+export function defaultMatchupOverlays(
+  redTeams: number[],
+  blueTeams: number[],
+  reports: MsrRow[],
+): RoutineOverlay[] {
+  const teams = [
+    ...buildSide(redTeams, 'red', reports, RED_PALETTE),
+    ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
+  ];
+  return teams.map((t) => {
+    const rep = autoPathToFrame(t.groups[t.defaultIdx].representative, t.side);
+    return { color: t.color, startPosition: rep.start, path: rep.path, label: String(t.team) };
+  });
+}
+
 export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.Element {
   const { redTeams, blueTeams, reports } = props;
 

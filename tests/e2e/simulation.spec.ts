@@ -271,8 +271,8 @@ test('lead dashboard navigates all tabs without crashing', async ({ browser }) =
     await page.goto('/dashboard');
     await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 20_000 });
 
-    // Exact labels (so "Match" doesn't also match "Next Match").
-    const TABS = ['Next Match', 'Team', 'Match', 'Ranking', 'Picklist', 'Scouters', 'Setup'];
+    // Exact labels (so "Match" doesn't also match "Pit Display"/"Strategy").
+    const TABS = ['Pit Display', 'Strategy', 'Team', 'Match', 'Ranking', 'Picklist', 'Scouters', 'Setup'];
     for (const label of TABS) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       // The error boundary would replace the screen with route-error; assert it never does.

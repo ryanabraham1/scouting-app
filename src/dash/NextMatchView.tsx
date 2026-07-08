@@ -1,35 +1,28 @@
 // src/dash/NextMatchView.tsx
-// Broadcast-style next-match dashboard (contracts §3, §8 testid `dash-next`).
-// A hero card anchored on OUR (3256) next match leads; live "On Field" /
-// "Queuing" tiles and an "Upcoming" rail are fed by FRC Nexus when available and
-// degrade to the schedule otherwise; the confidence-weighted prediction
-// breakdown (alliance expected points, win prob, source badges, auto routines)
-// stays below. Pure/injectable: the active event is passed via props.
+// "Pit Display" — broadcast-style next-match screen (testid `dash-next`) for a
+// kiosk/pit TV. A hero card anchored on OUR (3256) next match leads; live
+// "On Field" / "Queuing" tiles and an "Upcoming" rail are fed by FRC Nexus when
+// available and degrade to the schedule otherwise. The match-prediction and
+// auto-routine breakdowns MOVED to the Strategy tab (src/dash/strategy/), so
+// this screen carries no reports/EPA queries at all — it purely auto-tracks.
+// Pure/injectable: the active event is passed via props.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Minimize2, LocateFixed } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFullscreen } from '@/dash/useFullscreen';
 import {
   useEventMatches,
-  useEventReports,
-  useEventTeams,
-  useEventEpa,
   useNexusEventStatus,
   useEventInfo,
   useTbaRankings,
   useTeamSeasonStats,
   type MatchRow,
-  type TeamRow,
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
-import { aggregateEvent, LOW_CONFIDENCE_THRESHOLD, type TeamAgg } from '@/dash/aggregate';
-import { formatMatchKeyRaw, formatMatchShort, compareMatchKeys, isQualLevel } from '@/lib/formatMatch';
+import { formatMatchKeyRaw, formatMatchShort, isQualLevel } from '@/lib/formatMatch';
+import { redTeamsOf, blueTeamsOf, byPlay, shortTime } from '@/dash/matchOrder';
 import PlayoffPath from '@/dash/PlayoffPath';
-import { predictMatch, type TeamPrediction } from '@/dash/predict';
-import CombinedAutoField from '@/dash/CombinedAutoField';
 import EventStream from '@/dash/EventStream';
 import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
@@ -48,41 +41,8 @@ export interface NextMatchViewProps {
   eventKey: string;
 }
 
-const SOURCE_LABEL: Record<TeamPrediction['source'], string> = {
-  blend: 'blend',
-  scouting: 'scouting',
-  epa: 'epa',
-  none: 'none',
-};
-
-const SOURCE_CLASS: Record<TeamPrediction['source'], string> = {
-  blend: 'bg-brand/15 text-brand border-brand/40',
-  scouting: 'bg-success/15 text-success border-success/40',
-  epa: 'bg-energy/15 text-energy border-energy/40',
-  none: 'bg-muted text-muted-foreground border-border',
-};
-
-function redTeamsOf(m: MatchRow): number[] {
-  return [m.red1, m.red2, m.red3].filter((t): t is number => t != null);
-}
-function blueTeamsOf(m: MatchRow): number[] {
-  return [m.blue1, m.blue2, m.blue3].filter((t): t is number => t != null);
-}
-function isUnplayed(m: MatchRow): boolean {
-  return m.actual_red_score == null && m.actual_blue_score == null;
-}
-
-function round(n: number): number {
-  return Math.round(n);
-}
-
-/** Short HH:MM (local) for a scheduled_time ISO string, or null when absent. */
-function shortTime(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+// redTeamsOf / blueTeamsOf / byPlay / shortTime moved to matchOrder.ts (shared
+// with the Strategy tab's match selector).
 
 /** Short HH:MM (local) for a unix-ms timestamp, or null when absent. */
 function shortTimeMs(ms: number | null): string | null {
@@ -90,31 +50,6 @@ function shortTimeMs(ms: number | null): string | null {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-/** Friendly one-line label for a match in the selector. */
-function matchOptionLabel(m: MatchRow): string {
-  // From the raw key, not comp_level+match_number: in double-elim every semifinal
-  // shares match_number=1 (it's the game-within-set), so the latter labels them all
-  // "Semi 1". The key tail (sf3m1) carries the distinguishing SET number.
-  const name = formatMatchKeyRaw(m.match_key);
-  const red = redTeamsOf(m).join('/') || '—';
-  const blue = blueTeamsOf(m).join('/') || '—';
-  const time = shortTime(m.scheduled_time);
-  const played = !isUnplayed(m) ? ' · played' : '';
-  return `${name} — R ${red} vs B ${blue}${time ? ` · ${time}` : ''}${played}`;
-}
-
-/** PLAY order: comp level (qm→ef→qf→sf→f) then the set/game key tail — so
- *  double-elim playoff sets order correctly (sf1m1 < sf2m1), not tied at 1. */
-const LEVEL_ORDER: Record<string, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
-function byPlay(a: MatchRow, b: MatchRow): number {
-  const la = LEVEL_ORDER[a.comp_level] ?? 9;
-  const lb = LEVEL_ORDER[b.comp_level] ?? 9;
-  return la !== lb ? la - lb : compareMatchKeys(a.match_key, b.match_key);
-}
-function sortMatchesForSelect(matches: MatchRow[]): MatchRow[] {
-  return matches.slice().sort(byPlay);
 }
 
 /** "in 7 min" / "in 1h 5m" / "now" for a future unix-ms target; null if absent. */
@@ -136,27 +71,6 @@ function useNow(intervalMs = 30_000): number {
     return () => clearInterval(id);
   }, [intervalMs]);
   return now;
-}
-
-function nicknameFor(teams: TeamRow[], teamNumber: number): string | null {
-  return teams.find((t) => t.team_number === teamNumber)?.nickname ?? null;
-}
-
-function pct(x: number): string {
-  return `${Math.round(x * 100)}%`;
-}
-
-/** A small inline chip flagging that FUEL points are rate-derived (low conf). */
-function FuelLowConfidenceChip() {
-  return (
-    <span
-      data-testid="fuel-low-confidence"
-      className="inline-flex items-center rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning"
-      title="FUEL is rate-derived; treat its contribution as a low-confidence estimate."
-    >
-      FUEL est. — low confidence
-    </span>
-  );
 }
 
 /**
@@ -220,230 +134,8 @@ function TeamCell({
   );
 }
 
-interface TeamRowViewProps {
-  pred: TeamPrediction;
-  agg: TeamAgg | undefined;
-  nickname: string | null;
-}
-
-function TeamRowView({ pred, agg, nickname }: TeamRowViewProps) {
-  const matchesScouted = agg?.matchesScouted ?? 0;
-  return (
-    <li
-      data-testid={`dash-next-team-${pred.teamNumber}`}
-      className="flex min-h-[44px] flex-col gap-1 rounded-md border border-border bg-card/40 px-3 py-2"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold text-foreground">
-          {pred.teamNumber}
-          {nickname ? (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">{nickname}</span>
-          ) : null}
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="tabular-nums text-foreground" data-testid="dash-next-team-expected">
-            {round(pred.expected)} pts
-          </span>
-          <span
-            data-testid="dash-next-source-badge"
-            className={cn(
-              'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
-              SOURCE_CLASS[pred.source],
-            )}
-          >
-            {SOURCE_LABEL[pred.source]}
-          </span>
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>scouted: {matchesScouted}</span>
-        <span>
-          climb:{' '}
-          <span
-            className={cn(
-              'font-medium',
-              agg
-                ? agg.climbSuccessRate >= 0.7
-                  ? 'text-success'
-                  : 'text-warning'
-                : 'text-muted-foreground',
-            )}
-          >
-            {agg ? pct(agg.climbSuccessRate) : '—'}
-          </span>
-        </span>
-        <span>
-          defense:{' '}
-          <span className={cn('font-medium', agg ? 'text-brand' : 'text-muted-foreground')}>
-            {agg ? agg.avgDefenseRating.toFixed(1) : '—'}
-          </span>
-        </span>
-        {/* Only when THIS team's fuel data is actually low-confidence — the
-            same gate TeamView uses. Unconditional, it was noise on every row
-            (including unscouted teams with no fuel estimate at all). */}
-        {agg && agg.meanFuelConfidence < LOW_CONFIDENCE_THRESHOLD ? (
-          <FuelLowConfidenceChip />
-        ) : null}
-      </div>
-    </li>
-  );
-}
-
-interface AllianceColumnProps {
-  side: 'red' | 'blue';
-  label: string;
-  score: number;
-  teams: TeamPrediction[];
-  agg: Map<number, TeamAgg>;
-  allTeams: TeamRow[];
-}
-
-function AllianceColumn({ side, label, score, teams, agg, allTeams }: AllianceColumnProps) {
-  return (
-    <Card
-      className={cn(
-        'border',
-        side === 'red' ? 'border-red-500/40' : 'border-blue-500/40',
-      )}
-    >
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4">
-        <CardTitle className="text-foreground">{label}</CardTitle>
-        <span
-          data-testid={`dash-next-${side}-score`}
-          className={cn(
-            'font-mono tabular-nums text-2xl font-bold',
-            side === 'red' ? 'text-red-400' : 'text-blue-400',
-          )}
-        >
-          {round(score)}
-        </span>
-      </CardHeader>
-      <CardContent className="p-4 pt-0">
-        <ul className="flex flex-col gap-2">
-          {teams.map((p) => (
-            <TeamRowView
-              key={p.teamNumber}
-              pred={p}
-              agg={agg.get(p.teamNumber)}
-              nickname={nicknameFor(allTeams, p.teamNumber)}
-            />
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * Broadcast win-probability banner: a split red↔blue bar proportional to the
- * win odds, with both percentages called out boldly and the favored alliance
- * emphasized. Predicted alliance scores flank the bar for context. This is the
- * single most important predictive number, so it crowns the alliance columns.
- */
-function WinProbBanner({
-  redWinProb,
-  redScore,
-  blueScore,
-}: {
-  redWinProb: number;
-  redScore: number;
-  blueScore: number;
-}) {
-  const redProb = Math.min(1, Math.max(0, redWinProb));
-  const blueProb = 1 - redProb;
-  // A perfect 50/50 (within rounding) is a genuine toss-up — don't crown a side.
-  // Round to whole percent first so e.g. 0.502 still reads "Even".
-  const even = Math.round(redProb * 100) === Math.round(blueProb * 100);
-  const redFavored = !even && redProb >= blueProb;
-  const blueFavored = !even && blueProb > redProb;
-  // Clamp the bar split so the trailing side never fully vanishes (keeps both
-  // colors legible even in a blowout prediction).
-  const redPct = Math.min(92, Math.max(8, Math.round(redProb * 100)));
-
-  return (
-    <div
-      data-testid="dash-next-winprob-banner"
-      className="overflow-hidden rounded-xl border border-border bg-black/40"
-    >
-      <div className="flex items-center justify-between px-4 pt-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Win Probability
-        </span>
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Projected{' '}
-          <span className="font-mono tabular-nums font-semibold text-red-400">{round(redScore)}</span>
-          {' – '}
-          <span className="font-mono tabular-nums font-semibold text-blue-400">{round(blueScore)}</span>
-        </span>
-      </div>
-
-      {/* Big call-outs: favored side larger + ring; trailing side dimmed. */}
-      <div className="flex items-end justify-between gap-3 px-4 pt-2">
-        <div className="flex flex-col">
-          <span className="text-xs font-semibold uppercase tracking-wider text-red-400/80">
-            Red
-          </span>
-          <span
-            data-testid="dash-next-red-winprob"
-            className={cn(
-              'font-mono tabular-nums font-black leading-none text-red-400',
-              redFavored ? 'text-5xl sm:text-6xl' : 'text-3xl sm:text-4xl',
-              blueFavored && 'opacity-70',
-            )}
-          >
-            {pct(redProb)}
-          </span>
-        </div>
-        <div className="flex flex-col items-end">
-          <span className="text-xs font-semibold uppercase tracking-wider text-blue-400/80">
-            Blue
-          </span>
-          <span
-            data-testid="dash-next-blue-winprob"
-            className={cn(
-              'font-mono tabular-nums font-black leading-none text-blue-400',
-              blueFavored ? 'text-5xl sm:text-6xl' : 'text-3xl sm:text-4xl',
-              redFavored && 'opacity-70',
-            )}
-          >
-            {pct(blueProb)}
-          </span>
-        </div>
-      </div>
-
-      {/* The split bar. */}
-      <div className="px-4 pb-4 pt-3">
-        <div className="flex h-4 w-full overflow-hidden rounded-full ring-1 ring-white/10">
-          <div
-            className={cn(
-              'h-full bg-red-500 transition-all',
-              redFavored && 'shadow-[0_0_12px] shadow-red-500/50',
-            )}
-            style={{ width: `${redPct}%` }}
-          />
-          <div
-            className={cn(
-              'h-full flex-1 bg-blue-500 transition-all',
-              blueFavored && 'shadow-[0_0_12px] shadow-blue-500/50',
-            )}
-          />
-        </div>
-        <div
-          data-testid="dash-next-winprob-label"
-          className="mt-1.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-        >
-          {even ? (
-            <span className="text-muted-foreground">Even · toss-up</span>
-          ) : redFavored ? (
-            <span className="text-red-400">Red favored</span>
-          ) : (
-            <span className="text-blue-400">Blue favored</span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+// TeamRowView / AllianceColumn / WinProbBanner moved to
+// src/dash/strategy/PredictionPanel.tsx (Strategy tab).
 
 /** Find the Nexus match whose label corresponds to a scheduled MatchRow
  *  (quals + playoffs — shared resolver in nextMatch.ts). */
@@ -521,8 +213,6 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // Ticking clock so the "in X min" ETAs stay current between Nexus pushes.
   const now = useNow();
   const matchesQ = useEventMatches(eventKey);
-  const reportsQ = useEventReports(eventKey);
-  const teamsQ = useEventTeams(eventKey);
   // Nexus is optional; in unit tests the data-hooks module is mocked without it,
   // so guard against an undefined result and always degrade gracefully.
   const nexusQ = useNexusEventStatus?.(eventKey);
@@ -549,7 +239,6 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
     };
 
   const allMatches = useMemo(() => matchesQ.data ?? [], [matchesQ.data]);
-  const sortedMatches = useMemo(() => sortMatchesForSelect(allMatches), [allMatches]);
   // Playoffs have started once the schedule carries any non-qual match. Then the
   // flat "upcoming" list (which can't express bracket structure) is replaced by
   // the double-elim bracket.
@@ -580,80 +269,12 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
     [allMatches, baseTeam, liveStatus],
   );
 
-  // Tracking mode: when true, the view auto-follows `trackedMatch` (and live-
-  // updates as Nexus reports a new next match). The first manual selection from
-  // the dropdown drops out of tracking and pins to the chosen match_key.
-  const [tracking, setTracking] = useState(true);
-  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
-  // While tracking, snap the selection to OUR next match whenever it changes.
-  // Only setState when the key actually differs to avoid a render loop.
-  const trackedKey = trackedMatch?.match_key ?? null;
-  useEffect(() => {
-    if (tracking && trackedKey && trackedKey !== pinnedKey) {
-      setPinnedKey(trackedKey);
-    }
-  }, [tracking, trackedKey, pinnedKey]);
+  // Pit Display purely AUTO-TRACKS — the manual match selector (and the whole
+  // prediction data layer: reports, EPA, aggregateEvent, predictMatch) moved to
+  // the Strategy tab.
+  const match = trackedMatch;
 
-  // Resolve the viewed match: pinned (if it still exists) else the tracked pick.
-  const match = useMemo(() => {
-    if (pinnedKey) {
-      const found = allMatches.find((m) => m.match_key === pinnedKey);
-      if (found) return found;
-    }
-    return trackedMatch;
-  }, [pinnedKey, allMatches, trackedMatch]);
-
-  // Manual selection: pin to a match and stop auto-tracking.
-  const selectMatch = (key: string) => {
-    setTracking(false);
-    setPinnedKey(key);
-  };
-
-  // Re-enter tracking and snap back to OUR next match.
-  const startTracking = () => {
-    setTracking(true);
-    setPinnedKey(trackedKey);
-  };
-
-  // The selection has DRIFTED from what we'd track (manual mode pointing elsewhere,
-  // or a stale pin) — used to offer the "Track our next match" button.
-  const driftedFromTracked = !tracking || (trackedKey != null && match?.match_key !== trackedKey);
-
-  const redTeams = useMemo(() => (match ? redTeamsOf(match) : []), [match]);
-  const blueTeams = useMemo(() => (match ? blueTeamsOf(match) : []), [match]);
-  const sixTeams = useMemo(() => [...redTeams, ...blueTeams], [redTeams, blueTeams]);
-
-  // Always call the hook (stable order); it is disabled internally when empty.
-  // Pass matches so EPA can fall back to a local computation when Statbotics is down.
-  const epaQ = useEventEpa(sixTeams, eventKey, allMatches);
-
-  // Memoized: this view re-renders every 10s Nexus poll / 30s clock tick /
-  // realtime invalidation, and aggregateEvent + predictMatch are O(reports)
-  // passes that TeamView/RankingView already memoize for the same reason.
-  const reports = useMemo(() => reportsQ.data ?? [], [reportsQ.data]);
-  const agg = useMemo(() => aggregateEvent(reports), [reports]);
-  const epa = useMemo(
-    () =>
-      epaQ.data ?? {
-        epaByTeam: new Map<number, number | null>(),
-        available: false,
-        source: 'none' as const,
-      },
-    [epaQ.data],
-  );
-  const pred = useMemo(
-    () =>
-      predictMatch({
-        redTeams,
-        blueTeams,
-        agg,
-        epaByTeam: epa.epaByTeam,
-        statboticsAvailable: epa.available,
-      }),
-    [redTeams, blueTeams, agg, epa],
-  );
-
-  const loading = matchesQ.isLoading || reportsQ.isLoading || teamsQ.isLoading;
+  const loading = matchesQ.isLoading;
 
   if (loading) {
     return (
@@ -677,9 +298,6 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       </div>
     );
   }
-
-  const allTeams = teamsQ.data ?? [];
-
 
   const status = nexusLive ? nexus.status : null;
   const heroNexus = nexusMatchFor(status, match);
@@ -873,107 +491,8 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
         </div>
       </div>
 
-      {/* Prediction breakdown — keep the selector + per-team detail + auto routines. */}
-      <div className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <label htmlFor="dash-next-match-select" className="text-sm font-medium text-muted-foreground">
-            Prediction for match
-            {tracking && match?.match_key === trackedKey ? (
-              <span
-                data-testid="dash-next-tracking"
-                className="ml-2 inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand"
-              >
-                <LocateFixed className="size-3" />
-                Tracking
-              </span>
-            ) : null}
-          </label>
-          {driftedFromTracked && trackedKey ? (
-            <Button
-              type="button"
-              variant="brand"
-              size="sm"
-              data-testid="dash-next-track-btn"
-              onClick={startTracking}
-            >
-              <LocateFixed className="size-4" />
-              Track our next match
-            </Button>
-          ) : null}
-        </div>
-        <select
-          id="dash-next-match-select"
-          data-testid="dash-next-match-select"
-          value={match.match_key}
-          onChange={(e) => selectMatch(e.target.value)}
-          className={cn(
-            'w-full max-w-xl rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground',
-            'min-h-[44px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-          )}
-        >
-          {sortedMatches.map((m) => (
-            <option key={m.match_key} value={m.match_key}>
-              {matchOptionLabel(m)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {!epa.available ? (
-        <div
-          data-testid="epa-unavailable"
-          role="status"
-          className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
-        >
-          Statbotics EPA unavailable — predictions use scouting only.
-        </div>
-      ) : epa.source === 'local' ? (
-        <div
-          data-testid="epa-local"
-          role="status"
-          className="rounded-md border border-energy/40 bg-energy/10 px-3 py-2 text-sm text-energy"
-        >
-          Statbotics offline — EPA estimated from this event's results.
-        </div>
-      ) : null}
-
-      {/* Win-probability banner — crowns the red-vs-blue prediction columns. */}
-      <WinProbBanner
-        redWinProb={pred.redWinProb}
-        redScore={pred.red.score}
-        blueScore={pred.blue.score}
-      />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <AllianceColumn
-          side="red"
-          label="Red Alliance"
-          score={pred.red.score}
-          teams={pred.red.teams}
-          agg={agg}
-          allTeams={allTeams}
-        />
-        <AllianceColumn
-          side="blue"
-          label="Blue Alliance"
-          score={pred.blue.score}
-          teams={pred.blue.teams}
-          agg={agg}
-          allTeams={allTeams}
-        />
-      </div>
-
-      {/* ONE combined auto field for the whole matchup — each team's latest auto
-          drawn on the side they'll actually play (rotated 180° onto that side when
-          it was scouted on the other alliance). */}
-      <Card className="border-border">
-        <CardHeader className="p-4 pb-0">
-          <CardTitle className="text-foreground">Auto routines</CardTitle>
-        </CardHeader>
-        <CardContent className="p-4">
-          <CombinedAutoField redTeams={redTeams} blueTeams={blueTeams} reports={reports} />
-        </CardContent>
-      </Card>
+      {/* The prediction breakdown (selector, EPA banners, win prob, alliance
+          columns, auto routines) MOVED to the Strategy tab. */}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { FuelBurst, TimeInterval } from '@/scoring';
+import type { Stroke } from '@/dash/strategy/strokes';
 
 export interface LocalMatchReport {
   id: string;
@@ -166,6 +167,38 @@ export interface MatchupNoteRow {
   // Advisory "last edited by"; nulled server-side if the scout row was orphaned.
   author_scout_id: string | null;
   deleted: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy whiteboard (Strategy tab).
+//
+// One drawing document per (event, match), mirroring the `strategy_canvas`
+// table (migration 0042). Offline-first exactly like matchup notes: writes land
+// in Dexie 'dirty' and drain through strategyCanvasSync.ts via the RPC's
+// stroke-id merge (never last-write-wins).
+// ---------------------------------------------------------------------------
+
+/** Server read shape — one row of the `strategy_canvas` table (open read). */
+export interface StrategyCanvasRow {
+  event_key: string;
+  match_key: string;
+  strokes: unknown;      // jsonb array of stroke objects (parseCanvasDoc validates)
+  deleted_ids: unknown;  // jsonb array of tombstoned stroke ids
+  row_revision: number;
+  updated_at: string;
+}
+
+/** Dexie outbox row for a whiteboard doc. `key` = `${eventKey}:${matchKey}`. */
+export interface LocalStrategyCanvas {
+  key: string;
+  eventKey: string;
+  matchKey: string;
+  strokes: Stroke[];
+  deletedIds: string[];
+  updatedAt: string; // ISO; Date.parse(updatedAt) is the row_revision sent to the RPC
+  syncState: 'dirty' | 'pending' | 'synced' | 'error';
+  syncAttempts: number;
+  lastSyncError: string | null;
 }
 
 /** Dexie draft/outbox row for a matchup note. `key` = `${eventKey}:${ourTeam}:${oppTeam}`. */

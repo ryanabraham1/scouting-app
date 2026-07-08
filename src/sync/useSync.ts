@@ -13,6 +13,7 @@ import { useOnline } from '@/sync/useOnline';
 import { syncOnce } from '@/sync/outbox';
 import { syncPitOnce } from '@/sync/pitOutbox';
 import { syncMatchupNotesOnce } from '@/sync/matchupNotesSync';
+import { syncStrategyCanvasOnce } from '@/sync/strategyCanvasSync';
 import {
   getSyncQueue,
   listDeadLetters,
@@ -20,6 +21,8 @@ import {
   getMatchupSyncQueue,
   listMatchupDeadLetters,
   requeueAuthClassMatchupDeadLetters,
+  getStrategyCanvasSyncQueue,
+  listStrategyCanvasDeadLetters,
 } from '@/db/localStore';
 import {
   getPitSyncQueue,
@@ -65,17 +68,20 @@ export function useSync(): UseSyncResult {
     // `queued` = the retry worklist (dirty + pending), which EXCLUDES dead-letters.
     // Dead-letters are surfaced separately so the badge never double-counts them.
     // Pit reports drain through the same indicator, so their counts are folded in.
-    const [queue, dead, pitQueue, pitDead, matchupQueue, matchupDead] = await Promise.all([
-      getSyncQueue(),
-      listDeadLetters(),
-      getPitSyncQueue(),
-      listPitDeadLetters(),
-      getMatchupSyncQueue(),
-      listMatchupDeadLetters(),
-    ]);
+    const [queue, dead, pitQueue, pitDead, matchupQueue, matchupDead, canvasQueue, canvasDead] =
+      await Promise.all([
+        getSyncQueue(),
+        listDeadLetters(),
+        getPitSyncQueue(),
+        listPitDeadLetters(),
+        getMatchupSyncQueue(),
+        listMatchupDeadLetters(),
+        getStrategyCanvasSyncQueue(),
+        listStrategyCanvasDeadLetters(),
+      ]);
     if (!mountedRef.current) return;
-    setQueued(queue.length + pitQueue.length + matchupQueue.length);
-    setDeadLetters(dead.length + pitDead.length + matchupDead.length);
+    setQueued(queue.length + pitQueue.length + matchupQueue.length + canvasQueue.length);
+    setDeadLetters(dead.length + pitDead.length + matchupDead.length + canvasDead.length);
   }, []);
 
   const run = useCallback(async () => {
@@ -95,6 +101,7 @@ export function useSync(): UseSyncResult {
         await syncOnce();
         await syncPitOnce();
         await syncMatchupNotesOnce();
+        await syncStrategyCanvasOnce();
       } while (rerunRequestedRef.current);
       ok = true;
     } catch {

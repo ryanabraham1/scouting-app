@@ -114,6 +114,24 @@ export interface TeamAgg {
 export const LOW_CONFIDENCE_THRESHOLD = 0.7;
 
 /**
+ * Mean of a 0–3 super-scout rating across a team's RATED matches (0 / null
+ * excluded), as "2.3/3"; "—" when no match was rated. Pure over the team's
+ * reports — the super-scout averages are deliberately kept OFF `TeamAgg`
+ * (no new aggregate field / fixture churn). Shared by TeamView and the
+ * Strategy tab's team cards.
+ */
+export function ratedMeanText(
+  matches: MsrRow[],
+  sel: (m: MsrRow) => number | null | undefined,
+): string {
+  const vals = matches
+    .map(sel)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  if (vals.length === 0) return '—';
+  return `${(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)}/3`;
+}
+
+/**
  * Population std-dev (`/n`, not `/(n-1)`) — these are display statistics over a
  * complete observed set, and n=1 must yield 0, not NaN.
  */

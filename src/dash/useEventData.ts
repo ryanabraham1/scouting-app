@@ -714,6 +714,27 @@ export function useEventLiveSync(eventKey: string | null): void {
         {
           event: '*',
           schema: 'public',
+          table: 'strategy_canvas',
+          filter: `event_key=eq.${eventKey}`,
+        },
+        (payload: { new?: Record<string, unknown> }) => {
+          // A whiteboard save landed (possibly from ANOTHER device in the same
+          // strategy meeting): refresh that match's canvas query so the strokes
+          // merge in live. Requires migration 0042's publication add; without it
+          // this branch is a harmless no-op (the 15s staleTime refetch covers it).
+          const matchKey = payload.new?.match_key;
+          if (typeof matchKey === 'string' && matchKey) {
+            queryClient.invalidateQueries({
+              queryKey: ['strategy-canvas', eventKey, matchKey],
+            });
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
           table: 'match_scouting_report',
           filter: `event_key=eq.${eventKey}`,
         },
