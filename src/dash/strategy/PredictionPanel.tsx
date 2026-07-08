@@ -148,8 +148,10 @@ export function TeamRowView({
           auto <span className="text-foreground">{comp(c?.auto, source)}</span>
         </span>
         <span>·</span>
+        {/* The `fuel` component is TELEOP fuel points — labeled teleop so the
+            auto/teleop/climb split reads as game phases. */}
         <span>
-          fuel <span className="text-foreground">{comp(c?.fuel, source)}</span>
+          teleop <span className="text-foreground">{comp(c?.fuel, source)}</span>
         </span>
         <span>·</span>
         <span>

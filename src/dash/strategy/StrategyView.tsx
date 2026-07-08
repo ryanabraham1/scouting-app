@@ -58,6 +58,7 @@ import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { useEventPits } from '@/dash/useTeamPit';
 import CombinedAutoField, { defaultMatchupOverlays } from '@/dash/CombinedAutoField';
 import MatchupPanel from '@/dash/MatchupPanel';
+import MatchupDashboard from '@/dash/strategy/MatchupDashboard';
 import FieldWhiteboard, { type RobotSeed } from '@/dash/strategy/FieldWhiteboard';
 import {
   useStrategyCanvas,
@@ -65,6 +66,7 @@ import {
 } from '@/dash/strategy/strategyCanvasClient';
 import {
   WHITEBOARD_PHASES,
+  ROBOT_COLORS,
   type WhiteboardPhase,
 } from '@/dash/strategy/strokes';
 import { WinProbBanner, AllianceColumn } from '@/dash/strategy/PredictionPanel';
@@ -85,9 +87,6 @@ const PHASE_LABEL: Record<WhiteboardPhase, string> = {
   endgame: 'Endgame',
 };
 
-/** Stable per-slot colors for OUR alliance's start squares (and their key). */
-const ROBOT_COLORS = ['#f59e0b', '#22d3ee', '#a855f7'];
-
 /** One alliance's half of the matchup strip: big tappable-size team chips in
  *  alliance colors, the base team in amber, OUR side badged. Always visible —
  *  including on the whiteboard view — so the matchup never needs the selector
@@ -107,7 +106,7 @@ function MatchupAllianceChips({
     <div
       data-testid={`dash-strategy-matchup-${side}`}
       className={cn(
-        'flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border px-2.5 py-1.5',
+        'flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1',
         side === 'red' ? 'border-red-500/40 bg-red-950/30' : 'border-blue-500/40 bg-blue-950/30',
         isOurs && 'ring-1 ring-amber-400/60',
       )}
@@ -136,7 +135,7 @@ function MatchupAllianceChips({
           <span
             key={t}
             className={cn(
-              'rounded-md px-2 py-1 font-mono text-base font-bold tabular-nums sm:text-lg',
+              'rounded-md px-1.5 py-0.5 font-mono text-base font-bold tabular-nums',
               t === baseTeam
                 ? 'bg-amber-400 text-neutral-900'
                 : side === 'red'
@@ -148,6 +147,41 @@ function MatchupAllianceChips({
           </span>
         ))
       )}
+    </div>
+  );
+}
+
+/** The glanceable matchup unit (red vs blue chips, US badged) — lives in the
+ *  whiteboard card's header area so the lineup is readable mid-drawing. */
+function MatchupStrip({
+  redTeams,
+  blueTeams,
+  baseTeam,
+  ourSide,
+}: {
+  redTeams: number[];
+  blueTeams: number[];
+  baseTeam: number;
+  ourSide: 'red' | 'blue' | null;
+}): JSX.Element | null {
+  if (redTeams.length === 0 && blueTeams.length === 0) return null;
+  return (
+    <div data-testid="dash-strategy-matchup" className="flex items-center gap-2">
+      <MatchupAllianceChips
+        side="red"
+        teams={redTeams}
+        baseTeam={baseTeam}
+        isOurs={ourSide === 'red'}
+      />
+      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        vs
+      </span>
+      <MatchupAllianceChips
+        side="blue"
+        teams={blueTeams}
+        baseTeam={baseTeam}
+        isOurs={ourSide === 'blue'}
+      />
     </div>
   );
 }
@@ -599,36 +633,6 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               : `No matches for ${baseTeam} in the schedule — enter teams manually or change the base team in Setup.`}
           </p>
         ) : null}
-        {/* The matchup, glanceable from EVERY sub-view (the selector is too
-            compact to read across a table): who's with us, who we play. */}
-        {redTeams.length > 0 || blueTeams.length > 0 ? (
-          <div
-            data-testid="dash-strategy-matchup"
-            className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"
-          >
-            {/* Symmetric: red hugs the centered "vs" from the left, blue from
-                the right, so the strip reads as one balanced unit. */}
-            <div className="flex min-w-0 justify-end">
-              <MatchupAllianceChips
-                side="red"
-                teams={redTeams}
-                baseTeam={baseTeam}
-                isOurs={ourSide === 'red'}
-              />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              vs
-            </span>
-            <div className="flex min-w-0 justify-start">
-              <MatchupAllianceChips
-                side="blue"
-                teams={blueTeams}
-                baseTeam={baseTeam}
-                isOurs={ourSide === 'blue'}
-              />
-            </div>
-          </div>
-        ) : null}
         {editingTeams ? (
           <ManualTeamsEditor
             initialRed={redTeams}
@@ -656,28 +660,38 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
       {subView === 'board' ? (
         <Card className="border-border">
           <CardHeader className="flex flex-col gap-2 space-y-0 p-4 pb-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {/* One board per game phase. */}
               <SegmentedToggle<WhiteboardPhase>
                 ariaLabel="Whiteboard phase"
                 value={phase}
                 onChange={setPhase}
                 size="default"
-                className="max-w-2xl"
+                className="max-w-xl flex-1 basis-80"
                 options={WHITEBOARD_PHASES.map((p) => ({ value: p, label: PHASE_LABEL[p] }))}
               />
-              {phase === 'auto' ? (
-                <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    data-testid="dash-strategy-autos-toggle"
-                    checked={showAutos}
-                    onChange={(e) => setShowAutos(e.target.checked)}
-                    className="size-4 accent-[hsl(var(--brand))]"
-                  />
-                  Show auto routines
-                </label>
-              ) : null}
+              {/* The matchup, glanceable mid-drawing (fills the header's empty
+                  area; the selector above is too compact to read at a table). */}
+              <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-2">
+                <MatchupStrip
+                  redTeams={redTeams}
+                  blueTeams={blueTeams}
+                  baseTeam={baseTeam}
+                  ourSide={ourSide}
+                />
+                {phase === 'auto' ? (
+                  <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      data-testid="dash-strategy-autos-toggle"
+                      checked={showAutos}
+                      onChange={(e) => setShowAutos(e.target.checked)}
+                      className="size-4 accent-[hsl(var(--brand))]"
+                    />
+                    Show autos
+                  </label>
+                ) : null}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-4 pt-2">
@@ -749,6 +763,20 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               <CombinedAutoField redTeams={redTeams} blueTeams={blueTeams} reports={reports} />
             </CardContent>
           </Card>
+
+          {/* Broadcast-style matchup graphics (tale of the tape, alliance
+              profile radar, per-team comparison) — anchors the bottom of the
+              analytics view. */}
+          <MatchupDashboard
+            redTeams={redTeams}
+            blueTeams={blueTeams}
+            pred={pred}
+            agg={agg}
+            reportsByTeam={reportsByTeam}
+            allTeams={allTeams}
+            baseTeam={baseTeam}
+            ourSide={ourSide}
+          />
         </>
       )}
     </div>

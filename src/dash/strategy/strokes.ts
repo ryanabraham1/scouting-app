@@ -61,6 +61,13 @@ export const WHITEBOARD_PHASES = [
 ] as const;
 export type WhiteboardPhase = (typeof WHITEBOARD_PHASES)[number];
 
+/**
+ * Stable per-slot colors for OUR alliance's robot squares — ALSO the first
+ * three pen colors in the whiteboard palette, so a play can be drawn in the
+ * color of the robot that runs it (one color language everywhere).
+ */
+export const ROBOT_COLORS = ['#f59e0b', '#22d3ee', '#a855f7'] as const;
+
 /** Merge robot positions per key — the newer `movedAt` wins (client mirror of
  *  the 0043 RPC merge). */
 export function mergeRobots(

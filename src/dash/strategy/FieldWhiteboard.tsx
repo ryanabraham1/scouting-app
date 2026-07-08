@@ -34,6 +34,7 @@ import type { RoutineOverlay } from '@/components/FieldDiagram';
 import {
   FIELD_W,
   FIELD_H,
+  ROBOT_COLORS,
   INITIAL_WHITEBOARD,
   whiteboardReducer,
   newStrokeId,
@@ -73,13 +74,17 @@ export interface FieldWhiteboardProps {
   onDrawingActiveChange?: (active: boolean) => void;
 }
 
+// First three = the robot colors assigned to OUR alliance's start squares
+// (ROBOT_COLORS), so a play can be drawn in the acting robot's color; the rest
+// are generic annotation colors.
 const COLORS = [
-  { value: '#facc15', label: 'Yellow' },
+  { value: ROBOT_COLORS[0], label: 'Robot 1' },
+  { value: ROBOT_COLORS[1], label: 'Robot 2' },
+  { value: ROBOT_COLORS[2], label: 'Robot 3' },
   { value: '#ef4444', label: 'Red' },
   { value: '#3b82f6', label: 'Blue' },
   { value: '#22c55e', label: 'Green' },
   { value: '#ffffff', label: 'White' },
-  { value: '#0b0f1a', label: 'Black' },
 ];
 
 /** Pen sizes as a fraction of field HEIGHT (render-size independent). */
@@ -417,12 +422,15 @@ export default function FieldWhiteboard({
         </div>
 
         <div className="flex items-center gap-1" role="group" aria-label="Pen color">
-          {COLORS.map((c) => (
+          {COLORS.map((c, i) => (
             <button
               key={c.value}
               type="button"
-              data-testid={`wb-color-${c.label.toLowerCase()}`}
-              aria-label={c.label}
+              data-testid={`wb-color-${c.label.toLowerCase().replace(/\s+/g, '-')}`}
+              aria-label={
+                i < 3 && robotSeeds?.[i] ? `Team ${robotSeeds[i].team} color` : c.label
+              }
+              title={i < 3 && robotSeeds?.[i] ? `Team ${robotSeeds[i].team}` : c.label}
               aria-pressed={color === c.value}
               onClick={() => {
                 setColor(c.value);

@@ -62,6 +62,12 @@ vi.mock('@/dash/useTeamPit', () => ({
   useEventPits: () => ({ data: new Map() }),
 }));
 
+// The recharts section is a lazy chunk — stub it (SVG charts don't lay out in
+// jsdom; the surrounding dashboard math is asserted via the tape/team rows).
+vi.mock('@/dash/strategy/MatchupCharts', () => ({
+  default: () => <div data-testid="matchup-charts-stub" />,
+}));
+
 // --- stub the combined auto field to keep this focused on strategy rendering ---
 vi.mock('@/dash/CombinedAutoField', () => ({
   default: (props: { redTeams: number[]; blueTeams: number[] }) => (
@@ -373,6 +379,26 @@ describe('StrategyView', () => {
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
     expect(utils.getByTestId('dash-matchup-panel')).toBeTruthy();
+  });
+
+  it('renders the matchup dashboard (tale of the tape + per-team comparison) in analytics', async () => {
+    setupHappyPath(true);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getByTestId, findByTestId } = utils;
+
+    expect(getByTestId('matchup-dashboard')).toBeTruthy();
+    // Tale of the tape: projected score row carries both alliance numbers.
+    const scoreRow = getByTestId('tape-row-projected-score');
+    expect(scoreRow.textContent).toMatch(/\d/);
+    // Teleop (not "fuel") is the phase label.
+    expect(getByTestId('tape-row-teleop-pts')).toBeTruthy();
+    // One comparison row per team, base team included.
+    for (const t of [...RED, ...BLUE]) {
+      expect(getByTestId(`matchup-dash-team-${t}`)).toBeTruthy();
+    }
+    // The lazy charts section resolves (stubbed here).
+    expect(await findByTestId('matchup-charts-stub')).toBeTruthy();
   });
 
   it('defaults to the whiteboard view with five phase boards', () => {
