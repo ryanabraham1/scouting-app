@@ -4,6 +4,47 @@
 /** Matches-scouted needed to fully trust our scouting data over EPA. */
 export const CONFIDENCE_N = 4;
 
+// EPA sanity guardrail on the scouting/EPA blend.
+//
+// The blend weight `w = min(1, m/CONFIDENCE_N)` trusts scouting purely on sample
+// COUNT, so one garbage scouted match (fat-fingered bursts, wrong team, scout
+// asleep) can drag a team's expectation far from reality. EPA is an independently
+// accurate estimate of a team's point contribution, so when the scouted
+// expectation diverges wildly from EPA on a small sample we damp the scouting
+// weight — the divergence is more likely bad data than a real breakout. The
+// damping buys itself back linearly with matches scouted: consistent evidence
+// that a team really does outperform its EPA regains full trust.
+//
+//   rel       = |scouting - epa| / max(EPA_SANITY_SCALE_FLOOR, |epa|)
+//   gap       = max(0, rel - EPA_SANITY_TOLERANCE)
+//   agreement = 1 / (1 + EPA_SANITY_SLOPE * gap / m)      // 1 = full trust
+//   w         = min(1, m * agreement / CONFIDENCE_N)
+//
+// Only applies on the blend branch (both sources present); scouting-only and
+// EPA-only behavior is unchanged. Damped w also flows into the dashboard
+// confidence (meanW), so implausible data honestly reads as low confidence.
+
+/**
+ * Relative scouting↔EPA divergence tolerated with NO damping. Scouting
+ * legitimately disagrees with EPA (that is its whole value — EPA lags and bakes
+ * in schedule context), so divergence up to this fraction of EPA is fully
+ * trusted. FLAGGED for tuning against the first real REBUILT event.
+ */
+export const EPA_SANITY_TOLERANCE = 0.5;
+
+/**
+ * How fast per-match trust decays beyond the tolerance band (see formula
+ * above). At m=1, a scouted value ~2× EPA keeps only ~25% of its per-match
+ * weight; the same divergence over 4 consistent matches keeps ~57%. FLAGGED.
+ */
+export const EPA_SANITY_SLOPE = 2;
+
+/**
+ * Points floor for the divergence denominator so a tiny-EPA (rookie/weak) team
+ * doesn't over-trigger the guardrail on a modest absolute difference. FLAGGED.
+ */
+export const EPA_SANITY_SCALE_FLOOR = 30;
+
 /**
  * Recency tilt for the in-house (TBA-derived) EPA model. The model processes a
  * team's whole season chronologically; this re-weights each match's update by

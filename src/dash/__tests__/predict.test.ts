@@ -2,6 +2,9 @@
 import { predictMatch } from '@/dash/predict';
 import {
   CONFIDENCE_N,
+  EPA_SANITY_TOLERANCE,
+  EPA_SANITY_SLOPE,
+  EPA_SANITY_SCALE_FLOOR,
   WINPROB_SIGMA_FRACTION,
   WINPROB_SIGMA_FLOOR,
   WINPROB_LOGIT_SCALE,
@@ -165,6 +168,111 @@ describe('predictMatch — per-team blend cases', () => {
   });
 });
 
+describe('predictMatch — EPA sanity guardrail on the blend', () => {
+  /** Mirror of predictTeam's guardrail math, for exact-value assertions. */
+  function guarded(scouting: number, epa: number, m: number) {
+    const scale = Math.max(EPA_SANITY_SCALE_FLOOR, Math.abs(epa));
+    const rel = Math.abs(scouting - epa) / scale;
+    const gap = Math.max(0, rel - EPA_SANITY_TOLERANCE);
+    const agreement = 1 / (1 + (EPA_SANITY_SLOPE * gap) / m);
+    const w = Math.min(1, (m * agreement) / CONFIDENCE_N);
+    return { agreement, w, expected: w * scouting + (1 - w) * epa };
+  }
+
+  const blend = (scouting: number, epa: number, m: number) =>
+    predictMatch({
+      redTeams: [1],
+      blueTeams: [],
+      agg: aggMap([agg(1, m, scouting)]),
+      epaByTeam: new Map<number, number | null>([[1, epa]]),
+      statboticsAvailable: true,
+    }).red.teams[0];
+
+  it('divergence within tolerance is fully trusted (agreement = 1, w unchanged)', () => {
+    // 60 vs EPA 50 -> rel 0.2 < tolerance -> the legacy w = m/CONFIDENCE_N.
+    const t = blend(60, 50, 1);
+    expect(t.epaAgreement).toBe(1);
+    expect(t.w).toBeCloseTo(1 / CONFIDENCE_N, 10);
+    expect(t.expected).toBeCloseTo(0.25 * 60 + 0.75 * 50, 10);
+  });
+
+  it('one wild scouted match is anchored to EPA instead of dominating the blend', () => {
+    // 300 pts scouted once vs EPA 80: rel = 2.75. The undamped blend would be
+    // 0.25*300 + 0.75*80 = 135; the guardrail keeps the estimate near EPA.
+    const t = blend(300, 80, 1);
+    const g = guarded(300, 80, 1);
+    expect(t.epaAgreement).toBeCloseTo(g.agreement, 10);
+    expect(t.w).toBeCloseTo(g.w, 10);
+    expect(t.expected).toBeCloseTo(g.expected, 10);
+    expect(t.expected).toBeLessThan(100); // vs 135 undamped
+    expect(t.w).toBeLessThan(1 / CONFIDENCE_N); // damped below the legacy m/N weight
+    expect(t.source).toBe('blend');
+  });
+
+  it('a suspiciously LOW scouted value (scout asleep) is damped symmetrically', () => {
+    // 5 pts scouted once vs EPA 100: undamped 0.25*5 + 0.75*100 = 76.25.
+    const t = blend(5, 100, 1);
+    expect(t.expected).toBeCloseTo(guarded(5, 100, 1).expected, 10);
+    expect(t.expected).toBeGreaterThan(76.25); // pulled back toward EPA
+    expect(t.epaAgreement!).toBeLessThan(1);
+  });
+
+  it('consistent evidence buys trust back: same divergence at m=4 keeps most of its weight', () => {
+    // 180 vs EPA 100 (rel 0.8) — one match is heavily damped, four consistent
+    // matches are mostly believed (a real breakout, not bad data).
+    const one = blend(180, 100, 1);
+    const four = blend(180, 100, 4);
+    expect(one.epaAgreement!).toBeLessThan(four.epaAgreement!);
+    expect(four.epaAgreement!).toBeGreaterThan(0.8);
+    expect(four.w).toBeCloseTo(guarded(180, 100, 4).w, 10);
+    expect(four.expected).toBeGreaterThan(160); // close to the scouted 180
+    expect(one.expected).toBeLessThan(four.expected);
+  });
+
+  it('uses the scale floor for tiny-EPA teams so modest gaps do not over-trigger', () => {
+    // EPA 10 with scouting 40: divergence is measured against the 30-pt floor
+    // (rel 1.0), not against EPA itself (which would read rel 3.0).
+    const t = blend(40, 10, 1);
+    expect(t.epaAgreement).toBeCloseTo(guarded(40, 10, 1).agreement, 10);
+    const relFloored = Math.abs(40 - 10) / EPA_SANITY_SCALE_FLOOR;
+    const gapFloored = relFloored - EPA_SANITY_TOLERANCE;
+    expect(t.epaAgreement).toBeCloseTo(1 / (1 + EPA_SANITY_SLOPE * gapFloored), 10);
+  });
+
+  it('non-blend sources carry no epaAgreement and are untouched', () => {
+    // Scouting-only (EPA null): there is nothing to cross-check against.
+    const t = predictMatch({
+      redTeams: [1],
+      blueTeams: [],
+      agg: aggMap([agg(1, 1, 300)]),
+      epaByTeam: new Map<number, number | null>([[1, null]]),
+      statboticsAvailable: true,
+    }).red.teams[0];
+    expect(t.source).toBe('scouting');
+    expect(t.epaAgreement).toBeUndefined();
+    expect(t.expected).toBeCloseTo(300, 10);
+    expect(t.w).toBe(1);
+  });
+
+  it('damped w flows into match confidence (implausible data reads as low confidence)', () => {
+    const wild = predictMatch({
+      redTeams: [1],
+      blueTeams: [],
+      agg: aggMap([agg(1, 1, 300)]),
+      epaByTeam: new Map<number, number | null>([[1, 80]]),
+      statboticsAvailable: true,
+    });
+    const sane = predictMatch({
+      redTeams: [1],
+      blueTeams: [],
+      agg: aggMap([agg(1, 1, 90)]),
+      epaByTeam: new Map<number, number | null>([[1, 80]]),
+      statboticsAvailable: true,
+    });
+    expect(wild.confidence).toBeLessThan(sane.confidence);
+  });
+});
+
 describe('predictMatch — alliance scores & win prob', () => {
   const fullInput = (statboticsAvailable: boolean): PredictInput => ({
     redTeams: [1, 2, 3],
@@ -305,6 +413,9 @@ describe('predictMatch — robustness', () => {
     expect(WINPROB_SIGMA_FRACTION).toBe(0.11);
     expect(WINPROB_SIGMA_FLOOR).toBe(12);
     expect(WINPROB_LOGIT_SCALE).toBe(1.7);
+    expect(EPA_SANITY_TOLERANCE).toBe(0.5);
+    expect(EPA_SANITY_SLOPE).toBe(2);
+    expect(EPA_SANITY_SCALE_FLOOR).toBe(30);
   });
 
   it('a 21-pt margin in a high-scoring game is a near coin-flip, not a lock', () => {

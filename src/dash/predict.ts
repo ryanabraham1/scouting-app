@@ -5,6 +5,9 @@
 
 import {
   CONFIDENCE_N,
+  EPA_SANITY_TOLERANCE,
+  EPA_SANITY_SLOPE,
+  EPA_SANITY_SCALE_FLOOR,
   WINPROB_SIGMA_FRACTION,
   WINPROB_SIGMA_FLOOR,
   WINPROB_LOGIT_SCALE,
@@ -51,6 +54,14 @@ export interface TeamPrediction {
   expected: number;
   w: number;
   source: 'blend' | 'scouting' | 'epa' | 'none';
+  /**
+   * EPA sanity guardrail (blend branch only): per-match trust retained after
+   * checking the scouted expectation against EPA. 1 = scouting is within the
+   * tolerated divergence of EPA (no damping); <1 = the scouted value diverges
+   * implausibly for its sample size, so `w` was shrunk toward EPA. Absent on
+   * non-blend sources (there is nothing to cross-check against).
+   */
+  epaAgreement?: number;
   /**
    * OPTIONAL additive auto/fuel/climb decomposition of `expected` (+ scouting
    * defense). Present only when `predictMatch` is given a `fraction`; absent
@@ -112,12 +123,22 @@ function predictTeam(
   const hasEpa = epa !== null;
 
   if (hasScouting && hasEpa) {
-    const w = Math.min(1, m / CONFIDENCE_N);
+    // EPA sanity guardrail (constants.ts): when the scouted expectation
+    // diverges implausibly from EPA for its sample size, shrink the per-match
+    // trust so one bad scouted match can't dominate the blend. Divergence
+    // within EPA_SANITY_TOLERANCE of EPA is fully trusted, and consistent
+    // evidence (m) linearly buys trust back.
+    const scale = Math.max(EPA_SANITY_SCALE_FLOOR, Math.abs(epa));
+    const rel = Math.abs(scouting - epa) / scale;
+    const gap = Math.max(0, rel - EPA_SANITY_TOLERANCE);
+    const agreement = 1 / (1 + (EPA_SANITY_SLOPE * gap) / m);
+    const w = Math.min(1, (m * agreement) / CONFIDENCE_N);
     return {
       teamNumber,
       expected: w * scouting + (1 - w) * epa,
       w,
       source: 'blend',
+      epaAgreement: agreement,
     };
   }
   if (hasScouting) {
