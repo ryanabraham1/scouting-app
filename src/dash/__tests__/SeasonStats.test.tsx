@@ -140,6 +140,11 @@ describe('parseStatboticsTeamYear', () => {
     });
     // Partial record → null (needs all three of wins/losses/ties).
     expect(parseStatboticsTeamYear({ record: { wins: 2, losses: 1 } }).record).toBeNull();
+    // All-zero record → null: Statbotics hasn't ingested results yet (6740 at
+    // 2026iscmp showed 0-0-0 while TBA had 4-4-0) — null triggers the TBA fallback.
+    expect(
+      parseStatboticsTeamYear({ record: { wins: 0, losses: 0, ties: 0, count: 0 } }).record,
+    ).toBeNull();
     // Non-finite values → null.
     expect(
       parseStatboticsTeamYear({ epa: { total_points: { mean: Infinity } } }).totalEpa,

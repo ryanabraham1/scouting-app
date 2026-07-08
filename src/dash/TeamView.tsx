@@ -1411,10 +1411,13 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   const pitNode = <PitPanel pit={pitQuery.data ?? null} isLoading={pitQuery.isLoading} />;
 
   // Compact robot-photo thumbnail for the team header: scouted pit photo if
-  // present, else a TBA fallback. Renders nothing when neither source has an
-  // image (no placeholder), and opens the full image in a lightbox on click.
+  // present, else a TBA fallback. Resolved HERE (same query key as the thumb →
+  // shared cache, no double fetch) so photoNode is truly null when no image
+  // exists — TeamDetail then gives the TBA card the full width instead of
+  // reserving a dead 16rem grid column beside it.
+  const photoQuery = useTeamPhoto(eventKey, selected, pitQuery.data?.photoPath ?? null);
   const photoThumb =
-    selected != null ? (
+    selected != null && photoQuery.data?.url ? (
       <TeamPhotoThumb
         eventKey={eventKey}
         teamNumber={selected}

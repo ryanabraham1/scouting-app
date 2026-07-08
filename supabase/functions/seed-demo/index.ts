@@ -565,6 +565,40 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       const intakeSources = defenseRating > 0 ? ["ground", "station"] : ["ground"];
       const maxFuelObserved = clampInt(fuelTotal * 0.25 * (0.5 + rng()), 0, 600);
 
+      // ── Feeding bursts (feeding slider, migration 0010): teams flagged as
+      // feeders get 1-2 bursts so the match timeline + feeding stats have data. ──
+      const fedCorral = !noShow && rng() < 0.2;
+      let feedingBursts: Record<string, unknown>[] = [];
+      if (fedCorral) {
+        feedingBursts = [
+          { rate: r2(1.0 + rng()), startMs: SHIFT_BOUNDS.shift1.start + 5000, endMs: SHIFT_BOUNDS.shift1.start + 20000, window: "shift1" },
+        ];
+        if (rng() < 0.5) {
+          feedingBursts.push({ rate: r2(1.0 + rng()), startMs: SHIFT_BOUNDS.shift3.start + 5000, endMs: SHIFT_BOUNDS.shift3.start + 20000, window: "shift3" });
+        }
+      }
+
+      // ── Defense / defended intervals (0010): one teleop interval matching each
+      // scalar duration, keeping the "Σ intervals == duration" invariant the
+      // match timeline relies on. ──
+      const defenseDurationMs = defenseRating > 0 ? clampInt(15000 + rng() * 30000, 0, 140000) : 0;
+      const defendedDurationMs = clampInt(rng() * 20000, 0, 140000);
+      const defenseIntervals = defenseDurationMs > 0
+        ? [{ startMs: 20000, endMs: 20000 + defenseDurationMs, phase: "teleop" }]
+        : [];
+      const defendedIntervals = defendedDurationMs > 0
+        ? [{ startMs: 60000, endMs: 60000 + defendedDurationMs, phase: "teleop" }]
+        : [];
+
+      // ── Foul reasons (0024): tag committed fouls with plausible rule keys
+      // (must be keys from src/scoring/fouls.ts FOUL_REASONS). ──
+      const foulsMinor = rng() < 0.3 ? 1 : 0;
+      const foulsMajor = rng() < 0.1 ? 1 : 0;
+      const FOUL_KEYS = ["opponent_contact", "pinning", "damage", "over_expansion", "fuel_violation", "tower_contact"];
+      const foulReasons: string[] = [];
+      if (foulsMinor > 0) foulReasons.push(FOUL_KEYS[clampInt(rng() * FOUL_KEYS.length, 0, FOUL_KEYS.length - 1)]);
+      if (foulsMajor > 0) foulReasons.push("pinning");
+
       const scoutId = scoutIds[scoutCursor % scoutIds.length];
       scoutCursor += 1;
 
@@ -613,15 +647,19 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         driver_skill: noShow ? 0 : clampInt(1 + s * 2 + (rng() - 0.5), 0, 3),
         agility: noShow ? 0 : clampInt(1 + s * 2 + (rng() - 0.5), 0, 3),
         pins,
-        fouls_minor: rng() < 0.3 ? 1 : 0,
-        fouls_major: rng() < 0.1 ? 1 : 0,
+        fouls_minor: foulsMinor,
+        fouls_major: foulsMajor,
+        foul_reasons: foulReasons,
         no_show: noShow,
         died,
         tipped: !noShow && rng() < 0.05,
         dropped_fuel: !noShow && rng() < 0.1,
-        fed_corral: !noShow && rng() < 0.2,
-        defense_duration_ms: defenseRating > 0 ? clampInt(15000 + rng() * 30000, 0, 140000) : 0,
-        defended_duration_ms: clampInt(rng() * 20000, 0, 140000),
+        fed_corral: fedCorral,
+        feeding_bursts: feedingBursts,
+        defense_duration_ms: defenseDurationMs,
+        defended_duration_ms: defendedDurationMs,
+        defense_intervals: defenseIntervals,
+        defended_intervals: defendedIntervals,
         notes,
         deleted: false,
       });
@@ -649,12 +687,36 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       s > 0.6
         ? ["high goal", "level 3 climb", "auto routine", "defense"]
         : ["low goal", "level 1 climb"];
+    // Expanded pit fields (migration 0023) so the full pit panel has content.
+    const r3 = (v: number) => Math.round(v * 1000) / 1000;
+    const startPos = { x: r3(0.05 + rng() * 0.15), y: r3(0.15 + rng() * 0.7) };
+    const strategies = s > 0.6 ? ["score", "cycle"] : rng() < 0.4 ? ["defend", "support"] : ["score", "feed"];
     return {
       event_key: demoKey,
       team_number: t.team_number,
       drivetrain,
       mechanisms,
       capabilities: { items, intakeSources: ["ground", "station"] },
+      vision_system: s > 0.5 ? "AprilTags (Limelight)" : rng() < 0.5 ? "Photon Vision" : null,
+      batteries: {
+        count: clampInt(4 + rng() * 6, 4, 10),
+        chargers: clampInt(2 + rng() * 3, 2, 5),
+        brand: rng() < 0.5 ? "MK ES17-12" : "Duracell SLA",
+        connector: rng() < 0.7 ? "Anderson SB50" : "Anderson SBS50",
+      },
+      preferred_auto_start_position: startPos,
+      preferred_auto_path: [
+        startPos,
+        { x: r3(0.3 + rng() * 0.15), y: r3(0.2 + rng() * 0.6) },
+        { x: r3(0.55 + rng() * 0.15), y: r3(0.2 + rng() * 0.6) },
+      ],
+      match_strategy: strategies,
+      robot_dimensions: {
+        lengthIn: clampInt(26 + rng() * 8, 26, 34),
+        widthIn: clampInt(24 + rng() * 8, 24, 32),
+        heightIn: clampInt(20 + rng() * 20, 20, 40),
+        trenchCapable: rng() < 0.6,
+      },
       photo_path: null,
       notes: `Demo pit notes for ${t.nickname ?? "team " + t.team_number}.`,
       author_scout_id: scoutIds[i % scoutIds.length],

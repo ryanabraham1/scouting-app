@@ -164,7 +164,7 @@ export default function DashboardScreen(): JSX.Element {
             {tab === 'ranking' && (
               <RankingView eventKey={eventKey} onSelectTeam={openTeam} />
             )}
-            {tab === 'picklist' && <PicklistView eventKey={eventKey} />}
+            {tab === 'picklist' && <PicklistView eventKey={eventKey} onSelectTeam={openTeam} />}
             {tab === 'draft' && <DraftBoardView eventKey={eventKey} onSelectTeam={openTeam} />}
             {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
           </section>

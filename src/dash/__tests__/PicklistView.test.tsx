@@ -140,6 +140,19 @@ describe('PicklistView', () => {
     expect(getByTestId('pick-row-1678')).toBeTruthy();
   });
 
+  it('links a row team number to the Team tab via onSelectTeam', async () => {
+    const onSelectTeam = vi.fn();
+    const utils = render(<PicklistView eventKey="2026casnv" onSelectTeam={onSelectTeam} />);
+    await waitFor(() => expect(utils.getByTestId('pick-team-254')).toBeTruthy());
+    fireEvent.click(utils.getByTestId('pick-team-254'));
+    expect(onSelectTeam).toHaveBeenCalledWith(254);
+  });
+
+  it('renders team numbers as plain text without onSelectTeam', async () => {
+    const { queryByTestId } = await renderLoaded();
+    expect(queryByTestId('pick-team-254')).toBeNull();
+  });
+
   it('adds a team via the add input + button (ignoring duplicates/invalid)', async () => {
     const { getByTestId, getAllByTestId } = await renderLoaded();
     const input = getByTestId('pick-add-input') as HTMLInputElement;

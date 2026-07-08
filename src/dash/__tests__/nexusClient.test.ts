@@ -1,6 +1,16 @@
 // src/dash/__tests__/nexusClient.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseNexusEventStatus, isPracticeLabel } from '@/dash/nexusClient';
+import {
+  parseNexusEventStatus,
+  isPracticeLabel,
+  ON_FIELD_STALE_MS,
+  QUEUING_STALE_MS,
+} from '@/dash/nexusClient';
+
+// Fixture times anchor around this epoch; pass it as `now` so the staleness
+// gates see the snapshot as live (real Date.now() would see everything as
+// hours-old leftovers — which is its own test below).
+const NOW = 1_700_000_700_000;
 
 const payload = {
   eventKey: '2024onwa',
@@ -49,14 +59,14 @@ describe('parseNexusEventStatus', () => {
   });
 
   it('identifies on-field and queuing matches', () => {
-    const s = parseNexusEventStatus(payload);
+    const s = parseNexusEventStatus(payload, NOW);
     expect(s.onField?.label).toBe('Qualification 11');
     // queuing prefers the label matching nowQueuing.
     expect(s.queuing?.label).toBe('Qualification 12');
   });
 
   it('orders upcoming by estimated start and excludes completed', () => {
-    const s = parseNexusEventStatus(payload);
+    const s = parseNexusEventStatus(payload, NOW);
     const labels = s.upcoming.map((m) => m.label);
     expect(labels).not.toContain('Qualification 10'); // completed excluded
     expect(labels).toEqual([
@@ -108,7 +118,7 @@ describe('parseNexusEventStatus', () => {
           times: { estimatedStartTime: 1_700_001_300_000 },
         },
       ],
-    });
+    }, NOW);
     expect(s.onField?.label).toBe('Qualification 7');
     expect(s.queuing?.label).toBe('Qualification 8');
     expect(s.upcoming.map((m) => m.label)).not.toContain('Practice 3');
@@ -141,8 +151,68 @@ describe('parseNexusEventStatus', () => {
           times: { actualQueueTime: 1_700_000_600_000 },
         },
       ],
-    });
+    }, NOW);
     expect(s.onField?.label).toBe('Qualification 6'); // freshest actualQueueTime
+  });
+
+  it('drops STALE on-field/queuing claims (the 2026iscmp overnight bug)', () => {
+    // Some events' feeds never flip matches to "Completed": every played match
+    // stays "On field" forever. Overnight, the field tiles showed a replay from
+    // hours earlier. A claim whose field-touch time is long past must be treated
+    // as done — tiles show nothing, and upcoming skips the leftovers.
+    const played = ON_FIELD_STALE_MS + 60_000; // played ~21 min before `now`
+    const s = parseNexusEventStatus(
+      {
+        matches: [
+          {
+            label: 'Qualification 4 Replay',
+            status: 'On field',
+            redTeams: ['1'],
+            blueTeams: ['2'],
+            times: { actualOnFieldTime: NOW - played, actualQueueTime: NOW - played - 600_000 },
+          },
+          {
+            label: 'Qualification 3',
+            status: 'Now queuing',
+            redTeams: ['3'],
+            blueTeams: ['4'],
+            times: { actualQueueTime: NOW - QUEUING_STALE_MS - 60_000 },
+          },
+          {
+            label: 'Qualification 52',
+            status: 'Queuing soon',
+            redTeams: ['5'],
+            blueTeams: ['6'],
+            times: { estimatedStartTime: NOW + 8 * 3_600_000 }, // tomorrow
+          },
+        ],
+      },
+      NOW,
+    );
+    expect(s.onField).toBeNull(); // stale replay is NOT on the field
+    expect(s.queuing).toBeNull(); // hours-old queue claim is dead too
+    // Upcoming drops the stale ON-FIELD leftover (it demonstrably played) but
+    // keeps the stale queuing row (could be a delayed match, not a played one);
+    // with no schedule estimate it sorts last.
+    expect(s.upcoming.map((m) => m.label)).toEqual(['Qualification 52', 'Qualification 3']);
+  });
+
+  it('keeps a FRESH on-field claim (staleness gate must not blank live play)', () => {
+    const s = parseNexusEventStatus(
+      {
+        matches: [
+          {
+            label: 'Qualification 20',
+            status: 'On field',
+            redTeams: ['1'],
+            blueTeams: ['2'],
+            times: { actualOnFieldTime: NOW - 120_000 }, // 2 min ago — live
+          },
+        ],
+      },
+      NOW,
+    );
+    expect(s.onField?.label).toBe('Qualification 20');
   });
 
   it('isPracticeLabel matches Nexus practice labels only', () => {

@@ -16,14 +16,21 @@ export async function importEvent(eventKey: string): Promise<ImportEventResult> 
     throw new Error('Not signed in.');
   }
 
-  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/import-event`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ event_key: eventKey }),
-  });
+  // One retry on 502/503: those are upstream-TBA/edge blips (seen live), not
+  // real answers about the event. Other statuses surface immediately.
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(`${env.SUPABASE_URL}/functions/v1/import-event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ event_key: eventKey }),
+    });
+    if (res.ok || attempt >= 1 || (res.status !== 502 && res.status !== 503)) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 
   if (!res.ok) {
     let detail = '';

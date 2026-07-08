@@ -49,6 +49,9 @@ interface EventOption {
   is_active: boolean;
 }
 
+/** localStorage key remembering the Events & settings disclosure state. */
+const CONFIG_OPEN_KEY = 'setup-config-open';
+
 export default function SetupTab(): JSX.Element {
   const queryClient = useQueryClient();
   const { eventKey: activeEvent } = useActiveEvent();
@@ -68,7 +71,17 @@ export default function SetupTab(): JSX.Element {
   // Event/config management (demo, event switching, base team) folds into a
   // disclosure so it doesn't push the match schedule + assignments — the daily
   // work — far down the page. Opens by default only when nothing is set up yet.
-  const [configOpen, setConfigOpen] = useState(() => !activeEvent);
+  // Open by default; remembers an explicit collapse across visits (leads found
+  // re-opening it every time annoying).
+  const [configOpen, setConfigOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem(CONFIG_OPEN_KEY);
+      if (stored != null) return stored === 'true';
+    } catch {
+      /* no storage — default open */
+    }
+    return true;
+  });
 
   // Base team: the team the whole dashboard pivots on (next match, live data,
   // rankings). Defaults to 3256; configurable here so a lead can point the app at
@@ -210,7 +223,15 @@ export default function SetupTab(): JSX.Element {
           rarely changes. The active event stays visible in the summary. */}
       <details
         open={configOpen}
-        onToggle={(e) => setConfigOpen(e.currentTarget.open)}
+        onToggle={(e) => {
+          const open = e.currentTarget.open;
+          setConfigOpen(open);
+          try {
+            localStorage.setItem(CONFIG_OPEN_KEY, String(open));
+          } catch {
+            /* no storage */
+          }
+        }}
         className="group rounded-lg border border-border"
       >
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 [&::-webkit-details-marker]:hidden">
@@ -244,10 +265,8 @@ export default function SetupTab(): JSX.Element {
           </span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Spin up a simulated copy of a real event (2026 CA Silicon Valley) with
-          real teams and TBA-derived scouting data, so you can explore every
-          feature — rankings, picklist, next-match prediction, team profiles, EPA,
-          and scouter performance — without a live event.
+          Explore the full dashboard on a simulated copy of a real event — no live
+          event needed.
         </p>
 
         {demoPresent ? (

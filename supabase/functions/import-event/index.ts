@@ -61,14 +61,29 @@ function randomJoinCode(): string {
   return out;
 }
 
+// GET with retry: TBA throws transient 429/5xx blips (observed live: two 502s a
+// few minutes apart on an otherwise-fine event) — one blip must not fail the
+// whole import. 4xx other than 429 is a real answer (bad key/unknown event):
+// surface it immediately, don't retry.
 async function tba<T>(path: string): Promise<T> {
-  const res = await fetch(`${TBA_BASE}${path}`, {
-    headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
-  });
-  if (!res.ok) {
-    throw new Error(`TBA ${path} failed: ${res.status} ${await res.text()}`);
+  const attempts = 3;
+  let lastErr = "";
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 300 * 2 ** (i - 1)));
+    let res: Response;
+    try {
+      res = await fetch(`${TBA_BASE}${path}`, {
+        headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
+      });
+    } catch (e) {
+      lastErr = `network: ${(e as Error).message}`;
+      continue;
+    }
+    if (res.ok) return (await res.json()) as T;
+    lastErr = `${res.status} ${await res.text()}`;
+    if (res.status < 500 && res.status !== 429) break;
   }
-  return (await res.json()) as T;
+  throw new Error(`TBA ${path} failed: ${lastErr}`);
 }
 
 Deno.serve(async (req) => {

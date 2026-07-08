@@ -45,6 +45,8 @@ import PicklistSeedDialog from '@/dash/PicklistSeedDialog';
 
 export interface PicklistViewProps {
   eventKey: string;
+  /** Open a team on the dashboard's Team tab (same deep-link as Ranking/Draft). */
+  onSelectTeam?: (teamNumber: number) => void;
 }
 
 const TOUCH = 'min-h-[44px] min-w-[44px]';
@@ -88,6 +90,7 @@ interface PickRowProps {
   onRemove: (teamNumber: number) => void;
   onUpdateField: (teamNumber: number, field: 'tier' | 'note', value: string) => void;
   onCycleTier: (teamNumber: number) => void;
+  onSelectTeam?: (teamNumber: number) => void;
 }
 
 /**
@@ -97,7 +100,8 @@ interface PickRowProps {
  * fallback. Pure presentational + the passed-in mutators.
  */
 function SortablePickRow(props: PickRowProps): JSX.Element {
-  const { entry: e, index: i, total, onMove, onRemove, onUpdateField, onCycleTier } = props;
+  const { entry: e, index: i, total, onMove, onRemove, onUpdateField, onCycleTier, onSelectTeam } =
+    props;
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: e.teamNumber });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -133,7 +137,19 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           {i + 1}
         </span>
       </span>
-      <span className="min-w-0 shrink-0 font-medium tabular-nums sm:w-16">{e.teamNumber}</span>
+      {onSelectTeam ? (
+        <button
+          type="button"
+          data-testid={`pick-team-${e.teamNumber}`}
+          onClick={() => onSelectTeam(e.teamNumber)}
+          aria-label={`Open team ${e.teamNumber}`}
+          className="inline-flex min-h-[44px] min-w-0 shrink-0 items-center rounded font-medium tabular-nums text-brand hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-16"
+        >
+          {e.teamNumber}
+        </button>
+      ) : (
+        <span className="min-w-0 shrink-0 font-medium tabular-nums sm:w-16">{e.teamNumber}</span>
+      )}
 
       {/* Move / remove controls: a contained group so on mobile they sit together
           on their own grid row instead of wrapping the destructive ✕ off alone. */}
@@ -215,7 +231,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
 }
 
 export default function PicklistView(props: PicklistViewProps): JSX.Element {
-  const { eventKey } = props;
+  const { eventKey, onSelectTeam } = props;
 
   const [entries, setEntries] = useState<PicklistEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -687,6 +703,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                       onRemove={removeTeam}
                       onUpdateField={updateField}
                       onCycleTier={cycleTier}
+                      onSelectTeam={onSelectTeam}
                     />
                   ))}
                 </ul>
@@ -704,6 +721,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
         onAdd={addTeamNumber}
         dnpTeams={dnpTeams}
         onToggleDnp={toggleDnp}
+        onSelectTeam={onSelectTeam}
       />
 
       <PicklistSeedDialog

@@ -48,6 +48,7 @@ function nexusMatch(overrides: Partial<NexusMatch>): NexusMatch {
       estimatedOnFieldTime: null,
       estimatedStartTime: null,
       actualQueueTime: null,
+      actualOnFieldTime: null,
     },
     ...overrides,
   };

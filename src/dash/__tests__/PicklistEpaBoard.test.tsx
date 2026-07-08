@@ -51,6 +51,22 @@ describe('PicklistEpaBoard', () => {
     expect(getByTestId('epa-board-count').textContent).toContain('2/3');
   });
 
+  it('links a board team number to the Team tab via onSelectTeam', () => {
+    const onSelectTeam = vi.fn();
+    const { getByTestId } = render(
+      <PicklistEpaBoard
+        teams={TEAMS}
+        epa={statboticsEpa()}
+        aggByTeam={new Map<number, TeamAgg>()}
+        inListTeams={new Set()}
+        onAdd={onAdd}
+        onSelectTeam={onSelectTeam}
+      />,
+    );
+    fireEvent.click(getByTestId('epa-board-team-254'));
+    expect(onSelectTeam).toHaveBeenCalledWith(254);
+  });
+
   it('orders rows by EPA desc, sinking no-EPA teams to the bottom with "—"', () => {
     const { getByTestId } = render(
       <PicklistEpaBoard

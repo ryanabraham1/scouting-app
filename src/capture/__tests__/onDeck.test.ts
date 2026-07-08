@@ -30,6 +30,7 @@ function nexusMatch(label: string, status: string | null): NexusMatch {
       estimatedOnFieldTime: null,
       estimatedStartTime: null,
       actualQueueTime: null,
+      actualOnFieldTime: null,
     },
   };
 }

@@ -77,7 +77,10 @@ export function parseStatboticsTeamYear(json: unknown): StatboticsSeason {
     const w = finiteOrNull(json.record.wins);
     const l = finiteOrNull(json.record.losses);
     const t = finiteOrNull(json.record.ties);
-    if (w != null && l != null && t != null) record = `${w}-${l}-${t}`;
+    // An all-zero record is Statbotics saying "not ingested yet", not a real
+    // 0-0-0 (seen live: 6740 mid-2026iscmp showed 0-0-0 while TBA had 4-4-0).
+    // Return null so the caller's TBA-derived fallback computes the true W-L-T.
+    if (w != null && l != null && t != null && w + l + t > 0) record = `${w}-${l}-${t}`;
   }
 
   return { worldRank, totalEpa, record };

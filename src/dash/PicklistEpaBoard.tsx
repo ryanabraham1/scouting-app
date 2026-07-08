@@ -42,6 +42,8 @@ export interface PicklistEpaBoardProps {
   dnpTeams?: Set<number>;
   /** Toggle a team's do-not-pick flag. When absent, the DNP control is hidden. */
   onToggleDnp?: (teamNumber: number) => void;
+  /** Open a team on the dashboard's Team tab. When absent, numbers are plain text. */
+  onSelectTeam?: (teamNumber: number) => void;
 }
 
 /** A fully-resolved board row: identity + resolved EPA + its source label. */
@@ -59,7 +61,7 @@ function fmtEpa(n: number): string {
 }
 
 export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Element {
-  const { teams, epa, aggByTeam, inListTeams, onAdd, dnpTeams, onToggleDnp } = props;
+  const { teams, epa, aggByTeam, inListTeams, onAdd, dnpTeams, onToggleDnp, onSelectTeam } = props;
 
   const epaByTeam = epa?.epaByTeam;
   const sourceByTeam = epa?.sourceByTeam;
@@ -213,14 +215,29 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                   >
                     {rank}
                   </span>
-                  <span
-                    className={cn(
-                      'relative z-10 w-12 shrink-0 font-semibold tabular-nums',
-                      tier === 'top' ? 'text-brand' : 'text-brand/90',
-                    )}
-                  >
-                    {r.teamNumber}
-                  </span>
+                  {onSelectTeam ? (
+                    <button
+                      type="button"
+                      data-testid={`epa-board-team-${r.teamNumber}`}
+                      onClick={() => onSelectTeam(r.teamNumber)}
+                      aria-label={`Open team ${r.teamNumber}`}
+                      className={cn(
+                        'relative z-10 w-12 shrink-0 rounded text-left font-semibold tabular-nums hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                        tier === 'top' ? 'text-brand' : 'text-brand/90',
+                      )}
+                    >
+                      {r.teamNumber}
+                    </button>
+                  ) : (
+                    <span
+                      className={cn(
+                        'relative z-10 w-12 shrink-0 font-semibold tabular-nums',
+                        tier === 'top' ? 'text-brand' : 'text-brand/90',
+                      )}
+                    >
+                      {r.teamNumber}
+                    </span>
+                  )}
                   <span className="relative z-10 min-w-0 flex-1 truncate text-sm text-muted-foreground">
                     {r.nickname ?? ''}
                   </span>
