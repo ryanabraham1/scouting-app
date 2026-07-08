@@ -138,6 +138,9 @@ interface TeamMetrics {
   scouted: number;
   expected: number;
   fuel: number | null;
+  /** Mean teleop INACTIVE-period fuel — the feeding workload signal that used
+   *  to live only in the removed Alliance Matchup prose ("feeds heavily"). */
+  feed: number | null;
   climbRate: number | null;
   defense: number | null;
   driver: number | null;
@@ -148,7 +151,14 @@ interface TeamMetrics {
 interface MetricCol {
   key: keyof Pick<
     TeamMetrics,
-    'expected' | 'fuel' | 'climbRate' | 'defense' | 'driver' | 'agility' | 'reliability'
+    | 'expected'
+    | 'fuel'
+    | 'feed'
+    | 'climbRate'
+    | 'defense'
+    | 'driver'
+    | 'agility'
+    | 'reliability'
   >;
   label: string;
   /** Fixed scale max (ratings/rates); undefined = normalize to the matchup max. */
@@ -159,6 +169,7 @@ interface MetricCol {
 const METRIC_COLS: MetricCol[] = [
   { key: 'expected', label: 'Exp pts', fmt: (v) => String(Math.round(v)) },
   { key: 'fuel', label: 'Teleop', fmt: (v) => v.toFixed(0) },
+  { key: 'feed', label: 'Feed', fmt: (v) => v.toFixed(0) },
   { key: 'climbRate', label: 'Climb', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'defense', label: 'Def', max: 3, fmt: (v) => v.toFixed(1) },
   { key: 'driver', label: 'Driver', max: 3, fmt: (v) => v.toFixed(1) },
@@ -203,7 +214,7 @@ function MetricCell({
   );
 }
 
-const GRID = 'grid grid-cols-[minmax(5.5rem,1.4fr)_repeat(7,minmax(0,1fr))] items-end gap-x-3';
+const GRID = 'grid grid-cols-[minmax(5.5rem,1.4fr)_repeat(8,minmax(0,1fr))] items-end gap-x-3';
 
 function TeamMetricRow({
   m,
@@ -311,6 +322,7 @@ export default function MatchupDashboard({
         scouted,
         expected: predByTeam.get(team)?.expected ?? 0,
         fuel: scouted > 0 && a ? a.meanFuelPoints : null,
+        feed: scouted > 0 && a ? a.meanTeleopFuelInactive : null,
         climbRate: scouted > 0 && a ? a.climbSuccessRate : null,
         defense: scouted > 0 && a ? a.avgDefenseRating : null,
         driver: ratedMeanNum(reports, (m) => m.driver_skill),
@@ -331,6 +343,7 @@ export default function MatchupDashboard({
     return {
       expected: maxOf((m) => m.expected),
       fuel: maxOf((m) => m.fuel),
+      feed: maxOf((m) => m.feed),
     } as Record<string, number>;
   }, [teamRows]);
 
@@ -426,7 +439,7 @@ export default function MatchupDashboard({
             ))}
           </div>
           <p className="px-2 pt-1 text-[10px] text-muted-foreground/70">
-            Bars for Exp/Teleop scale to this matchup's best; Climb/Reliab are 0–100%; Def/Driver/Agility are 0–3.
+            Bars for Exp/Teleop/Feed scale to this matchup's best; Climb/Reliab are 0–100%; Def/Driver/Agility are 0–3.
           </p>
         </div>
       </CardContent>

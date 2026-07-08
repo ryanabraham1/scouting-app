@@ -58,6 +58,46 @@ function clamp01(n: number): number {
   return n;
 }
 
+// Auto-start markers render as ROBOT-SIZED squares (a bumpered-robot footprint),
+// not dots. The SVG viewBox is the stretched [0,1] space (preserveAspectRatio
+// "none"), so a VISUAL square needs its width pre-divided by the field image's
+// aspect (3902/1584): height is the real robot fraction of field height, width
+// the matching fraction of field width.
+const ROBOT_MARK_H = 0.095;
+const ROBOT_MARK_W = ROBOT_MARK_H * (1584 / 3902);
+
+/** Robot-footprint start marker. `data-cx`/`data-cy` carry the CENTER (the
+ *  stored field coordinate) for tests/tools; x/y are the rect corner. */
+function RobotStartMarker({
+  cx,
+  cy,
+  fill,
+  testid,
+}: {
+  cx: number;
+  cy: number;
+  fill: string;
+  testid: string;
+}): JSX.Element {
+  return (
+    <rect
+      data-testid={testid}
+      data-shape="robot-square"
+      data-cx={cx}
+      data-cy={cy}
+      x={cx - ROBOT_MARK_W / 2}
+      y={cy - ROBOT_MARK_H / 2}
+      width={ROBOT_MARK_W}
+      height={ROBOT_MARK_H}
+      rx={0.004}
+      fill={fill}
+      fillOpacity={0.85}
+      stroke="#ffffff"
+      strokeWidth={0.004}
+    />
+  );
+}
+
 export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
   const {
     mode,
@@ -247,15 +287,11 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
             stays a true square regardless of the field image's aspect ratio (the
             SVG uses preserveAspectRatio="none", which would distort an SVG rect). */}
         {startPosition && mode !== 'pick-start' && (
-          <circle
-            data-testid={`${testid}-marker`}
-            data-shape="circle"
+          <RobotStartMarker
+            testid={`${testid}-marker`}
             cx={mx(startPosition.x)}
             cy={startPosition.y}
-            r={0.02}
             fill="#f97316"
-            stroke="#ffffff"
-            strokeWidth={0.004}
           />
         )}
         {overlays?.map((overlay, i) => (
@@ -274,14 +310,11 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
               />
             )}
             {overlay.startPosition && (
-              <circle
-                data-testid={`${testid}-overlay-start-${i}`}
+              <RobotStartMarker
+                testid={`${testid}-overlay-start-${i}`}
                 cx={mx(overlay.startPosition.x)}
                 cy={overlay.startPosition.y}
-                r={0.02}
                 fill={overlay.color}
-                stroke="#ffffff"
-                strokeWidth={0.004}
               />
             )}
           </g>

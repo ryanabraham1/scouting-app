@@ -58,7 +58,9 @@ import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { useEventPits } from '@/dash/useTeamPit';
 import { useTeamEpaTrends } from '@/dash/strategy/useTeamEpaTrends';
 import CombinedAutoField, { defaultMatchupOverlays } from '@/dash/CombinedAutoField';
-import MatchupPanel from '@/dash/MatchupPanel';
+import MatchupNotesModal from '@/dash/MatchupNotesModal';
+import { useMatchupNotes } from '@/dash/useEventData';
+import { normalizeMatchup, keyFor } from '@/dash/matchupNotesClient';
 import MatchupDashboard from '@/dash/strategy/MatchupDashboard';
 import FieldWhiteboard, { type RobotSeed } from '@/dash/strategy/FieldWhiteboard';
 import {
@@ -183,6 +185,80 @@ function MatchupStrip({
         baseTeam={baseTeam}
         isOurs={ourSide === 'blue'}
       />
+    </div>
+  );
+}
+
+/**
+ * Slim replacement for the removed Alliance Matchup prose block: JUST the
+ * persistent per-opponent note (offline-synced, resurfaces for any future
+ * match against the same alliance leads). The synthesis bullets it used to
+ * carry are all communicated numerically elsewhere (dashboard columns, red
+ * flags); the one datum that wasn't — feeding volume — is now the dashboard's
+ * "Feed" column. Keeps the legacy testids so the notes e2e flow is unchanged.
+ */
+function MatchupNoteCard({
+  eventKey,
+  redTeams,
+  blueTeams,
+  ourSide,
+}: {
+  eventKey: string;
+  redTeams: number[];
+  blueTeams: number[];
+  ourSide: 'red' | 'blue' | null;
+}): JSX.Element | null {
+  const notesQ = useMatchupNotes?.(eventKey);
+  const [editing, setEditing] = useState(false);
+  if (redTeams.length === 0 && blueTeams.length === 0) return null;
+  // "Ours" = our alliance (red fallback when the base team is in neither).
+  const ourTeams = ourSide === 'blue' ? blueTeams : redTeams;
+  const oppTeams = ourSide === 'blue' ? redTeams : blueTeams;
+  const { ourTeam, oppTeam } = normalizeMatchup(ourTeams, oppTeams);
+  const note = notesQ?.data?.get(keyFor(eventKey, ourTeam, oppTeam)) ?? '';
+  const hasNote = note.trim().length > 0;
+
+  return (
+    <div
+      data-testid="dash-matchup-panel"
+      className="flex items-center gap-3 rounded-lg border border-border bg-card/40 px-4 py-2.5"
+    >
+      <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        Matchup notes
+      </span>
+      {hasNote ? (
+        <span
+          data-testid="matchup-note-badge"
+          aria-label="matchup note exists"
+          className="inline-block size-2 shrink-0 rounded-full bg-energy"
+        />
+      ) : null}
+      <span
+        data-testid="matchup-note-text"
+        className="min-w-0 flex-1 truncate text-sm text-foreground"
+        title={note}
+      >
+        {hasNote ? note : <span className="text-muted-foreground">No note yet.</span>}
+      </span>
+      <button
+        type="button"
+        data-testid="matchup-notes-btn"
+        onClick={() => setEditing(true)}
+        className="inline-flex min-h-[40px] shrink-0 items-center gap-1 rounded-md border border-border bg-card/60 px-3 py-1 text-sm font-medium text-foreground hover:bg-accent"
+      >
+        Notes
+      </button>
+      {editing ? (
+        <MatchupNotesModal
+          open
+          onClose={() => setEditing(false)}
+          eventKey={eventKey}
+          ourTeams={ourTeams}
+          oppTeams={oppTeams}
+          oppLead={oppTeam}
+          initialNote={note}
+        />
+      ) : null}
     </div>
   );
 }
@@ -750,14 +826,13 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             />
           </div>
 
-          {/* Synthesized exploit/watch guidance + persistent per-opponent notes. */}
-          <MatchupPanel
+          {/* Persistent per-opponent note (the prose synthesis block is gone —
+              its signals live in the dashboard columns + red flags now). */}
+          <MatchupNoteCard
             eventKey={eventKey}
             redTeams={redTeams}
             blueTeams={blueTeams}
             ourSide={ourSide}
-            redAggs={redTeams.map((t) => agg.get(t))}
-            blueAggs={blueTeams.map((t) => agg.get(t))}
           />
 
           {/* ONE combined auto field for the whole matchup — each team's latest

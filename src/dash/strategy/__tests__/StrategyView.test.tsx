@@ -364,15 +364,14 @@ describe('StrategyView', () => {
     expect(queryByTestId('dash-next-flags-111')).toBeNull();
   });
 
-  it('renders the rate-FUEL low-confidence chip ONLY for low-confidence teams, and ONE combined auto field', () => {
+  it('renders NO low-confidence chips (removed) and ONE combined auto field', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
-    const { getAllByTestId, getByTestId } = utils;
+    const { getAllByTestId, getByTestId, queryByTestId } = utils;
 
-    expect(getAllByTestId('fuel-low-confidence').length).toBe(1);
-    const lowConfRow = getByTestId('dash-next-team-222');
-    expect(within(lowConfRow).getByTestId('fuel-low-confidence')).toBeTruthy();
+    // The FUEL-low-confidence chip was removed from this tab entirely.
+    expect(queryByTestId('fuel-low-confidence')).toBeNull();
 
     const combined = getAllByTestId('combined-auto-stub');
     expect(combined.length).toBe(1);
@@ -389,11 +388,16 @@ describe('StrategyView', () => {
     expect(within(ourRow).getByTestId('dash-next-us-chip')).toBeTruthy();
   });
 
-  it('mounts the alliance matchup panel in the analytics view', () => {
+  it('mounts the slim matchup-notes card (no prose synthesis) in analytics', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
-    expect(utils.getByTestId('dash-matchup-panel')).toBeTruthy();
+    const card = utils.getByTestId('dash-matchup-panel');
+    expect(within(card).getByTestId('matchup-notes-btn')).toBeTruthy();
+    expect(within(card).getByTestId('matchup-note-text')).toBeTruthy();
+    // The old exploit/watch bullet blocks are gone.
+    expect(utils.queryByTestId('matchup-alliance-red')).toBeNull();
+    expect(utils.queryByTestId('matchup-alliance-blue')).toBeNull();
   });
 
   it('renders the matchup dashboard (tale of the tape + per-team comparison) in analytics', async () => {

@@ -111,14 +111,17 @@ describe('FieldDiagram pick-start marker shape', () => {
     expect(marker?.style.width).toBe('22px');
   });
 
-  it('still renders a circle marker in view mode', () => {
+  it('renders a robot-footprint SQUARE marker in view mode', () => {
     const { container } = render(
       <FieldDiagram mode="view" startPosition={{ x: 0.4, y: 0.6 }} />
     );
     const marker = container.querySelector(
       '[data-testid="field-diagram-marker"]'
     );
-    expect(marker?.tagName.toLowerCase()).toBe('circle');
+    expect(marker?.tagName.toLowerCase()).toBe('rect');
+    expect(marker?.getAttribute('data-shape')).toBe('robot-square');
+    expect(marker?.getAttribute('data-cx')).toBe('0.4');
+    expect(marker?.getAttribute('data-cy')).toBe('0.6');
   });
 });
 
@@ -162,10 +165,10 @@ describe('FieldDiagram view', () => {
     );
     const marker = container.querySelector(
       '[data-testid="field-diagram-marker"]'
-    ) as SVGCircleElement | null;
+    ) as SVGRectElement | null;
     expect(marker).toBeTruthy();
-    expect(marker?.getAttribute('cx')).toBe('0.2');
-    expect(marker?.getAttribute('cy')).toBe('0.4');
+    expect(marker?.getAttribute('data-cx')).toBe('0.2');
+    expect(marker?.getAttribute('data-cy')).toBe('0.4');
     const polyline = container.querySelector(
       '[data-testid="field-diagram-polyline"]'
     ) as SVGPolylineElement | null;
@@ -187,8 +190,8 @@ describe('FieldDiagram view', () => {
     );
     const marker = container.querySelector(
       '[data-testid="field-diagram-marker"]'
-    ) as SVGCircleElement | null;
-    expect(marker?.getAttribute('cx')).toBe('0.8');
+    ) as SVGRectElement | null;
+    expect(marker?.getAttribute('data-cx')).toBe('0.8');
     const polyline = container.querySelector(
       '[data-testid="field-diagram-polyline"]'
     ) as SVGPolylineElement | null;
@@ -373,13 +376,13 @@ describe('FieldDiagram overlays', () => {
         overlays={[{ color: '#0000ff', startPosition: { x: 0.3, y: 0.7 } }]}
       />
     );
-    const circle = container.querySelector(
+    const square = container.querySelector(
       '[data-testid="field-diagram-overlay-start-0"]'
-    ) as SVGCircleElement | null;
-    expect(circle).toBeTruthy();
-    expect(circle?.getAttribute('fill')).toBe('#0000ff');
-    expect(circle?.getAttribute('cx')).toBe('0.3');
-    expect(circle?.getAttribute('cy')).toBe('0.7');
+    ) as SVGRectElement | null;
+    expect(square).toBeTruthy();
+    expect(square?.getAttribute('fill')).toBe('#0000ff');
+    expect(square?.getAttribute('data-cx')).toBe('0.3');
+    expect(square?.getAttribute('data-cy')).toBe('0.7');
     // No polyline for a single-point overlay (no path).
     expect(
       container.querySelector('[data-testid="field-diagram-overlay-0"]')
@@ -420,8 +423,8 @@ describe('FieldDiagram overlays', () => {
     );
     const marker = container.querySelector(
       '[data-testid="field-diagram-marker"]'
-    ) as SVGCircleElement | null;
-    expect(marker?.getAttribute('cx')).toBe('0.2');
+    ) as SVGRectElement | null;
+    expect(marker?.getAttribute('data-cx')).toBe('0.2');
     const polyline = container.querySelector(
       '[data-testid="field-diagram-polyline"]'
     ) as SVGPolylineElement | null;
@@ -453,9 +456,9 @@ describe('FieldDiagram overlays', () => {
       '[data-testid="field-diagram-overlay-0"]'
     ) as SVGPolylineElement | null;
     expect(overlay?.getAttribute('points')).toBe('0.9,0.1 0.1,0.3');
-    const circle = container.querySelector(
+    const square = container.querySelector(
       '[data-testid="field-diagram-overlay-start-0"]'
-    ) as SVGCircleElement | null;
-    expect(circle?.getAttribute('cx')).toBe('0.8');
+    ) as SVGRectElement | null;
+    expect(square?.getAttribute('data-cx')).toBe('0.8');
   });
 });

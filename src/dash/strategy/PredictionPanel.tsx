@@ -10,7 +10,7 @@ import { useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { LOW_CONFIDENCE_THRESHOLD, ratedMeanText, type TeamAgg } from '@/dash/aggregate';
+import { ratedMeanText, type TeamAgg } from '@/dash/aggregate';
 import { teamRedFlags, type RedFlag } from '@/dash/strategy/redFlags';
 import type { TeamPrediction, ComponentBreakdown } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
@@ -50,18 +50,8 @@ export function nicknameFor(teams: TeamRow[], teamNumber: number): string | null
   return teams.find((t) => t.team_number === teamNumber)?.nickname ?? null;
 }
 
-/** A small inline chip flagging that FUEL points are rate-derived (low conf). */
-export function FuelLowConfidenceChip(): JSX.Element {
-  return (
-    <span
-      data-testid="fuel-low-confidence"
-      className="inline-flex items-center rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning"
-      title="FUEL is rate-derived; treat its contribution as a low-confidence estimate."
-    >
-      FUEL est. — low confidence
-    </span>
-  );
-}
+// The FUEL-low-confidence chip was removed from this tab (visual noise during
+// a meeting; TeamView still carries the data-quality signal for scout leads).
 
 export interface TeamRowViewProps {
   pred: TeamPrediction;
@@ -203,11 +193,6 @@ export function TeamRowView({
         <span>
           agility: <span className="font-medium text-foreground">{agility}</span>
         </span>
-        {/* Only when THIS team's fuel data is actually low-confidence — the
-            same gate TeamView uses. */}
-        {agg && agg.meanFuelConfidence < LOW_CONFIDENCE_THRESHOLD ? (
-          <FuelLowConfidenceChip />
-        ) : null}
       </div>
 
       {pitFacts.length > 0 ? (
