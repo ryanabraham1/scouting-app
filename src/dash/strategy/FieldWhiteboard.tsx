@@ -120,7 +120,15 @@ export default function FieldWhiteboard({
   const [color, setColor] = useState(COLORS[0].value);
   const [size, setSize] = useState(SIZES[1].value);
   const [saveState, setSaveState] = useState<'idle' | 'pending' | 'saved'>('idle');
+  // Field image failed to load (offline before it was ever cached): fall back
+  // to an aspect-correct blank surface so the board stays fully drawable, and
+  // retry automatically when the network returns.
+  const [imgFailed, setImgFailed] = useState(false);
   const online = useOnline();
+
+  useEffect(() => {
+    if (online) setImgFailed(false); // remount the <img> and retry
+  }, [online]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const livePathRef = useRef<SVGPathElement>(null);
@@ -520,12 +528,25 @@ export default function FieldWhiteboard({
         )}
         style={{ touchAction: 'none', userSelect: 'none' }}
       >
-        <img
-          src="/assets/field/field.png"
-          alt="field"
-          draggable={false}
-          style={{ display: 'block', width: '100%', height: 'auto' }}
-        />
+        {imgFailed ? (
+          <div
+            data-testid="wb-field-fallback"
+            className="flex w-full items-center justify-center bg-zinc-800"
+            style={{ aspectRatio: `${FIELD_W} / ${FIELD_H}` }}
+          >
+            <span className="rounded-md bg-black/40 px-3 py-1.5 text-xs text-muted-foreground">
+              Field image unavailable offline — drawing still works
+            </span>
+          </div>
+        ) : (
+          <img
+            src="/assets/field/field.png"
+            alt="field"
+            draggable={false}
+            onError={() => setImgFailed(true)}
+            style={{ display: 'block', width: '100%', height: 'auto' }}
+          />
+        )}
         <svg
           data-testid="wb-svg"
           viewBox={`0 0 ${FIELD_W} ${FIELD_H}`}

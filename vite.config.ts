@@ -107,7 +107,14 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: false,
+        // SW active in dev too, so offline testing (airplane-mode the laptop,
+        // toggle devtools offline) behaves like the installed PWA: the
+        // /assets/ CacheFirst rule serves the field image, NetworkFirst covers
+        // supabase data. Dev JS modules are NOT matched by any rule, so HMR is
+        // unaffected. Without this, "offline" on localhost fails every asset
+        // fetch and looks like an app bug.
+        enabled: true,
+        suppressWarnings: true,
       },
     }),
   ],

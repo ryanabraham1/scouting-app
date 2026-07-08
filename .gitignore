@@ -23,3 +23,6 @@ supabase/.temp/
 
 # Playwright MCP page-snapshot artifacts (debugging dumps)
 .playwright-mcp/
+
+# vite-plugin-pwa devOptions emits the dev service worker here
+/dev-dist/
