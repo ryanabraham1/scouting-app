@@ -69,6 +69,14 @@ export function useTeamAutoHistory(
       // Keyed by match+scout so a synced local report and its server twin collapse
       // to a single routine. Server wins on a tie (it's the canonical copy).
       const byKey = new Map<string, AutoPath>();
+      // Local rows that have ALREADY landed on the server ('synced', plus
+      // dead-lettered 'error' rows that will never land). Tracked separately:
+      // when the server answers, IT is canonical for these — a synced local
+      // whose server twin was since deleted/superseded must NOT resurface as a
+      // "known auto" (stale-data bug: dashboard says 0 scouted, picker offers
+      // routines). Only pre-upload rows ('dirty'/'pending') are authoritative
+      // locally.
+      const settledLocal = new Map<string, AutoPath>();
 
       // Local first — always available, even with zero network.
       try {
@@ -77,13 +85,19 @@ export function useTeamAutoHistory(
           if (r.eventKey !== eventKey) continue;
           if (excludeMatchKey && r.matchKey === excludeMatchKey) continue;
           if (!hasAuto(r.autoStartPosition, r.autoPath)) continue;
-          byKey.set(`${r.matchKey}:${r.scoutId ?? ''}`, {
+          const auto: AutoPath = {
             matchKey: r.matchKey,
             label: matchLabelFromKey(r.matchKey),
             start: r.autoStartPosition ?? null,
             path: r.autoPath ?? null,
             alliance: r.allianceColor === 'blue' ? 'blue' : 'red',
-          });
+          };
+          const key = `${r.matchKey}:${r.scoutId ?? ''}`;
+          if (r.syncState === 'dirty' || r.syncState === 'pending') {
+            byKey.set(key, auto);
+          } else {
+            settledLocal.set(key, auto);
+          }
         }
       } catch {
         /* Dexie read failed: fall through to whatever the server returns. */
@@ -91,13 +105,15 @@ export function useTeamAutoHistory(
 
       // Then the server — gives this scout the routines OTHER devices traced.
       // Offline / RLS error: keep the local-only set.
+      let serverOk = false;
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('match_scouting_report')
           .select('match_key,alliance_color,scout_id,auto_start_position,auto_path')
           .eq('event_key', eventKey)
           .eq('target_team_number', teamNumber)
           .eq('deleted', false);
+        serverOk = error == null;
         for (const r of (data ?? []) as ServerAutoRow[]) {
           if (excludeMatchKey && r.match_key === excludeMatchKey) continue;
           if (!hasAuto(r.auto_start_position, r.auto_path)) continue;
@@ -111,6 +127,16 @@ export function useTeamAutoHistory(
         }
       } catch {
         /* offline / network failure: local-only history is fine. */
+      }
+
+      // Offline fallback ONLY: with no server answer, the settled local copies
+      // are the best available cache. When the server DID answer, its live rows
+      // already superset every still-live synced local — anything left in
+      // settledLocal was deleted/superseded server-side and stays out.
+      if (!serverOk) {
+        for (const [key, auto] of settledLocal) {
+          if (!byKey.has(key)) byKey.set(key, auto);
+        }
       }
 
       if (!cancelled) {

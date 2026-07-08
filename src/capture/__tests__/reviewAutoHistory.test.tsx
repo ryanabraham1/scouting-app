@@ -6,14 +6,17 @@ import { useCaptureSession, type CaptureTarget } from '@/capture/useCaptureSessi
 import { db, listReports } from '@/db/localStore';
 import type { LocalMatchReport } from '@/db/types';
 
-// Server leg of useTeamAutoHistory returns nothing here; the local Dexie leg
-// (seeded below) drives the picker, so the test is deterministic + network-free.
+// Server leg of useTeamAutoHistory is controllable per test (default: reachable
+// with zero rows); the local Dexie leg (seeded below) drives the picker, so the
+// tests are deterministic + network-free.
+const serverState = vi.hoisted(() => ({
+  result: { data: [] as unknown[], error: null as unknown },
+}));
 vi.mock('@/lib/supabase', () => {
   const builder: Record<string, unknown> = {
     select: () => builder,
     eq: () => builder,
-    then: (resolve: (v: { data: unknown[]; error: null }) => void) =>
-      resolve({ data: [], error: null }),
+    then: (resolve: (v: unknown) => void) => resolve(serverState.result),
   };
   return { supabase: { from: () => builder } };
 });
@@ -34,7 +37,9 @@ const PRIOR_PATH = [
   { x: 0.45, y: 0.5 },
 ];
 
-function seedPriorAuto(): Promise<string> {
+// Default 'dirty': a pre-upload local capture is authoritative on this device.
+// ('synced' rows defer to the server — see the stale-data regression tests.)
+function seedPriorAuto(syncState: LocalMatchReport['syncState'] = 'dirty'): Promise<string> {
   const r = {
     id: 'prior-1',
     matchKey: 'qm3',
@@ -45,7 +50,7 @@ function seedPriorAuto(): Promise<string> {
     station: 2,
     autoStartPosition: { x: 0.2, y: 0.3 },
     autoPath: PRIOR_PATH,
-    syncState: 'synced',
+    syncState,
     createdAt: new Date(0).toISOString(),
     rowRevision: 1,
     syncAttempts: 0,
@@ -71,6 +76,7 @@ async function goToAutoStep() {
 beforeEach(async () => {
   await db.reports.clear();
   await db.drafts.clear();
+  serverState.result = { data: [], error: null };
 });
 
 describe('ReviewScreen — pick a known auto', () => {
@@ -121,5 +127,23 @@ describe('ReviewScreen — pick a known auto', () => {
     // No toggle, no options — just the trace-it field (legacy behavior).
     expect(screen.queryByTestId('review-auto-history-opt-0')).toBeNull();
     expect(screen.getByTestId('review-field-path')).toBeTruthy();
+  });
+
+  it('a SYNCED local whose server twin was deleted does NOT resurface (stale-data bug)', async () => {
+    // The report synced once, but the server no longer returns it (deleted /
+    // superseded). The server answered authoritatively → no phantom "known auto".
+    await seedPriorAuto('synced');
+    render(<Host onSaved={vi.fn()} />);
+    await goToAutoStep();
+    await waitFor(() => expect(screen.getByTestId('review-field-path')).toBeTruthy());
+    expect(screen.queryByTestId('review-auto-history-opt-0')).toBeNull();
+  });
+
+  it('a SYNCED local still shows when the server is unreachable (offline cache)', async () => {
+    serverState.result = { data: null as unknown as unknown[], error: { message: 'offline' } };
+    await seedPriorAuto('synced');
+    render(<Host onSaved={vi.fn()} />);
+    await goToAutoStep();
+    await waitFor(() => expect(screen.getByTestId('review-auto-history-opt-0')).toBeTruthy());
   });
 });
