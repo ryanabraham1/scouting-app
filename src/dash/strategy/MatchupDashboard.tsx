@@ -100,7 +100,7 @@ function TapeBarRow({ row }: { row: TapeRow }): JSX.Element {
       >
         {row.red == null ? EM_DASH : fmt(red)}
       </span>
-      <div className="flex h-2.5 justify-end overflow-hidden rounded-full bg-muted/30">
+      <div className="flex h-2.5 justify-end overflow-hidden rounded-full bg-muted-foreground/25">
         <div
           className={cn('h-full rounded-full bg-red-500', !redLeads && 'opacity-60')}
           style={{ width: `${redPct}%` }}
@@ -109,7 +109,7 @@ function TapeBarRow({ row }: { row: TapeRow }): JSX.Element {
       <span className="text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {row.label}
       </span>
-      <div className="flex h-2.5 justify-start overflow-hidden rounded-full bg-muted/30">
+      <div className="flex h-2.5 justify-start overflow-hidden rounded-full bg-muted-foreground/25">
         <div
           className={cn('h-full rounded-full bg-blue-500', !blueLeads && 'opacity-60')}
           style={{ width: `${bluePct}%` }}
@@ -190,7 +190,7 @@ function MetricCell({
       >
         {value == null ? EM_DASH : fmt(value)}
       </span>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted/30">
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted-foreground/25">
         <div
           className={cn(
             'h-full rounded-full',
