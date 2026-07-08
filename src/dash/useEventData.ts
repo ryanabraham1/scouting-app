@@ -719,13 +719,17 @@ export function useEventLiveSync(eventKey: string | null): void {
         },
         (payload: { new?: Record<string, unknown> }) => {
           // A whiteboard save landed (possibly from ANOTHER device in the same
-          // strategy meeting): refresh that match's canvas query so the strokes
+          // strategy meeting): refresh that board's canvas query so the strokes
           // merge in live. Requires migration 0042's publication add; without it
           // this branch is a harmless no-op (the 15s staleTime refetch covers it).
           const matchKey = payload.new?.match_key;
+          const phase = payload.new?.phase;
           if (typeof matchKey === 'string' && matchKey) {
             queryClient.invalidateQueries({
-              queryKey: ['strategy-canvas', eventKey, matchKey],
+              queryKey:
+                typeof phase === 'string' && phase
+                  ? ['strategy-canvas', eventKey, matchKey, phase]
+                  : ['strategy-canvas', eventKey, matchKey],
             });
           }
         },

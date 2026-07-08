@@ -1,5 +1,5 @@
 import type { FuelBurst, TimeInterval } from '@/scoring';
-import type { Stroke } from '@/dash/strategy/strokes';
+import type { Stroke, RobotPos } from '@/dash/strategy/strokes';
 
 export interface LocalMatchReport {
   id: string;
@@ -182,19 +182,25 @@ export interface MatchupNoteRow {
 export interface StrategyCanvasRow {
   event_key: string;
   match_key: string;
+  phase: string;         // 'auto' | 'transition' | 'active' | 'inactive' | 'endgame'
   strokes: unknown;      // jsonb array of stroke objects (parseCanvasDoc validates)
   deleted_ids: unknown;  // jsonb array of tombstoned stroke ids
+  robots: unknown;       // jsonb array of robot start squares (auto board)
   row_revision: number;
   updated_at: string;
 }
 
-/** Dexie outbox row for a whiteboard doc. `key` = `${eventKey}:${matchKey}`. */
+/** Dexie outbox row for a whiteboard doc. `key` = `${eventKey}:${matchKey}:${phase}`. */
 export interface LocalStrategyCanvas {
   key: string;
   eventKey: string;
   matchKey: string;
+  /** Optional: pre-0043 rows lack it; the sync payload defaults it to 'auto'. */
+  phase?: string;
   strokes: Stroke[];
   deletedIds: string[];
+  /** Optional: pre-0043 rows lack it (auto-board robot squares). */
+  robots?: RobotPos[];
   updatedAt: string; // ISO; Date.parse(updatedAt) is the row_revision sent to the RPC
   syncState: 'dirty' | 'pending' | 'synced' | 'error';
   syncAttempts: number;

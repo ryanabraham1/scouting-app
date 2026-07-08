@@ -2,12 +2,18 @@
 // The Strategy tab's drawing surface: freehand strokes over the field image,
 // built for an iPad in a pre-match strategy meeting (Apple Pencil / finger).
 //
+// One board per game PHASE (auto / transition / active / inactive / endgame —
+// the parent passes `phase` and keys this component so each phase keeps its own
+// ink). The AUTO board additionally renders draggable robot-sized start squares
+// for OUR alliance (one color per team, echoing FieldDiagram's pick-start
+// square style), with a color key underneath. Robot drags merge per key with
+// the newer move winning (0043 RPC), so they never conflict across devices.
+//
 // Perf contract (this view re-renders every Nexus poll tick): the IN-PROGRESS
-// stroke never touches React state — pointer points accumulate in a ref and a
-// rAF loop writes the tessellated path `d` straight onto a dedicated <path>
-// node (FieldDiagram's drawingRef pattern, upgraded with a live preview).
-// Committed strokes live in the whiteboard reducer; saves debounce into the
-// Dexie outbox (offline-first) and drain via strategyCanvasSync.
+// stroke and an in-flight robot drag never touch React state — they live in
+// refs and a rAF loop writes straight onto the SVG nodes. Committed state lives
+// in the whiteboard reducer; saves debounce into the Dexie outbox
+// (offline-first) and drain via strategyCanvasSync.
 //
 // Geometry: ASPECT-TRUE viewBox (0 0 3902 1584) — see strokePath.ts. Stored
 // points stay NORMALIZED [0,1] (auto_path convention) so remote docs, eraser
@@ -37,17 +43,31 @@ import {
   type CanvasDoc,
   type Stroke,
   type WhiteboardAction,
+  type WhiteboardPhase,
+  type RobotPos,
 } from '@/dash/strategy/strokes';
 import { strokeToPathD, livePathD } from '@/dash/strategy/strokePath';
 import { saveStrategyCanvas } from '@/dash/strategy/strategyCanvasClient';
 
+/** One robot square seed: OUR alliance team + its stable color + default spot. */
+export interface RobotSeed {
+  key: string;
+  team: number;
+  color: string;
+  defaultX: number;
+  defaultY: number;
+}
+
 export interface FieldWhiteboardProps {
   eventKey: string;
   matchKey: string;
+  phase: WhiteboardPhase;
   /** Server+local merged doc from useStrategyCanvas (undefined while loading). */
   remoteDoc: CanvasDoc | undefined;
   /** Read-only auto-routine polylines rendered UNDER the ink. */
   underlays?: RoutineOverlay[];
+  /** Draggable robot start squares (auto board only) + their color key. */
+  robotSeeds?: RobotSeed[];
   /** Fires when a stroke starts/ends — the parent defers match auto-switching
    *  while ink is mid-air so the board never swaps out under a moving pen. */
   onDrawingActiveChange?: (active: boolean) => void;
@@ -72,6 +92,9 @@ const SIZES = [
 /** Eraser touch radius (fraction of field height). */
 const ERASE_RADIUS = 0.035;
 
+/** Robot square side in viewBox px — roughly a bumpered-robot footprint. */
+const ROBOT_PX = 0.095 * FIELD_H;
+
 const SAVE_DEBOUNCE_MS = 900;
 
 function clamp01(n: number): number {
@@ -81,8 +104,10 @@ function clamp01(n: number): number {
 export default function FieldWhiteboard({
   eventKey,
   matchKey,
+  phase,
   remoteDoc,
   underlays,
+  robotSeeds,
   onDrawingActiveChange,
 }: FieldWhiteboardProps): JSX.Element {
   const [state, dispatch] = useReducer(whiteboardReducer, INITIAL_WHITEBOARD);
@@ -102,6 +127,17 @@ export default function FieldWhiteboard({
   const eraseDragRef = useRef<Set<string>>(new Set());
   // Visual-only: strokes hidden mid-eraser-drag before the op commits.
   const [pendingErase, setPendingErase] = useState<ReadonlySet<string>>(new Set());
+  // In-flight robot drag (auto board): live position in a ref + direct DOM
+  // transform via the node map; committed to the reducer on drop.
+  const robotDragRef = useRef<{
+    key: string;
+    pointerId: number;
+    grabDx: number;
+    grabDy: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const robotNodeRef = useRef<Map<string, SVGGElement>>(new Map());
   // True once a USER op (not hydration) touched the doc — gates the save effect.
   const userDirtyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,9 +148,10 @@ export default function FieldWhiteboard({
   stateRef.current = state;
 
   // Hydrate remote/merged docs into local state. mergeCanvasDocs is monotonic
-  // (id-union + tombstones), so this can never clobber unsaved local ink.
+  // (id-union + tombstones + newer-robot-wins), so this can never clobber
+  // unsaved local ink.
   useEffect(() => {
-    if (remoteDoc && remoteDoc !== undefined) {
+    if (remoteDoc) {
       if (!canvasDocsEqual(docOf(stateRef.current), remoteDoc)) {
         dispatch({ type: 'hydrate', doc: remoteDoc });
       }
@@ -132,14 +169,14 @@ export default function FieldWhiteboard({
     setSaveState('pending');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      void saveStrategyCanvas(eventKey, matchKey, docOf(state)).then(() =>
+      void saveStrategyCanvas(eventKey, matchKey, phase, docOf(state)).then(() =>
         setSaveState('saved'),
       );
     }, SAVE_DEBOUNCE_MS);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [state, eventKey, matchKey]);
+  }, [state, eventKey, matchKey, phase]);
 
   // Flush the pending save when the tab is hidden/backgrounded mid-debounce.
   useEffect(() => {
@@ -147,12 +184,12 @@ export default function FieldWhiteboard({
       if (document.visibilityState === 'hidden' && userDirtyRef.current && saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
-        void saveStrategyCanvas(eventKey, matchKey, docOf(stateRef.current));
+        void saveStrategyCanvas(eventKey, matchKey, phase, docOf(stateRef.current));
       }
     }
     document.addEventListener('visibilitychange', flush);
     return () => document.removeEventListener('visibilitychange', flush);
-  }, [eventKey, matchKey]);
+  }, [eventKey, matchKey, phase]);
 
   const toNormalized = useCallback((clientX: number, clientY: number): [number, number] => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -165,8 +202,16 @@ export default function FieldWhiteboard({
     rafRef.current = null;
     const pts = livePointsRef.current;
     const node = livePathRef.current;
-    if (!node) return;
-    node.setAttribute('d', pts && pts.length > 0 ? livePathD(pts, toolRef.current.size) : '');
+    if (node) {
+      node.setAttribute('d', pts && pts.length > 0 ? livePathD(pts, toolRef.current.size) : '');
+    }
+    const drag = robotDragRef.current;
+    if (drag) {
+      const g = robotNodeRef.current.get(drag.key);
+      if (g) {
+        g.setAttribute('transform', `translate(${drag.x * FIELD_W}, ${drag.y * FIELD_H})`);
+      }
+    }
   }, []);
 
   const scheduleLive = useCallback(() => {
@@ -214,8 +259,8 @@ export default function FieldWhiteboard({
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       // Single-pointer policy: a second touch (palm, other hand) is ignored so
-      // it can't fork the stroke.
-      if (activePointerRef.current != null) return;
+      // it can't fork the stroke. A robot drag also claims the surface.
+      if (activePointerRef.current != null || robotDragRef.current != null) return;
       activePointerRef.current = e.pointerId;
       e.currentTarget.setPointerCapture(e.pointerId);
       onDrawingActiveChange?.(true);
@@ -255,6 +300,71 @@ export default function FieldWhiteboard({
     [endStroke],
   );
 
+  // ------------------------------------------------------------------
+  // Robot square dragging (auto board). stopPropagation keeps the surface
+  // from starting a stroke; capture goes to the robot's own <g>.
+  // ------------------------------------------------------------------
+
+  const robotPosition = useCallback(
+    (seed: RobotSeed): { x: number; y: number } => {
+      const placed = stateRef.current.robots.find((r) => r.key === seed.key);
+      return placed ? { x: placed.x, y: placed.y } : { x: seed.defaultX, y: seed.defaultY };
+    },
+    [],
+  );
+
+  const onRobotPointerDown = useCallback(
+    (seed: RobotSeed) => (e: React.PointerEvent<SVGGElement>) => {
+      if (robotDragRef.current != null || activePointerRef.current != null) return;
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      onDrawingActiveChange?.(true);
+      const [px, py] = toNormalized(e.clientX, e.clientY);
+      const pos = robotPosition(seed);
+      robotDragRef.current = {
+        key: seed.key,
+        pointerId: e.pointerId,
+        grabDx: pos.x - px,
+        grabDy: pos.y - py,
+        x: pos.x,
+        y: pos.y,
+      };
+    },
+    [toNormalized, robotPosition, onDrawingActiveChange],
+  );
+
+  const onRobotPointerMove = useCallback(
+    (e: React.PointerEvent<SVGGElement>) => {
+      const drag = robotDragRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      e.stopPropagation();
+      const [px, py] = toNormalized(e.clientX, e.clientY);
+      drag.x = clamp01(px + drag.grabDx);
+      drag.y = clamp01(py + drag.grabDy);
+      scheduleLive();
+    },
+    [toNormalized, scheduleLive],
+  );
+
+  const onRobotPointerEnd = useCallback(
+    (seed: RobotSeed) => (e: React.PointerEvent<SVGGElement>) => {
+      const drag = robotDragRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      e.stopPropagation();
+      robotDragRef.current = null;
+      onDrawingActiveChange?.(false);
+      const robot: RobotPos = {
+        key: seed.key,
+        team: seed.team,
+        x: drag.x,
+        y: drag.y,
+        movedAt: Date.now(),
+      };
+      commit({ type: 'moveRobot', robot });
+    },
+    [commit, onDrawingActiveChange],
+  );
+
   useEffect(
     () => () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
@@ -282,7 +392,7 @@ export default function FieldWhiteboard({
     );
 
   return (
-    <div data-testid="field-whiteboard" className="flex flex-col gap-2">
+    <div data-testid="field-whiteboard" data-phase={phase} className="flex flex-col gap-2">
       {/* Toolbar — 44px targets for gloved/pencil taps. */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1" role="group" aria-label="Drawing tool">
@@ -453,8 +563,72 @@ export default function FieldWhiteboard({
           )}
           {/* Live (in-progress) stroke — mutated directly via rAF, never React. */}
           <path ref={livePathRef} fill={color} data-testid="wb-live-stroke" />
+          {/* Robot start squares (auto board) — the same square-with-white-border
+              language as FieldDiagram's pick-start marker, one color per team. */}
+          {robotSeeds?.map((seed) => {
+            const pos = robotPosition(seed);
+            return (
+              <g
+                key={seed.key}
+                ref={(node) => {
+                  if (node) robotNodeRef.current.set(seed.key, node);
+                  else robotNodeRef.current.delete(seed.key);
+                }}
+                data-testid={`wb-robot-${seed.team}`}
+                transform={`translate(${pos.x * FIELD_W}, ${pos.y * FIELD_H})`}
+                style={{ pointerEvents: 'all', cursor: 'grab', touchAction: 'none' }}
+                onPointerDown={onRobotPointerDown(seed)}
+                onPointerMove={onRobotPointerMove}
+                onPointerUp={onRobotPointerEnd(seed)}
+                onPointerCancel={onRobotPointerEnd(seed)}
+              >
+                <rect
+                  x={-ROBOT_PX / 2}
+                  y={-ROBOT_PX / 2}
+                  width={ROBOT_PX}
+                  height={ROBOT_PX}
+                  rx={FIELD_H * 0.008}
+                  fill={seed.color}
+                  fillOpacity={0.85}
+                  stroke="#ffffff"
+                  strokeWidth={FIELD_H * 0.006}
+                />
+                <text
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={ROBOT_PX * 0.34}
+                  fontWeight={700}
+                  fill="#0b0f1a"
+                  style={{ userSelect: 'none' }}
+                >
+                  {seed.team}
+                </text>
+              </g>
+            );
+          })}
         </svg>
       </div>
+
+      {/* Color key: which square is which of OUR alliance robots (auto board). */}
+      {robotSeeds && robotSeeds.length > 0 ? (
+        <div
+          data-testid="wb-robot-key"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+        >
+          <span className="font-semibold uppercase tracking-wide">Start squares</span>
+          {robotSeeds.map((seed) => (
+            <span key={seed.key} className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="inline-block size-3.5 rounded-[3px] ring-1 ring-white/60"
+                style={{ background: seed.color }}
+              />
+              <span className="tabular-nums font-medium text-foreground">{seed.team}</span>
+            </span>
+          ))}
+          <span className="text-muted-foreground/70">drag a square to place its start</span>
+        </div>
+      ) : null}
 
       {/* Save status — local persistence is instant; cloud sync drains behind it. */}
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">

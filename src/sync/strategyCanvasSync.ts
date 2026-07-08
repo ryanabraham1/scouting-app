@@ -43,8 +43,11 @@ function canvasPayload(rec: LocalStrategyCanvas): Record<string, unknown> {
   return {
     event_key: rec.eventKey,
     match_key: rec.matchKey,
+    // Pre-0043 local rows lack phase/robots — default like the RPC does.
+    phase: rec.phase ?? 'auto',
     strokes: rec.strokes,
     deleted_ids: rec.deletedIds,
+    robots: rec.robots ?? [],
     row_revision: revision,
   };
 }

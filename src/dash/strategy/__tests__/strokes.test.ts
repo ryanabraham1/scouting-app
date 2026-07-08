@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   mergeCanvasDocs,
+  mergeRobots,
   whiteboardReducer,
   INITIAL_WHITEBOARD,
   newStrokeId,
@@ -233,6 +234,75 @@ describe('doc helpers', () => {
 
   it('docOf projects reducer state to the persisted doc shape', () => {
     const st = whiteboardReducer(INITIAL_WHITEBOARD, { type: 'add', stroke: stroke('a', 1) });
-    expect(docOf(st)).toEqual({ strokes: st.strokes, deletedIds: [] });
+    expect(docOf(st)).toEqual({ strokes: st.strokes, deletedIds: [], robots: [] });
+  });
+});
+
+describe('robot squares', () => {
+  const robot = (key: string, movedAt: number, x = 0.5, y = 0.5) => ({
+    key,
+    team: Number(key),
+    x,
+    y,
+    movedAt,
+  });
+
+  it('mergeRobots: newer movedAt wins per key; unknown keys union', () => {
+    const merged = mergeRobots(
+      [robot('111', 10, 0.1, 0.1), robot('222', 50, 0.2, 0.2)],
+      [robot('111', 20, 0.9, 0.9), robot('333', 5)],
+    );
+    const byKey = new Map(merged.map((r) => [r.key, r]));
+    expect(byKey.get('111')?.x).toBe(0.9); // newer incoming won
+    expect(byKey.get('222')?.x).toBe(0.2); // kept — incoming didn't carry it
+    expect(byKey.get('333')).toBeTruthy();
+  });
+
+  it('mergeRobots: an OLDER incoming move never clobbers a newer local one', () => {
+    const merged = mergeRobots([robot('111', 100, 0.7, 0.7)], [robot('111', 10, 0.1, 0.1)]);
+    expect(merged[0].x).toBe(0.7);
+  });
+
+  it('moveRobot upserts by key without touching the undo stack', () => {
+    let st = whiteboardReducer(INITIAL_WHITEBOARD, {
+      type: 'moveRobot',
+      robot: robot('3256', 10, 0.3, 0.3),
+    });
+    st = whiteboardReducer(st, { type: 'moveRobot', robot: robot('3256', 20, 0.6, 0.6) });
+    expect(st.robots.length).toBe(1);
+    expect(st.robots[0].x).toBe(0.6);
+    expect(st.undoStack.length).toBe(0);
+  });
+
+  it('hydrate merges remote robots (newer wins) and docs carry them', () => {
+    let st = whiteboardReducer(INITIAL_WHITEBOARD, {
+      type: 'moveRobot',
+      robot: robot('111', 100, 0.7, 0.7),
+    });
+    st = whiteboardReducer(st, {
+      type: 'hydrate',
+      doc: { strokes: [], deletedIds: [], robots: [robot('111', 10, 0.1, 0.1), robot('222', 5)] },
+    });
+    const byKey = new Map(st.robots.map((r) => [r.key, r]));
+    expect(byKey.get('111')?.x).toBe(0.7); // local newer survived
+    expect(byKey.get('222')).toBeTruthy();
+    expect(docOf(st).robots?.length).toBe(2);
+  });
+
+  it('parseCanvasDoc parses robots and drops malformed ones', () => {
+    const doc = parseCanvasDoc([], [], [
+      { key: '111', team: 111, x: 0.2, y: 0.3, movedAt: 5 },
+      { key: '', team: 1, x: 0.2, y: 0.3, movedAt: 5 }, // no key
+      { key: 'bad', team: 1, x: 'x', y: 0.3 }, // bad x
+      null,
+    ]);
+    expect(doc.robots?.map((r) => r.key)).toEqual(['111']);
+  });
+
+  it('canvasDocsEqual detects robot moves', () => {
+    const a = { strokes: [], deletedIds: [], robots: [robot('111', 10, 0.1, 0.1)] };
+    expect(canvasDocsEqual(a, { ...a, robots: [robot('111', 10, 0.1, 0.1)] })).toBe(true);
+    expect(canvasDocsEqual(a, { ...a, robots: [robot('111', 20, 0.5, 0.5)] })).toBe(false);
+    expect(canvasDocsEqual(a, { ...a, robots: [] })).toBe(false);
   });
 });

@@ -6,9 +6,12 @@
 // TeamRowView is ENRICHED for strategy meetings: per-team component split
 // (auto/fuel/climb + defense), super-scout ratings, and pit-scouting facts.
 
+import { useMemo } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { LOW_CONFIDENCE_THRESHOLD, ratedMeanText, type TeamAgg } from '@/dash/aggregate';
+import { teamRedFlags } from '@/dash/strategy/redFlags';
 import type { TeamPrediction, ComponentBreakdown } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
 import type { MsrRow } from '@/dash/types';
@@ -87,6 +90,9 @@ export function TeamRowView({
   const hasDefense = c?.defense != null && c.defense > 0;
   const driver = reports ? ratedMeanText(reports, (m) => m.driver_skill) : EM_DASH;
   const agility = reports ? ratedMeanText(reports, (m) => m.agility) : EM_DASH;
+  // Red flags a coach must know pre-match (died/no-show/tips/climb fails/fouls/
+  // defense identity) — pure derivation over this team's scouted reports.
+  const redFlags = useMemo(() => teamRedFlags(reports ?? []), [reports]);
   const pitFacts: string[] = [];
   if (pit?.drivetrain) pitFacts.push(pit.drivetrain);
   if (pit?.robotLengthIn != null && pit?.robotWidthIn != null) {
@@ -209,6 +215,30 @@ export function TeamRowView({
             </span>
           ))}
         </div>
+      ) : null}
+
+      {/* Red flags — the pre-match "must know" list. */}
+      {redFlags.length > 0 ? (
+        <ul
+          data-testid={`dash-next-flags-${pred.teamNumber}`}
+          className="flex flex-col gap-1"
+        >
+          {redFlags.map((f) => (
+            <li
+              key={f.kind}
+              data-severity={f.severity}
+              className={cn(
+                'flex items-start gap-1.5 rounded-md border px-2 py-1 text-xs',
+                f.severity === 'high'
+                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                  : 'border-warning/40 bg-warning/10 text-warning',
+              )}
+            >
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <span>{f.text}</span>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </li>
   );

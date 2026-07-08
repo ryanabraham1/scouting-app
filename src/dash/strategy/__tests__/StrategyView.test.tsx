@@ -1,9 +1,10 @@
 // src/dash/strategy/__tests__/StrategyView.test.tsx
-// The Strategy tab: prediction breakdown (moved here from Next Match — those
-// tests migrated with it), match tracking/selector, whiteboard mount, matchup
-// panel, component lines, and the enriched team cards.
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, cleanup, within, fireEvent } from '@testing-library/react';
+// The Strategy tab: two sub-views (Whiteboard boards per game phase + robot
+// start squares / Analytics with the prediction breakdown moved from Next
+// Match), OUR-matches-only selector with tracking, manual team entry, and
+// per-team red flags.
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { render, cleanup, within, fireEvent, type RenderResult } from '@testing-library/react';
 import type { MsrRow } from '@/dash/types';
 import { OUR_TEAM } from '@/dash/constants';
 
@@ -46,11 +47,15 @@ vi.mock('@/sync/useSync', () => ({
 }));
 
 // Whiteboard persistence: no IndexedDB/network in jsdom units.
-vi.mock('@/dash/strategy/strategyCanvasClient', () => ({
-  useStrategyCanvas: () => ({ data: { strokes: [], deletedIds: [] } }),
-  saveStrategyCanvas: vi.fn(async () => {}),
-  canvasKeyFor: (e: string, m: string) => `${e}:${m}`,
-}));
+vi.mock('@/dash/strategy/strategyCanvasClient', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/dash/strategy/strategyCanvasClient')>();
+  return {
+    MANUAL_MATCH_KEY: real.MANUAL_MATCH_KEY,
+    canvasKeyFor: real.canvasKeyFor,
+    useStrategyCanvas: () => ({ data: { strokes: [], deletedIds: [], robots: [] } }),
+    saveStrategyCanvas: vi.fn(async () => {}),
+  };
+});
 
 // Pit facts per team: empty map (covered by useTeamPit's own tests).
 vi.mock('@/dash/useTeamPit', () => ({
@@ -71,8 +76,26 @@ vi.mock('@/dash/CombinedAutoField', () => ({
 
 import StrategyView from '@/dash/strategy/StrategyView';
 
+// The jsdom-compat shim lacks a full localStorage — install an in-memory one
+// (same pattern as RankingView.test.tsx) for the manual-teams persistence.
+beforeAll(() => {
+  const mem = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => (mem.has(k) ? (mem.get(k) as string) : null),
+    setItem: (k: string, v: string) => void mem.set(k, String(v)),
+    removeItem: (k: string) => void mem.delete(k),
+    clear: () => mem.clear(),
+    key: () => null,
+    get length() {
+      return mem.size;
+    },
+  };
+  Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+});
+
 beforeEach(() => {
   cleanup();
+  localStorage.clear();
   useEventMatchesMock.mockReset();
   useEventReportsMock.mockReset();
   useEventTeamsMock.mockReset();
@@ -126,71 +149,55 @@ function dataResult<T>(data: T) {
   return { data, isLoading: false, isError: false };
 }
 
+function mkMatch(
+  key: string,
+  num: number,
+  red: number[],
+  blue: number[],
+  played = false,
+): Record<string, unknown> {
+  return {
+    match_key: key,
+    event_key: '2026evt',
+    comp_level: 'qm',
+    match_number: num,
+    scheduled_time: null,
+    red1: red[0] ?? null,
+    red2: red[1] ?? null,
+    red3: red[2] ?? null,
+    blue1: blue[0] ?? null,
+    blue2: blue[1] ?? null,
+    blue3: blue[2] ?? null,
+    actual_red_score: played ? 100 : null,
+    actual_blue_score: played ? 90 : null,
+    winner: played ? 'red' : null,
+    result_synced_at: null,
+  };
+}
+
 function setupHappyPath(available: boolean) {
-  // 3256's next unplayed qm is match 2 (match 1 is played, match 3 doesn't include 3256).
+  // OUR next unplayed match is qm2. qm3 does NOT include us (must be absent
+  // from the selector); qm4 does (a second OUR match to pick manually).
   const matches = [
-    {
-      match_key: '2026evt_qm1',
-      event_key: '2026evt',
-      comp_level: 'qm',
-      match_number: 1,
-      scheduled_time: null,
-      red1: OUR_TEAM,
-      red2: 111,
-      red3: 222,
-      blue1: 333,
-      blue2: 444,
-      blue3: 555,
-      actual_red_score: 100, // played
-      actual_blue_score: 90,
-      winner: 'red',
-      result_synced_at: null,
-    },
-    {
-      match_key: '2026evt_qm2',
-      event_key: '2026evt',
-      comp_level: 'qm',
-      match_number: 2,
-      scheduled_time: null,
-      red1: RED[0],
-      red2: RED[1],
-      red3: RED[2],
-      blue1: BLUE[0],
-      blue2: BLUE[1],
-      blue3: BLUE[2],
-      actual_red_score: null, // unplayed
-      actual_blue_score: null,
-      winner: null,
-      result_synced_at: null,
-    },
-    {
-      match_key: '2026evt_qm3',
-      event_key: '2026evt',
-      comp_level: 'qm',
-      match_number: 3,
-      scheduled_time: null,
-      red1: 777,
-      red2: 888,
-      red3: 999,
-      blue1: 666,
-      blue2: 555,
-      blue3: 444,
-      actual_red_score: null,
-      actual_blue_score: null,
-      winner: null,
-      result_synced_at: null,
-    },
+    mkMatch('2026evt_qm1', 1, RED, BLUE, true),
+    mkMatch('2026evt_qm2', 2, RED, BLUE),
+    mkMatch('2026evt_qm3', 3, [777, 888, 999], [666, 555, 444]),
+    mkMatch('2026evt_qm4', 4, [777, 888, 999], [OUR_TEAM, 555, 444]),
   ];
 
   // Reports: give the scouted teams some data (3256 is never scouted).
+  // 111 is the CLEAN team (no defense, no incidents) — the red-flag test
+  // asserts its card carries no flag list.
   const reports: MsrRow[] = [
-    row({ target_team_number: 111, match_key: '2026evt_qm1', fuel_points: 12 }),
-    row({ target_team_number: 111, match_key: '2026evt_qm0', fuel_points: 8 }),
+    row({ target_team_number: 111, match_key: '2026evt_qm1', fuel_points: 12, defense_rating: 0 }),
+    row({ target_team_number: 111, match_key: '2026evt_qm0', fuel_points: 8, defense_rating: 0 }),
     // 222 is rate-derived (low confidence) → the ONLY row that should wear the
-    // low-confidence chip; the 0.8-confidence teams and unscouted teams don't.
+    // low-confidence chip.
     row({ target_team_number: 222, match_key: '2026evt_qm1', fuel_points: 20, fuel_estimate_confidence: 0.3 }),
     row({ target_team_number: 333, match_key: '2026evt_qm1', fuel_points: 15 }),
-    row({ target_team_number: 444, match_key: '2026evt_qm1', fuel_points: 5 }),
+    // 444 died twice → a high-severity red flag on its card.
+    row({ target_team_number: 444, match_key: '2026evt_qm1', fuel_points: 5, died: true }),
+    row({ target_team_number: 444, match_key: '2026evt_qm0', fuel_points: 5, died: true }),
   ];
 
   const teams = [
@@ -203,16 +210,19 @@ function setupHappyPath(available: boolean) {
   ];
 
   const epaByTeam = new Map<number, number | null>();
-  if (available) {
-    for (const t of [...RED, ...BLUE]) epaByTeam.set(t, 25);
-  } else {
-    for (const t of [...RED, ...BLUE]) epaByTeam.set(t, null);
+  for (const t of [...RED, ...BLUE, 777, 888, 999, 666]) {
+    epaByTeam.set(t, available ? 25 : null);
   }
 
   useEventMatchesMock.mockReturnValue(dataResult(matches));
   useEventReportsMock.mockReturnValue(dataResult(reports));
   useEventTeamsMock.mockReturnValue(dataResult(teams));
   useEventEpaMock.mockReturnValue(dataResult({ epaByTeam, available }));
+}
+
+/** The analytics sub-view is behind the segmented selector — open it. */
+function openAnalytics(utils: RenderResult): void {
+  fireEvent.click(utils.getByRole('tab', { name: 'Analytics' }));
 }
 
 describe('StrategyView', () => {
@@ -227,50 +237,49 @@ describe('StrategyView', () => {
     expect(getByTestId('dash-strategy-loading')).toBeTruthy();
   });
 
-  it('renders a no-match state when there are no matches', () => {
+  it('with NO schedule it stays usable: manual matchup + whiteboard still mount', () => {
     useEventMatchesMock.mockReturnValue(dataResult([]));
     useEventReportsMock.mockReturnValue(dataResult([]));
     useEventTeamsMock.mockReturnValue(dataResult([]));
     useEventEpaMock.mockReturnValue(dataResult({ epaByTeam: new Map(), available: true }));
 
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    expect(getByTestId('dash-strategy-no-match')).toBeTruthy();
+    const { getByTestId, queryByTestId } = render(<StrategyView eventKey="2026evt" />);
+    expect(getByTestId('dash-strategy-no-schedule')).toBeTruthy();
+    expect(getByTestId('dash-strategy-title').textContent).toMatch(/Manual matchup/i);
+    expect(getByTestId('field-whiteboard')).toBeTruthy();
+    expect(queryByTestId('dash-next-match-select')).toBeNull();
   });
 
   it('renders predicted scores and per-team source badges (Statbotics available)', () => {
     setupHappyPath(true);
-    const { getByTestId, getAllByTestId } = render(<StrategyView eventKey="2026evt" />);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getByTestId, getAllByTestId } = utils;
 
-    expect(getByTestId('dash-strategy')).toBeTruthy();
-
-    // Predicted alliance scores are rendered as numbers.
     const redScore = getByTestId('dash-next-red-score');
     const blueScore = getByTestId('dash-next-blue-score');
     expect(redScore.textContent).toMatch(/\d/);
     expect(blueScore.textContent).toMatch(/\d/);
     expect(Number.isNaN(parseInt(redScore.textContent ?? '', 10))).toBe(false);
 
-    // Win prob shown as a percent.
     expect(getByTestId('dash-next-red-winprob').textContent).toMatch(/%/);
 
-    // Per-team rows with source badges for all 6 teams.
     const badges = getAllByTestId('dash-next-source-badge');
     expect(badges.length).toBe(6);
     const badgeText = badges.map((b) => b.textContent).join(' ');
     expect(badgeText).toMatch(/blend|epa|scouting/);
 
-    // EPA-unavailable banner is NOT shown when available.
     expect(document.querySelector('[data-testid="epa-unavailable"]')).toBeNull();
   });
 
   it('shows the epa-unavailable banner but still renders predictions when Statbotics is down', () => {
     setupHappyPath(false);
-    const { getByTestId, getAllByTestId } = render(<StrategyView eventKey="2026evt" />);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getByTestId, getAllByTestId } = utils;
 
     const banner = getByTestId('epa-unavailable');
-    expect(banner).toBeTruthy();
     expect(banner.textContent).toMatch(/EPA/i);
-
     expect(getByTestId('dash-next-red-score').textContent).toMatch(/\d/);
 
     const badges = getAllByTestId('dash-next-source-badge');
@@ -282,10 +291,10 @@ describe('StrategyView', () => {
 
   it('renders per-team component lines that reconcile with the expected points', () => {
     setupHappyPath(true);
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getByTestId } = utils;
 
-    // Every team row carries a component line; a scouted team's parts sum to its
-    // expected points within rounding (±3 for three rounded parts).
     for (const t of [...RED, ...BLUE]) {
       expect(getByTestId(`dash-next-components-${t}`)).toBeTruthy();
     }
@@ -303,9 +312,24 @@ describe('StrategyView', () => {
     }
   });
 
+  it('shows red flags on the team cards (444 died twice → high severity)', () => {
+    setupHappyPath(true);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getByTestId, queryByTestId } = utils;
+
+    const flags = getByTestId('dash-next-flags-444');
+    expect(flags.textContent).toMatch(/Died \/ lost comms in 2 of 2/);
+    expect(flags.querySelector('[data-severity="high"]')).toBeTruthy();
+    // A clean team shows no flag list at all.
+    expect(queryByTestId('dash-next-flags-111')).toBeNull();
+  });
+
   it('renders the rate-FUEL low-confidence chip ONLY for low-confidence teams, and ONE combined auto field', () => {
     setupHappyPath(true);
-    const { getAllByTestId, getByTestId } = render(<StrategyView eventKey="2026evt" />);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getAllByTestId, getByTestId } = utils;
 
     expect(getAllByTestId('fuel-low-confidence').length).toBe(1);
     const lowConfRow = getByTestId('dash-next-team-222');
@@ -313,52 +337,87 @@ describe('StrategyView', () => {
 
     const combined = getAllByTestId('combined-auto-stub');
     expect(combined.length).toBe(1);
-    expect(combined[0].getAttribute('data-red')).toBeTruthy();
-    expect(combined[0].getAttribute('data-blue')).toBeTruthy();
 
-    // 3256 row resolves to an EPA source badge (unscouted).
     const ourRow = getByTestId(`dash-next-team-${OUR_TEAM}`);
     expect(within(ourRow).getByTestId('dash-next-source-badge').textContent?.toLowerCase()).toContain('epa');
   });
 
-  it('mounts the field whiteboard for the selected match', () => {
+  it('marks OUR alliance column and base-team row', () => {
     setupHappyPath(true);
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    expect(getByTestId('field-whiteboard')).toBeTruthy();
-    expect(getByTestId('wb-surface')).toBeTruthy();
-    // Basic tools present.
-    expect(getByTestId('wb-tool-pen')).toBeTruthy();
-    expect(getByTestId('wb-tool-erase')).toBeTruthy();
-    expect(getByTestId('wb-undo')).toBeTruthy();
-    expect(getByTestId('wb-redo')).toBeTruthy();
-    expect(getByTestId('wb-clear')).toBeTruthy();
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const ourRow = utils.getByTestId(`dash-next-team-${OUR_TEAM}`);
+    expect(within(ourRow).getByTestId('dash-next-us-chip')).toBeTruthy();
   });
 
-  it('mounts the alliance matchup panel (exploit/watch + notes)', () => {
+  it('mounts the alliance matchup panel in the analytics view', () => {
     setupHappyPath(true);
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    expect(getByTestId('dash-matchup-panel')).toBeTruthy();
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    expect(utils.getByTestId('dash-matchup-panel')).toBeTruthy();
   });
 
-  it('defaults the selector to OUR next match and lets the user view any match', () => {
+  it('defaults to the whiteboard view with five phase boards', () => {
     setupHappyPath(true);
-    const { getByTestId, getAllByTestId } = render(<StrategyView eventKey="2026evt" />);
+    const { getByTestId, getByRole } = render(<StrategyView eventKey="2026evt" />);
+
+    // Whiteboard is the default sub-view.
+    const board = getByTestId('field-whiteboard');
+    expect(board.getAttribute('data-phase')).toBe('auto');
+    // All five phase tabs exist; switching remounts the board on that phase.
+    for (const label of ['Auto', 'Transition', 'Active', 'Inactive', 'Endgame']) {
+      expect(getByRole('tab', { name: label })).toBeTruthy();
+    }
+    fireEvent.click(getByRole('tab', { name: 'Endgame' }));
+    expect(getByTestId('field-whiteboard').getAttribute('data-phase')).toBe('endgame');
+  });
+
+  it('shows draggable robot start squares + a color key for OUR alliance on the auto board only', () => {
+    setupHappyPath(true);
+    const { getByTestId, getByRole, queryByTestId } = render(
+      <StrategyView eventKey="2026evt" />,
+    );
+
+    // qm2: we're on RED with 111 and 222 — three squares + the color key.
+    for (const t of RED) expect(getByTestId(`wb-robot-${t}`)).toBeTruthy();
+    const key = getByTestId('wb-robot-key');
+    for (const t of RED) expect(key.textContent).toContain(String(t));
+
+    // Not on the other phase boards.
+    fireEvent.click(getByRole('tab', { name: 'Active' }));
+    expect(queryByTestId(`wb-robot-${OUR_TEAM}`)).toBeNull();
+    expect(queryByTestId('wb-robot-key')).toBeNull();
+  });
+
+  it('lists ONLY our matches in the selector', () => {
+    setupHappyPath(true);
+    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
 
     const selector = getByTestId('dash-next-match-select') as HTMLSelectElement;
-    expect(selector).toBeTruthy();
+    const values = Array.from(selector.options).map((o) => o.value);
+    expect(values).toContain('2026evt_qm1');
+    expect(values).toContain('2026evt_qm2');
+    expect(values).toContain('2026evt_qm4');
+    expect(values).not.toContain('2026evt_qm3'); // not our match
+  });
+
+  it('defaults the selector to OUR next match and lets the user pin another OUR match', () => {
+    setupHappyPath(true);
+    const { getByTestId, queryByTestId } = render(<StrategyView eventKey="2026evt" />);
+
+    const selector = getByTestId('dash-next-match-select') as HTMLSelectElement;
     expect(selector.value).toBe('2026evt_qm2');
+    expect(getByTestId('dash-next-tracking')).toBeTruthy();
+    expect(queryByTestId('dash-next-track-btn')).toBeNull();
 
-    // The header reflects the selected (default) match.
-    expect(getByTestId('dash-strategy-title').textContent).toMatch(/Qual 2|Q2/);
-    expect(getByTestId(`dash-next-team-${OUR_TEAM}`)).toBeTruthy();
+    fireEvent.change(selector, { target: { value: '2026evt_qm4' } });
+    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm4');
+    expect(getByTestId('dash-strategy-title').textContent).toMatch(/Qual 4|Q4/);
+    expect(queryByTestId('dash-next-tracking')).toBeNull();
 
-    // Override: pick qm3 (does NOT include 3256).
-    fireEvent.change(selector, { target: { value: '2026evt_qm3' } });
-    expect(getByTestId('dash-strategy-title').textContent).toMatch(/Qual 3|Q3/);
-    const rows = getAllByTestId(/^dash-next-team-\d+$/);
-    const numbers = rows.map((r) => r.getAttribute('data-testid'));
-    expect(numbers).toContain('dash-next-team-777');
-    expect(numbers).not.toContain(`dash-next-team-${OUR_TEAM}`);
+    fireEvent.click(getByTestId('dash-next-track-btn'));
+    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm2');
+    expect(getByTestId('dash-next-tracking')).toBeTruthy();
   });
 
   it('labels playoff semifinals by their SET number, not match_number (no duplicate "Semi 1")', () => {
@@ -370,7 +429,7 @@ describe('StrategyView', () => {
       },
       {
         match_key: '2026evt_sf2m1', event_key: '2026evt', comp_level: 'sf', match_number: 1,
-        scheduled_time: null, red1: 777, red2: 888, red3: 999, blue1: 666, blue2: 555, blue3: 444,
+        scheduled_time: null, red1: 777, red2: 888, red3: 999, blue1: 666, blue2: 555, blue3: OUR_TEAM,
         actual_red_score: null, actual_blue_score: null, winner: null, result_synced_at: null,
       },
     ];
@@ -387,27 +446,6 @@ describe('StrategyView', () => {
     expect(labels.filter((l) => l.startsWith('Semi 1 ')).length).toBe(1);
   });
 
-  it('tracks OUR next match by default and snaps back via the Track button after a manual pick', () => {
-    setupHappyPath(true);
-    const { getByTestId, queryByTestId } = render(<StrategyView eventKey="2026evt" />);
-
-    const selector = getByTestId('dash-next-match-select') as HTMLSelectElement;
-    expect(selector.value).toBe('2026evt_qm2');
-    expect(getByTestId('dash-next-tracking')).toBeTruthy();
-    expect(queryByTestId('dash-next-track-btn')).toBeNull();
-
-    fireEvent.change(selector, { target: { value: '2026evt_qm3' } });
-    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm3');
-    expect(queryByTestId('dash-next-tracking')).toBeNull();
-    const trackBtn = getByTestId('dash-next-track-btn');
-    expect(trackBtn).toBeTruthy();
-
-    fireEvent.click(trackBtn);
-    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm2');
-    expect(getByTestId('dash-next-tracking')).toBeTruthy();
-    expect(queryByTestId('dash-next-track-btn')).toBeNull();
-  });
-
   it('live-follows the Nexus next match for our team while tracking', () => {
     setupHappyPath(true);
     useNexusEventStatusMock.mockReturnValue(
@@ -422,10 +460,10 @@ describe('StrategyView', () => {
           matches: [],
           upcoming: [
             {
-              label: 'Qualification 3',
+              label: 'Qualification 4',
               status: 'Now queuing',
-              redTeams: [OUR_TEAM, 777, 888],
-              blueTeams: [666, 555, 444],
+              redTeams: [777, 888, 999],
+              blueTeams: [OUR_TEAM, 555, 444],
               times: { estimatedStartTime: null, estimatedQueueTime: null, estimatedOnDeckTime: null, estimatedOnFieldTime: null, actualQueueTime: null },
             },
           ],
@@ -434,49 +472,53 @@ describe('StrategyView', () => {
     );
 
     const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm3');
+    expect((getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe('2026evt_qm4');
     expect(getByTestId('dash-next-tracking')).toBeTruthy();
   });
 
-  it('renders the win-prob banner with BOTH red and blue percentages summing to 100', () => {
+  it('manual team entry overrides the lineup and drives the prediction', () => {
     setupHappyPath(true);
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    const { getByTestId } = utils;
 
-    const banner = getByTestId('dash-next-winprob-banner');
-    expect(banner).toBeTruthy();
+    fireEvent.click(getByTestId('dash-strategy-edit-teams'));
+    const set = (tid: string, v: string) =>
+      fireEvent.change(getByTestId(tid), { target: { value: v } });
+    set('manual-team-red1', '1', );
+    set('manual-team-red1', '1690');
+    set('manual-team-red2', '2056');
+    set('manual-team-red3', '254');
+    set('manual-team-blue1', String(OUR_TEAM));
+    set('manual-team-blue2', '118');
+    set('manual-team-blue3', '148');
+    fireEvent.click(getByTestId('manual-teams-apply'));
+
+    expect(getByTestId('dash-strategy-manual-chip')).toBeTruthy();
+
+    openAnalytics(utils);
+    expect(getByTestId('dash-next-team-1690')).toBeTruthy();
+    expect(getByTestId(`dash-next-team-${OUR_TEAM}`)).toBeTruthy();
+    // We're on BLUE in the manual lineup — the base-team chip rides along.
+    const ourRow = getByTestId(`dash-next-team-${OUR_TEAM}`);
+    expect(within(ourRow).getByTestId('dash-next-us-chip')).toBeTruthy();
+  });
+
+  it('renders the win-prob banner with BOTH percentages summing to 100', () => {
+    setupHappyPath(true);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const { getByTestId } = utils;
 
     const red = getByTestId('dash-next-red-winprob');
     const blue = getByTestId('dash-next-blue-winprob');
-    expect(red.textContent).toMatch(/%/);
-    expect(blue.textContent).toMatch(/%/);
-
     const redPct = parseInt(red.textContent ?? '', 10);
     const bluePct = parseInt(blue.textContent ?? '', 10);
     expect(Number.isNaN(redPct)).toBe(false);
-    expect(Number.isNaN(bluePct)).toBe(false);
     expect(redPct + bluePct).toBe(100);
   });
 
   it('shows blue% > 50% for a blue-favored matchup', () => {
-    const matches = [
-      {
-        match_key: '2026evt_qm2',
-        event_key: '2026evt',
-        comp_level: 'qm',
-        match_number: 2,
-        scheduled_time: null,
-        red1: RED[0],
-        red2: RED[1],
-        red3: RED[2],
-        blue1: BLUE[0],
-        blue2: BLUE[1],
-        blue3: BLUE[2],
-        actual_red_score: null,
-        actual_blue_score: null,
-        winner: null,
-        result_synced_at: null,
-      },
-    ];
+    const matches = [mkMatch('2026evt_qm2', 2, RED, BLUE)];
     const reports: MsrRow[] = [
       row({ target_team_number: 111, match_key: '2026evt_qm1', fuel_points: 1 }),
       row({ target_team_number: 222, match_key: '2026evt_qm1', fuel_points: 1 }),
@@ -493,33 +535,16 @@ describe('StrategyView', () => {
     useEventTeamsMock.mockReturnValue(dataResult(teams));
     useEventEpaMock.mockReturnValue(dataResult({ epaByTeam, available: false }));
 
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    const bluePct = parseInt(getByTestId('dash-next-blue-winprob').textContent ?? '', 10);
-    const redPct = parseInt(getByTestId('dash-next-red-winprob').textContent ?? '', 10);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const bluePct = parseInt(utils.getByTestId('dash-next-blue-winprob').textContent ?? '', 10);
+    const redPct = parseInt(utils.getByTestId('dash-next-red-winprob').textContent ?? '', 10);
     expect(bluePct).toBeGreaterThan(50);
     expect(redPct).toBeLessThan(50);
   });
 
   it('labels a perfect 50/50 as "Even", never crowns a side', () => {
-    const matches = [
-      {
-        match_key: '2026evt_qm2',
-        event_key: '2026evt',
-        comp_level: 'qm',
-        match_number: 2,
-        scheduled_time: null,
-        red1: RED[0],
-        red2: RED[1],
-        red3: RED[2],
-        blue1: BLUE[0],
-        blue2: BLUE[1],
-        blue3: BLUE[2],
-        actual_red_score: null,
-        actual_blue_score: null,
-        winner: null,
-        result_synced_at: null,
-      },
-    ];
+    const matches = [mkMatch('2026evt_qm2', 2, RED, BLUE)];
     const teams = [...RED, ...BLUE].map((t) => ({ team_number: t, nickname: null }));
     const epaByTeam = new Map<number, number | null>();
     for (const t of [...RED, ...BLUE]) epaByTeam.set(t, 30);
@@ -529,21 +554,14 @@ describe('StrategyView', () => {
     useEventTeamsMock.mockReturnValue(dataResult(teams));
     useEventEpaMock.mockReturnValue(dataResult({ epaByTeam, available: true }));
 
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    const redPct = parseInt(getByTestId('dash-next-red-winprob').textContent ?? '', 10);
-    const bluePct = parseInt(getByTestId('dash-next-blue-winprob').textContent ?? '', 10);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const redPct = parseInt(utils.getByTestId('dash-next-red-winprob').textContent ?? '', 10);
+    const bluePct = parseInt(utils.getByTestId('dash-next-blue-winprob').textContent ?? '', 10);
     expect(redPct).toBe(50);
     expect(bluePct).toBe(50);
-    const label = getByTestId('dash-next-winprob-label').textContent ?? '';
+    const label = utils.getByTestId('dash-next-winprob-label').textContent ?? '';
     expect(label).toMatch(/Even/i);
     expect(label).not.toMatch(/favored/i);
-  });
-
-  it('marks OUR alliance column and base-team row', () => {
-    setupHappyPath(true);
-    const { getByTestId } = render(<StrategyView eventKey="2026evt" />);
-    // 3256 is on red in qm2 — its row carries the "us" chip.
-    const ourRow = getByTestId(`dash-next-team-${OUR_TEAM}`);
-    expect(within(ourRow).getByTestId('dash-next-us-chip')).toBeTruthy();
   });
 });

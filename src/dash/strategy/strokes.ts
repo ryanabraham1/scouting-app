@@ -27,13 +27,54 @@ export interface Stroke {
   points: [number, number, number][];
 }
 
-/** The persisted whiteboard document for one (event, match). */
+/**
+ * A draggable robot start square on the auto board. `key` is the merge key
+ * (the team number as a string); `x`/`y` are the square's CENTER in normalized
+ * [0,1] field coords; `movedAt` (epoch-ms) resolves concurrent drags — the
+ * NEWER move wins per key, on the server (0043 RPC) and in mergeCanvasDocs.
+ */
+export interface RobotPos {
+  key: string;
+  team: number;
+  x: number;
+  y: number;
+  movedAt: number;
+}
+
+/** The persisted whiteboard document for one (event, match, phase). */
 export interface CanvasDoc {
   strokes: Stroke[];
   deletedIds: string[];
+  /** Optional (0042-era docs lack it); treated as [] everywhere. */
+  robots?: RobotPos[];
 }
 
-export const EMPTY_DOC: CanvasDoc = { strokes: [], deletedIds: [] };
+export const EMPTY_DOC: CanvasDoc = { strokes: [], deletedIds: [], robots: [] };
+
+/** The five switchable whiteboards per match — one per game period. */
+export const WHITEBOARD_PHASES = [
+  'auto',
+  'transition',
+  'active',
+  'inactive',
+  'endgame',
+] as const;
+export type WhiteboardPhase = (typeof WHITEBOARD_PHASES)[number];
+
+/** Merge robot positions per key — the newer `movedAt` wins (client mirror of
+ *  the 0043 RPC merge). */
+export function mergeRobots(
+  base: RobotPos[] | undefined,
+  incoming: RobotPos[] | undefined,
+): RobotPos[] {
+  const byKey = new Map<string, RobotPos>();
+  for (const r of base ?? []) byKey.set(r.key, r);
+  for (const r of incoming ?? []) {
+    const existing = byKey.get(r.key);
+    if (!existing || r.movedAt >= existing.movedAt) byKey.set(r.key, r);
+  }
+  return [...byKey.values()];
+}
 
 /** Field image aspect (public/assets/field/field.png is 3902×1584). */
 export const FIELD_W = 3902;
@@ -63,10 +104,14 @@ export function mergeCanvasDocs(base: CanvasDoc, incoming: CanvasDoc): CanvasDoc
   for (const s of base.strokes) byId.set(s.id, s);
   for (const s of incoming.strokes) byId.set(s.id, s); // incoming wins per id
   const strokes = sortBySeq([...byId.values()].filter((s) => !deleted.has(s.id)));
-  return { strokes, deletedIds: [...deleted] };
+  return {
+    strokes,
+    deletedIds: [...deleted],
+    robots: mergeRobots(base.robots, incoming.robots),
+  };
 }
 
-/** Two docs render identically (same visible strokes + same tombstones). */
+/** Two docs render identically (same visible strokes, tombstones, robots). */
 export function canvasDocsEqual(a: CanvasDoc, b: CanvasDoc): boolean {
   if (a.strokes.length !== b.strokes.length) return false;
   if (a.deletedIds.length !== b.deletedIds.length) return false;
@@ -76,6 +121,14 @@ export function canvasDocsEqual(a: CanvasDoc, b: CanvasDoc): boolean {
   for (const s of a.strokes) {
     const o = bIds.get(s.id);
     if (!o || o.points.length !== s.points.length) return false;
+  }
+  const aRobots = a.robots ?? [];
+  const bRobots = b.robots ?? [];
+  if (aRobots.length !== bRobots.length) return false;
+  const bByKey = new Map(bRobots.map((r) => [r.key, r]));
+  for (const r of aRobots) {
+    const o = bByKey.get(r.key);
+    if (!o || o.movedAt !== r.movedAt || o.x !== r.x || o.y !== r.y) return false;
   }
   return true;
 }
@@ -93,6 +146,9 @@ export type CanvasOp =
 export interface WhiteboardState {
   strokes: Stroke[];
   deletedIds: string[];
+  /** Robot start squares (auto board). NOT on the undo stack — a drag is its
+   *  own direct manipulation; undo/redo applies to ink only. */
+  robots: RobotPos[];
   undoStack: CanvasOp[];
   redoStack: CanvasOp[];
 }
@@ -100,6 +156,7 @@ export interface WhiteboardState {
 export const INITIAL_WHITEBOARD: WhiteboardState = {
   strokes: [],
   deletedIds: [],
+  robots: [],
   undoStack: [],
   redoStack: [],
 };
@@ -110,6 +167,8 @@ export type WhiteboardAction =
   | { type: 'clear' }
   | { type: 'undo' }
   | { type: 'redo' }
+  /** Upsert one robot square's position (drag drop). */
+  | { type: 'moveRobot'; robot: RobotPos }
   /** Merge a remote/hydrated doc under local state (undo/redo stacks kept). */
   | { type: 'hydrate'; doc: CanvasDoc };
 
@@ -204,12 +263,20 @@ export function whiteboardReducer(
         redoStack,
       };
     }
+    case 'moveRobot': {
+      return { ...state, robots: mergeRobots(state.robots, [action.robot]) };
+    }
     case 'hydrate': {
       const merged = mergeCanvasDocs(
-        { strokes: state.strokes, deletedIds: state.deletedIds },
+        { strokes: state.strokes, deletedIds: state.deletedIds, robots: state.robots },
         action.doc,
       );
-      return { ...state, strokes: merged.strokes, deletedIds: merged.deletedIds };
+      return {
+        ...state,
+        strokes: merged.strokes,
+        deletedIds: merged.deletedIds,
+        robots: merged.robots ?? [],
+      };
     }
     default:
       return state;
@@ -217,7 +284,7 @@ export function whiteboardReducer(
 }
 
 export function docOf(state: WhiteboardState): CanvasDoc {
-  return { strokes: state.strokes, deletedIds: state.deletedIds };
+  return { strokes: state.strokes, deletedIds: state.deletedIds, robots: state.robots };
 }
 
 // ---------------------------------------------------------------------------
@@ -320,8 +387,28 @@ export function parseStroke(raw: unknown): Stroke | null {
   };
 }
 
-/** Parse a full `strategy_canvas` row's strokes/deleted_ids jsonb. */
-export function parseCanvasDoc(strokesRaw: unknown, deletedRaw: unknown): CanvasDoc {
+/** Parse one robot square from jsonb; null on malformed input (never throws). */
+export function parseRobot(raw: unknown): RobotPos | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.key !== 'string' || !o.key) return null;
+  if (typeof o.x !== 'number' || !Number.isFinite(o.x)) return null;
+  if (typeof o.y !== 'number' || !Number.isFinite(o.y)) return null;
+  return {
+    key: o.key,
+    team: typeof o.team === 'number' && Number.isFinite(o.team) ? o.team : 0,
+    x: o.x,
+    y: o.y,
+    movedAt: typeof o.movedAt === 'number' && Number.isFinite(o.movedAt) ? o.movedAt : 0,
+  };
+}
+
+/** Parse a full `strategy_canvas` row's strokes/deleted_ids/robots jsonb. */
+export function parseCanvasDoc(
+  strokesRaw: unknown,
+  deletedRaw: unknown,
+  robotsRaw?: unknown,
+): CanvasDoc {
   const strokes: Stroke[] = [];
   if (Array.isArray(strokesRaw)) {
     for (const s of strokesRaw) {
@@ -332,5 +419,12 @@ export function parseCanvasDoc(strokesRaw: unknown, deletedRaw: unknown): Canvas
   const deletedIds = Array.isArray(deletedRaw)
     ? deletedRaw.filter((d): d is string => typeof d === 'string')
     : [];
-  return { strokes: sortBySeq(strokes), deletedIds };
+  const robots: RobotPos[] = [];
+  if (Array.isArray(robotsRaw)) {
+    for (const r of robotsRaw) {
+      const parsed = parseRobot(r);
+      if (parsed) robots.push(parsed);
+    }
+  }
+  return { strokes: sortBySeq(strokes), deletedIds, robots };
 }

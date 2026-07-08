@@ -77,6 +77,10 @@ export interface MsrRow {
   tipped: boolean;
   dropped_fuel: boolean;
   fed_corral: boolean;
+  // Foul counts (0001 schema; written by upsert_match_report). Optional: legacy
+  // fixtures omit them. SELECT `*` brings them. Consumers null-guard.
+  fouls_minor?: number | null;
+  fouls_major?: number | null;
   // Advisory tags for what the fouls were for (keys from FOUL_REASONS). Optional:
   // legacy rows / pre-0024 deployments omit the column. SELECT `*` brings it.
   foul_reasons?: string[] | null;
