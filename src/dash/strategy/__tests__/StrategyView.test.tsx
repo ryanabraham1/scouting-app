@@ -62,6 +62,19 @@ vi.mock('@/dash/useTeamPit', () => ({
   useEventPits: () => ({ data: new Map() }),
 }));
 
+// Season EPA-trend flags: pure cutoffs are unit-tested in redFlags.test; the
+// hook fans out to TBA, so stub it (444 carries a canned drop flag).
+vi.mock('@/dash/strategy/useTeamEpaTrends', () => ({
+  useTeamEpaTrends: () => ({
+    data: new Map([
+      [
+        444,
+        { kind: 'epa-drop', severity: 'med', text: 'EPA declining — 90 now vs 120 before their last matches (−25%)' },
+      ],
+    ]),
+  }),
+}));
+
 // The recharts section is a lazy chunk — stub it (SVG charts don't lay out in
 // jsdom; the surrounding dashboard math is asserted via the tape/team rows).
 vi.mock('@/dash/strategy/MatchupCharts', () => ({
@@ -345,6 +358,8 @@ describe('StrategyView', () => {
     const flags = getByTestId('dash-next-flags-444');
     expect(flags.textContent).toMatch(/Died \/ lost comms in 2 of 2/);
     expect(flags.querySelector('[data-severity="high"]')).toBeTruthy();
+    // The async EPA-drop flag (stubbed hook) merges into the same list.
+    expect(flags.textContent).toMatch(/EPA declining/);
     // A clean team shows no flag list at all.
     expect(queryByTestId('dash-next-flags-111')).toBeNull();
   });

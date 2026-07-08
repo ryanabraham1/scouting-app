@@ -6,6 +6,8 @@
 // ("Died in 2 of 5 scouted matches"), never vibes.
 
 import type { MsrRow } from '@/dash/types';
+import { TREND_WINDOW, type TeamAgg } from '@/dash/aggregate';
+import { compareMatchKeys } from '@/lib/formatMatch';
 
 export interface RedFlag {
   severity: 'high' | 'med';
@@ -20,7 +22,10 @@ export interface RedFlag {
     | 'major-fouls'
     | 'foul-prone'
     | 'defense-specialist'
-    | 'drops-fuel';
+    | 'drops-fuel'
+    | 'scoring-decline'
+    | 'role-switch'
+    | 'epa-drop';
 }
 
 /** Approximate teleop length used for the defense time share (2:15). */
@@ -31,16 +36,33 @@ export const DEFENSE_PRIMARY_SHARE = 0.4;
 /** Teleop share above which defense is a regular part of their game. */
 export const DEFENSE_REGULAR_SHARE = 0.15;
 
+// --- Scouted scoring-trend cutoffs (recent TREND_WINDOW vs overall mean) -----
+/** Recent fuel mean must be down by at least this many raw points… */
+export const SCORING_DROP_MIN_PTS = 5;
+/** …AND by at least this fraction of the team's overall mean → med flag. */
+export const SCORING_DROP_MED_FRAC = 0.25;
+/** Drop fraction at which the decline reads as high severity. */
+export const SCORING_DROP_HIGH_FRAC = 0.45;
+
+// --- Role-switch (scorer → defender) cutoffs ---------------------------------
+/** Baseline mean fuel points that qualifies a team as "usually scoring". */
+export const ROLE_SCORER_MIN_FUEL = 12;
+/** Teleop share of defense in the LATEST match that reads as a role switch. */
+export const ROLE_SWITCH_DEFENSE_SHARE = 0.2;
+/** Baseline defense share must be BELOW this (they weren't a defense bot). */
+export const ROLE_BASELINE_DEFENSE_SHARE = 0.08;
+
 function pct(x: number): string {
   return `${Math.round(x * 100)}%`;
 }
 
 /**
- * Derive red flags from one team's scouted reports. Ordered most-severe first.
- * Empty input (unscouted team) yields no flags — absence of data is shown by
- * the card's "scouted: 0", not by a fake all-clear.
+ * Derive red flags from one team's scouted reports (+ optional TeamAgg for the
+ * scoring-trend signal). Ordered most-severe first. Empty input (unscouted
+ * team) yields no flags — absence of data is shown by the card's "scouted: 0",
+ * not by a fake all-clear.
  */
-export function teamRedFlags(reports: MsrRow[]): RedFlag[] {
+export function teamRedFlags(reports: MsrRow[], agg?: TeamAgg): RedFlag[] {
   const n = reports.length;
   if (n === 0) return [];
   const flags: RedFlag[] = [];
@@ -141,5 +163,87 @@ export function teamRedFlags(reports: MsrRow[]): RedFlag[] {
     });
   }
 
+  // Scoring trend: recent form (last TREND_WINDOW matches, from TeamAgg's
+  // recent-form fields) significantly below the team's own overall mean.
+  if (
+    agg &&
+    agg.matchesScouted > TREND_WINDOW &&
+    agg.meanFuelPoints > 0 &&
+    agg.recentFuelDelta < 0
+  ) {
+    const dropFrac = -agg.recentFuelDelta / agg.meanFuelPoints;
+    if (-agg.recentFuelDelta >= SCORING_DROP_MIN_PTS && dropFrac >= SCORING_DROP_MED_FRAC) {
+      flags.push({
+        kind: 'scoring-decline',
+        severity: dropFrac >= SCORING_DROP_HIGH_FRAC ? 'high' : 'med',
+        text: `Scoring trending down — last ${Math.min(TREND_WINDOW, n)} avg ${agg.recentFuelMean.toFixed(0)} fuel pts vs ${agg.meanFuelPoints.toFixed(0)} overall (−${Math.round(dropFrac * 100)}%)`,
+      });
+    }
+  }
+
+  // Role switch: a team that usually SCORES spent a real chunk of its latest
+  // match playing defense — their alliance may be re-roling them, which changes
+  // how you plan against (or with) them.
+  if (n >= 3) {
+    const ordered = reports.slice().sort((a, b) => compareMatchKeys(a.match_key, b.match_key));
+    const latest = ordered[ordered.length - 1];
+    const earlier = ordered.slice(0, -1);
+    const latestShare = (latest.defense_duration_ms ?? 0) / TELEOP_MS;
+    const earlierFuel =
+      earlier.reduce((s, r) => s + r.fuel_points, 0) / earlier.length;
+    const earlierShare =
+      earlier.reduce((s, r) => s + (r.defense_duration_ms ?? 0), 0) /
+      (earlier.length * TELEOP_MS);
+    if (
+      latestShare >= ROLE_SWITCH_DEFENSE_SHARE &&
+      earlierFuel >= ROLE_SCORER_MIN_FUEL &&
+      earlierShare < ROLE_BASELINE_DEFENSE_SHARE
+    ) {
+      flags.push({
+        kind: 'role-switch',
+        severity: 'med',
+        text: `Role change — usually scores (~${Math.round(earlierFuel)} fuel pts) but played defense ~${pct(latestShare)} of their last match`,
+      });
+    }
+  }
+
   return flags.sort((a, b) => Number(b.severity === 'high') - Number(a.severity === 'high'));
+}
+
+// ---------------------------------------------------------------------------
+// In-house EPA drop (season-wide, TBA-derived) — pure cutoff evaluation. The
+// async data plumbing lives in useTeamEpaTrends.ts; this stays unit-testable.
+// ---------------------------------------------------------------------------
+
+/** EPA drop (vs the pre-recent-window baseline) that reads as med severity. */
+export const EPA_DROP_MED = { frac: 0.12, abs: 8 };
+/** EPA drop that reads as high severity. */
+export const EPA_DROP_HIGH = { frac: 0.22, abs: 15 };
+
+/**
+ * Compare a team's in-house EPA now vs its baseline before the recent window.
+ * Null when the change isn't significant (or inputs are unusable).
+ */
+export function evaluateEpaDrop(before: number | null, now: number | null): RedFlag | null {
+  if (before == null || now == null || !Number.isFinite(before) || !Number.isFinite(now)) {
+    return null;
+  }
+  if (before <= 0) return null;
+  const drop = before - now;
+  const frac = drop / before;
+  if (drop >= EPA_DROP_HIGH.abs && frac >= EPA_DROP_HIGH.frac) {
+    return {
+      kind: 'epa-drop',
+      severity: 'high',
+      text: `EPA falling hard — ${Math.round(now)} now vs ${Math.round(before)} before their last matches (−${Math.round(frac * 100)}%)`,
+    };
+  }
+  if (drop >= EPA_DROP_MED.abs && frac >= EPA_DROP_MED.frac) {
+    return {
+      kind: 'epa-drop',
+      severity: 'med',
+      text: `EPA declining — ${Math.round(now)} now vs ${Math.round(before)} before their last matches (−${Math.round(frac * 100)}%)`,
+    };
+  }
+  return null;
 }

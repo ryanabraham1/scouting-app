@@ -1,6 +1,12 @@
 // src/dash/strategy/__tests__/redFlags.test.ts
 import { describe, it, expect } from 'vitest';
-import { teamRedFlags } from '@/dash/strategy/redFlags';
+import {
+  teamRedFlags,
+  evaluateEpaDrop,
+  EPA_DROP_MED,
+  EPA_DROP_HIGH,
+} from '@/dash/strategy/redFlags';
+import { aggregateTeam } from '@/dash/aggregate';
 import type { MsrRow } from '@/dash/types';
 
 function row(overrides: Partial<MsrRow>): MsrRow {
@@ -133,5 +139,99 @@ describe('teamRedFlags', () => {
       row({ dropped_fuel: true }),
     ]);
     expect(flags[0].severity).toBe('high');
+  });
+});
+
+describe('scoring trend + role switch', () => {
+  const fuelSeries = (vals: number[]): MsrRow[] =>
+    vals.map((fp, i) =>
+      row({
+        match_key: `2026evt_qm${i + 1}`,
+        fuel_points: fp,
+        server_received_at: `2026-06-23T00:0${i}:00Z`,
+      }),
+    );
+
+  it('flags a significant scouted scoring decline via TeamAgg recent form', () => {
+    // Overall mean 20, last-3 mean 10 → −50% and −10 pts → high.
+    const reports = fuelSeries([30, 30, 30, 10, 10, 10]);
+    const agg = aggregateTeam(100, reports);
+    const flags = teamRedFlags(reports, agg);
+    const f = flags.find((x) => x.kind === 'scoring-decline');
+    expect(f).toBeTruthy();
+    expect(f?.severity).toBe('high');
+    expect(f?.text).toMatch(/trending down/i);
+  });
+
+  it('stays quiet for stable or improving scoring', () => {
+    const stable = fuelSeries([20, 21, 19, 20, 21, 20]);
+    expect(
+      teamRedFlags(stable, aggregateTeam(100, stable)).find((x) => x.kind === 'scoring-decline'),
+    ).toBeUndefined();
+    const improving = fuelSeries([10, 10, 10, 30, 30, 30]);
+    expect(
+      teamRedFlags(improving, aggregateTeam(100, improving)).find(
+        (x) => x.kind === 'scoring-decline',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('flags a scorer who played real defense in their LATEST match', () => {
+    const reports = [
+      row({ match_key: '2026evt_qm1', fuel_points: 25, defense_duration_ms: 0 }),
+      row({ match_key: '2026evt_qm2', fuel_points: 28, defense_duration_ms: 0 }),
+      row({ match_key: '2026evt_qm3', fuel_points: 26, defense_duration_ms: 0 }),
+      // Latest: ~33% of teleop on defense.
+      row({ match_key: '2026evt_qm4', fuel_points: 4, defense_duration_ms: 45_000 }),
+    ];
+    const f = teamRedFlags(reports).find((x) => x.kind === 'role-switch');
+    expect(f).toBeTruthy();
+    expect(f?.text).toMatch(/usually scores/i);
+    expect(f?.text).toMatch(/defense/i);
+  });
+
+  it('does NOT call a role switch for habitual defenders or low scorers', () => {
+    // Habitual defender: defense every match → baseline share too high.
+    const defender = [1, 2, 3, 4].map((i) =>
+      row({ match_key: `2026evt_qm${i}`, fuel_points: 20, defense_duration_ms: 40_000 }),
+    );
+    expect(teamRedFlags(defender).find((x) => x.kind === 'role-switch')).toBeUndefined();
+    // Low scorer switching to defense: not a "scorer" baseline.
+    const lowScorer = [
+      row({ match_key: '2026evt_qm1', fuel_points: 3 }),
+      row({ match_key: '2026evt_qm2', fuel_points: 4 }),
+      row({ match_key: '2026evt_qm3', fuel_points: 2, defense_duration_ms: 45_000 }),
+    ];
+    expect(teamRedFlags(lowScorer).find((x) => x.kind === 'role-switch')).toBeUndefined();
+  });
+});
+
+describe('evaluateEpaDrop', () => {
+  it('null for missing/zero baselines and insignificant changes', () => {
+    expect(evaluateEpaDrop(null, 100)).toBeNull();
+    expect(evaluateEpaDrop(100, null)).toBeNull();
+    expect(evaluateEpaDrop(0, 0)).toBeNull();
+    expect(evaluateEpaDrop(100, 98)).toBeNull(); // −2%
+    expect(evaluateEpaDrop(100, 110)).toBeNull(); // improving
+  });
+
+  it('med at the med cutoffs, high at the high cutoffs', () => {
+    // −15% and −15 pts from 100 → med (below the −22% high fraction).
+    const med = evaluateEpaDrop(100, 85);
+    expect(med?.kind).toBe('epa-drop');
+    expect(med?.severity).toBe('med');
+    // −30% and −45 pts from 150 → high.
+    const high = evaluateEpaDrop(150, 105);
+    expect(high?.severity).toBe('high');
+    expect(high?.text).toMatch(/105 now vs 150/);
+  });
+
+  it('requires BOTH the absolute and fractional thresholds', () => {
+    // Big fraction, tiny absolute (low-EPA team): 20 → 15 is −25% but only −5 pts.
+    expect(EPA_DROP_MED.abs).toBeGreaterThan(5);
+    expect(evaluateEpaDrop(20, 15)).toBeNull();
+    // Big absolute, small fraction: 400 → 385 is −15 pts but only ~−4%.
+    expect(EPA_DROP_HIGH.frac).toBeGreaterThan(0.04);
+    expect(evaluateEpaDrop(400, 385)).toBeNull();
   });
 });

@@ -11,7 +11,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { LOW_CONFIDENCE_THRESHOLD, ratedMeanText, type TeamAgg } from '@/dash/aggregate';
-import { teamRedFlags } from '@/dash/strategy/redFlags';
+import { teamRedFlags, type RedFlag } from '@/dash/strategy/redFlags';
 import type { TeamPrediction, ComponentBreakdown } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
 import type { MsrRow } from '@/dash/types';
@@ -72,6 +72,8 @@ export interface TeamRowViewProps {
   reports?: MsrRow[];
   /** Pit-scouting facts, when a pit report exists. */
   pit?: TeamPit | null;
+  /** Extra pre-computed flags (e.g. the async season EPA-drop signal). */
+  extraFlags?: RedFlag[];
   /** Highlight the base ("our") team's row. */
   isBaseTeam?: boolean;
 }
@@ -82,6 +84,7 @@ export function TeamRowView({
   nickname,
   reports,
   pit,
+  extraFlags,
   isBaseTeam,
 }: TeamRowViewProps): JSX.Element {
   const matchesScouted = agg?.matchesScouted ?? 0;
@@ -91,8 +94,12 @@ export function TeamRowView({
   const driver = reports ? ratedMeanText(reports, (m) => m.driver_skill) : EM_DASH;
   const agility = reports ? ratedMeanText(reports, (m) => m.agility) : EM_DASH;
   // Red flags a coach must know pre-match (died/no-show/tips/climb fails/fouls/
-  // defense identity) — pure derivation over this team's scouted reports.
-  const redFlags = useMemo(() => teamRedFlags(reports ?? []), [reports]);
+  // defense identity/scoring trend/role switch) derived from this team's
+  // scouted reports + agg, merged with async extras (season EPA drop).
+  const redFlags = useMemo(() => {
+    const merged = [...teamRedFlags(reports ?? [], agg), ...(extraFlags ?? [])];
+    return merged.sort((a, b) => Number(b.severity === 'high') - Number(a.severity === 'high'));
+  }, [reports, agg, extraFlags]);
   const pitFacts: string[] = [];
   if (pit?.drivetrain) pitFacts.push(pit.drivetrain);
   if (pit?.robotLengthIn != null && pit?.robotWidthIn != null) {
@@ -257,6 +264,8 @@ export interface AllianceColumnProps {
   reportsByTeam?: Map<number, MsrRow[]>;
   /** Per-team pit reports (optional). */
   pitByTeam?: Map<number, TeamPit>;
+  /** Per-team async flags (e.g. EPA drop), merged into each row's list. */
+  flagsByTeam?: Map<number, RedFlag>;
   baseTeam?: number;
   /** Marks this column as OUR alliance for the meeting. */
   isOurs?: boolean;
@@ -271,6 +280,7 @@ export function AllianceColumn({
   allTeams,
   reportsByTeam,
   pitByTeam,
+  flagsByTeam,
   baseTeam,
   isOurs,
 }: AllianceColumnProps): JSX.Element {
@@ -311,6 +321,9 @@ export function AllianceColumn({
               nickname={nicknameFor(allTeams, p.teamNumber)}
               reports={reportsByTeam?.get(p.teamNumber)}
               pit={pitByTeam?.get(p.teamNumber) ?? null}
+              extraFlags={
+                flagsByTeam?.has(p.teamNumber) ? [flagsByTeam.get(p.teamNumber)!] : undefined
+              }
               isBaseTeam={baseTeam != null && p.teamNumber === baseTeam}
             />
           ))}

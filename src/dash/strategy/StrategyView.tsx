@@ -56,6 +56,7 @@ import {
 } from '@/dash/matchOrder';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { useEventPits } from '@/dash/useTeamPit';
+import { useTeamEpaTrends } from '@/dash/strategy/useTeamEpaTrends';
 import CombinedAutoField, { defaultMatchupOverlays } from '@/dash/CombinedAutoField';
 import MatchupPanel from '@/dash/MatchupPanel';
 import MatchupDashboard from '@/dash/strategy/MatchupDashboard';
@@ -470,6 +471,10 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
   }, [reports, sixTeams]);
   const pitsQ = useEventPits?.(eventKey);
   const pitByTeam = pitsQ?.data;
+  // Season EPA-drop flags (TBA-derived, in-house model) — async intel merged
+  // into each team card's red-flag list. Optional-call guard for unit mocks.
+  const epaTrendsQ = useTeamEpaTrends?.(sixTeams, eventKey);
+  const epaFlagsByTeam = epaTrendsQ?.data;
 
   // Sub-view + phase board selection.
   const [subView, setSubView] = useState<SubView>('board');
@@ -726,6 +731,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               allTeams={allTeams}
               reportsByTeam={reportsByTeam}
               pitByTeam={pitByTeam}
+              flagsByTeam={epaFlagsByTeam}
               baseTeam={baseTeam}
               isOurs={ourSide === 'red'}
             />
@@ -738,6 +744,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               allTeams={allTeams}
               reportsByTeam={reportsByTeam}
               pitByTeam={pitByTeam}
+              flagsByTeam={epaFlagsByTeam}
               baseTeam={baseTeam}
               isOurs={ourSide === 'blue'}
             />
