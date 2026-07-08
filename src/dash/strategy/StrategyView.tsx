@@ -112,19 +112,23 @@ function MatchupAllianceChips({
         isOurs && 'ring-1 ring-amber-400/60',
       )}
     >
-      <span
-        className={cn(
-          'text-[10px] font-bold uppercase tracking-wider',
-          side === 'red' ? 'text-red-400' : 'text-blue-400',
-        )}
-      >
-        {side}
-      </span>
-      {isOurs ? (
-        <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-neutral-900">
-          us
+      {/* Label column: side name with the US badge stacked BENEATH it, so our
+          block stays exactly the same width as the opponents'. */}
+      <span className="flex flex-col items-center gap-0.5">
+        <span
+          className={cn(
+            'text-[10px] font-bold uppercase tracking-wider',
+            side === 'red' ? 'text-red-400' : 'text-blue-400',
+          )}
+        >
+          {side}
         </span>
-      ) : null}
+        {isOurs ? (
+          <span className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none text-neutral-900">
+            us
+          </span>
+        ) : null}
+      </span>
       {teams.length === 0 ? (
         <span className="px-1 text-sm text-muted-foreground">—</span>
       ) : (
@@ -600,23 +604,29 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
         {redTeams.length > 0 || blueTeams.length > 0 ? (
           <div
             data-testid="dash-strategy-matchup"
-            className="flex flex-wrap items-center gap-2"
+            className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"
           >
-            <MatchupAllianceChips
-              side="red"
-              teams={redTeams}
-              baseTeam={baseTeam}
-              isOurs={ourSide === 'red'}
-            />
+            {/* Symmetric: red hugs the centered "vs" from the left, blue from
+                the right, so the strip reads as one balanced unit. */}
+            <div className="flex min-w-0 justify-end">
+              <MatchupAllianceChips
+                side="red"
+                teams={redTeams}
+                baseTeam={baseTeam}
+                isOurs={ourSide === 'red'}
+              />
+            </div>
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               vs
             </span>
-            <MatchupAllianceChips
-              side="blue"
-              teams={blueTeams}
-              baseTeam={baseTeam}
-              isOurs={ourSide === 'blue'}
-            />
+            <div className="flex min-w-0 justify-start">
+              <MatchupAllianceChips
+                side="blue"
+                teams={blueTeams}
+                baseTeam={baseTeam}
+                isOurs={ourSide === 'blue'}
+              />
+            </div>
           </div>
         ) : null}
         {editingTeams ? (
