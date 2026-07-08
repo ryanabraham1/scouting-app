@@ -4,6 +4,9 @@
 // scopes access on the server — this client carries no extra auth.
 import { supabase } from '@/lib/supabase';
 
+/** Which of the two ordered picklists an entry belongs to. */
+export type PicklistId = 'first' | 'second';
+
 /** One ordered entry in an event's picklist (contracts §6). */
 export interface PicklistEntry {
   teamNumber: number;
@@ -11,8 +14,19 @@ export interface PicklistEntry {
   note?: string | null;
   /** Coaching flag: "do not pick" / avoid. Additive JSONB — no migration. */
   dnp?: boolean;
-  /** Structured first/second-pick bucket (distinct from the free-text `tier`). */
-  tierType?: 'first' | 'second' | null;
+  /**
+   * Which picklist the team is on: `'second'` → the 2nd-pick list, anything
+   * else (`'first'`/legacy null) → the 1st-pick list. Additive JSONB — rows
+   * written by older builds (a per-row tier TAG, same values) read as list
+   * membership with no migration. Order within `entries` is the order within
+   * each list (the lists are filtered views of the one stored array).
+   */
+  tierType?: PicklistId | null;
+}
+
+/** Resolve an entry's list membership (legacy null/absent → the 1st-pick list). */
+export function entryList(e: PicklistEntry): PicklistId {
+  return e.tierType === 'second' ? 'second' : 'first';
 }
 
 /**

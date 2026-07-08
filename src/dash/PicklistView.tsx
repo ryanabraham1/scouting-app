@@ -1,10 +1,13 @@
 // src/dash/PicklistView.tsx
 // Cluster PICKLIST (contracts §6 client, §8 export/testids).
-// Editable, reorderable picklist backed by the shared staff-RLS'd `picklist`
-// table. Loads on mount, edits live in local ordered state, and AUTOSAVE
-// debounce-upserts the whole list after any change (no manual Save button).
-// Rows reorder by drag-and-drop (grip handle) or the ↑/↓ buttons. JSON/CSV
-// export via exportDash. Dark theme, shadcn primitives, 44px min touch targets.
+// Editable, reorderable picklists backed by the shared staff-RLS'd `picklist`
+// table. TWO independent ordered lists (1st pick / 2nd pick) live in the one
+// stored entries array, split by each entry's `tierType` — a tab switches which
+// list is viewed/edited, and rows can be sent to the other list. Loads on
+// mount, edits live in local ordered state, and AUTOSAVE debounce-upserts the
+// whole array after any change (no manual Save button). Rows reorder by
+// drag-and-drop (grip handle) or the ↑/↓ buttons. JSON/CSV export via
+// exportDash. Dark theme, shadcn primitives, 44px min touch targets.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { GripVertical } from 'lucide-react';
@@ -28,9 +31,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { getPicklist, savePicklist, type PicklistEntry } from '@/dash/picklistClient';
+import {
+  getPicklist,
+  savePicklist,
+  entryList,
+  type PicklistEntry,
+  type PicklistId,
+} from '@/dash/picklistClient';
 import { downloadText, picklistToCsv } from '@/dash/exportDash';
-import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
+import { aggregateEvent, emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
 import { useEventReports, useEventEpa, useEventMatches, useEventTeams } from '@/dash/useEventData';
 import PicklistEpaBoard from '@/dash/PicklistEpaBoard';
 import {
@@ -89,7 +98,7 @@ interface PickRowProps {
   onMove: (index: number, delta: number) => void;
   onRemove: (teamNumber: number) => void;
   onUpdateField: (teamNumber: number, field: 'tier' | 'note', value: string) => void;
-  onCycleTier: (teamNumber: number) => void;
+  onSendToOtherList: (teamNumber: number) => void;
   onSelectTeam?: (teamNumber: number) => void;
 }
 
@@ -100,8 +109,10 @@ interface PickRowProps {
  * fallback. Pure presentational + the passed-in mutators.
  */
 function SortablePickRow(props: PickRowProps): JSX.Element {
-  const { entry: e, index: i, total, onMove, onRemove, onUpdateField, onCycleTier, onSelectTeam } =
+  const { entry: e, index: i, total, onMove, onRemove, onUpdateField, onSendToOtherList, onSelectTeam } =
     props;
+  // The list this row would MOVE TO (it renders only inside its current list).
+  const moveTarget = entryList(e) === 'first' ? '2nd' : '1st';
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: e.teamNumber });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -203,27 +214,22 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
       />
 
-      {/* Structured pick tier: 1st / 2nd / —. */}
+      {/* Send the team to the OTHER picklist (1st ↔ 2nd). */}
       <div className="col-span-2 flex shrink-0 items-center gap-1 sm:col-span-1">
         <button
           type="button"
-          data-testid={`pick-tier-type-${e.teamNumber}`}
-          onClick={() => onCycleTier(e.teamNumber)}
-          aria-label={`Pick tier for team ${e.teamNumber}`}
+          data-testid={`pick-move-list-${e.teamNumber}`}
+          onClick={() => onSendToOtherList(e.teamNumber)}
+          aria-label={`Move team ${e.teamNumber} to the ${moveTarget} pick list`}
+          title={`Move to the ${moveTarget} pick list`}
           className={cn(
-            'inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            (e.tierType ?? null) === 'first'
-              ? 'border-brand bg-brand/20 text-brand'
-              : (e.tierType ?? null) === 'second'
-                ? 'border-amber-500 bg-amber-500/20 text-amber-300'
-                : 'border-border text-muted-foreground',
+            'inline-flex h-11 min-w-[44px] items-center justify-center whitespace-nowrap rounded-md border px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            moveTarget === '2nd'
+              ? 'border-amber-500/60 text-amber-300 hover:bg-amber-500/15'
+              : 'border-brand/60 text-brand hover:bg-brand/15',
           )}
         >
-          {(e.tierType ?? null) === 'first'
-            ? '1st'
-            : (e.tierType ?? null) === 'second'
-              ? '2nd'
-              : '—'}
+          → {moveTarget}
         </button>
       </div>
     </li>
@@ -235,6 +241,8 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
 
   const [entries, setEntries] = useState<PicklistEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // Which of the two picklists (1st pick / 2nd pick) is being viewed/edited.
+  const [activeList, setActiveList] = useState<PicklistId>('first');
   const [addValue, setAddValue] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   // Autosave status (no manual Save button): the list persists itself ~debounced
@@ -285,15 +293,30 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const epaSource = epaQuery.data?.source ?? 'none';
   const epaByTeam = epaQuery.data?.epaByTeam;
 
-  // Every aggregated team (for the seed dialog — distinct from `aggByTeam`,
-  // which is keyed for the per-row export lookup). Cheap; reuses the same cache.
-  const aggs = useMemo<TeamAgg[]>(() => Array.from(aggByTeam.values()), [aggByTeam]);
+  // Every EVENT team for the seed dialog: scouted aggregates plus empty rows for
+  // not-yet-scouted teams (mirrors DraftBoardView), so seeding by EPA ranks the
+  // WHOLE field instead of only the handful of teams with scouting reports.
+  // Scouting metrics read 0 for unscouted teams (they sink to the bottom); the
+  // dialog's min-matches filter can exclude them outright. Distinct from
+  // `aggByTeam`, which stays scouted-only for the per-row export/EPA fallbacks.
+  const aggs = useMemo<TeamAgg[]>(() => {
+    const merged = new Map(aggByTeam);
+    for (const t of allTeams) {
+      if (!merged.has(t.team_number)) merged.set(t.team_number, emptyTeamAgg(t.team_number));
+    }
+    return Array.from(merged.values());
+  }, [aggByTeam, allTeams]);
 
-  // Split the entries: real ORDERED picks (the list you reorder) vs do-not-pick
-  // markers. DNP teams aren't picks, so they're kept out of the ordered list and
+  // Split the entries: real ORDERED picks (the lists you reorder) vs do-not-pick
+  // markers. DNP teams aren't picks, so they're kept out of the ordered lists and
   // appended on persist; they surface only as flags on the EPA board + draft.
   const picks = useMemo(() => entries.filter((e) => !(e.dnp ?? false)), [entries]);
   const dnpEntries = useMemo(() => entries.filter((e) => e.dnp ?? false), [entries]);
+  // The two picklists are filtered views of the ONE stored array — array order
+  // is the order within each list, so filtering preserves both orderings.
+  const firstPicks = useMemo(() => picks.filter((e) => entryList(e) === 'first'), [picks]);
+  const secondPicks = useMemo(() => picks.filter((e) => entryList(e) === 'second'), [picks]);
+  const activePicks = activeList === 'first' ? firstPicks : secondPicks;
   // Teams already PICKED (drives the EPA board's added/disabled state).
   const inListTeams = useMemo(() => new Set(picks.map((e) => e.teamNumber)), [picks]);
   // Teams flagged do-not-pick (drives the EPA board's DNP toggle state).
@@ -355,16 +378,23 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     return () => clearTimeout(timer);
   }, [entries, eventKey, loading]);
 
-  // Edit entry point — autosave reacts to the resulting state change.
+  // Edit entry point — autosave reacts to the resulting state change. Persists
+  // in canonical order (1st list, 2nd list, then DNP markers) so call sites can
+  // hand over any interleaving; relative order within each list is what counts.
   function mutate(next: PicklistEntry[]): void {
-    setEntries(next);
+    const live = next.filter((e) => !(e.dnp ?? false));
+    setEntries([
+      ...live.filter((e) => entryList(e) === 'first'),
+      ...live.filter((e) => entryList(e) === 'second'),
+      ...next.filter((e) => e.dnp ?? false),
+    ]);
   }
 
   /**
-   * Append a team to the picklist with the standard dedupe guard. Single source
-   * of the add path so the text-input `addTeam` and the EPA board's one-tap add
-   * share identical validation + dedupe (and both land dirty). Returns true when
-   * a row was actually added.
+   * Append a team to the ACTIVE picklist with the standard dedupe guard. Single
+   * source of the add path so the text-input `addTeam` and the EPA board's
+   * one-tap add share identical validation + dedupe (and both land dirty). A
+   * team lives on at most ONE list. Returns true when a row was actually added.
    */
   function addTeamNumber(n: number): boolean {
     if (!Number.isInteger(n) || n <= 0) return false; // invalid
@@ -372,10 +402,14 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     if (existing && !(existing.dnp ?? false)) return false; // already a pick
     // A do-not-pick team being explicitly added flips to a pick (clears DNP).
     if (existing?.dnp) {
-      mutate(entries.map((e) => (e.teamNumber === n ? { ...e, dnp: false } : e)));
+      mutate(
+        entries.map((e) =>
+          e.teamNumber === n ? { ...e, dnp: false, tierType: activeList } : e,
+        ),
+      );
       return true;
     }
-    mutate([...entries, { teamNumber: n, tier: null, note: null }]);
+    mutate([...entries, { teamNumber: n, tier: null, note: null, tierType: activeList }]);
     return true;
   }
 
@@ -395,28 +429,29 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   }
 
   /**
-   * Reorder within the ORDERED picks (`from`/`to` are indices into `picks`), then
-   * persist picks + the untouched DNP markers appended. Shared by ↑/↓ and DnD.
+   * Reorder within the ACTIVE list (`from`/`to` are indices into `activePicks`),
+   * then persist with the other list + DNP markers untouched. Shared by ↑/↓ and DnD.
    */
   function reorder(from: number, to: number): void {
     if (from === to) return;
-    if (from < 0 || to < 0 || from >= picks.length || to >= picks.length) return;
-    const next = [...picks];
+    if (from < 0 || to < 0 || from >= activePicks.length || to >= activePicks.length) return;
+    const next = [...activePicks];
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item);
-    mutate([...next, ...dnpEntries]);
+    const other = activeList === 'first' ? secondPicks : firstPicks;
+    mutate([...next, ...other, ...dnpEntries]);
   }
 
   function move(index: number, delta: number): void {
     reorder(index, index + delta);
   }
 
-  /** dnd-kit drop: reorder by the dragged/over team-number ids (within picks). */
+  /** dnd-kit drop: reorder by the dragged/over team-number ids (active list). */
   function onDragEnd(event: DragEndEvent): void {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const from = picks.findIndex((e) => e.teamNumber === active.id);
-    const to = picks.findIndex((e) => e.teamNumber === over.id);
+    const from = activePicks.findIndex((e) => e.teamNumber === active.id);
+    const to = activePicks.findIndex((e) => e.teamNumber === over.id);
     if (from !== -1 && to !== -1) reorder(from, to);
   }
 
@@ -444,29 +479,38 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     });
   }
 
-  /** Cycle the structured pick tier: — → 1st → 2nd → —. */
-  function cycleTier(teamNumber: number): void {
-    mutate(
-      entries.map((e) => {
-        if (e.teamNumber !== teamNumber) return e;
-        const cur = e.tierType ?? null;
-        const next = cur === null ? 'first' : cur === 'first' ? 'second' : null;
-        return { ...e, tierType: next };
-      }),
-    );
+  /** Move a team to the OTHER picklist (appended at that list's end). */
+  function sendToOtherList(teamNumber: number): void {
+    const entry = picks.find((e) => e.teamNumber === teamNumber);
+    if (!entry) return;
+    const target: PicklistId = entryList(entry) === 'first' ? 'second' : 'first';
+    // Remove + re-append so it lands at the END of the target list; `mutate`
+    // canonicalizes the storage order.
+    mutate([
+      ...entries.filter((e) => e.teamNumber !== teamNumber),
+      { ...entry, tierType: target },
+    ]);
   }
 
   /**
-   * Seed from the dialog. Replace swaps the whole list; append keeps the current
-   * entries and adds only the seeded teams not already present (preserving the
-   * seeded order). Lands dirty (like a manual edit) — the lead reviews + Saves.
+   * Seed the ACTIVE list from the dialog. Replace swaps out only the active
+   * list (the other list + DNP flags survive, except teams the seed claims);
+   * append keeps everything and adds only the seeded teams not already present
+   * on either list (preserving the seeded order). Lands dirty like a manual edit.
    */
   function handleSeed(seeded: PicklistEntry[], mode: 'replace' | 'append'): void {
+    const stamped = seeded.map((e) => ({ ...e, tierType: activeList }));
     if (mode === 'replace') {
-      mutate(seeded);
+      const seededTeams = new Set(stamped.map((e) => e.teamNumber));
+      const keep = entries.filter(
+        (e) =>
+          !seededTeams.has(e.teamNumber) &&
+          ((e.dnp ?? false) || entryList(e) !== activeList),
+      );
+      mutate([...keep, ...stamped]);
     } else {
       const have = new Set(entries.map((e) => e.teamNumber));
-      mutate([...entries, ...seeded.filter((e) => !have.has(e.teamNumber))]);
+      mutate([...entries, ...stamped.filter((e) => !have.has(e.teamNumber))]);
     }
     setSeedOpen(false);
   }
@@ -641,8 +685,43 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
           </div>
         ) : null}
         <CardContent className="space-y-3">
-          {/* Add a team */}
+          {/* One wrapping row: the 1st-pick / 2nd-pick list switcher sits beside
+              the add-team input on desktop and wraps above it on phones. The two
+              lists are independent ordered views; add/seed/reorder all target
+              the selected one. */}
           <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex shrink-0 rounded-lg border border-border p-1"
+              role="tablist"
+              aria-label="Picklist selection"
+            >
+              {(
+                [
+                  ['first', '1st pick', firstPicks.length],
+                  ['second', '2nd pick', secondPicks.length],
+                ] as const
+              ).map(([id, label, count]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeList === id}
+                  data-testid={`pick-list-${id}`}
+                  onClick={() => setActiveList(id)}
+                  className={cn(
+                    'inline-flex min-h-[36px] items-center gap-1.5 rounded-md px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    activeList === id
+                      ? 'bg-brand/20 text-brand'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {label}
+                  <span className="text-xs tabular-nums opacity-70">{count}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Add a team (to the active list). */}
             <Input
               type="number"
               inputMode="numeric"
@@ -678,9 +757,10 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
             ) : null}
           </div>
 
-          {picks.length === 0 ? (
+          {activePicks.length === 0 ? (
             <div data-testid="pick-empty" className="py-6 text-sm text-muted-foreground">
-              No teams in the picklist yet. Add one above.
+              No teams in the {activeList === 'first' ? '1st' : '2nd'}-pick list yet. Add one
+              above.
             </div>
           ) : (
             <DndContext
@@ -689,20 +769,20 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               onDragEnd={onDragEnd}
             >
               <SortableContext
-                items={picks.map((e) => e.teamNumber)}
+                items={activePicks.map((e) => e.teamNumber)}
                 strategy={verticalListSortingStrategy}
               >
                 <ul className="space-y-2">
-                  {picks.map((e, i) => (
+                  {activePicks.map((e, i) => (
                     <SortablePickRow
                       key={e.teamNumber}
                       entry={e}
                       index={i}
-                      total={picks.length}
+                      total={activePicks.length}
                       onMove={move}
                       onRemove={removeTeam}
                       onUpdateField={updateField}
-                      onCycleTier={cycleTier}
+                      onSendToOtherList={sendToOtherList}
                       onSelectTeam={onSelectTeam}
                     />
                   ))}

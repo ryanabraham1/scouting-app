@@ -1,9 +1,10 @@
 // tests/e2e/smart-picklist.spec.ts
-// Smart picklist: one-click "seed from top N by metric" + per-team DNP / avoid
-// and structured first/second pick-tier flags, all inside the existing Picklist
-// tab. Seeding is pure/offline (aggregates from the persisted query cache);
-// DNP/tier are additive JSONB on the picklist `entries` and round-trip through
-// the existing savePicklist upsert (no migration).
+// Smart picklist: one-click "seed from top N by metric" + the two independent
+// ordered picklists (1st pick / 2nd pick, split by each entry's `tierType`),
+// all inside the existing Picklist tab. Seeding is pure/offline (aggregates
+// from the persisted query cache); list membership is additive JSONB on the
+// picklist `entries` and round-trips through the savePicklist upsert (no
+// migration).
 //
 // SHARED STATE: this spec targets the SAME `2026casnv` picklist row and flips
 // the global `event.is_active` singleton as `dashboard.spec.ts`. Under
@@ -82,36 +83,39 @@ test('Scenario A — seed by expected points (replace) or empty-state when no da
   await expect(rows.first()).toContainText('1');
 });
 
-test('Scenario B — DNP + tier flags persist a Save round-trip', async ({ page }) => {
+test('Scenario B — 1st/2nd pick list membership persists an autosave round-trip', async ({
+  page,
+}) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
   await setActiveEvent(admin, eventKey);
   await openPicklist(page);
 
-  // Add a known team manually (mirrors dashboard.spec.ts) so the flags have a row
-  // regardless of whether the live event has scouting data.
+  // Add a known team manually (mirrors dashboard.spec.ts) so the list controls
+  // have a row regardless of whether the live event has scouting data. It lands
+  // on the ACTIVE (1st-pick) list.
   const team = '254';
   await page.getByTestId('pick-add-input').fill(team);
   await page.getByTestId('pick-add').click();
   await expect(page.getByTestId(`pick-row-${team}`)).toBeVisible();
 
-  // DNP toggle → badge appears.
-  await page.getByTestId(`pick-dnp-${team}`).click();
-  await expect(page.getByTestId(`pick-dnp-badge-${team}`)).toBeVisible();
+  // Send it to the 2nd-pick list: it leaves the 1st list…
+  await page.getByTestId(`pick-move-list-${team}`).click();
+  await expect(page.getByTestId(`pick-row-${team}`)).toBeHidden();
+  // …and shows under the 2nd-pick tab.
+  await page.getByTestId('pick-list-second').click();
+  await expect(page.getByTestId(`pick-row-${team}`)).toBeVisible();
 
-  // Tier pill: — → 1st.
-  const pill = page.getByTestId(`pick-tier-type-${team}`);
-  await pill.click();
-  await expect(pill).toHaveText('1st');
-
-  await page.getByTestId('pick-save').click();
+  // Autosave lands on its own (no Save button).
   await expect(page.getByTestId('pick-saved')).toBeVisible({ timeout: 10_000 });
 
-  // Reload + reopen — JSONB round-trip + defensive read keep the flags.
+  // Reload + reopen — JSONB round-trip + defensive read keep list membership.
   await openPicklist(page);
-  await expect(page.getByTestId(`pick-dnp-badge-${team}`)).toBeVisible();
-  await expect(page.getByTestId(`pick-tier-type-${team}`)).toHaveText('1st');
+  await expect(page.getByTestId(`pick-row-${team}`)).toBeHidden(); // not on 1st list
+  await page.getByTestId('pick-list-second').click();
+  await expect(page.getByTestId(`pick-row-${team}`)).toBeVisible();
+  await expect(page.getByTestId(`pick-move-list-${team}`)).toHaveText(/1st/);
 
-  // Cross-check the server payload carries the additive fields.
+  // Cross-check the server payload carries the list membership.
   const { data } = await admin
     .from('picklist')
     .select('entries')
@@ -123,8 +127,7 @@ test('Scenario B — DNP + tier flags persist a Save round-trip', async ({ page 
     tierType?: string | null;
   }>;
   const e = entries.find((x) => x.teamNumber === 254);
-  expect(e?.dnp).toBe(true);
-  expect(e?.tierType).toBe('first');
+  expect(e?.tierType).toBe('second');
 });
 
 test('Scenario C — EPA fallback note is tolerant of EPA availability', async ({ page }) => {

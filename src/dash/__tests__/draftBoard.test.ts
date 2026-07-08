@@ -13,6 +13,9 @@ import {
   loadDraftState,
   saveDraftState,
   draftStorageKey,
+  firstPickDone,
+  draftActiveList,
+  withAutoListSwitch,
   EMPTY_DRAFT_STATE,
   type DraftRow,
   type DraftState,
@@ -84,6 +87,7 @@ function draftRow(overrides: Partial<DraftRow>): DraftRow {
     tier: null,
     note: null,
     picklistRank: null,
+    onOtherList: false,
     tbaRank: null,
     blockedByRank: false,
     blockedTop8: false,
@@ -156,6 +160,51 @@ describe('compareDraftOrder', () => {
   });
 });
 
+describe('active list auto-switch (1st pick → 2nd pick)', () => {
+  it('defaults to the 1st-pick list', () => {
+    expect(draftActiveList(EMPTY_DRAFT_STATE)).toBe('first');
+  });
+
+  it('firstPickDone is true once we picked OR got picked', () => {
+    expect(firstPickDone(EMPTY_DRAFT_STATE)).toBe(false);
+    expect(firstPickDone({ ours: [254], taken: [] })).toBe(true);
+    expect(firstPickDone({ ours: [], taken: [], pickedBy: 1678 })).toBe(true);
+    expect(firstPickDone({ ours: [], taken: [], pickedBy: null })).toBe(false);
+  });
+
+  it('auto-switches to the 2nd-pick list when our first pick lands', () => {
+    const prev: DraftState = { ours: [], taken: [] };
+    const next = withAutoListSwitch(prev, setStatus(254, 'ours', prev));
+    expect(draftActiveList(next)).toBe('second');
+  });
+
+  it('auto-switches when we GET picked (pickedBy set)', () => {
+    const prev: DraftState = { ours: [], taken: [] };
+    const next = withAutoListSwitch(prev, { ...prev, pickedBy: 1678 });
+    expect(draftActiveList(next)).toBe('second');
+  });
+
+  it('switches back to the 1st-pick list when the first pick is undone', () => {
+    const prev: DraftState = { ours: [254], taken: [], activeList: 'second' };
+    const next = withAutoListSwitch(prev, setStatus(254, 'available', prev));
+    expect(draftActiveList(next)).toBe('first');
+  });
+
+  it('a manual switch sticks across non-boundary updates', () => {
+    // First pick already made, lead manually flipped back to the 1st list…
+    const prev: DraftState = { ours: [254], taken: [], activeList: 'first' };
+    // …then crosses off another team: no boundary crossing → manual choice kept.
+    const next = withAutoListSwitch(prev, setStatus(999, 'taken', prev));
+    expect(draftActiveList(next)).toBe('first');
+  });
+
+  it('marking a SECOND pick does not flip the list again', () => {
+    const prev: DraftState = { ours: [254], taken: [], activeList: 'second' };
+    const next = withAutoListSwitch(prev, setStatus(1678, 'ours', prev));
+    expect(draftActiveList(next)).toBe('second');
+  });
+});
+
 describe('localStorage round-trip', () => {
   const EVENT = '2026test';
   beforeEach(() => window.localStorage.clear());
@@ -164,6 +213,18 @@ describe('localStorage round-trip', () => {
     const s: DraftState = { ours: [254], taken: [1678, 118] };
     saveDraftState(EVENT, s);
     expect(loadDraftState(EVENT)).toEqual(s);
+  });
+
+  it('round-trips activeList and drops invalid values', () => {
+    const s: DraftState = { ours: [], taken: [], activeList: 'second' };
+    saveDraftState(EVENT, s);
+    expect(loadDraftState(EVENT).activeList).toBe('second');
+
+    window.localStorage.setItem(
+      draftStorageKey(EVENT),
+      JSON.stringify({ ours: [], taken: [], activeList: 'third' }),
+    );
+    expect(loadDraftState(EVENT).activeList).toBeUndefined();
   });
 
   it('returns empty on missing key', () => {

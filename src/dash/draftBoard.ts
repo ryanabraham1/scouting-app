@@ -9,6 +9,8 @@
 // table, so there is NO migration and NO wire-shape change. The ranking it reads
 // is the same aggregate + best-available-EPA the Ranking tab uses.
 
+import type { PicklistId } from '@/dash/picklistClient';
+
 /**
  * A team's status during the draft:
  *  - `available` — not yet picked (in the pool).
@@ -26,6 +28,12 @@ export interface DraftState {
    * alliance instead of building our own. Absent/undefined = we're the captain.
    */
   pickedBy?: number | null;
+  /**
+   * Which picklist drives the board's ranking: absent → the 1st-pick list.
+   * Auto-flipped to `'second'` by `withAutoListSwitch` once our alliance's
+   * first pick lands (we picked, or we got picked); manually switchable.
+   */
+  activeList?: PicklistId;
 }
 
 export const EMPTY_DRAFT_STATE: DraftState = { ours: [], taken: [] };
@@ -73,6 +81,34 @@ export function toggleStatus(
   return setStatus(teamNumber, current === target ? 'available' : target, state);
 }
 
+/**
+ * True once our alliance's FIRST pick has happened: either we (as captain)
+ * marked a pick ours, or another captain picked us. Either way the next pick
+ * that matters is a second-round pick — the trigger for the list auto-switch.
+ */
+export function firstPickDone(state: DraftState): boolean {
+  return state.ours.length >= 1 || (state.pickedBy ?? null) != null;
+}
+
+/** The picklist currently driving the board's ranking (default: 1st-pick list). */
+export function draftActiveList(state: DraftState): PicklistId {
+  return state.activeList ?? 'first';
+}
+
+/**
+ * Apply the list AUTO-SWITCH to a state transition: when `next` crosses the
+ * first-pick boundary (we picked / got picked — or that was undone), flip
+ * `activeList` to the matching list. Any non-boundary update (including a
+ * manual list switch) passes through untouched, so manual control always
+ * sticks until the next boundary crossing. Pure.
+ */
+export function withAutoListSwitch(prev: DraftState, next: DraftState): DraftState {
+  const before = firstPickDone(prev);
+  const after = firstPickDone(next);
+  if (before === after) return next;
+  return { ...next, activeList: after ? 'second' : 'first' };
+}
+
 /** Load a draft scratch state from localStorage (defaults to empty; SSR-safe). */
 export function loadDraftState(eventKey: string): DraftState {
   if (typeof window === 'undefined') return { ...EMPTY_DRAFT_STATE };
@@ -85,6 +121,10 @@ export function loadDraftState(eventKey: string): DraftState {
     const out: DraftState = { ours: nums(parsed.ours), taken: nums(parsed.taken) };
     // Only keep a real captain number; absent/null stays omitted (we're captain).
     if (typeof parsed.pickedBy === 'number') out.pickedBy = parsed.pickedBy;
+    // Only keep a valid list id; anything else falls back to the default (first).
+    if (parsed.activeList === 'first' || parsed.activeList === 'second') {
+      out.activeList = parsed.activeList;
+    }
     return out;
   } catch {
     return { ...EMPTY_DRAFT_STATE };
@@ -116,8 +156,13 @@ export interface DraftRow {
   tier: string | null;
   /** the picklist note saved for this team (shown for the best remaining picks). */
   note: string | null;
-  /** 0-based position on OUR picklist (lower = higher priority); null when not listed. */
+  /**
+   * 0-based position on the ACTIVE picklist (1st- or 2nd-pick, per
+   * `DraftState.activeList`); null when not on that list.
+   */
   picklistRank: number | null;
+  /** True when the team is picklisted but on the INACTIVE list (badge only). */
+  onOtherList: boolean;
   /** official event rank from TBA; null when unknown. */
   tbaRank: number | null;
   /**

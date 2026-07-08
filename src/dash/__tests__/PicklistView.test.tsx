@@ -10,6 +10,8 @@ vi.mock('@/dash/picklistClient', () => ({
   getPicklist: (eventKey: string) => getPicklistMock(eventKey),
   savePicklist: (eventKey: string, entries: PicklistEntry[]) =>
     savePicklistMock(eventKey, entries),
+  // Real (pure) list-membership resolution — mirrors picklistClient.entryList.
+  entryList: (e: PicklistEntry) => (e.tierType === 'second' ? 'second' : 'first'),
 }));
 
 // --- mock exportDash so we can assert downloads without touching the DOM blob ---
@@ -350,12 +352,32 @@ describe('PicklistView', () => {
     expect(getByTestId('pick-seed-dialog')).toBeTruthy();
   });
 
-  it('shows the empty-state in the dialog when there is no scouting data', async () => {
+  it('shows the empty-state in the dialog only when the event has NO teams at all', async () => {
     reportsFixture = [];
-    const { getByTestId } = await renderLoaded();
+    teamsFixture = [];
+    getPicklistMock.mockResolvedValue([]);
+    const { getByTestId } = render(<PicklistView eventKey="2026casnv" />);
+    await waitFor(() => expect(getByTestId('pick-empty')).toBeTruthy());
     fireEvent.click(getByTestId('pick-seed-open'));
     expect(getByTestId('pick-seed-empty')).toBeTruthy();
     expect((getByTestId('pick-seed-confirm') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('seed dialog ranks the WHOLE field: unscouted event teams get empty aggs', async () => {
+    reportsFixture = []; // nobody scouted yet — EPA-only seeding must still work
+    seedPicklistMock.mockReturnValue([
+      { teamNumber: 254, tier: null, note: null, tierType: null, dnp: false },
+    ]);
+    getPicklistMock.mockResolvedValue([]);
+    const { getByTestId, queryByTestId } = render(<PicklistView eventKey="2026casnv" />);
+    await waitFor(() => expect(getByTestId('pick-empty')).toBeTruthy());
+    fireEvent.click(getByTestId('pick-seed-open'));
+    // Not the empty state — every event team is seedable.
+    expect(queryByTestId('pick-seed-empty')).toBeNull();
+    fireEvent.click(getByTestId('pick-seed-confirm'));
+    const opts = seedPicklistMock.mock.calls.at(-1)![0] as { aggs: Array<{ teamNumber: number }> };
+    expect(opts.aggs.map((a) => a.teamNumber).sort((x, y) => x - y)).toEqual([254, 1678, 9999]);
+    await waitFor(() => expect(getByTestId('pick-row-254')).toBeTruthy());
   });
 
   it('marks a team do-not-pick from the EPA board and autosaves it (not as a pick row)', async () => {
@@ -370,26 +392,86 @@ describe('PicklistView', () => {
     expect(queryByTestId('pick-row-9999')).toBeNull();
   });
 
-  it('cycleTier cycles — → 1st → 2nd → —', async () => {
+  // --- Two picklists: 1st pick / 2nd pick ---
+
+  it('shows the 1st-pick list by default with entries lacking tierType (legacy)', async () => {
     const { getByTestId } = await renderLoaded();
-    const pill = getByTestId('pick-tier-type-254');
-    expect(pill.textContent).toBe('—');
-    fireEvent.click(pill);
-    expect(pill.textContent).toBe('1st');
-    fireEvent.click(pill);
-    expect(pill.textContent).toBe('2nd');
-    fireEvent.click(pill);
-    expect(pill.textContent).toBe('—');
+    // Legacy entries (no tierType) belong to the 1st-pick list.
+    expect(getByTestId('pick-list-first').getAttribute('aria-selected')).toBe('true');
+    expect(getByTestId('pick-row-254')).toBeTruthy();
+    expect(getByTestId('pick-row-1678')).toBeTruthy();
   });
 
-  it('persists tierType through autosave', async () => {
-    const { getByTestId } = await renderLoaded();
-    fireEvent.click(getByTestId('pick-tier-type-254')); // → first
+  it('splits entries into the two lists by tierType and switches between them', async () => {
+    getPicklistMock.mockResolvedValue([
+      { teamNumber: 254, tier: null, note: null, tierType: null, dnp: false },
+      { teamNumber: 1678, tier: null, note: null, tierType: 'second', dnp: false },
+    ]);
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    // 1st list shows only 254.
+    expect(getByTestId('pick-row-254')).toBeTruthy();
+    expect(queryByTestId('pick-row-1678')).toBeNull();
+    // Switch to the 2nd list → only 1678.
+    fireEvent.click(getByTestId('pick-list-second'));
+    expect(queryByTestId('pick-row-254')).toBeNull();
+    expect(getByTestId('pick-row-1678')).toBeTruthy();
+  });
+
+  it('moves a team to the other list and autosaves tierType', async () => {
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-move-list-254')); // 1st → 2nd
+
+    // Gone from the active (1st) list, present under the 2nd tab.
+    expect(queryByTestId('pick-row-254')).toBeNull();
+    fireEvent.click(getByTestId('pick-list-second'));
+    expect(getByTestId('pick-row-254')).toBeTruthy();
 
     await waitFor(() => expect(savePicklistMock).toHaveBeenCalled(), { timeout: 3000 });
     const entries = savePicklistMock.mock.calls.at(-1)![1] as PicklistEntry[];
     const e254 = entries.find((e) => e.teamNumber === 254)!;
-    expect(e254.tierType).toBe('first');
+    expect(e254.tierType).toBe('second');
+    // Canonical persist order: 1st-list entries before 2nd-list entries.
+    expect(entries.map((e) => e.teamNumber)).toEqual([1678, 254]);
+  });
+
+  it('adds a team to the ACTIVE (2nd) list', async () => {
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-list-second'));
+    const input = getByTestId('pick-add-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '9999' } });
+    fireEvent.click(getByTestId('pick-add'));
+    await waitFor(() => expect(getByTestId('pick-row-9999')).toBeTruthy());
+
+    // Not on the 1st list.
+    fireEvent.click(getByTestId('pick-list-first'));
+    expect(queryByTestId('pick-row-9999')).toBeNull();
+
+    await waitFor(() => expect(savePicklistMock).toHaveBeenCalled(), { timeout: 3000 });
+    const entries = savePicklistMock.mock.calls.at(-1)![1] as PicklistEntry[];
+    expect(entries.find((e) => e.teamNumber === 9999)?.tierType).toBe('second');
+  });
+
+  it('rejects adding a team that is already on the OTHER list', async () => {
+    const { getByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-list-second'));
+    const input = getByTestId('pick-add-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '254' } }); // on the 1st list
+    fireEvent.click(getByTestId('pick-add'));
+    expect(getByTestId('pick-add-error').textContent).toMatch(/already on the picklist/i);
+  });
+
+  it('reorders within a list without disturbing the other list', async () => {
+    getPicklistMock.mockResolvedValue([
+      { teamNumber: 254, tier: null, note: null, tierType: null, dnp: false },
+      { teamNumber: 1678, tier: null, note: null, tierType: null, dnp: false },
+      { teamNumber: 9999, tier: null, note: null, tierType: 'second', dnp: false },
+    ]);
+    const { getByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-up-1678')); // 1st list → 1678, 254
+
+    await waitFor(() => expect(savePicklistMock).toHaveBeenCalled(), { timeout: 3000 });
+    const entries = savePicklistMock.mock.calls.at(-1)![1] as PicklistEntry[];
+    expect(entries.map((e) => e.teamNumber)).toEqual([1678, 254, 9999]);
   });
 
   it('seeds in replace mode (replaces the whole list)', async () => {
@@ -404,6 +486,25 @@ describe('PicklistView', () => {
     // The prior manual entries (254, 1678) are gone in replace mode.
     expect(queryByTestId('pick-row-254')).toBeNull();
     expect(queryByTestId('pick-row-1678')).toBeNull();
+  });
+
+  it('seed replace only swaps the ACTIVE list — the other list survives', async () => {
+    getPicklistMock.mockResolvedValue([
+      { teamNumber: 254, tier: null, note: null, tierType: null, dnp: false },
+      { teamNumber: 1678, tier: null, note: null, tierType: 'second', dnp: false },
+    ]);
+    reportsFixture = [msr(111, 50)];
+    seedPicklistMock.mockReturnValue([
+      { teamNumber: 111, tier: null, note: null, tierType: null, dnp: false },
+    ]);
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    fireEvent.click(getByTestId('pick-seed-open'));
+    fireEvent.click(getByTestId('pick-seed-confirm')); // replace, active = 1st list
+    await waitFor(() => expect(getByTestId('pick-row-111')).toBeTruthy());
+    expect(queryByTestId('pick-row-254')).toBeNull(); // 1st list replaced
+    // The 2nd list is untouched.
+    fireEvent.click(getByTestId('pick-list-second'));
+    expect(getByTestId('pick-row-1678')).toBeTruthy();
   });
 
   it('seeds in append mode (keeps existing, adds new, skips duplicates)', async () => {

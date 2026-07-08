@@ -2,6 +2,10 @@
 // Live alliance-selection draft board (draft-board feature). During the real-time
 // selection a lead crosses teams off as they're picked and the board surfaces the
 // best remaining pick from our ranking, respecting picklist "do not pick" flags.
+// The ranking follows ONE of the two picklists (1st pick / 2nd pick): it starts
+// on the 1st-pick list and auto-switches to the 2nd-pick list the moment our
+// alliance's first pick lands (we picked, or a captain picked us) — with a
+// manual switcher in the header for full control.
 //
 // Read-only over the SAME data the Ranking tab uses (aggregateEvent + best-
 // available EPA + the shared picklist). The draft picks are an EPHEMERAL per-event
@@ -24,7 +28,7 @@ import {
 import { resolveRowEpa } from '@/dash/sorting';
 import { OUR_TEAM } from '@/dash/constants';
 import { useQuery } from '@tanstack/react-query';
-import { getPicklist, type PicklistEntry } from '@/dash/picklistClient';
+import { getPicklist, entryList, type PicklistEntry, type PicklistId } from '@/dash/picklistClient';
 import {
   loadDraftState,
   saveDraftState,
@@ -32,6 +36,8 @@ import {
   toggleStatus,
   bestRemaining,
   compareDraftOrder,
+  draftActiveList,
+  withAutoListSwitch,
   type DraftState,
   type DraftRow,
 } from '@/dash/draftBoard';
@@ -155,15 +161,27 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     return m;
   }, [teamsQuery.data]);
 
-  // teamNumber → its picklist entry AND its 0-based position (priority order).
+  // teamNumber → its picklist entry (either list; flags/notes apply globally).
   const picklistByTeam = useMemo(() => {
-    const m = new Map<number, { entry: PicklistEntry; rank: number }>();
-    (picklistQuery.data ?? []).forEach((entry, rank) => m.set(entry.teamNumber, { entry, rank }));
+    const m = new Map<number, PicklistEntry>();
+    for (const entry of picklistQuery.data ?? []) m.set(entry.teamNumber, entry);
     return m;
   }, [picklistQuery.data]);
 
   // --- Draft scratch state (ephemeral, persisted per event) ------------------
   const [state, setState] = useState<DraftState>(() => loadDraftState(eventKey));
+
+  // Which picklist drives the ranking: the 1st-pick list until our alliance's
+  // first pick lands (auto-switch below), manually switchable any time.
+  const activeList = draftActiveList(state);
+  // teamNumber → 0-based rank on the ACTIVE list (DNP markers excluded).
+  const activeRankByTeam = useMemo(() => {
+    const m = new Map<number, number>();
+    (picklistQuery.data ?? [])
+      .filter((e) => !(e.dnp ?? false) && entryList(e) === activeList)
+      .forEach((e, rank) => m.set(e.teamNumber, rank));
+    return m;
+  }, [picklistQuery.data, activeList]);
   // Which event the in-memory `state` belongs to. On an event switch, the
   // reload effect schedules setState but the save effect runs in the SAME
   // commit — before the re-render — so without this guard it would write the
@@ -193,6 +211,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     const madeFirstPick = (state.pickedBy ?? null) == null && state.ours.length >= 1;
     const rows: DraftRow[] = aggs.map((agg) => {
       const pl = picklistByTeam.get(agg.teamNumber);
+      const rank = activeRankByTeam.get(agg.teamNumber) ?? null;
       const tbaRank = tbaRankByTeam.get(agg.teamNumber) ?? null;
       const blockedByRank =
         ourRank != null && tbaRank != null && tbaRank < ourRank && agg.teamNumber !== OUR_TEAM;
@@ -205,10 +224,11 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
         expectedPoints: agg.scoutingExpectedPoints,
         climbSuccessRate: agg.climbSuccessRate,
         matchesScouted: agg.matchesScouted,
-        dnp: pl?.entry.dnp ?? false,
-        tier: pl?.entry.tier ?? null,
-        note: pl?.entry.note ?? null,
-        picklistRank: pl?.rank ?? null,
+        dnp: pl?.dnp ?? false,
+        tier: pl?.tier ?? null,
+        note: pl?.note ?? null,
+        picklistRank: rank,
+        onOtherList: rank == null && pl != null && !(pl.dnp ?? false),
         tbaRank,
         blockedByRank,
         blockedTop8,
@@ -224,13 +244,16 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     epaAvailable,
     epaFromScouting,
     picklistByTeam,
+    activeRankByTeam,
     nicknameByTeam,
     tbaRankByTeam,
     ourRank,
     state,
   ]);
 
-  const hasPicklist = (picklistQuery.data?.length ?? 0) > 0;
+  const hasPicklist = activeRankByTeam.size > 0;
+  const listLabel = activeList === 'first' ? '1st' : '2nd';
+  const otherListLabel = activeList === 'first' ? '2nd' : '1st';
 
   const best = useMemo(() => bestRemaining(rankedRows, 3), [rankedRows]);
 
@@ -271,8 +294,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       ),
     [teamsByNumber, ourRank, pickedBy],
   );
+  // Getting picked counts as our alliance's first pick → list auto-switch.
   const setPickedBy = (team: number | null): void =>
-    setState((s) => ({ ...s, pickedBy: team }));
+    setState((s) => withAutoListSwitch(s, { ...s, pickedBy: team }));
 
   // Combined alliance stats for the viz: summed best-available EPA + summed
   // scouting expected points across members, and how many are reliable climbers.
@@ -310,8 +334,12 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     );
   }, [rankedRows, search]);
 
+  // Marking our FIRST pick auto-switches the board to the 2nd-pick list (and
+  // undoing it switches back); manual switching below always remains available.
   const toggle = (teamNumber: number, target: 'ours' | 'taken'): void =>
-    setState((s) => toggleStatus(teamNumber, target, s));
+    setState((s) => withAutoListSwitch(s, toggleStatus(teamNumber, target, s)));
+  const setActiveList = (list: PicklistId): void =>
+    setState((s) => ({ ...s, activeList: list }));
   const resetAll = (): void => setState({ ours: [], taken: [] });
 
   const loading =
@@ -358,10 +386,45 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
               {counts.available} available · {counts.taken} taken · {counts.ours} ours
             </span>
           </div>
-          <span data-testid="draft-best-source" className="text-xs text-muted-foreground">
-            {hasPicklist ? 'Your picklist order, then EPA' : 'By EPA — no picklist yet'}
-            {ourRank != null ? ` · excludes teams ranked above #${ourRank}` : ''}
-          </span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span data-testid="draft-best-source" className="text-xs text-muted-foreground">
+              {hasPicklist
+                ? `Your ${listLabel}-pick list order, then EPA`
+                : `By EPA — no ${listLabel}-pick list yet`}
+              {ourRank != null ? ` · excludes teams ranked above #${ourRank}` : ''}
+            </span>
+            {/* Active-list switcher: auto-flips to 2nd pick when our first pick
+                lands (we picked / got picked); always manually switchable. */}
+            <div
+              className="inline-flex rounded-md border border-border p-0.5"
+              role="tablist"
+              aria-label="Active picklist"
+            >
+              {(
+                [
+                  ['first', '1st pick'],
+                  ['second', '2nd pick'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeList === id}
+                  data-testid={`draft-list-${id}`}
+                  onClick={() => setActiveList(id)}
+                  className={cn(
+                    'rounded px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    activeList === id
+                      ? 'bg-brand/20 text-brand'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {best.length === 0 ? (
@@ -778,9 +841,17 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       <span
                         data-testid={`draft-picklist-rank-${r.teamNumber}`}
                         className="rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 font-mono text-[10px] font-medium tabular-nums text-brand"
-                        title="Position on your picklist"
+                        title={`Position on your ${listLabel}-pick list`}
                       >
                         #{r.picklistRank + 1}
+                      </span>
+                    ) : r.onOtherList ? (
+                      <span
+                        data-testid={`draft-other-list-${r.teamNumber}`}
+                        className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground"
+                        title={`On your ${otherListLabel}-pick list`}
+                      >
+                        {otherListLabel} list
                       </span>
                     ) : null}
                     {r.isUs ? (

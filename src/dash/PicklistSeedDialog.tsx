@@ -110,7 +110,7 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
 
         {empty ? (
           <div data-testid="pick-seed-empty" className="text-sm text-muted-foreground">
-            No scouting data to seed from.
+            No teams for this event yet — nothing to seed from.
           </div>
         ) : (
           <>
