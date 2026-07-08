@@ -57,6 +57,23 @@ function pct(x: number): string {
 }
 
 /**
+ * Fraction of teleop this team spends PLAYING defense, pooled across its
+ * scouted matches (defense_duration_ms / ~135s teleop each). Null when no
+ * report ever carried timed defense data (pre-0010 rows, or simply never
+ * scouted with the timer) — callers render "—", not a fake 0%. Shared by the
+ * defense-specialist red flag, the team cards, and the matchup dashboard.
+ */
+export function defenseTimeShare(reports: MsrRow[]): number | null {
+  if (reports.length === 0) return null;
+  const timed = reports.some(
+    (r) => (r.defense_duration_ms ?? 0) > 0 || r.defense_intervals != null,
+  );
+  if (!timed) return null;
+  const ms = reports.reduce((s, r) => s + (r.defense_duration_ms ?? 0), 0);
+  return ms / (reports.length * TELEOP_MS);
+}
+
+/**
  * Derive red flags from one team's scouted reports (+ optional TeamAgg for the
  * scoring-trend signal). Ordered most-severe first. Empty input (unscouted
  * team) yields no flags — absence of data is shown by the card's "scouted: 0",
@@ -130,10 +147,8 @@ export function teamRedFlags(reports: MsrRow[], agg?: TeamAgg): RedFlag[] {
   // Defense identity: how much of teleop they spend playing defense. Uses the
   // timed intervals when scouted; falls back to the per-match defense rating
   // (>0 means they played some) when durations were never captured.
-  const timed = reports.filter((r) => (r.defense_duration_ms ?? 0) > 0 || r.defense_intervals != null);
-  const defenseMs = reports.reduce((s, r) => s + (r.defense_duration_ms ?? 0), 0);
-  const share = defenseMs / (n * TELEOP_MS);
-  if (timed.length > 0 && share >= DEFENSE_REGULAR_SHARE) {
+  const share = defenseTimeShare(reports);
+  if (share != null && share >= DEFENSE_REGULAR_SHARE) {
     flags.push({
       kind: 'defense-specialist',
       severity: 'med',
@@ -142,7 +157,7 @@ export function teamRedFlags(reports: MsrRow[], agg?: TeamAgg): RedFlag[] {
           ? `Primarily a defense bot — on defense ~${pct(share)} of teleop`
           : `Plays regular defense — ~${pct(share)} of teleop`,
     });
-  } else if (timed.length === 0) {
+  } else if (share == null) {
     const defMatches = reports.filter((r) => r.defense_rating > 0).length;
     if (defMatches / n >= 0.5) {
       flags.push({

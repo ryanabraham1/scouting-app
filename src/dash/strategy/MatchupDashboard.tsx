@@ -15,6 +15,7 @@ import type { TeamAgg } from '@/dash/aggregate';
 import type { MatchPrediction, TeamPrediction } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
 import type { MsrRow } from '@/dash/types';
+import { defenseTimeShare } from '@/dash/strategy/redFlags';
 import type { RadarDatum, ContribDatum } from '@/dash/strategy/MatchupCharts';
 
 // recharts rides in its own lazy chunk (~145 KB gzip) — precached by the SW at
@@ -143,6 +144,8 @@ interface TeamMetrics {
   feed: number | null;
   climbRate: number | null;
   defense: number | null;
+  /** Fraction of teleop spent playing defense (timed intervals); null untimed. */
+  defTime: number | null;
   driver: number | null;
   agility: number | null;
   reliability: number | null;
@@ -156,6 +159,7 @@ interface MetricCol {
     | 'feed'
     | 'climbRate'
     | 'defense'
+    | 'defTime'
     | 'driver'
     | 'agility'
     | 'reliability'
@@ -172,6 +176,7 @@ const METRIC_COLS: MetricCol[] = [
   { key: 'feed', label: 'Feed', fmt: (v) => v.toFixed(0) },
   { key: 'climbRate', label: 'Climb', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'defense', label: 'Def', max: 3, fmt: (v) => v.toFixed(1) },
+  { key: 'defTime', label: 'Def time', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'driver', label: 'Driver', max: 3, fmt: (v) => v.toFixed(1) },
   { key: 'agility', label: 'Agility', max: 3, fmt: (v) => v.toFixed(1) },
   { key: 'reliability', label: 'Reliab', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
@@ -214,7 +219,7 @@ function MetricCell({
   );
 }
 
-const GRID = 'grid grid-cols-[minmax(5.5rem,1.4fr)_repeat(8,minmax(0,1fr))] items-end gap-x-3';
+const GRID = 'grid grid-cols-[minmax(5.5rem,1.4fr)_repeat(9,minmax(0,1fr))] items-end gap-x-3';
 
 function TeamMetricRow({
   m,
@@ -325,6 +330,7 @@ export default function MatchupDashboard({
         feed: scouted > 0 && a ? a.meanTeleopFuelInactive : null,
         climbRate: scouted > 0 && a ? a.climbSuccessRate : null,
         defense: scouted > 0 && a ? a.avgDefenseRating : null,
+        defTime: defenseTimeShare(reports ?? []),
         driver: ratedMeanNum(reports, (m) => m.driver_skill),
         agility: ratedMeanNum(reports, (m) => m.agility),
         reliability: scouted > 0 && a ? a.reliability : null,

@@ -11,7 +11,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { ratedMeanText, type TeamAgg } from '@/dash/aggregate';
-import { teamRedFlags, type RedFlag } from '@/dash/strategy/redFlags';
+import { teamRedFlags, defenseTimeShare, type RedFlag } from '@/dash/strategy/redFlags';
 import type { TeamPrediction, ComponentBreakdown } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
 import type { MsrRow } from '@/dash/types';
@@ -83,6 +83,7 @@ export function TeamRowView({
   const hasDefense = c?.defense != null && c.defense > 0;
   const driver = reports ? ratedMeanText(reports, (m) => m.driver_skill) : EM_DASH;
   const agility = reports ? ratedMeanText(reports, (m) => m.agility) : EM_DASH;
+  const defShare = defenseTimeShare(reports ?? []);
   // Red flags a coach must know pre-match (died/no-show/tips/climb fails/fouls/
   // defense identity/scoring trend/role switch) derived from this team's
   // scouted reports + agg, merged with async extras (season EPA drop).
@@ -185,6 +186,12 @@ export function TeamRowView({
           defense:{' '}
           <span className={cn('font-medium', agg ? 'text-brand' : 'text-muted-foreground')}>
             {agg ? agg.avgDefenseRating.toFixed(1) : EM_DASH}
+          </span>
+        </span>
+        <span>
+          def time:{' '}
+          <span className={cn('font-medium', defShare != null ? 'text-brand' : 'text-muted-foreground')}>
+            {defShare != null ? `${Math.round(defShare * 100)}%` : EM_DASH}
           </span>
         </span>
         <span>

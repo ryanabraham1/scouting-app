@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   teamRedFlags,
   evaluateEpaDrop,
+  defenseTimeShare,
   EPA_DROP_MED,
   EPA_DROP_HIGH,
 } from '@/dash/strategy/redFlags';
@@ -203,6 +204,19 @@ describe('scoring trend + role switch', () => {
       row({ match_key: '2026evt_qm3', fuel_points: 2, defense_duration_ms: 45_000 }),
     ];
     expect(teamRedFlags(lowScorer).find((x) => x.kind === 'role-switch')).toBeUndefined();
+  });
+});
+
+describe('defenseTimeShare', () => {
+  it('null for unscouted teams and for reports with no timed defense data', () => {
+    expect(defenseTimeShare([])).toBeNull();
+    expect(defenseTimeShare([row({}), row({ defense_rating: 3 })])).toBeNull();
+  });
+
+  it('pools duration over ALL scouted matches (~135s teleop each)', () => {
+    // 27s of defense in one of two matches → 27/(2*135) = 10%.
+    const share = defenseTimeShare([row({ defense_duration_ms: 27_000 }), row({})]);
+    expect(share).toBeCloseTo(0.1, 3);
   });
 });
 
