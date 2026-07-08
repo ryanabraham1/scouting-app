@@ -296,8 +296,17 @@ export class FountainDecoder {
       this.l = f.l;
       this.z = f.z;
       this.p = f.p;
-    } else if (f.s !== this.sid || f.k !== this.k || f.b !== this.b || f.p !== this.p) {
-      // A different hand-off (or a version/param skew) — ignore.
+    } else if (
+      f.s !== this.sid ||
+      f.k !== this.k ||
+      f.b !== this.b ||
+      f.l !== this.l ||
+      f.z !== this.z ||
+      f.p !== this.p
+    ) {
+      // A different hand-off (or a version/param skew) — ignore. `l`/`z` are checked
+      // too so a frame sharing sid+params but a different payload length can't set a
+      // mismatched final trim length (defense-in-depth on top of the payload CRC).
       return;
     }
     if (this.seenSeeds.has(f.t)) return; // duplicate scan of the same symbol

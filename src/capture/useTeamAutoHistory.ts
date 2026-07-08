@@ -60,6 +60,7 @@ export function useTeamAutoHistory(
   useEffect(() => {
     if (!enabled || !eventKey || !teamNumber) {
       setAutos([]);
+      setLoading(false); // clear any in-flight loading flag when the hook is disabled
       return;
     }
     let cancelled = false;

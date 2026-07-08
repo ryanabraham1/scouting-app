@@ -1,5 +1,6 @@
 // supabase/functions/statbotics-proxy/index.ts
 import { corsHeaders } from "../_shared/cors.ts";
+import { isSafeProxyPath } from "../_shared/validatePath.ts";
 
 const SB_BASE = "https://api.statbotics.io/v3";
 const CACHE_TTL_MS = 300_000;
@@ -24,7 +25,7 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const path = url.searchParams.get("path");
-  if (!path || !path.startsWith("/")) {
+  if (!isSafeProxyPath(path)) {
     return new Response(
       JSON.stringify({ error: "missing or invalid 'path' query param" }),
       {

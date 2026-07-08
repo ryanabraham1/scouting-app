@@ -1,5 +1,6 @@
 // supabase/functions/tba-proxy/index.ts
 import { corsHeaders } from "../_shared/cors.ts";
+import { isSafeProxyPath } from "../_shared/validatePath.ts";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
 const TBA_API_KEY = Deno.env.get("TBA_API_KEY") ?? "";
@@ -19,7 +20,7 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const path = url.searchParams.get("path");
-  if (!path || !path.startsWith("/")) {
+  if (!isSafeProxyPath(path)) {
     return new Response(
       JSON.stringify({ error: "missing or invalid 'path' query param" }),
       {

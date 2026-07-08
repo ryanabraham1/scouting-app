@@ -8,6 +8,7 @@
 // now), so every request must hit upstream fresh. A stale cache would freeze the
 // "On Field" / "Queuing" tiles mid-event. Responses are sent with no-store.
 import { corsHeaders } from "../_shared/cors.ts";
+import { isSafeProxyPath } from "../_shared/validatePath.ts";
 
 const NEXUS_BASE = "https://frc.nexus/api/v1";
 
@@ -33,7 +34,7 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const path = url.searchParams.get("path");
-  if (!path || !path.startsWith("/")) {
+  if (!isSafeProxyPath(path)) {
     return new Response(
       JSON.stringify({ error: "missing or invalid 'path' query param" }),
       {

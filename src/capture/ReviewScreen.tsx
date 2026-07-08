@@ -13,6 +13,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { NumberField } from '@/components/ui/NumberField';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
@@ -312,49 +313,43 @@ export function ReviewScreen(props: {
               <div className="grid grid-cols-2 gap-2 landscape:grid-cols-4 landscape:gap-3">
                 <label className={labelClass}>
                   Defense played (s)
-                  <input
+                  <NumberField
                     data-testid="review-defense-seconds"
-                    type="number"
                     min={0}
                     step={0.1}
-                    value={(s.defenseDurationMs / 1000).toFixed(1)}
-                    onChange={(e) =>
-                      s.setDefenseDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))
-                    }
+                    value={s.defenseDurationMs / 1000}
+                    format={(v) => v.toFixed(1)}
+                    onCommit={(v) => s.setDefenseDurationMs(Math.round(v * 1000))}
                     className={`${inputClass} ${s.defenseDurationMs > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
                   Being defended (s)
-                  <input
+                  <NumberField
                     data-testid="review-defended-seconds"
-                    type="number"
                     min={0}
                     step={0.1}
-                    value={(s.defendedDurationMs / 1000).toFixed(1)}
-                    onChange={(e) =>
-                      s.setDefendedDurationMs(Math.max(0, Math.round(Number(e.target.value) * 1000)))
-                    }
+                    value={s.defendedDurationMs / 1000}
+                    format={(v) => v.toFixed(1)}
+                    onCommit={(v) => s.setDefendedDurationMs(Math.round(v * 1000))}
                     className={`${inputClass} ${s.defendedDurationMs > 0 ? 'border-destructive bg-destructive/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
                   Pins
-                  <input
-                    type="number"
+                  <NumberField
                     min={0}
                     value={s.pins}
-                    onChange={(e) => s.setPins(Math.max(0, Number(e.target.value)))}
+                    onCommit={(v) => s.setPins(v)}
                     className={inputClass}
                   />
                 </label>
                 <label className={labelClass}>
                   Max capacity
-                  <input
-                    type="number"
+                  <NumberField
                     min={0}
                     value={s.maxFuelCapacityObserved}
-                    onChange={(e) => s.setMaxFuelCapacityObserved(Math.max(0, Number(e.target.value)))}
+                    onCommit={(v) => s.setMaxFuelCapacityObserved(v)}
                     className={inputClass}
                   />
                 </label>
@@ -403,21 +398,19 @@ export function ReviewScreen(props: {
               <div className="grid grid-cols-2 gap-2 landscape:gap-3">
                 <label className={labelClass}>
                   Fouls minor
-                  <input
-                    type="number"
+                  <NumberField
                     min={0}
                     value={s.foulsMinor}
-                    onChange={(e) => s.setFoulsMinor(Math.max(0, Number(e.target.value)))}
+                    onCommit={(v) => s.setFoulsMinor(v)}
                     className={`${inputClass} ${s.foulsMinor > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
                   Fouls major
-                  <input
-                    type="number"
+                  <NumberField
                     min={0}
                     value={s.foulsMajor}
-                    onChange={(e) => s.setFoulsMajor(Math.max(0, Number(e.target.value)))}
+                    onCommit={(v) => s.setFoulsMajor(v)}
                     className={`${inputClass} ${s.foulsMajor > 0 ? 'border-destructive text-destructive' : ''}`}
                   />
                 </label>

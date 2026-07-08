@@ -135,6 +135,10 @@ async function runImport(eventKey: string): Promise<Response> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  // Upsert the event WITHOUT touching is_active here — the atomic flip below owns
+  // that. Setting is_active:true in this upsert then deactivating others in a second
+  // statement opens a window where a concurrent reader sees TWO active events (the
+  // exact race migration 0037/0041 fixed for the RPC path).
   const { error: evErr } = await svc.from("event").upsert({
     event_key: eventKey,
     name: ev.name,
@@ -143,18 +147,15 @@ async function runImport(eventKey: string): Promise<Response> {
     timezone: ev.timezone,
     city: ev.city,
     state_prov: ev.state_prov,
-    is_active: true,
     imported_at: new Date().toISOString(),
   });
   if (evErr) return json({ error: `event upsert: ${evErr.message}` }, 500);
 
-  // Single-team app: exactly one active event. Deactivate any other event so
-  // the admin dashboard never silently switches between multiple active events.
-  const { error: deactErr } = await svc
-    .from("event")
-    .update({ is_active: false })
-    .neq("event_key", eventKey);
-  if (deactErr) return json({ error: `deactivate others: ${deactErr.message}` }, 500);
+  // Single-team app: exactly one active event. Flip atomically in ONE statement
+  // (target → active, all others → inactive) so readers never observe two active
+  // events, nor a zero-active gap between two separate UPDATEs.
+  const { error: actErr } = await svc.rpc("set_active_event", { p_event_key: eventKey });
+  if (actErr) return json({ error: `set active event: ${actErr.message}` }, 500);
 
   if (teams.length > 0) {
     const { error: teamErr } = await svc.from("team").upsert(

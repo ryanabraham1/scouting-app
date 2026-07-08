@@ -124,12 +124,13 @@ export function adjustIntervalsTotal(
 }
 
 interface DraftPayload {
-  bursts: FuelBurst[];
+  // Both burst arrays are persisted via refs inside persistDraft (see below), so
+  // cross-domain call sites that only change rate/inactiveFirst/deferred/feeding
+  // can omit the fuel `bursts` (and vice-versa) without dropping the other's data.
+  bursts?: FuelBurst[];
   inactiveFirst: boolean | null;
   rate: number;
   deferred: DeferredState;
-  // Persisted via a ref inside persistDraft (see below) so existing call sites
-  // that pass only the fuel fields don't drop feeding data.
   feedingBursts?: FuelBurst[];
 }
 
@@ -145,6 +146,10 @@ export function useCaptureSession(target: CaptureTarget) {
   // Mirror of feedingBursts so persistDraft can always write the current value
   // without every fuel/deferred setter having to thread it through.
   const feedingBurstsRef = useRef<FuelBurst[]>([]);
+  // Same mirror for fuel bursts: cross-domain persist calls (feeding, deferred,
+  // rate, inactiveFirst) must NOT pass a possibly-stale `bursts` closure — they
+  // omit it and persistDraft fills the current array from this ref.
+  const burstsRef = useRef<FuelBurst[]>([]);
   const [inactiveFirst, setInactiveFirstState] = useState<boolean | null>(null);
   const [rate, setRateState] = useState<number>(1);
   const [deferred, setDeferred] = useState<DeferredState>(initialDeferred);
@@ -239,7 +244,9 @@ export function useCaptureSession(target: CaptureTarget) {
   // edit mode skips the live screen, so it is re-applied to the clock state here.
   const reconstituteFrom = useCallback(
     (r: LocalMatchReport) => {
-      setBursts(r.fuelBursts ?? []);
+      const fuel = r.fuelBursts ?? [];
+      setBursts(fuel);
+      burstsRef.current = fuel;
       const feeds = r.feedingBursts ?? [];
       setFeedingBursts(feeds);
       feedingBurstsRef.current = feeds;
@@ -322,6 +329,7 @@ export function useCaptureSession(target: CaptureTarget) {
         const s = d.state as Partial<DraftPayload>;
         if (s.bursts) {
           setBursts(s.bursts);
+          burstsRef.current = s.bursts;
         }
         if (s.feedingBursts) {
           setFeedingBursts(s.feedingBursts);
@@ -381,6 +389,7 @@ export function useCaptureSession(target: CaptureTarget) {
       // know about fuel/deferred state don't wipe feeding data on persist.
       void saveDraft(draftKey, {
         ...next,
+        bursts: next.bursts ?? burstsRef.current,
         feedingBursts: next.feedingBursts ?? feedingBurstsRef.current,
         target,
       });
@@ -391,17 +400,17 @@ export function useCaptureSession(target: CaptureTarget) {
   const setInactiveFirst = useCallback(
     (b: boolean) => {
       setInactiveFirstState(b);
-      persistDraft({ bursts, inactiveFirst: b, rate, deferred });
+      persistDraft({ inactiveFirst: b, rate, deferred });
     },
-    [bursts, rate, deferred, persistDraft],
+    [rate, deferred, persistDraft],
   );
 
   const setRate = useCallback(
     (r: number) => {
       setRateState(r);
-      persistDraft({ bursts, inactiveFirst, rate: r, deferred });
+      persistDraft({ inactiveFirst, rate: r, deferred });
     },
-    [bursts, inactiveFirst, deferred, persistDraft],
+    [inactiveFirst, deferred, persistDraft],
   );
 
   const holdStart = useCallback(() => {
@@ -463,15 +472,19 @@ export function useCaptureSession(target: CaptureTarget) {
     const effRate = durationMs > 0 ? (balls * 1000) / durationMs : 0;
     const window = windowForBurst(clock.state.phase, clock.teleopElapsedMs);
     const burst: FuelBurst = { startMs: start, endMs: start + durationMs, rate: effRate, window };
-    const nextBursts = [...bursts, burst];
-    setBursts(nextBursts);
-    persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred });
+    // Functional updater (matches undoLastBurst) so a fuel commit racing an undo or
+    // a feeding commit before the next render can't drop a burst via a stale closure.
+    setBursts((prev) => {
+      const nextBursts = [...prev, burst];
+      burstsRef.current = nextBursts;
+      persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred });
+      return nextBursts;
+    });
   }, [
     clock.state.phase,
     clock.teleopElapsedMs,
     clock.autoElapsedMs,
     rate,
-    bursts,
     inactiveFirst,
     deferred,
     persistDraft,
@@ -528,13 +541,12 @@ export function useCaptureSession(target: CaptureTarget) {
       const next = [...feedingBurstsRef.current, burst];
       feedingBurstsRef.current = next;
       setFeedingBursts(next);
-      persistDraft({ bursts, inactiveFirst, rate, deferred, feedingBursts: next });
+      persistDraft({ inactiveFirst, rate, deferred, feedingBursts: next });
     },
     [
       clock.state.phase,
       clock.teleopElapsedMs,
       clock.autoElapsedMs,
-      bursts,
       inactiveFirst,
       rate,
       deferred,
@@ -577,11 +589,11 @@ export function useCaptureSession(target: CaptureTarget) {
           [durationKey]: prev[durationKey] + durationMs,
           [intervalsKey]: [...prev[intervalsKey], { startMs, endMs, phase: s.phase }],
         };
-        persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+        persistDraft({ inactiveFirst, rate, deferred: next });
         return next;
       });
     },
-    [clock.state.phase, clock.teleopElapsedMs, clock.autoElapsedMs, bursts, inactiveFirst, rate, persistDraft],
+    [clock.state.phase, clock.teleopElapsedMs, clock.autoElapsedMs, inactiveFirst, rate, persistDraft],
   );
 
   const beginDefense = useCallback(() => {
@@ -609,6 +621,7 @@ export function useCaptureSession(target: CaptureTarget) {
     setBursts((prev) => {
       if (prev.length === 0) return prev;
       const next = prev.slice(0, -1);
+      burstsRef.current = next;
       persistDraft({ bursts: next, inactiveFirst, rate, deferred });
       return next;
     });
@@ -622,8 +635,8 @@ export function useCaptureSession(target: CaptureTarget) {
     const next = prev.slice(0, -1);
     feedingBurstsRef.current = next;
     setFeedingBursts(next);
-    persistDraft({ bursts, inactiveFirst, rate, deferred, feedingBursts: next });
-  }, [bursts, inactiveFirst, rate, deferred, persistDraft]);
+    persistDraft({ inactiveFirst, rate, deferred, feedingBursts: next });
+  }, [inactiveFirst, rate, deferred, persistDraft]);
 
   // Atomically pop the last defense/being-defended interval AND subtract that
   // exact interval's duration from the running total, so the uploaded report's
@@ -640,10 +653,10 @@ export function useCaptureSession(target: CaptureTarget) {
         defenseIntervals: ivs.slice(0, -1),
         defenseDurationMs: Math.max(0, prev.defenseDurationMs - dur),
       };
-      persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+      persistDraft({ inactiveFirst, rate, deferred: next });
       return next;
     });
-  }, [bursts, inactiveFirst, rate, persistDraft]);
+  }, [inactiveFirst, rate, persistDraft]);
 
   const undoLastDefendedInterval = useCallback(() => {
     setDeferred((prev) => {
@@ -656,20 +669,20 @@ export function useCaptureSession(target: CaptureTarget) {
         defendedIntervals: ivs.slice(0, -1),
         defendedDurationMs: Math.max(0, prev.defendedDurationMs - dur),
       };
-      persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+      persistDraft({ inactiveFirst, rate, deferred: next });
       return next;
     });
-  }, [bursts, inactiveFirst, rate, persistDraft]);
+  }, [inactiveFirst, rate, persistDraft]);
 
   const updateDeferred = useCallback(
     <K extends keyof DeferredState>(key: K, value: DeferredState[K]) => {
       setDeferred((prev) => {
         const next = { ...prev, [key]: value };
-        persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+        persistDraft({ inactiveFirst, rate, deferred: next });
         return next;
       });
     },
-    [bursts, inactiveFirst, rate, persistDraft],
+    [inactiveFirst, rate, persistDraft],
   );
 
   // Hand-corrected defense/defended TOTAL from the Review step. Updates the
@@ -688,11 +701,11 @@ export function useCaptureSession(target: CaptureTarget) {
           [durationKey]: ms,
           [intervalsKey]: adjustIntervalsTotal(prev[intervalsKey], ms),
         };
-        persistDraft({ bursts, inactiveFirst, rate, deferred: next });
+        persistDraft({ inactiveFirst, rate, deferred: next });
         return next;
       });
     },
-    [bursts, inactiveFirst, rate, persistDraft],
+    [inactiveFirst, rate, persistDraft],
   );
 
   const reAnchorCue = useCallback(() => {

@@ -36,9 +36,14 @@ export default function MyDataView(): JSX.Element {
       },
       { replace: true },
     );
+  }, [searchParams, setSearchParams]);
+  // Separate effect for the auto-hide timer — keying it off `showUpdated` (not
+  // `searchParams`) means stripping the param above doesn't cancel the timer.
+  useEffect(() => {
+    if (!showUpdated) return;
     const t = setTimeout(() => setShowUpdated(false), 3000);
     return () => clearTimeout(t);
-  }, [searchParams, setSearchParams]);
+  }, [showUpdated]);
 
   useEffect(() => {
     let cancelled = false;

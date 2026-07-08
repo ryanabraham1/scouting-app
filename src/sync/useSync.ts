@@ -104,7 +104,14 @@ export function useSync(): UseSyncResult {
       // reconnect) never produce an unhandled rejection — and crucially `ok`
       // stays false so lastSyncedAt is NOT stamped on a failed run.
     } finally {
-      await refreshCounts();
+      // refreshCounts does several Dexie reads; if IndexedDB is blocked/closing
+      // (cross-tab version upgrade, private-mode eviction) it can reject. Swallow
+      // so the fire-and-forget `void run()` callers never see an unhandled rejection.
+      try {
+        await refreshCounts();
+      } catch {
+        /* ignore — counts refresh best-effort */
+      }
       runningRef.current = false;
       if (mountedRef.current) {
         setSyncing(false);
