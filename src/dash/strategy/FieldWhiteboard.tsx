@@ -396,9 +396,12 @@ export default function FieldWhiteboard({
     [state.strokes],
   );
 
+  // 44px targets on tablet+; 38px on phones so the toolbar wraps into two tidy
+  // rows (tools/sizes/actions + a full-width color row) instead of a ragged
+  // three-line stack.
   const toolBtn = (active: boolean): string =>
     cn(
-      'inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-2.5 text-sm font-medium transition-colors',
+      'inline-flex min-h-[38px] min-w-[38px] items-center justify-center rounded-md border px-2 text-sm font-medium transition-colors sm:min-h-[44px] sm:min-w-[44px] sm:px-2.5',
       active
         ? 'border-brand bg-brand/20 text-brand'
         : 'border-border bg-card/60 text-foreground hover:bg-accent',
@@ -406,8 +409,8 @@ export default function FieldWhiteboard({
 
   return (
     <div data-testid="field-whiteboard" data-phase={phase} className="flex flex-col gap-2">
-      {/* Toolbar — 44px targets for gloved/pencil taps. */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Toolbar — 44px targets for gloved/pencil taps (38px compact on phones). */}
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         <div className="flex items-center gap-1" role="group" aria-label="Drawing tool">
           <button
             type="button"
@@ -429,7 +432,13 @@ export default function FieldWhiteboard({
           </button>
         </div>
 
-        <div className="flex items-center gap-1" role="group" aria-label="Pen color">
+        {/* Colors take their own full-width row on phones (order-last) so the
+            seven swatches spread evenly instead of breaking mid-group. */}
+        <div
+          className="order-last flex w-full items-center gap-1 sm:order-none sm:w-auto"
+          role="group"
+          aria-label="Pen color"
+        >
           {COLORS.map((c, i) => (
             <button
               key={c.value}
@@ -445,7 +454,7 @@ export default function FieldWhiteboard({
                 setTool('pen');
               }}
               className={cn(
-                'inline-flex min-h-[44px] min-w-[36px] items-center justify-center rounded-md border transition-colors',
+                'inline-flex min-h-[38px] min-w-[32px] flex-1 items-center justify-center rounded-md border transition-colors sm:min-h-[44px] sm:min-w-[36px] sm:flex-none',
                 color === c.value && tool === 'pen'
                   ? 'border-brand bg-brand/15'
                   : 'border-border bg-card/60 hover:bg-accent',

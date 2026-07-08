@@ -89,9 +89,10 @@ function TapeBarRow({ row }: { row: TapeRow }): JSX.Element {
   const redLeads = red > blue;
   const blueLeads = blue > red;
   return (
+    // Narrower center label + tighter gaps on phones so the bars stay visible.
     <div
       data-testid={`tape-row-${row.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-      className="grid grid-cols-[3rem_1fr_8.5rem_1fr_3rem] items-center gap-2"
+      className="grid grid-cols-[2.5rem_1fr_5.5rem_1fr_2.5rem] items-center gap-1.5 sm:grid-cols-[3rem_1fr_8.5rem_1fr_3rem] sm:gap-2"
     >
       <span
         className={cn(
@@ -107,7 +108,7 @@ function TapeBarRow({ row }: { row: TapeRow }): JSX.Element {
           style={{ width: `${redPct}%` }}
         />
       </div>
-      <span className="text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className="text-center text-[10px] font-semibold uppercase leading-tight tracking-wider text-muted-foreground sm:text-[11px]">
         {row.label}
       </span>
       <div className="flex h-2.5 justify-start overflow-hidden rounded-full bg-muted-foreground/25">
@@ -188,16 +189,22 @@ function MetricCell({
   fmt,
   side,
   isBase,
+  label,
 }: {
   value: number | null;
   max: number;
   fmt: (v: number) => string;
   side: 'red' | 'blue';
   isBase: boolean;
+  /** Shown inside the cell on phones (the shared header row is md+ only). */
+  label: string;
 }): JSX.Element {
   const pct = value == null || max <= 0 ? 0 : Math.min(100, Math.max(0, (value / max) * 100));
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="truncate text-[9px] font-bold uppercase tracking-wider text-muted-foreground md:hidden">
+        {label}
+      </span>
       <span
         className={cn(
           'font-mono text-xs font-semibold tabular-nums',
@@ -219,7 +226,12 @@ function MetricCell({
   );
 }
 
-const GRID = 'grid grid-cols-[minmax(5.5rem,1.4fr)_repeat(9,minmax(0,1fr))] items-end gap-x-3';
+// One-row-per-team dense grid, md+ only — phones instead get a per-team card
+// with the nine metrics in a labeled 3-column grid (three tidy rows), because
+// ten columns at 390px are unreadable. Shared by the header row and team rows
+// so the md track templates can never drift apart.
+const GRID_MD =
+  'md:grid-cols-[minmax(5.5rem,1.4fr)_repeat(9,minmax(0,1fr))] md:items-end md:gap-x-3 md:gap-y-0';
 
 function TeamMetricRow({
   m,
@@ -234,12 +246,14 @@ function TeamMetricRow({
     <div
       data-testid={`matchup-dash-team-${m.team}`}
       className={cn(
-        'rounded-md px-2 py-1.5',
-        GRID,
-        isBase && 'bg-amber-400/10 ring-1 ring-amber-400/40',
+        // Phone card treatment (border/bg) drops away on md, where the aligned
+        // columns carry the structure.
+        'grid grid-cols-3 gap-x-3 gap-y-1.5 rounded-md border border-border/50 bg-card/40 px-2 py-2 md:border-transparent md:bg-transparent md:py-1.5',
+        GRID_MD,
+        isBase && 'border-amber-400/40 bg-amber-400/10 md:border-amber-400/40 md:bg-amber-400/10',
       )}
     >
-      <div className="flex min-w-0 flex-col">
+      <div className="col-span-3 flex min-w-0 flex-col md:col-span-1">
         <span
           className={cn(
             'font-mono text-sm font-bold tabular-nums',
@@ -261,6 +275,7 @@ function TeamMetricRow({
           fmt={col.fmt}
           side={m.side}
           isBase={isBase}
+          label={col.label}
         />
       ))}
     </div>
@@ -426,9 +441,18 @@ export default function MatchupDashboard({
           <MatchupCharts radar={radar} contrib={contrib} />
         </Suspense>
 
-        {/* Team comparison table with inline data bars. */}
+        {/* Team comparison table with inline data bars. The shared header row
+            is md+ only; phones label each metric inside its cell instead. */}
         <div className="flex flex-col gap-1">
-          <div className={cn(GRID, 'px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground')}>
+          <div
+            className={cn(
+              'hidden md:grid',
+              GRID_MD,
+              // border-transparent matches the team rows' border box so the
+              // header columns align exactly.
+              'border border-transparent px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground',
+            )}
+          >
             <span>Team</span>
             {METRIC_COLS.map((c) => (
               <span key={c.key}>{c.label}</span>

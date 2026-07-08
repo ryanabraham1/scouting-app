@@ -169,14 +169,19 @@ function MatchupStrip({
 }): JSX.Element | null {
   if (redTeams.length === 0 && blueTeams.length === 0) return null;
   return (
-    <div data-testid="dash-strategy-matchup" className="flex items-center gap-2">
+    // Phones: the two alliances stack (full width, "vs" dropped — the colors
+    // already say who's who). Tablets+: the inline red · vs · blue strip.
+    <div
+      data-testid="dash-strategy-matchup"
+      className="flex w-full flex-col gap-1.5 sm:w-auto sm:flex-row sm:items-center sm:gap-2"
+    >
       <MatchupAllianceChips
         side="red"
         teams={redTeams}
         baseTeam={baseTeam}
         isOurs={ourSide === 'red'}
       />
-      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+      <span className="hidden text-xs font-bold uppercase tracking-wider text-muted-foreground sm:inline">
         vs
       </span>
       <MatchupAllianceChips
@@ -627,9 +632,9 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
     >
       {/* Header row: match identity (left) + selector INLINE with it on wide
           screens (iPad/desktop) + actions (right). Wraps on phones. */}
-      <div className="flex flex-col gap-2 rounded-lg bg-black/30 px-4 py-3">
+      <div className="flex flex-col gap-2 rounded-lg bg-black/30 px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h2 className="flex shrink-0 items-center text-2xl font-bold tracking-tight text-foreground">
+          <h2 className="flex shrink-0 flex-wrap items-center text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             <span data-testid="dash-strategy-title">
               {match ? formatMatchKeyRaw(match.match_key) : 'Manual matchup'}
             </span>
@@ -664,7 +669,9 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               value={match?.match_key ?? ''}
               onChange={(e) => selectMatch(e.target.value)}
               className={cn(
-                'min-w-[16rem] max-w-xl flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground',
+                // min-w-full gives the selector its own full row on phones;
+                // tablets+ keep it inline beside the title.
+                'min-w-full max-w-xl flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground sm:min-w-[16rem]',
                 'min-h-[44px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               )}
             >
@@ -690,7 +697,8 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
                 onClick={startTracking}
               >
                 <LocateFixed className="size-4" />
-                Track our next match
+                <span className="hidden md:inline">Track our next match</span>
+                <span className="md:hidden">Track</span>
               </Button>
             ) : null}
             <button
@@ -752,20 +760,21 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
 
       {subView === 'board' ? (
         <Card className="border-border">
-          <CardHeader className="flex flex-col gap-2 space-y-0 p-4 pb-2">
+          <CardHeader className="flex flex-col gap-2 space-y-0 p-3 pb-2 sm:p-4 sm:pb-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {/* One board per game phase. */}
+              {/* One board per game phase. Compact labels on phones so all five
+                  phases fit one line at 390px. */}
               <SegmentedToggle<WhiteboardPhase>
                 ariaLabel="Whiteboard phase"
                 value={phase}
                 onChange={setPhase}
                 size="default"
-                className="max-w-xl flex-1 basis-80"
+                className="max-w-xl flex-1 basis-80 [&_button]:px-1 [&_button]:text-xs sm:[&_button]:px-2 sm:[&_button]:text-sm"
                 options={WHITEBOARD_PHASES.map((p) => ({ value: p, label: PHASE_LABEL[p] }))}
               />
               {/* The matchup, glanceable mid-drawing (fills the header's empty
                   area; the selector above is too compact to read at a table). */}
-              <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="ml-auto flex w-full flex-wrap items-center gap-x-3 gap-y-2 sm:w-auto">
                 <MatchupStrip
                   redTeams={redTeams}
                   blueTeams={blueTeams}
@@ -787,7 +796,8 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-4 pt-2">
+          {/* Tight phone padding — every horizontal pixel goes to the canvas. */}
+          <CardContent className="p-2 sm:p-4 sm:pt-2">
             <FieldWhiteboard
               key={`${eventKey}:${boardMatchKey}:${phase}`}
               eventKey={eventKey}
