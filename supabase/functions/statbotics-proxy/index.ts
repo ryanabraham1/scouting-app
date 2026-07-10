@@ -1,15 +1,28 @@
 // supabase/functions/statbotics-proxy/index.ts
 import { corsHeaders } from "../_shared/cors.ts";
+import { readTextResponse } from "../_shared/readJsonBody.ts";
 import { isSafeProxyPath } from "../_shared/validatePath.ts";
 
 const SB_BASE = "https://api.statbotics.io/v3";
 const CACHE_TTL_MS = 300_000;
+const MAX_CACHE_ENTRIES = 128;
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 interface CacheEntry {
   expires: number;
   body: string;
 }
 const cache = new Map<string, CacheEntry>();
+
+function cacheResponse(path: string, entry: CacheEntry): void {
+  cache.delete(path);
+  while (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  cache.set(path, entry);
+}
 
 function unavailable(): Response {
   return new Response(JSON.stringify({ available: false }), {
@@ -62,6 +75,7 @@ Deno.serve(async (req) => {
   try {
     upstream = await fetch(`${SB_BASE}${path}`, {
       headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
     });
   } catch (_err) {
     return unavailable();
@@ -73,8 +87,13 @@ Deno.serve(async (req) => {
     return unavailable();
   }
 
-  const body = await upstream.text();
-  cache.set(path, { expires: now + CACHE_TTL_MS, body });
+  let body: string;
+  try {
+    body = await readTextResponse(upstream, MAX_RESPONSE_BYTES);
+  } catch {
+    return unavailable();
+  }
+  cacheResponse(path, { expires: now + CACHE_TTL_MS, body });
 
   return new Response(body, {
     status: 200,

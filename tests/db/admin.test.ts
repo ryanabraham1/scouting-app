@@ -23,6 +23,8 @@ const OTHER_MATCH = `dbtest_other_${rid}_qm1`;
 
 let adminUserId = '';
 let adminScoutId = '';
+let secondScoutId = '';
+let otherScoutId = '';
 let adminClient: SupabaseClient;
 let anonClient: SupabaseClient;
 
@@ -68,6 +70,17 @@ beforeAll(async () => {
     .insert({ event_key: `dbtest_other_${rid}`, name: `DB Other ${rid}` });
   if (ev2Ins.error) throw ev2Ins.error;
 
+  const eventTeamIns = await admin.from('event_team').insert([
+    ...[100, 101, 102, 110, 111, 112, 200, 201, 202, 210, 211, 212].map(
+      (team_number) => ({ event_key: EVENT_KEY, team_number }),
+    ),
+    ...[1, 2, 3, 4, 5, 6].map((team_number) => ({
+      event_key: `dbtest_other_${rid}`,
+      team_number,
+    })),
+  ]);
+  if (eventTeamIns.error) throw eventTeamIns.error;
+
   // 4. Seed a real scout (a scouter) to reference in assignments. scout PK is `id`;
   //    requires event_key + a UNIQUE auth_uid (use a random uuid, distinct from the admin).
   const scoutIns = await admin
@@ -77,6 +90,28 @@ beforeAll(async () => {
     .single();
   if (scoutIns.error) throw scoutIns.error;
   adminScoutId = scoutIns.data.id;
+  const secondScoutIns = await admin
+    .from('scout')
+    .insert({
+      event_key: EVENT_KEY,
+      display_name: `Pit Partner ${rid}`,
+      auth_uid: crypto.randomUUID(),
+    })
+    .select('id')
+    .single();
+  if (secondScoutIns.error) throw secondScoutIns.error;
+  secondScoutId = secondScoutIns.data.id;
+  const otherScoutIns = await admin
+    .from('scout')
+    .insert({
+      event_key: `dbtest_other_${rid}`,
+      display_name: `Other Event Scout ${rid}`,
+      auth_uid: crypto.randomUUID(),
+    })
+    .select('id')
+    .single();
+  if (otherScoutIns.error) throw otherScoutIns.error;
+  otherScoutId = otherScoutIns.data.id;
 
   const mIns = await admin.from('match').insert([
     {
@@ -122,8 +157,12 @@ beforeAll(async () => {
 afterAll(async () => {
   // FK-safe order: assignment -> match -> scout -> event -> profile -> auth user.
   await admin.from('assignment').delete().eq('event_key', EVENT_KEY);
+  await admin.from('assignment').delete().eq('event_key', `dbtest_other_${rid}`);
+  await admin.from('pit_assignment').delete().eq('event_key', EVENT_KEY);
+  await admin.from('pit_assignment').delete().eq('event_key', `dbtest_other_${rid}`);
   await admin.from('match').delete().in('match_key', [M1, M2, OTHER_MATCH]);
-  await admin.from('scout').delete().eq('id', adminScoutId);
+  await admin.from('scout').delete().in('id', [adminScoutId, secondScoutId, otherScoutId]);
+  await admin.from('event_team').delete().in('event_key', [EVENT_KEY, `dbtest_other_${rid}`]);
   await admin.from('event').delete().in('event_key', [EVENT_KEY, `dbtest_other_${rid}`]);
   await admin.from('profile').delete().eq('auth_uid', adminUserId);
   await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${adminUserId}`, {
@@ -173,7 +212,31 @@ describe('staff read policies', () => {
 });
 
 describe('set_assignments RPC', () => {
-  it('inserts rows for an admin and validates match ownership', async () => {
+  it('atomically rejects malformed/cross-event rows and accepts a valid batch', async () => {
+    const malformed = await adminClient.rpc('set_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [{
+        match_key: M1,
+        scout_id: null,
+        alliance_color: 'red',
+        station: 2,
+        target_team_number: 101,
+      }],
+    });
+    expect(malformed.error?.code).toBe('22023');
+
+    const crossEvent = await adminClient.rpc('set_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [{
+        match_key: OTHER_MATCH,
+        scout_id: adminScoutId,
+        alliance_color: 'red',
+        station: 3,
+        target_team_number: 3,
+      }],
+    });
+    expect(crossEvent.error?.code).toBe('23503');
+
     const payload = [
       {
         match_key: M1,
@@ -188,22 +251,6 @@ describe('set_assignments RPC', () => {
         alliance_color: 'blue',
         station: 2,
         target_team_number: 211,
-      },
-      // null scout_id -> skipped
-      {
-        match_key: M1,
-        scout_id: null,
-        alliance_color: 'red',
-        station: 2,
-        target_team_number: 101,
-      },
-      // match in another event -> skipped
-      {
-        match_key: OTHER_MATCH,
-        scout_id: adminScoutId,
-        alliance_color: 'red',
-        station: 3,
-        target_team_number: 3,
       },
     ];
     const res = await adminClient.rpc('set_assignments', {
@@ -251,5 +298,110 @@ describe('set_assignments RPC', () => {
     });
     expect(res.error).toBeNull();
     expect(res.data).toBe(0);
+  });
+
+  it('an empty publish deletes only the addressed event', async () => {
+    const otherEvent = `dbtest_other_${rid}`;
+    const seeded = await admin.from('assignment').insert({
+      event_key: otherEvent,
+      match_key: OTHER_MATCH,
+      scout_id: otherScoutId,
+      alliance_color: 'red',
+      station: 1,
+      target_team_number: 1,
+      source: 'manual',
+    });
+    expect(seeded.error).toBeNull();
+
+    const cleared = await anonClient.rpc('set_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [],
+    });
+    expect(cleared.error).toBeNull();
+
+    const untouched = await admin
+      .from('assignment')
+      .select('match_key')
+      .eq('event_key', otherEvent);
+    expect(untouched.data).toEqual([{ match_key: OTHER_MATCH }]);
+  });
+});
+
+describe('set_pit_assignments RPC', () => {
+  it('rejects duplicate or cross-event memberships before replacing the batch', async () => {
+    const duplicate = await anonClient.rpc('set_pit_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [
+        { team_number: 100, scout_id: adminScoutId, source: 'auto' },
+        { team_number: 100, scout_id: adminScoutId, source: 'manual' },
+      ],
+    });
+    expect(duplicate.error?.code).toBe('22023');
+
+    const crossEvent = await anonClient.rpc('set_pit_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [
+        { team_number: 1, scout_id: adminScoutId, source: 'auto' },
+      ],
+    });
+    expect(crossEvent.error?.code).toBe('23503');
+
+    const res = await anonClient.rpc('set_pit_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [
+        { team_number: 100, scout_id: adminScoutId, source: 'manual' },
+        { team_number: 100, scout_id: secondScoutId, source: 'auto' },
+      ],
+    });
+    expect(res.error).toBeNull();
+    expect(res.data).toBe(2);
+
+    const rows = await admin
+      .from('pit_assignment')
+      .select('team_number,scout_id,source')
+      .eq('event_key', EVENT_KEY);
+    expect(rows.error).toBeNull();
+    expect(rows.data).toHaveLength(2);
+    expect(rows.data).toEqual(expect.arrayContaining([
+      { team_number: 100, scout_id: adminScoutId, source: 'manual' },
+      { team_number: 100, scout_id: secondScoutId, source: 'auto' },
+    ]));
+  });
+
+  it('atomically replaces prior pit assignments', async () => {
+    const res = await anonClient.rpc('set_pit_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [{ team_number: 101, scout_id: adminScoutId, source: 'manual' }],
+    });
+    expect(res.error).toBeNull();
+    expect(res.data).toBe(1);
+    const rows = await admin
+      .from('pit_assignment')
+      .select('team_number')
+      .eq('event_key', EVENT_KEY);
+    expect(rows.data).toEqual([{ team_number: 101 }]);
+  });
+
+  it('an empty pit publish deletes only the addressed event', async () => {
+    const otherEvent = `dbtest_other_${rid}`;
+    const seeded = await admin.from('pit_assignment').insert({
+      event_key: otherEvent,
+      team_number: 1,
+      scout_id: otherScoutId,
+      source: 'manual',
+    });
+    expect(seeded.error).toBeNull();
+
+    const cleared = await anonClient.rpc('set_pit_assignments', {
+      p_event_key: EVENT_KEY,
+      p_assignments: [],
+    });
+    expect(cleared.error).toBeNull();
+
+    const untouched = await admin
+      .from('pit_assignment')
+      .select('team_number,scout_id')
+      .eq('event_key', otherEvent);
+    expect(untouched.data).toEqual([{ team_number: 1, scout_id: otherScoutId }]);
   });
 });

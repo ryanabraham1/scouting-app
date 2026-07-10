@@ -4,17 +4,20 @@ import type {
   CaptureDraft,
   CachedMatch,
   CachedAssignment,
+  CachedPitAssignment,
   CachedRosterScouter,
   CachedTeam,
   PreloadMeta,
   LocalMatchupNote,
   LocalStrategyCanvas,
+  LocalRecoveryIssue,
 } from './types';
 import {
   isAuthClassError,
   isSupersedeRecoverable,
   isOrphanedScoutRecoverable,
 } from '@/sync/classifyError';
+import { normalizeStoredRating } from '@/ratings';
 
 export class ScoutingDb extends Dexie {
   reports!: Table<LocalMatchReport, string>;
@@ -23,10 +26,11 @@ export class ScoutingDb extends Dexie {
   // with zero wifi. See preloadClient.ts for the read/write helpers.
   cachedMatches!: Table<CachedMatch, string>;
   cachedAssignments!: Table<CachedAssignment, string>;
+  cachedPitAssignments!: Table<CachedPitAssignment, string>;
   cachedRoster!: Table<CachedRosterScouter, string>;
   cachedTeams!: Table<CachedTeam, string>;
   preloadMeta!: Table<PreloadMeta, string>;
-  // Per-opponent matchup notes (matchup-intelligence). Queues + drains through
+  // Event-scoped team strategy notes (plus legacy matchup-pair notes). Queues through
   // the sync controller exactly like `reports` (dirty → pending → synced/error).
   matchupNotes!: Table<LocalMatchupNote, string>;
   // Per-match strategy whiteboard docs (Strategy tab). Same sync-state machine.
@@ -78,6 +82,19 @@ export class ScoutingDb extends Dexie {
       matchupNotes: 'key, eventKey, syncState, ourTeam, oppTeam',
       strategyCanvas: 'key, eventKey, syncState',
     });
+    // v5: cache team-level pit assignments for zero-network pit scouting.
+    this.version(5).stores({
+      reports: 'id, syncState, matchKey, scoutId, targetTeamNumber',
+      drafts: 'draftKey, updatedAt',
+      cachedMatches: 'match_key, event_key',
+      cachedAssignments: 'id, scout_id, event_key, match_key',
+      cachedPitAssignments: 'id, scout_id, event_key, team_number',
+      cachedRoster: 'id, name',
+      cachedTeams: 'id, event_key, team_number',
+      preloadMeta: 'key',
+      matchupNotes: 'key, eventKey, syncState, ourTeam, oppTeam',
+      strategyCanvas: 'key, eventKey, syncState',
+    });
   }
 }
 
@@ -85,11 +102,17 @@ export const db = new ScoutingDb();
 
 // Tolerate rows written before rowRevision/syncAttempts/lastSyncError existed.
 function withSyncDefaults(r: LocalMatchReport): LocalMatchReport {
+  const schemaVersion = r.schemaVersion ?? 1;
   return {
     ...r,
+    schemaVersion,
+    defenseRating: normalizeStoredRating(r.defenseRating, schemaVersion),
+    driverSkill: normalizeStoredRating(r.driverSkill, schemaVersion),
+    agility: normalizeStoredRating(r.agility, schemaVersion),
     rowRevision: r.rowRevision ?? 1,
     syncAttempts: r.syncAttempts ?? 0,
     lastSyncError: r.lastSyncError ?? null,
+    nextSyncAt: r.nextSyncAt ?? null,
   };
 }
 
@@ -98,8 +121,23 @@ export async function saveReport(r: LocalMatchReport): Promise<void> {
   await db.reports.put(record);
 }
 
+/** Atomically promote a capture draft into the durable report outbox. */
+export async function finalizeReport(
+  report: LocalMatchReport,
+  draftKey: string,
+): Promise<void> {
+  const record: LocalMatchReport = {
+    ...report,
+    syncState: report.syncState ?? 'dirty',
+  };
+  await db.transaction('rw', db.reports, db.drafts, async () => {
+    await db.reports.put(record);
+    await db.drafts.delete(draftKey);
+  });
+}
+
 export async function listReports(): Promise<LocalMatchReport[]> {
-  return db.reports.toArray();
+  return (await db.reports.toArray()).map(withSyncDefaults);
 }
 
 // Single-report read for the edit/correction flow: returns the row with
@@ -129,12 +167,17 @@ export async function markSynced(id: string, uploadedRevision?: number): Promise
     .where('id')
     .equals(id)
     .and((r) => uploadedRevision == null || (r.rowRevision ?? 1) === uploadedRevision)
-    .modify({ syncState: 'synced', syncAttempts: 0, lastSyncError: null });
+    .modify({
+      syncState: 'synced',
+      syncAttempts: 0,
+      lastSyncError: null,
+      nextSyncAt: null,
+    });
 }
 
 // Upload in flight: set immediately before the RPC call.
 export async function markPending(id: string): Promise<void> {
-  await db.reports.update(id, { syncState: 'pending' });
+  await db.reports.update(id, { syncState: 'pending', nextSyncAt: null });
 }
 
 // DEAD-LETTER: terminal failure; NOT auto-retried, surfaced in the UI. The same
@@ -150,7 +193,7 @@ export async function markSyncError(
     .where('id')
     .equals(id)
     .and((r) => uploadedRevision == null || (r.rowRevision ?? 1) === uploadedRevision)
-    .modify({ syncState: 'error', lastSyncError: message });
+    .modify({ syncState: 'error', lastSyncError: message, nextSyncAt: null });
 }
 
 // Transient failure: back to the queue. Bumps the attempt counter (which feeds
@@ -159,16 +202,23 @@ export async function markSyncError(
 export async function markDirtyRetry(
   id: string,
   message: string,
-  opts?: { countAttempt?: boolean },
+  opts?: { countAttempt?: boolean; uploadedRevision?: number; nextSyncAt?: number },
 ): Promise<void> {
-  const existing = await db.reports.get(id);
   const bump = opts?.countAttempt === false ? 0 : 1;
-  const attempts = (existing?.syncAttempts ?? 0) + bump;
-  await db.reports.update(id, {
-    syncState: 'dirty',
-    syncAttempts: attempts,
-    lastSyncError: message,
-  });
+  await db.reports
+    .where('id')
+    .equals(id)
+    .and(
+      (r) =>
+        opts?.uploadedRevision == null ||
+        (r.rowRevision ?? 1) === opts.uploadedRevision,
+    )
+    .modify((record) => {
+      record.syncState = 'dirty';
+      record.syncAttempts = (record.syncAttempts ?? 0) + bump;
+      record.lastSyncError = message;
+      record.nextSyncAt = opts?.nextSyncAt ?? null;
+    });
 }
 
 // Auto-retry worklist: dirty + pending, oldest first; EXCLUDES 'error' and 'synced'.
@@ -178,6 +228,10 @@ export async function getSyncQueue(): Promise<LocalMatchReport[]> {
     .filter((r) => r.syncState === 'dirty' || r.syncState === 'pending')
     .map(withSyncDefaults)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function getDueSyncQueue(now = Date.now()): Promise<LocalMatchReport[]> {
+  return (await getSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
 }
 
 // Dead-letters for the UI / manual retry.
@@ -215,6 +269,7 @@ export async function requeueReport(id: string): Promise<void> {
     syncState: 'dirty',
     syncAttempts: 0,
     lastSyncError: null,
+    nextSyncAt: null,
   });
 }
 
@@ -247,8 +302,26 @@ export async function deleteDraft(draftKey: string): Promise<void> {
   await db.drafts.delete(draftKey);
 }
 
+/** Preserve an unreadable/future capture draft without offering it for resume. */
+export async function quarantineDraft(draftKey: string, reason: string): Promise<void> {
+  await db.transaction('rw', db.drafts, async () => {
+    const original = await db.drafts.get(draftKey);
+    if (!original) return;
+    const quarantinedAt = new Date().toISOString();
+    await db.drafts.put({
+      draftKey: `quarantine:${quarantinedAt}:${draftKey}`,
+      updatedAt: quarantinedAt,
+      state: {
+        quarantineReason: reason,
+        originalDraft: original,
+      },
+    });
+    await db.drafts.delete(draftKey);
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Matchup notes outbox (matchup-intelligence).
+// Team strategy / legacy matchup notes outbox (matchup-intelligence).
 //
 // Mirrors the report queue's sync-state machine. A note is written 'dirty'
 // before any network call (so an offline save always succeeds locally) and
@@ -261,13 +334,19 @@ function withMatchupDefaults(r: LocalMatchupNote): LocalMatchupNote {
     authorScoutId: r.authorScoutId ?? null,
     syncAttempts: r.syncAttempts ?? 0,
     lastSyncError: r.lastSyncError ?? null,
+    nextSyncAt: r.nextSyncAt ?? null,
+    recoveryIssue: r.recoveryIssue ?? null,
   };
 }
 
 // Persist (upsert by key) a matchup note as 'dirty'. The full record is provided
 // by the client layer (matchupNotesClient) which owns the key/normalization.
 export async function saveMatchupNoteLocal(note: LocalMatchupNote): Promise<void> {
-  await db.matchupNotes.put({ ...note, syncState: note.syncState ?? 'dirty' });
+  await db.matchupNotes.put({
+    ...note,
+    syncState: note.syncState ?? 'dirty',
+    recoveryIssue: note.recoveryIssue ?? null,
+  });
 }
 
 export async function getMatchupNote(key: string): Promise<LocalMatchupNote | undefined> {
@@ -277,7 +356,10 @@ export async function getMatchupNote(key: string): Promise<LocalMatchupNote | un
 
 export async function listMatchupNotesForEvent(eventKey: string): Promise<LocalMatchupNote[]> {
   const all = await db.matchupNotes.where('eventKey').equals(eventKey).toArray();
-  return all.map(withMatchupDefaults);
+  // A rejected/conflicted local value is a recovery copy, not canonical data.
+  // Keep it in the typed dead-letter registry, but never let dashboard reads
+  // silently paint it over the accepted server value.
+  return all.filter((row) => row.syncState !== 'error').map(withMatchupDefaults);
 }
 
 // Auto-retry worklist: dirty + pending, oldest first; EXCLUDES 'error'/'synced'.
@@ -289,13 +371,17 @@ export async function getMatchupSyncQueue(): Promise<LocalMatchupNote[]> {
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 }
 
+export async function getDueMatchupSyncQueue(now = Date.now()): Promise<LocalMatchupNote[]> {
+  return (await getMatchupSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
+}
+
 export async function listMatchupDeadLetters(): Promise<LocalMatchupNote[]> {
   const all = await db.matchupNotes.toArray();
   return all.filter((r) => r.syncState === 'error').map(withMatchupDefaults);
 }
 
 export async function markMatchupPending(key: string): Promise<void> {
-  await db.matchupNotes.update(key, { syncState: 'pending' });
+  await db.matchupNotes.update(key, { syncState: 'pending', nextSyncAt: null });
 }
 
 // Success/dead-letter guards mirror markSynced/markSyncError: when
@@ -307,34 +393,57 @@ export async function markMatchupSynced(key: string, uploadedUpdatedAt?: string)
     .where('key')
     .equals(key)
     .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
-    .modify({ syncState: 'synced', syncAttempts: 0, lastSyncError: null });
+    .modify({
+      syncState: 'synced',
+      syncAttempts: 0,
+      lastSyncError: null,
+      nextSyncAt: null,
+      recoveryIssue: null,
+    });
 }
 
 export async function markMatchupDirtyRetry(
   key: string,
   message: string,
-  opts?: { countAttempt?: boolean },
+  opts?: { countAttempt?: boolean; uploadedUpdatedAt?: string; nextSyncAt?: number },
 ): Promise<void> {
-  const existing = await db.matchupNotes.get(key);
   const bump = opts?.countAttempt === false ? 0 : 1;
-  const attempts = (existing?.syncAttempts ?? 0) + bump;
-  await db.matchupNotes.update(key, {
-    syncState: 'dirty',
-    syncAttempts: attempts,
-    lastSyncError: message,
-  });
+  await db.matchupNotes
+    .where('key')
+    .equals(key)
+    .and(
+      (r) =>
+        opts?.uploadedUpdatedAt == null ||
+        r.updatedAt === opts.uploadedUpdatedAt,
+    )
+    .modify((record) => {
+      record.syncState = 'dirty';
+      record.syncAttempts = (record.syncAttempts ?? 0) + bump;
+      record.lastSyncError = message;
+      record.nextSyncAt = opts?.nextSyncAt ?? null;
+    });
 }
 
 export async function markMatchupSyncError(
   key: string,
   message: string,
   uploadedUpdatedAt?: string,
+  recoveryIssue?: LocalRecoveryIssue,
 ): Promise<void> {
   await db.matchupNotes
     .where('key')
     .equals(key)
     .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
-    .modify({ syncState: 'error', lastSyncError: message });
+    .modify({
+      syncState: 'error',
+      lastSyncError: message,
+      nextSyncAt: null,
+      recoveryIssue: recoveryIssue ?? {
+        kind: 'terminal',
+        code: 'MATCHUP_NOTE_SYNC_ERROR',
+        detectedAt: new Date().toISOString(),
+      },
+    });
 }
 
 // Reset a matchup-note dead-letter to 'dirty' for a manual retry.
@@ -343,7 +452,13 @@ export async function requeueMatchupNote(key: string): Promise<void> {
     syncState: 'dirty',
     syncAttempts: 0,
     lastSyncError: null,
+    nextSyncAt: null,
+    recoveryIssue: null,
   });
+}
+
+export async function deleteMatchupNote(key: string): Promise<void> {
+  await db.matchupNotes.delete(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -361,19 +476,27 @@ function withStrategyDefaults(r: LocalStrategyCanvas): LocalStrategyCanvas {
     deletedIds: r.deletedIds ?? [],
     syncAttempts: r.syncAttempts ?? 0,
     lastSyncError: r.lastSyncError ?? null,
+    nextSyncAt: r.nextSyncAt ?? null,
+    recoveryIssue: r.recoveryIssue ?? null,
   };
 }
 
 /** Persist (upsert by key) a whiteboard doc as 'dirty'. */
 export async function saveStrategyCanvasLocal(doc: LocalStrategyCanvas): Promise<void> {
-  await db.strategyCanvas.put({ ...doc, syncState: doc.syncState ?? 'dirty' });
+  await db.strategyCanvas.put({
+    ...doc,
+    syncState: doc.syncState ?? 'dirty',
+    recoveryIssue: doc.recoveryIssue ?? null,
+  });
 }
 
 export async function getStrategyCanvasLocal(
   key: string,
 ): Promise<LocalStrategyCanvas | undefined> {
   const r = await db.strategyCanvas.get(key);
-  return r ? withStrategyDefaults(r) : undefined;
+  // Error rows are recovery copies, not an accepted canvas. Rendering them over
+  // a server document would make rejected local ink look canonical.
+  return r && r.syncState !== 'error' ? withStrategyDefaults(r) : undefined;
 }
 
 /** Auto-retry worklist: dirty + pending, oldest first; EXCLUDES 'error'/'synced'. */
@@ -385,13 +508,19 @@ export async function getStrategyCanvasSyncQueue(): Promise<LocalStrategyCanvas[
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 }
 
+export async function getDueStrategyCanvasSyncQueue(
+  now = Date.now(),
+): Promise<LocalStrategyCanvas[]> {
+  return (await getStrategyCanvasSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
+}
+
 export async function listStrategyCanvasDeadLetters(): Promise<LocalStrategyCanvas[]> {
   const all = await db.strategyCanvas.toArray();
   return all.filter((r) => r.syncState === 'error').map(withStrategyDefaults);
 }
 
 export async function markStrategyCanvasPending(key: string): Promise<void> {
-  await db.strategyCanvas.update(key, { syncState: 'pending' });
+  await db.strategyCanvas.update(key, { syncState: 'pending', nextSyncAt: null });
 }
 
 // Same in-flight-edit guards as markMatchupSynced/markMatchupSyncError: the
@@ -404,34 +533,57 @@ export async function markStrategyCanvasSynced(
     .where('key')
     .equals(key)
     .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
-    .modify({ syncState: 'synced', syncAttempts: 0, lastSyncError: null });
+    .modify({
+      syncState: 'synced',
+      syncAttempts: 0,
+      lastSyncError: null,
+      nextSyncAt: null,
+      recoveryIssue: null,
+    });
 }
 
 export async function markStrategyCanvasDirtyRetry(
   key: string,
   message: string,
-  opts?: { countAttempt?: boolean },
+  opts?: { countAttempt?: boolean; uploadedUpdatedAt?: string; nextSyncAt?: number },
 ): Promise<void> {
-  const existing = await db.strategyCanvas.get(key);
   const bump = opts?.countAttempt === false ? 0 : 1;
-  const attempts = (existing?.syncAttempts ?? 0) + bump;
-  await db.strategyCanvas.update(key, {
-    syncState: 'dirty',
-    syncAttempts: attempts,
-    lastSyncError: message,
-  });
+  await db.strategyCanvas
+    .where('key')
+    .equals(key)
+    .and(
+      (r) =>
+        opts?.uploadedUpdatedAt == null ||
+        r.updatedAt === opts.uploadedUpdatedAt,
+    )
+    .modify((record) => {
+      record.syncState = 'dirty';
+      record.syncAttempts = (record.syncAttempts ?? 0) + bump;
+      record.lastSyncError = message;
+      record.nextSyncAt = opts?.nextSyncAt ?? null;
+    });
 }
 
 export async function markStrategyCanvasSyncError(
   key: string,
   message: string,
   uploadedUpdatedAt?: string,
+  recoveryIssue?: LocalRecoveryIssue,
 ): Promise<void> {
   await db.strategyCanvas
     .where('key')
     .equals(key)
     .and((r) => uploadedUpdatedAt == null || r.updatedAt === uploadedUpdatedAt)
-    .modify({ syncState: 'error', lastSyncError: message });
+    .modify({
+      syncState: 'error',
+      lastSyncError: message,
+      nextSyncAt: null,
+      recoveryIssue: recoveryIssue ?? {
+        kind: 'terminal',
+        code: 'STRATEGY_CANVAS_SYNC_ERROR',
+        detectedAt: new Date().toISOString(),
+      },
+    });
 }
 
 /** Reset a whiteboard dead-letter to 'dirty' for a manual retry. */
@@ -440,7 +592,13 @@ export async function requeueStrategyCanvas(key: string): Promise<void> {
     syncState: 'dirty',
     syncAttempts: 0,
     lastSyncError: null,
+    nextSyncAt: null,
+    recoveryIssue: null,
   });
+}
+
+export async function deleteStrategyCanvas(key: string): Promise<void> {
+  await db.strategyCanvas.delete(key);
 }
 
 /**

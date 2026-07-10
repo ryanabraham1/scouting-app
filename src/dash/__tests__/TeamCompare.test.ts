@@ -1,11 +1,9 @@
-// src/dash/__tests__/TeamCompare.test.ts
-// Unit tests for the pure radar-normalization helper buildCompareSeries.
-
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
 import {
-  buildCompareSeries,
-  COMPARE_AXES,
+  buildComparisonData,
+  MAX_COMPARE_TEAMS,
+  TEAM_COMPARE_COLORS,
   type CompareTeam,
 } from '@/dash/TeamCompare';
 
@@ -17,73 +15,73 @@ function team(
   return { agg: { ...emptyTeamAgg(teamNumber), ...overrides }, epa };
 }
 
-const axisIndex = (key: string) => COMPARE_AXES.findIndex((a) => a.key === key);
-
-describe('buildCompareSeries', () => {
-  it('returns one series per team, preserving order + identity', () => {
-    const series = buildCompareSeries([team(111), team(222), team(333)]);
-    expect(series.map((s) => s.teamNumber)).toEqual([111, 222, 333]);
-    expect(series.map((s) => s.colorIndex)).toEqual([0, 1, 2]);
+describe('buildComparisonData', () => {
+  it('preserves selection order and assigns one stable color per team', () => {
+    const data = buildComparisonData([team(111), team(222), team(333)]);
+    expect(data.map((item) => item.teamNumber)).toEqual([111, 222, 333]);
+    expect(data.map((item) => item.color)).toEqual(
+      TEAM_COMPARE_COLORS.slice(0, 3),
+    );
   });
 
-  it('emits one normalized value per axis, all within [0,1]', () => {
-    const series = buildCompareSeries([
-      team(1, { scoutingExpectedPoints: 40, climbSuccessRate: 0.5 }),
-      team(2, { scoutingExpectedPoints: 20, climbSuccessRate: 1 }),
+  it('splits expected points into auto fuel, later fuel, and climb without changing the total', () => {
+    const [data] = buildComparisonData([
+      team(
+        254,
+        {
+          matchesScouted: 4,
+          meanAutoFuel: 10,
+          meanTeleopFuelActive: 30,
+          meanEndgameFuel: 10,
+          meanFuelPoints: 80,
+          meanClimbPoints: 20,
+          scoutingExpectedPoints: 100,
+        },
+        94,
+      ),
     ]);
-    for (const s of series) {
-      expect(s.values).toHaveLength(COMPARE_AXES.length);
-      for (const v of s.values) {
-        expect(v).toBeGreaterThanOrEqual(0);
-        expect(v).toBeLessThanOrEqual(1);
-        expect(Number.isFinite(v)).toBe(true);
-      }
-    }
+
+    expect(data.scoring.auto).toBeCloseTo(16);
+    expect(data.scoring.teleopEndgame).toBeCloseTo(64);
+    expect(data.scoring.climb).toBe(20);
+    expect(
+      data.scoring.auto + data.scoring.teleopEndgame + data.scoring.climb,
+    ).toBeCloseTo(data.scoring.expected);
+    expect(data.scoring.epa).toBe(94);
   });
 
-  it('normalizes magnitude axes against the per-axis max among teams', () => {
-    const ei = axisIndex('expPts');
-    const series = buildCompareSeries([
-      team(1, { scoutingExpectedPoints: 40 }),
-      team(2, { scoutingExpectedPoints: 10 }),
+  it('keeps rates and qualitative defense in their native scales', () => {
+    const [data] = buildComparisonData([
+      team(1678, {
+        reliability: 0.75,
+        climbSuccessRate: 0.5,
+        avgDefenseRating: 8,
+      }),
     ]);
-    // The max team pins the axis at 1; the other is the ratio.
-    expect(series[0].values[ei]).toBeCloseTo(1);
-    expect(series[1].values[ei]).toBeCloseTo(0.25);
+    expect(data.reliability).toBe(0.75);
+    expect(data.climbSuccess).toBe(0.5);
+    expect(data.defenseRating).toBe(8);
   });
 
-  it('passes rate axes through clamped to [0,1] without cross-team scaling', () => {
-    const ci = axisIndex('climb');
-    const series = buildCompareSeries([
-      team(1, { climbSuccessRate: 0.5 }),
-      team(2, { climbSuccessRate: 0.5 }),
+  it('gates defender impact until the minimum opponent sample is met', () => {
+    const data = buildComparisonData([
+      team(1, { defenderEffectiveness: 0.25, defenseSampleCount: 1 }),
+      team(2, { defenderEffectiveness: 0.25, defenseSampleCount: 2 }),
     ]);
-    // Both at 0.5 — a rate axis must NOT renormalize them both to 1.
-    expect(series[0].values[ci]).toBeCloseTo(0.5);
-    expect(series[1].values[ci]).toBeCloseTo(0.5);
+    expect(data[0].opponentSlowdownCaused).toBeNull();
+    expect(data[1].opponentSlowdownCaused).toBe(0.25);
   });
 
-  it('uses a fixed 1..5 ceiling for the defense axis', () => {
-    const di = axisIndex('defense');
-    const series = buildCompareSeries([
-      team(1, { avgDefenseRating: 5 }),
-      team(2, { avgDefenseRating: 2.5 }),
-    ]);
-    expect(series[0].values[di]).toBeCloseTo(1);
-    expect(series[1].values[di]).toBeCloseTo(0.5);
+  it('caps the model at the supported team count', () => {
+    const teams = Array.from({ length: MAX_COMPARE_TEAMS + 2 }, (_, index) =>
+      team(index + 1),
+    );
+    expect(buildComparisonData(teams)).toHaveLength(MAX_COMPARE_TEAMS);
   });
 
-  it('treats null/absent EPA as 0 on its axis (no NaN)', () => {
-    const ei = axisIndex('epa');
-    const series = buildCompareSeries([team(1, {}, 30), team(2, {}, null)]);
-    expect(series[0].values[ei]).toBeCloseTo(1);
-    expect(series[1].values[ei]).toBe(0);
-  });
-
-  it('yields all-zero magnitude spokes when every team is empty (no division blowup)', () => {
-    const series = buildCompareSeries([team(1), team(2)]);
-    const ei = axisIndex('expPts');
-    expect(series[0].values[ei]).toBe(0);
-    expect(series[1].values[ei]).toBe(0);
+  it('treats non-finite EPA as unavailable', () => {
+    expect(
+      buildComparisonData([team(1, {}, Number.NaN)])[0].scoring.epa,
+    ).toBeNull();
   });
 });

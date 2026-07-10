@@ -35,7 +35,7 @@ export interface MatchupDashboardProps {
 
 const EM_DASH = '—';
 
-/** Numeric mean of a 0–3 super-scout rating (0/null excluded); null when unrated. */
+/** Numeric mean of a 1–10 super-scout rating (0/null excluded); null when unrated. */
 function ratedMeanNum(
   reports: MsrRow[] | undefined,
   sel: (m: MsrRow) => number | null | undefined,
@@ -49,8 +49,11 @@ function ratedMeanNum(
 function sumComponent(
   teams: TeamPrediction[],
   key: 'auto' | 'fuel' | 'climb' | 'defense',
-): number {
-  return teams.reduce((s, p) => s + (p.components?.[key] ?? 0), 0);
+): number | null {
+  const values = teams
+    .map((prediction) => prediction.components?.[key])
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null;
 }
 
 /** Mean over the alliance's SCOUTED teams; null when none is scouted. */
@@ -138,7 +141,7 @@ interface TeamMetrics {
   nickname: string | null;
   side: 'red' | 'blue';
   scouted: number;
-  expected: number;
+  expected: number | null;
   fuel: number | null;
   /** Mean teleop INACTIVE-period fuel — the feeding workload signal that used
    *  to live only in the removed Alliance Matchup prose ("feeds heavily"). */
@@ -176,10 +179,10 @@ const METRIC_COLS: MetricCol[] = [
   { key: 'fuel', label: 'Teleop', fmt: (v) => v.toFixed(0) },
   { key: 'feed', label: 'Feed', fmt: (v) => v.toFixed(0) },
   { key: 'climbRate', label: 'Climb', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
-  { key: 'defense', label: 'Def', max: 3, fmt: (v) => v.toFixed(1) },
+  { key: 'defense', label: 'Def', max: 10, fmt: (v) => v.toFixed(1) },
   { key: 'defTime', label: 'Def time', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
-  { key: 'driver', label: 'Driver', max: 3, fmt: (v) => v.toFixed(1) },
-  { key: 'agility', label: 'Agility', max: 3, fmt: (v) => v.toFixed(1) },
+  { key: 'driver', label: 'Driver', max: 10, fmt: (v) => v.toFixed(1) },
+  { key: 'agility', label: 'Agility', max: 10, fmt: (v) => v.toFixed(1) },
   { key: 'reliability', label: 'Reliab', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
 ];
 
@@ -295,17 +298,23 @@ export default function MatchupDashboard({
   // ---- Tale of the tape (alliance level) ----------------------------------
   const tape = useMemo<TapeRow[]>(() => {
     const pct = (v: number) => `${Math.round(v * 100)}%`;
-    const anyClimb = (teams: TeamPrediction[]) =>
-      teams.some((p) => p.components?.climb != null);
+    const allianceScore = (teams: TeamPrediction[], score: number): number | null =>
+      Number.isFinite(score) && teams.some((team) => team.source !== 'none')
+        ? score
+        : null;
     return [
-      { label: 'Projected score', red: pred.red.score, blue: pred.blue.score },
+      {
+        label: 'Projected score',
+        red: allianceScore(pred.red.teams, pred.red.score),
+        blue: allianceScore(pred.blue.teams, pred.blue.score),
+      },
       { label: 'Auto pts', red: sumComponent(pred.red.teams, 'auto'), blue: sumComponent(pred.blue.teams, 'auto') },
       // The `fuel` component is TELEOP fuel points — labeled teleop everywhere.
       { label: 'Teleop pts', red: sumComponent(pred.red.teams, 'fuel'), blue: sumComponent(pred.blue.teams, 'fuel') },
       {
         label: 'Climb pts',
-        red: anyClimb(pred.red.teams) ? sumComponent(pred.red.teams, 'climb') : null,
-        blue: anyClimb(pred.blue.teams) ? sumComponent(pred.blue.teams, 'climb') : null,
+        red: sumComponent(pred.red.teams, 'climb'),
+        blue: sumComponent(pred.blue.teams, 'climb'),
       },
       {
         label: 'Defense impact',
@@ -340,7 +349,11 @@ export default function MatchupDashboard({
         side,
         nickname: allTeams.find((t) => t.team_number === team)?.nickname ?? null,
         scouted,
-        expected: predByTeam.get(team)?.expected ?? 0,
+        expected:
+          predByTeam.get(team)?.source !== 'none' &&
+          Number.isFinite(predByTeam.get(team)?.expected)
+            ? predByTeam.get(team)!.expected
+            : null,
         fuel: scouted > 0 && a ? a.meanFuelPoints : null,
         feed: scouted > 0 && a ? a.meanTeleopFuelInactive : null,
         climbRate: scouted > 0 && a ? a.climbSuccessRate : null,
@@ -469,7 +482,7 @@ export default function MatchupDashboard({
             ))}
           </div>
           <p className="px-2 pt-1 text-[10px] text-muted-foreground/70">
-            Bars for Exp/Teleop/Feed scale to this matchup's best; Climb/Reliab are 0–100%; Def/Driver/Agility are 0–3.
+            Bars for Exp/Teleop/Feed scale to this matchup's best; Climb/Reliab are 0–100%; Def/Driver/Agility are 1–10.
           </p>
         </div>
       </CardContent>

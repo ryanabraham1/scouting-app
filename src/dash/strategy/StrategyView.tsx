@@ -60,7 +60,7 @@ import { useTeamEpaTrends } from '@/dash/strategy/useTeamEpaTrends';
 import { matchupTeamAutos, overlayForAutoOption } from '@/dash/CombinedAutoField';
 import MatchupNotesModal from '@/dash/MatchupNotesModal';
 import { useMatchupNotes } from '@/dash/useEventData';
-import { normalizeMatchup, keyFor } from '@/dash/matchupNotesClient';
+import { normalizeMatchup, keyFor, teamNoteKeyFor } from '@/dash/matchupNotesClient';
 import MatchupDashboard from '@/dash/strategy/MatchupDashboard';
 import FieldWhiteboard, { type RobotSeed } from '@/dash/strategy/FieldWhiteboard';
 import {
@@ -194,74 +194,172 @@ function MatchupStrip({
   );
 }
 
-/**
- * Slim replacement for the removed Alliance Matchup prose block: JUST the
- * persistent per-opponent note (offline-synced, resurfaces for any future
- * match against the same alliance leads). The synthesis bullets it used to
- * carry are all communicated numerically elsewhere (dashboard columns, red
- * flags); the one datum that wasn't — feeding volume — is now the dashboard's
- * "Feed" column. Keeps the legacy testids so the notes e2e flow is unchanged.
- */
+interface TeamNoteTarget {
+  team: number;
+  side: 'red' | 'blue';
+  context: string;
+  relationship: string;
+}
+
+/** Event-scoped, offline-first strategy notes for every other team in the lineup. */
 function MatchupNoteCard({
   eventKey,
   redTeams,
   blueTeams,
   ourSide,
+  baseTeam,
 }: {
   eventKey: string;
   redTeams: number[];
   blueTeams: number[];
   ourSide: 'red' | 'blue' | null;
+  baseTeam: number;
 }): JSX.Element | null {
   const notesQ = useMatchupNotes?.(eventKey);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<TeamNoteTarget | null>(null);
   if (redTeams.length === 0 && blueTeams.length === 0) return null;
-  // "Ours" = our alliance (red fallback when the base team is in neither).
+
   const ourTeams = ourSide === 'blue' ? blueTeams : redTeams;
   const oppTeams = ourSide === 'blue' ? redTeams : blueTeams;
-  const { ourTeam, oppTeam } = normalizeMatchup(ourTeams, oppTeams);
-  const note = notesQ?.data?.get(keyFor(eventKey, ourTeam, oppTeam)) ?? '';
-  const hasNote = note.trim().length > 0;
+  const legacyPair = normalizeMatchup(ourTeams, oppTeams);
+  const legacyKey = keyFor(eventKey, legacyPair.ourTeam, legacyPair.oppTeam);
+  const notes = notesQ?.data;
+
+  const targets: TeamNoteTarget[] = [];
+  const seen = new Set<number>();
+  const addTargets = (
+    teams: number[],
+    side: 'red' | 'blue',
+    role: string,
+  ): void => {
+    for (const team of teams) {
+      if (team <= 0 || team === baseTeam || seen.has(team)) continue;
+      seen.add(team);
+      targets.push({
+        team,
+        side,
+        relationship: role,
+        context: `${role} · ${side === 'red' ? 'Red' : 'Blue'} alliance`,
+      });
+    }
+  };
+
+  // Match every other Strategy comparison: red is always the first/left
+  // column and blue the second/right column. "Ours" is row-level context only,
+  // never a reason to swap the alliance columns.
+  addTargets(
+    redTeams,
+    'red',
+    ourSide === 'red' ? 'Our partner' : ourSide ? 'Opponent' : 'Lineup team',
+  );
+  addTargets(
+    blueTeams,
+    'blue',
+    ourSide === 'blue' ? 'Our partner' : ourSide ? 'Opponent' : 'Lineup team',
+  );
+
+  const noteFor = (team: number): string => {
+    const currentKey = teamNoteKeyFor(eventKey, team);
+    if (notes?.has(currentKey)) return notes.get(currentKey) ?? '';
+    // Preserve the old one-note experience where it maps cleanly: surface the
+    // legacy alliance-pair note on its former opponent-lead team until edited.
+    if (team === legacyPair.oppTeam) return notes?.get(legacyKey) ?? '';
+    return '';
+  };
+  const allianceColumns = [
+    { side: 'red' as const, label: 'Red alliance' },
+    { side: 'blue' as const, label: 'Blue alliance' },
+  ];
 
   return (
     <div
       data-testid="dash-matchup-panel"
-      className="flex items-center gap-3 rounded-lg border border-border bg-card/40 px-4 py-2.5"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-card/40 p-4"
     >
-      <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-        Matchup notes
-      </span>
-      {hasNote ? (
-        <span
-          data-testid="matchup-note-badge"
-          aria-label="matchup note exists"
-          className="inline-block size-2 shrink-0 rounded-full bg-energy"
-        />
-      ) : null}
-      <span
-        data-testid="matchup-note-text"
-        className="min-w-0 flex-1 truncate text-sm text-foreground"
-        title={note}
-      >
-        {hasNote ? note : <span className="text-muted-foreground">No note yet.</span>}
-      </span>
-      <button
-        type="button"
-        data-testid="matchup-notes-btn"
-        onClick={() => setEditing(true)}
-        className="inline-flex min-h-[40px] shrink-0 items-center gap-1 rounded-md border border-border bg-card/60 px-3 py-1 text-sm font-medium text-foreground hover:bg-accent"
-      >
-        Notes
-      </button>
-      {editing ? (
+      <div>
+        <h3 className="text-sm font-bold text-foreground">Matchup notes by team</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Event-scoped strategy notes for each partner and opponent in this lineup.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {allianceColumns.map(({ side, label }) => (
+          <section
+            key={side}
+            data-testid={`matchup-notes-${side}-alliance`}
+            aria-label={`${label} strategy notes`}
+            className="flex min-w-0 flex-col gap-1.5"
+          >
+            <h4
+              className={cn(
+                'text-[11px] font-bold uppercase tracking-wider',
+                side === 'red' ? 'text-red-400' : 'text-blue-400',
+              )}
+            >
+              {label}
+            </h4>
+            {targets
+              .filter((target) => target.side === side)
+              .map((target) => {
+                const note = noteFor(target.team);
+                const hasNote = note.trim().length > 0;
+                return (
+                  <button
+                    key={target.team}
+                    type="button"
+                    data-testid="matchup-notes-btn"
+                    data-team={target.team}
+                    aria-label={`Edit strategy note for team ${target.team}`}
+                    onClick={() => setEditing(target)}
+                    className={cn(
+                      'flex min-h-[52px] min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent',
+                      target.side === 'red' ? 'border-red-500/30' : 'border-blue-500/30',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'shrink-0 font-mono text-base font-bold tabular-nums',
+                        target.side === 'red' ? 'text-red-400' : 'text-blue-400',
+                      )}
+                    >
+                      {target.team}
+                    </span>
+                    {hasNote ? (
+                      <span
+                        data-testid="matchup-note-badge"
+                        aria-label={`strategy note exists for team ${target.team}`}
+                        className="inline-block size-2 shrink-0 rounded-full bg-energy"
+                      />
+                    ) : null}
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span
+                        data-testid="matchup-note-text"
+                        className="truncate text-xs text-foreground"
+                        title={note}
+                      >
+                        {hasNote ? note : <span className="text-muted-foreground">Add note</span>}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {target.relationship}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">
+                      Edit
+                    </span>
+                  </button>
+                );
+              })}
+          </section>
+        ))}
+      </div>
+      {editing != null ? (
         <MatchupNotesModal
           open
-          onClose={() => setEditing(false)}
+          onClose={() => setEditing(null)}
           eventKey={eventKey}
-          ourTeams={ourTeams}
-          oppTeams={oppTeams}
-          oppLead={oppTeam}
-          initialNote={note}
+          targetTeam={editing.team}
+          allianceContext={editing.context}
+          initialNote={noteFor(editing.team)}
         />
       ) : null}
     </div>
@@ -277,24 +375,49 @@ function manualTeamsStorageKey(eventKey: string): string {
   return `strategy_manual_teams:${eventKey}`;
 }
 
+function normalizeManualTeams(value: unknown): ManualTeams | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as { red?: unknown; blue?: unknown };
+  if (!Array.isArray(candidate.red) || !Array.isArray(candidate.blue)) return null;
+  const seen = new Set<number>();
+  const side = (values: unknown[]): number[] => {
+    const result: number[] = [];
+    for (const value of values) {
+      if (!Number.isInteger(value) || (value as number) <= 0 || seen.has(value as number)) {
+        continue;
+      }
+      seen.add(value as number);
+      result.push(value as number);
+      if (result.length === 3) break;
+    }
+    return result;
+  };
+  return { red: side(candidate.red), blue: side(candidate.blue) };
+}
+
 function loadManualTeams(eventKey: string): ManualTeams | null {
   try {
     const raw = localStorage.getItem(manualTeamsStorageKey(eventKey));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as ManualTeams;
-    if (!Array.isArray(parsed.red) || !Array.isArray(parsed.blue)) return null;
-    return {
-      red: parsed.red.filter((t) => Number.isFinite(t) && t > 0),
-      blue: parsed.blue.filter((t) => Number.isFinite(t) && t > 0),
-    };
+    const normalized = normalizeManualTeams(JSON.parse(raw));
+    if (!normalized) localStorage.removeItem(manualTeamsStorageKey(eventKey));
+    return normalized;
   } catch {
+    try {
+      localStorage.removeItem(manualTeamsStorageKey(eventKey));
+    } catch {
+      /* storage unavailable */
+    }
     return null;
   }
 }
 
 function storeManualTeams(eventKey: string, teams: ManualTeams | null): void {
   try {
-    if (teams) localStorage.setItem(manualTeamsStorageKey(eventKey), JSON.stringify(teams));
+    if (teams) {
+      const normalized = normalizeManualTeams(teams);
+      localStorage.setItem(manualTeamsStorageKey(eventKey), JSON.stringify(normalized));
+    }
     else localStorage.removeItem(manualTeamsStorageKey(eventKey));
   } catch {
     /* storage unavailable — manual teams just don't persist */
@@ -324,7 +447,9 @@ function ManualTeamsEditor({
   const [blue, setBlue] = useState<string[]>(() => toText(initialBlue));
 
   const parse = (vals: string[]): number[] =>
-    vals.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0);
+    vals
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n) && n > 0);
 
   const inputCls =
     'w-full min-h-[44px] rounded-md border border-input bg-background px-2 py-1.5 text-sm tabular-nums text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
@@ -485,10 +610,18 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
   );
   const [editingTeams, setEditingTeams] = useState(false);
   const applyManualTeams = (teams: ManualTeams | null): void => {
-    setManualTeams(teams);
-    storeManualTeams(eventKey, teams);
+    const normalized = teams ? normalizeManualTeams(teams) : null;
+    setManualTeams(normalized);
+    storeManualTeams(eventKey, normalized);
     setEditingTeams(false);
   };
+  useEffect(() => {
+    setManualTeams(loadManualTeams(eventKey));
+    setEditingTeams(false);
+    setTracking(true);
+    setPinnedKey(null);
+    setDrawingActive(false);
+  }, [eventKey]);
 
   const scheduleRed = useMemo(() => (match ? redTeamsOf(match) : []), [match]);
   const scheduleBlue = useMemo(() => (match ? blueTeamsOf(match) : []), [match]);
@@ -630,69 +763,93 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
         fullscreen.isFullscreen && 'h-screen w-screen overflow-y-auto bg-background p-6',
       )}
     >
-      {/* Header row: match identity (left) + selector INLINE with it on wide
-          screens (iPad/desktop) + actions (right). Wraps on phones. */}
+      {/* Match command bar: the identity absorbs spare desktop width while the
+          native selector stays deliberately compact. Phones stack every region
+          and give the selector the full available width. */}
       <div className="flex flex-col gap-2 rounded-lg bg-black/30 px-3 py-2.5 sm:px-4 sm:py-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h2 className="flex shrink-0 flex-wrap items-center text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-            <span data-testid="dash-strategy-title">
-              {match ? formatMatchKeyRaw(match.match_key) : 'Manual matchup'}
-            </span>
-            {matchTime ? (
-              <span className="ml-3 text-base font-medium text-muted-foreground">
-                {matchTime}
+        <div
+          className={cn(
+            'grid grid-cols-1 gap-3 lg:items-end',
+            ourMatches.length > 0
+              ? 'lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)_auto]'
+              : 'lg:grid-cols-[minmax(0,1fr)_auto]',
+          )}
+        >
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Strategy plan
+            </p>
+            <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+              <span data-testid="dash-strategy-title">
+                {match ? formatMatchKeyRaw(match.match_key) : 'Manual matchup'}
               </span>
-            ) : null}
-            {match && tracking && match.match_key === trackedKey ? (
-              <span
-                data-testid="dash-next-tracking"
-                className="ml-3 inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/15 px-2 py-0.5 align-middle text-[11px] font-semibold uppercase tracking-wide text-brand"
-              >
-                <LocateFixed className="size-3" />
-                Tracking
-              </span>
-            ) : null}
-            {manualActive ? (
-              <span
-                data-testid="dash-strategy-manual-chip"
-                className="ml-3 inline-flex items-center rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 align-middle text-[11px] font-semibold uppercase tracking-wide text-warning"
-              >
-                Manual teams
-              </span>
-            ) : null}
-          </h2>
-          {ourMatches.length > 0 ? (
-            <select
-              id="dash-next-match-select"
-              data-testid="dash-next-match-select"
-              aria-label="Match to strategize"
-              value={match?.match_key ?? ''}
-              onChange={(e) => selectMatch(e.target.value)}
-              className={cn(
-                // min-w-full gives the selector its own full row on phones;
-                // tablets+ keep it inline beside the title.
-                'min-w-full max-w-xl flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground sm:min-w-[16rem]',
-                'min-h-[44px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              )}
-            >
-              {/* OUR matches only. A tracked/pinned match outside the list (edge:
-                  base team changed) still renders as a fallback option. */}
-              {match && !ourMatches.some((m) => m.match_key === match.match_key) ? (
-                <option value={match.match_key}>{matchOptionLabel(match)}</option>
+              {matchTime ? (
+                <span className="text-base font-medium text-muted-foreground">{matchTime}</span>
               ) : null}
-              {ourMatches.map((m) => (
-                <option key={m.match_key} value={m.match_key}>
-                  {matchOptionLabel(m)}
-                </option>
-              ))}
-            </select>
+              {match && tracking && match.match_key === trackedKey ? (
+                <span
+                  data-testid="dash-next-tracking"
+                  className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/15 px-2 py-0.5 align-middle text-[11px] font-semibold uppercase tracking-wide text-brand"
+                >
+                  <LocateFixed className="size-3" />
+                  Tracking
+                </span>
+              ) : null}
+              {manualActive ? (
+                <span
+                  data-testid="dash-strategy-manual-chip"
+                  className="inline-flex items-center rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 align-middle text-[11px] font-semibold uppercase tracking-wide text-warning"
+                >
+                  Manual teams
+                </span>
+              ) : null}
+            </h2>
+          </div>
+          {ourMatches.length > 0 ? (
+            <div data-testid="dash-next-match-picker" className="min-w-0">
+              <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                <label
+                  htmlFor="dash-next-match-select"
+                  className="text-xs font-semibold text-foreground"
+                >
+                  Match to strategize
+                </label>
+                <span className="truncate text-[11px] tabular-nums text-muted-foreground">
+                  {baseTeam} schedule · {ourMatches.length}{' '}
+                  {ourMatches.length === 1 ? 'match' : 'matches'}
+                </span>
+              </div>
+              <select
+                id="dash-next-match-select"
+                data-testid="dash-next-match-select"
+                aria-label="Match to strategize"
+                value={match?.match_key ?? ''}
+                onChange={(e) => selectMatch(e.target.value)}
+                className={cn(
+                  'min-h-[44px] w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground',
+                  'tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                )}
+              >
+                {/* OUR matches only. A tracked/pinned match outside the list (edge:
+                    base team changed) still renders as a fallback option. */}
+                {match && !ourMatches.some((m) => m.match_key === match.match_key) ? (
+                  <option value={match.match_key}>{matchOptionLabel(match)}</option>
+                ) : null}
+                {ourMatches.map((m) => (
+                  <option key={m.match_key} value={m.match_key}>
+                    {matchOptionLabel(m)}
+                  </option>
+                ))}
+              </select>
+            </div>
           ) : null}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="flex w-full shrink-0 items-center justify-end gap-2 lg:w-auto">
             {match && driftedFromTracked && trackedKey ? (
               <Button
                 type="button"
                 variant="brand"
                 size="sm"
+                className="min-h-[44px]"
                 data-testid="dash-next-track-btn"
                 onClick={startTracking}
               >
@@ -867,12 +1024,23 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
         </Card>
       ) : (
         <>
-          {/* Win-probability banner — crowns the red-vs-blue prediction columns. */}
-          <WinProbBanner
-            redWinProb={pred.redWinProb}
-            redScore={pred.red.score}
-            blueScore={pred.blue.score}
-          />
+          {/* A source-less prediction is unknown, not a 0–0 toss-up. */}
+          {[...pred.red.teams, ...pred.blue.teams].some(
+            (team) => team.source !== 'none' && Number.isFinite(team.expected),
+          ) ? (
+            <WinProbBanner
+              redWinProb={pred.redWinProb}
+              redScore={pred.red.score}
+              blueScore={pred.blue.score}
+            />
+          ) : (
+            <div
+              data-testid="dash-next-prediction-unavailable"
+              className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground"
+            >
+              Prediction unavailable — no scouting or season EPA is available for this matchup.
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <AllianceColumn
@@ -903,13 +1071,14 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             />
           </div>
 
-          {/* Persistent per-opponent note (the prose synthesis block is gone —
+          {/* Persistent per-team notes (the prose synthesis block is gone —
               its signals live in the dashboard columns + red flags now). */}
           <MatchupNoteCard
             eventKey={eventKey}
             redTeams={redTeams}
             blueTeams={blueTeams}
             ourSide={ourSide}
+            baseTeam={baseTeam}
           />
 
           {/* (The old Auto routines card was dropped — the whiteboard's auto

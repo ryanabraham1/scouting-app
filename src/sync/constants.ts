@@ -1,4 +1,6 @@
-export const SYNC_MAX_ATTEMPTS = 5; // attempts beyond which a transient failure → dead-letter
+// Retained for diagnostics/backward-compatible test fixtures. Infrastructure
+// failures no longer dead-letter solely because this count is exceeded.
+export const SYNC_MAX_ATTEMPTS = 5;
 export const SYNC_POLL_MS = 15_000; // periodic auto-sync tick while online
 // Bytes per fountain source block. The base64 of one block (~4/3×) plus the
 // small frame header is what each QR code carries, so this sets the QR density.

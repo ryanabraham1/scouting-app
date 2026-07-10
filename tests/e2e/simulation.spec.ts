@@ -17,6 +17,7 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { E2E_AUTH_STATE_PATH } from './global-setup';
 
 loadEnv({ path: '.env.local' });
 
@@ -30,6 +31,10 @@ const admin: SupabaseClient = createClient(URL, SECRET, {
 
 // Real roster names present on the deployed DB (login-less name picker).
 const NAMES = ['Test 1', 'Test 2', 'Test 3', 'Test 5'];
+const TEST_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 // Real qm lineups in 2026casnv (blue1 of each, all distinct teams).
 const TARGETS: { matchKey: string; team: number }[] = [
@@ -72,17 +77,24 @@ async function ensureRosterName(name: string): Promise<void> {
 }
 
 async function setActive(): Promise<void> {
-  await admin.from('event').update({ is_active: false }).neq('event_key', EVENT);
-  const { error } = await admin.from('event').update({ is_active: true }).eq('event_key', EVENT);
+  const { error } = await admin.rpc('set_active_event', { p_event_key: EVENT });
   if (error) throw new Error(`setActive: ${error.message}`);
 }
 
 /** Onboard a device under `name` and land on the match-capture home. */
 async function pick(page: Page, name: string): Promise<void> {
   await page.goto('/scout');
+  await expect(
+    page.locator('[data-testid="scout-name-picker"], [data-testid="scout-manual-pick"]').first(),
+  ).toBeVisible({ timeout: 20_000 });
+  if (await page.getByTestId('scout-manual-pick').isVisible().catch(() => false)) {
+    if (await page.getByRole('heading', { name, exact: true }).isVisible().catch(() => false)) return;
+    await page.getByRole('button', { name: /^Log out / }).click();
+    await page.getByTestId('scout-logout-confirm').click();
+  }
   await expect(page.getByTestId('scout-name-picker')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('scout-name-filter').fill(name);
-  await page.getByTestId(`scout-name-option-${name}`).click();
+  await page.getByRole('button', { name: new RegExp(`^${name}$`, 'i') }).click();
   await expect(page.getByTestId('scout-manual-pick')).toBeVisible({ timeout: 20_000 });
 }
 
@@ -138,6 +150,34 @@ async function expectDrained(page: Page): Promise<void> {
   await expect(page.getByTestId('sync-deadletters')).toHaveText('0', { timeout: 25_000 });
 }
 
+async function advancePitToStep(page: Page, targetStep: number): Promise<void> {
+  const step = page.getByTestId('pit-step');
+  for (let current = 1; current < targetStep; current += 1) {
+    await expect(step).toHaveText(`Step ${current} of 6`);
+    await page.getByTestId('pit-next').click();
+    await expect(step).toHaveText(`Step ${current + 1} of 6`);
+  }
+}
+
+async function cleanPitReport(teamNumber: number): Promise<void> {
+  const { data } = await admin
+    .from('pit_scouting_report')
+    .select('photos,photo_path')
+    .eq('event_key', EVENT)
+    .eq('team_number', teamNumber);
+  const paths = new Set<string>();
+  for (const row of data ?? []) {
+    if (typeof row.photo_path === 'string' && row.photo_path) paths.add(row.photo_path);
+    if (Array.isArray(row.photos)) {
+      for (const photo of row.photos as Array<{ path?: unknown }>) {
+        if (typeof photo.path === 'string' && photo.path) paths.add(photo.path);
+      }
+    }
+  }
+  if (paths.size > 0) await admin.storage.from('pit-photos').remove([...paths]);
+  await admin.from('pit_scouting_report').delete().eq('event_key', EVENT).eq('team_number', teamNumber);
+}
+
 test.beforeAll(async () => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
   const probe = await admin.from('scouter_roster').select('id').limit(1);
@@ -146,13 +186,13 @@ test.beforeAll(async () => {
   await setActive();
   // Clean slate (baseline match-report count for 2026casnv is 0).
   await admin.from('match_scouting_report').delete().eq('event_key', EVENT);
-  await admin.from('pit_scouting_report').delete().eq('event_key', EVENT).eq('team_number', 1700);
+  await cleanPitReport(1700);
 });
 
 test.afterAll(async () => {
   if (!URL || !SECRET) return;
   await admin.from('match_scouting_report').delete().eq('event_key', EVENT);
-  await admin.from('pit_scouting_report').delete().eq('event_key', EVENT).eq('team_number', 1700);
+  await cleanPitReport(1700);
 });
 
 // ---------------------------------------------------------------------------
@@ -163,7 +203,7 @@ test('three concurrent scouts capture distinct targets and all sync cleanly', as
   const ctxs: BrowserContext[] = [];
   try {
     for (let i = 0; i < 3; i += 1) {
-      const c = await browser.newContext();
+      const c = await browser.newContext({ storageState: E2E_AUTH_STATE_PATH });
       ctxs.push(c);
     }
     const pages = await Promise.all(ctxs.map((c) => c.newPage()));
@@ -196,7 +236,9 @@ test('two scouts on the same target produce two distinct rows (no false conflict
   const team = 7528;
   const ctxs: BrowserContext[] = [];
   try {
-    for (let i = 0; i < 2; i += 1) ctxs.push(await browser.newContext());
+    for (let i = 0; i < 2; i += 1) {
+      ctxs.push(await browser.newContext({ storageState: E2E_AUTH_STATE_PATH }));
+    }
     const pages = await Promise.all(ctxs.map((c) => c.newPage()));
     pages.forEach((p, i) => watch(p, `dup-target-${NAMES[i]}`));
     await Promise.all([pick(pages[0], NAMES[0]), pick(pages[1], NAMES[1])]);
@@ -222,7 +264,9 @@ test('same scouter name on two devices: both capture and sync', async ({ browser
   const b = { matchKey: '2026casnv_qm6', team: 10372 };
   const ctxs: BrowserContext[] = [];
   try {
-    for (let i = 0; i < 2; i += 1) ctxs.push(await browser.newContext());
+    for (let i = 0; i < 2; i += 1) {
+      ctxs.push(await browser.newContext({ storageState: E2E_AUTH_STATE_PATH }));
+    }
     const pages = await Promise.all(ctxs.map((c) => c.newPage()));
     pages.forEach((p, i) => watch(p, `same-name-${i}`));
     await Promise.all([pick(pages[0], name), pick(pages[1], name)]);
@@ -242,7 +286,7 @@ test('offline capture queues and drains on reconnect', async ({ browser }) => {
   test.setTimeout(180_000);
   const matchKey = '2026casnv_qm2';
   const team = 5499; // blue3 of qm2, distinct from scenario 1 targets
-  const ctx = await browser.newContext();
+  const ctx = await browser.newContext({ storageState: E2E_AUTH_STATE_PATH });
   try {
     const page = await ctx.newPage();
     watch(page, 'offline-scout');
@@ -264,7 +308,7 @@ test('offline capture queues and drains on reconnect', async ({ browser }) => {
 // ---------------------------------------------------------------------------
 test('lead dashboard navigates all tabs without crashing', async ({ browser }) => {
   test.setTimeout(120_000);
-  const ctx = await browser.newContext();
+  const ctx = await browser.newContext({ storageState: E2E_AUTH_STATE_PATH });
   try {
     const page = await ctx.newPage();
     watch(page, 'dashboard');
@@ -290,12 +334,14 @@ test('lead dashboard navigates all tabs without crashing', async ({ browser }) =
 // ---------------------------------------------------------------------------
 // SCENARIO 6 — Pit scouting submits and syncs to the server.
 // ---------------------------------------------------------------------------
-test('pit scouting submits and syncs', async ({ browser }) => {
-  test.setTimeout(120_000);
+test('pit scouting submits multiple photos, syncs, and supports later editing', async ({ browser }) => {
+  test.setTimeout(240_000);
   const team = 1700;
-  const ctx = await browser.newContext();
+  const ctx = await browser.newContext({ storageState: E2E_AUTH_STATE_PATH });
+  let staleCtx: BrowserContext | null = null;
   try {
     const page = await ctx.newPage();
+    page.setDefaultTimeout(15_000);
     watch(page, 'pit-scout');
     await pick(page, NAMES[2]);
     // Switch into pit mode via the segmented toggle.
@@ -304,35 +350,155 @@ test('pit scouting submits and syncs', async ({ browser }) => {
     await page.getByTestId('pit-team-input').fill(String(team));
     await page.getByTestId('pit-team-go').click();
     await expect(page.getByTestId('pit-screen')).toBeVisible({ timeout: 15_000 });
-    // The pit form is a 6-step wizard: drive it step-by-step (Playwright's
-    // actionability check requires visibility, and inactive panels are hidden).
-    // Step 1: drivetrain & mechanisms.
+    // The pit form is a 6-step wizard. Wait for each React step transition so
+    // rapid clicks cannot collapse against one stale state snapshot.
     await page.getByTestId('pit-drivetrain').selectOption('swerve');
-    await page.getByTestId('pit-next').click(); // -> step 2: capabilities & intake
-    await page.getByTestId('pit-next').click(); // -> step 3: strategy, vision & power
+    await advancePitToStep(page, 3);
     await page.getByTestId('pit-vision').fill('Limelight 3');
     await page.getByTestId('pit-battery-count').fill('6');
-    await page.getByTestId('pit-next').click(); // -> step 4: robot dimensions
-    await page.getByTestId('pit-next').click(); // -> step 5: preferred auto
-    await page.getByTestId('pit-next').click(); // -> step 6: notes & photo (submit)
+    await page.getByTestId('pit-next').click();
+    await expect(page.getByTestId('pit-step')).toHaveText('Step 4 of 6');
+    await page.getByTestId('pit-next').click();
+    await expect(page.getByTestId('pit-step')).toHaveText('Step 5 of 6');
+    await page.getByTestId('pit-next').click();
+    await expect(page.getByTestId('pit-step')).toHaveText('Step 6 of 6');
+    // Camera capture and camera-roll/library selection are separate controls.
+    await expect(page.getByTestId('pit-camera')).toHaveAttribute('capture', 'environment');
+    await expect(page.getByTestId('pit-camera')).not.toHaveAttribute('multiple');
+    await expect(page.getByTestId('pit-photo')).toHaveAttribute('multiple', '');
+    await expect(page.getByTestId('pit-photo')).not.toHaveAttribute('capture');
+    await page.getByTestId('pit-camera').setInputFiles({
+      name: 'robot-front.png',
+      mimeType: 'image/png',
+      buffer: TEST_PNG,
+    });
+    await page.getByTestId('pit-photo').setInputFiles({
+      name: 'robot-side.png',
+      mimeType: 'image/png',
+      buffer: TEST_PNG,
+    });
+    await expect(page.getByRole('img', { name: /Pit photo \d+ preview/ })).toHaveCount(2);
+    await page.getByRole('button', { name: 'Move photo 2 earlier' }).click();
+    await page.locator('#pit-notes').fill('Initial two-photo report');
     await page.getByTestId('pit-submit').click();
     // onDone returns to the team picker after a successful queue.
     await expect(page.getByTestId('pit-team-input')).toBeVisible({ timeout: 15_000 });
     // The pit outbox uploads it.
-    await expect
-      .poll(
-        async () => {
-          const { count } = await admin
-            .from('pit_scouting_report')
-            .select('*', { count: 'exact', head: true })
-            .eq('event_key', EVENT)
-            .eq('team_number', team);
-          return count ?? 0;
-        },
-        { timeout: 25_000 },
-      )
-      .toBe(1);
+    let firstRevision = 0;
+    let initialPhotoIds: string[] = [];
+    await expect.poll(async () => {
+      const { data } = await admin
+        .from('pit_scouting_report')
+        .select('row_revision,notes,photos')
+        .eq('event_key', EVENT)
+        .eq('team_number', team)
+        .single();
+      const photos = Array.isArray(data?.photos) ? data.photos : [];
+      initialPhotoIds = photos
+        .map((photo) => (photo as { id?: unknown }).id)
+        .filter((id): id is string => typeof id === 'string');
+      firstRevision = Number(data?.row_revision ?? 0);
+      return {
+        notes: data?.notes ?? null,
+        photos: photos.length,
+        uploaded: photos.every(
+          (photo) => typeof (photo as { path?: unknown }).path === 'string',
+        ),
+      };
+    }, { timeout: 25_000 }).toEqual({
+      notes: 'Initial two-photo report',
+      photos: 2,
+      uploaded: true,
+    });
+
+    // A second device loads the same base revision, then waits while this device
+    // wins an edit. Submitting the stale copy later must dead-letter as a conflict.
+    staleCtx = await browser.newContext({ storageState: E2E_AUTH_STATE_PATH });
+    const stalePage = await staleCtx.newPage();
+    stalePage.setDefaultTimeout(15_000);
+    watch(stalePage, 'pit-stale-editor');
+    await pick(stalePage, NAMES[3]);
+    await stalePage.getByRole('tab', { name: 'Pit', exact: true }).click();
+    await stalePage.getByTestId('pit-team-input').fill(String(team));
+    await stalePage.getByTestId('pit-team-go').click();
+    await expect(stalePage.getByTestId('pit-editing')).toBeVisible({ timeout: 15_000 });
+    await advancePitToStep(stalePage, 6);
+    await stalePage.locator('#pit-notes').fill('Stale competing edit');
+
+    // Re-open the same team: the remote report hydrates as an editable revision.
+    await page.getByTestId('pit-team-input').fill(String(team));
+    await page.getByTestId('pit-team-go').click();
+    await expect(page.getByTestId('pit-editing')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('pit-drivetrain')).toHaveValue('swerve');
+    await advancePitToStep(page, 6);
+    await expect(page.getByRole('img', { name: /Pit photo \d+ preview/ })).toHaveCount(2);
+    await page.locator('#pit-notes').fill('Edited with a new detail photo');
+    await page.getByTestId('pit-photo').setInputFiles({
+      name: 'robot-detail.png',
+      mimeType: 'image/png',
+      buffer: TEST_PNG,
+    });
+    await expect(page.getByRole('img', { name: /Pit photo \d+ preview/ })).toHaveCount(3);
+    await page.getByTestId('pit-photo-remove-1').click();
+    await expect(page.getByRole('img', { name: /Pit photo \d+ preview/ })).toHaveCount(2);
+    await expect(page.getByTestId('pit-submit')).toContainText('Save changes');
+    await page.getByTestId('pit-submit').click();
+    await expect(page.getByTestId('pit-team-input')).toBeVisible({ timeout: 15_000 });
+
+    let finalPhotoIds: string[] = [];
+    await expect.poll(async () => {
+      const { data } = await admin
+        .from('pit_scouting_report')
+        .select('row_revision,notes,photos')
+        .eq('event_key', EVENT)
+        .eq('team_number', team)
+        .single();
+      const photos = Array.isArray(data?.photos) ? data.photos : [];
+      finalPhotoIds = photos
+        .map((photo) => (photo as { id?: unknown }).id)
+        .filter((id): id is string => typeof id === 'string');
+      return {
+        revisionAdvanced: Number(data?.row_revision ?? 0) > firstRevision,
+        notes: data?.notes ?? null,
+        photos: photos.length,
+        uploaded: photos.every(
+          (photo) => typeof (photo as { path?: unknown }).path === 'string',
+        ),
+      };
+    }, { timeout: 25_000 }).toEqual({
+      revisionAdvanced: true,
+      notes: 'Edited with a new detail photo',
+      photos: 2,
+      uploaded: true,
+    });
+    expect(finalPhotoIds.some((id) => !initialPhotoIds.includes(id))).toBe(true);
+
+    // Dashboard reads the final manifest and exposes every photo in its lightbox.
+    await page.goto('/dashboard');
+    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('tab', { name: 'Team', exact: true }).click();
+    await page.getByTestId('team-select').selectOption(String(team));
+    await page.getByTestId('team-photo-thumb').click();
+    await expect(page.getByRole('button', { name: 'Next pit photo' })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.getByRole('button', { name: 'Next pit photo' }).click();
+    await expect(page.getByAltText(/photo 2/i)).toBeVisible();
+
+    await stalePage.getByTestId('pit-submit').click();
+    await expect(stalePage.getByTestId('pit-team-input')).toBeVisible({ timeout: 15_000 });
+    await expect(stalePage.getByTestId('sync-deadletters')).toHaveText('1', { timeout: 25_000 });
+    const { data: afterConflict } = await admin
+      .from('pit_scouting_report')
+      .select('row_revision,notes,photos')
+      .eq('event_key', EVENT)
+      .eq('team_number', team)
+      .single();
+    expect(Number(afterConflict?.row_revision ?? 0)).toBeGreaterThan(firstRevision);
+    expect(afterConflict?.notes).toBe('Edited with a new detail photo');
+    expect(Array.isArray(afterConflict?.photos) ? afterConflict.photos.length : 0).toBe(2);
   } finally {
+    await staleCtx?.close();
     await ctx.close();
   }
 });
@@ -346,7 +512,7 @@ test('re-scouting the same target supersedes without dead-lettering', async ({ b
   test.setTimeout(180_000);
   const matchKey = '2026casnv_qm3';
   const team = 6814; // blue2 of qm3, distinct from scenario 1/3 targets
-  const ctx = await browser.newContext();
+  const ctx = await browser.newContext({ storageState: E2E_AUTH_STATE_PATH });
   try {
     const page = await ctx.newPage();
     watch(page, 'rescout');

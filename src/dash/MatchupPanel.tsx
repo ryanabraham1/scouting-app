@@ -13,7 +13,7 @@ import {
   type TeamAgg,
 } from '@/dash/aggregate';
 import { useMatchupNotes } from '@/dash/useEventData';
-import { normalizeMatchup, keyFor } from '@/dash/matchupNotesClient';
+import { normalizeMatchup, keyFor, teamNoteKeyFor } from '@/dash/matchupNotesClient';
 import MatchupNotesModal from '@/dash/MatchupNotesModal';
 
 export interface MatchupPanelProps {
@@ -168,14 +168,21 @@ export default function MatchupPanel({
   const notesQ = useMatchupNotes(eventKey);
   const notes = notesQ.data;
 
-  // Which alliance editor is open ('red'/'blue'), or null when closed. The note
-  // pairing is always keyed on the two alliance leads (min) regardless of color.
+  // Which alliance's representative-team editor is open, or null when closed.
   const [editing, setEditing] = useState<'red' | 'blue' | null>(null);
 
-  // Resolve the note for a given alliance side. The pairing key is symmetric on
-  // min, so we normalize consistently: 'our_team' = min of the side we treat as
-  // "ours" for that block. When ourSide is null we still produce a stable key.
+  const targetFor = (side: 'red' | 'blue'): number => {
+    const teams = side === 'red' ? redTeams : blueTeams;
+    return teams.length ? Math.min(...teams) : 0;
+  };
+
+  // This legacy, currently-unmounted synthesis panel keeps its one-note footer,
+  // but writes that footer as a real team note. A V1 alliance-pair row remains a
+  // read fallback until the note is next saved into the collision-free namespace.
   const noteFor = (side: 'red' | 'blue'): string => {
+    const target = targetFor(side);
+    const currentKey = teamNoteKeyFor(eventKey, target);
+    if (notes?.has(currentKey)) return notes.get(currentKey) ?? '';
     const oursTeams = side === 'red' ? blueTeams : redTeams; // notes attach to the OTHER side as "ours"
     const oppTeams = side === 'red' ? redTeams : blueTeams;
     const { ourTeam, oppTeam } = normalizeMatchup(oursTeams, oppTeams);
@@ -190,17 +197,12 @@ export default function MatchupPanel({
     return side === ourSide ? 'ours' : 'opponent';
   };
 
-  // For the modal: notes are keyed on the OTHER side as "ours". Compute the
-  // pairing teams + opponent lead for the side currently being edited.
   const editorProps = useMemo(() => {
     if (editing == null) return null;
-    const ourTeamsForKey = editing === 'red' ? blueTeams : redTeams;
-    const oppTeamsForKey = editing === 'red' ? redTeams : blueTeams;
-    const { oppTeam } = normalizeMatchup(ourTeamsForKey, oppTeamsForKey);
+    const targetTeam = targetFor(editing);
     return {
-      ourTeams: ourTeamsForKey,
-      oppTeams: oppTeamsForKey,
-      oppLead: oppTeam,
+      targetTeam,
+      allianceContext: `${editing === 'red' ? 'Red' : 'Blue'} alliance`,
       initialNote: noteFor(editing),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -235,9 +237,8 @@ export default function MatchupPanel({
           open
           onClose={() => setEditing(null)}
           eventKey={eventKey}
-          ourTeams={editorProps.ourTeams}
-          oppTeams={editorProps.oppTeams}
-          oppLead={editorProps.oppLead}
+          targetTeam={editorProps.targetTeam}
+          allianceContext={editorProps.allianceContext}
           initialNote={editorProps.initialNote}
         />
       ) : null}

@@ -16,6 +16,7 @@ import MyDataView from '../scout/MyDataView';
 import QrSendScreen from '../qr/QrSendScreen';
 import QrReceiveScreen from '../qr/QrReceiveScreen';
 import SyncStatusScreen from '../sync/SyncStatusScreen';
+import ScoutTutorial from '../tutorial/ScoutTutorial';
 
 /**
  * Catch-all for a render/loader error on any route. Without an errorElement,
@@ -59,6 +60,9 @@ function RouteError(): JSX.Element {
 const rawRoutes: RouteObject[] = [
   { path: '/', element: <HomeScreen /> },
   { path: '/scout', element: <ScoutHome /> },
+  // Standalone, app-native practice sandbox. It intentionally has no identity or
+  // event gate so a brand-new/offline device can learn without touching real data.
+  { path: '/scout/tutorial', element: <ScoutTutorial /> },
   { path: '/my-data', element: <MyDataView /> },
   // Pit scouting folds into the Scout Home Match/Pit toggle.
   { path: '/pit', element: <Navigate to="/scout?mode=pit" replace /> },

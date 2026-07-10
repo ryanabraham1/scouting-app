@@ -18,12 +18,19 @@
 //      re-ingesting the same id+revision is an idempotent no-op.
 
 import { corsHeaders } from "../_shared/cors.ts";
+import {
+  BodyTooLargeError,
+  readJsonBody,
+} from "../_shared/readJsonBody.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Supabase auto-injects all three of these as function env.
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+const MAX_REQUEST_BYTES = 1024 * 1024;
+const MAX_REPORTS = 100;
+const MAX_REPORT_BYTES = 256 * 1024;
 
 interface IngestPayload {
   reports: Record<string, unknown>[];
@@ -88,13 +95,29 @@ Deno.serve(async (req) => {
   // Parse the body: { reports: [...] }. No HMAC.
   let payload: IngestPayload;
   try {
-    payload = (await req.json()) as IngestPayload;
-  } catch (_err) {
+    payload = await readJsonBody(req, MAX_REQUEST_BYTES) as IngestPayload;
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return json({ error: error.message }, 413);
+    }
     return json({ error: "invalid JSON" }, 400);
   }
 
   if (!payload || !Array.isArray(payload.reports)) {
     return json({ error: "expected { reports: [] }" }, 400);
+  }
+  if (payload.reports.length > MAX_REPORTS) {
+    return json({ error: `at most ${MAX_REPORTS} reports per batch` }, 413);
+  }
+  for (const report of payload.reports) {
+    if (
+      report == null ||
+      typeof report !== "object" ||
+      new TextEncoder().encode(JSON.stringify(report)).byteLength >
+        MAX_REPORT_BYTES
+    ) {
+      return json({ error: "report is malformed or too large" }, 413);
+    }
   }
 
   // (3) Pre-check EVERY report's event_key BEFORE any write so a bad batch
@@ -134,13 +157,23 @@ Deno.serve(async (req) => {
   let ingested = 0;
   const failed: { index: number; error: string }[] = [];
   for (let index = 0; index < payload.reports.length; index++) {
-    const { error } = await svc.rpc("upsert_match_report", {
+    const { data, error } = await svc.rpc("upsert_match_report", {
       p: payload.reports[index],
     });
     if (error) {
       failed.push({ index, error: error.message });
-    } else {
+    } else if (
+      data?.status === "applied" ||
+      data?.status === "idempotent"
+    ) {
       ingested++;
+    } else {
+      failed.push({
+        index,
+        error: `sync ${data?.status ?? "invalid-result"}; current revision ${
+          data?.current_revision ?? "unknown"
+        }`,
+      });
     }
   }
 

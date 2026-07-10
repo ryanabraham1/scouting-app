@@ -4,7 +4,7 @@ import * as scoring from '../index';
 
 describe('scoring public API surface', () => {
   it('re-exports the frozen value exports', () => {
-    expect(scoring.SCHEMA_VERSION).toBe(1);
+    expect(scoring.SCHEMA_VERSION).toBe(2);
     expect(scoring.SCORING.FUEL_POINTS).toBe(1);
     expect(typeof scoring.isInactive).toBe('function');
     expect(typeof scoring.isWindowActive).toBe('function');

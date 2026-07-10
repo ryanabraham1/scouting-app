@@ -6,7 +6,7 @@
 // note when Statbotics is down — never hard-fail), and the team's scouted
 // matches. Dark theme, shadcn primitives, 44px touch targets.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Wrench,
   Cog,
@@ -32,10 +32,15 @@ import {
   ShieldAlert,
   MessageSquareText,
   Users,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  X,
 } from 'lucide-react';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { MatchScorePanel } from '@/dash/MatchScorePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
 import { formatMatchKeyRaw, compareMatchKeys } from '@/lib/formatMatch';
@@ -74,7 +79,7 @@ import {
 import { BarChart, LineChart, StackedBar } from '@/dash/charts';
 import ConflictMarker from '@/components/ConflictMarker';
 import { useMultiScoutConflicts } from '@/dash/useMultiScoutConflicts';
-import type { MsrRow, MultiScoutGroup } from '@/dash/types';
+import { msrReportIdentity, type MsrRow, type MultiScoutGroup } from '@/dash/types';
 
 export interface TeamViewProps {
   eventKey: string;
@@ -375,6 +380,11 @@ function LastMatchCard(props: {
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const [offsetSeconds, setOffsetSeconds] = useState(0);
 
+  useEffect(() => {
+    setVideoSeconds(null);
+    setOffsetSeconds(0);
+  }, [report.match_key, teamNumber]);
+
   const redTeams = [match?.red1 ?? null, match?.red2 ?? null, match?.red3 ?? null];
   const blueTeams = [match?.blue1 ?? null, match?.blue2 ?? null, match?.blue3 ?? null];
   const redScore = match?.actual_red_score ?? null;
@@ -486,8 +496,12 @@ function LastMatchCard(props: {
   );
 }
 
-function PitPanel(props: { pit: TeamPit | null; isLoading: boolean }): JSX.Element {
-  const { pit, isLoading } = props;
+function PitPanel(props: {
+  pit: TeamPit | null;
+  isLoading: boolean;
+  scoutName: (id: string | null | undefined) => string;
+}): JSX.Element {
+  const { pit, isLoading, scoutName } = props;
   return (
     <Card className="border-border bg-card" data-testid="team-pit">
       <CardHeader className="flex flex-row items-center gap-2 space-y-0">
@@ -504,87 +518,119 @@ function PitPanel(props: { pit: TeamPit | null; isLoading: boolean }): JSX.Eleme
             No pit report yet for this team.
           </div>
         ) : (
-          <div data-testid="team-pit-data" className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
-                <Cog />
-                Drivetrain
-              </span>
-              <span className="text-base font-semibold text-foreground" data-testid="team-pit-drivetrain">
-                {pit.drivetrain ?? '—'}
-              </span>
+          <div data-testid="team-pit-data" className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+              <div
+                data-testid="team-pit-author"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground"
+              >
+                <Users className="size-4 text-brand" />
+                Scouted by{' '}
+                <span className="font-semibold text-foreground">
+                  {scoutName(pit.authorScoutId)}
+                </span>
+              </div>
+              <DetailRow
+                icon={<Cog />}
+                label="Drivetrain"
+                value={pit.drivetrain ?? '—'}
+                testid="team-pit-drivetrain"
+              />
+              <DetailRow
+                icon={<Eye />}
+                label="Vision"
+                value={pit.visionSystem ?? '—'}
+                testid="team-pit-vision"
+              />
             </div>
-            <ChipRow icon={<Cog />} label="Mechanisms" items={pit.mechanisms} testid="team-pit-mechanisms" />
-            <ChipRow
-              icon={<Sparkles />}
-              label="Capabilities"
-              items={pit.capabilities}
-              testid="team-pit-capabilities"
-            />
-            <ChipRow
-              icon={<Inbox />}
-              label="Intake sources"
-              items={pit.intakeSources}
-              testid="team-pit-intake"
-            />
-            <ChipRow
-              icon={<Swords />}
-              label="Match strategy"
-              items={pit.matchStrategy}
-              testid="team-pit-strategy"
-            />
-            <DetailRow
-              icon={<Eye />}
-              label="Vision"
-              value={pit.visionSystem ?? '—'}
-              testid="team-pit-vision"
-            />
-            <DetailRow
-              icon={<BatteryCharging />}
-              label="Batteries"
-              value={batteryStr(pit.batteryCount, pit.chargerCount, pit.batteryBrand, pit.batteryConnector)}
-              testid="team-pit-batteries"
-            />
-            <DetailRow
-              icon={<Ruler />}
-              label="Dimensions"
-              value={
-                dimensionsStr(pit.robotLengthIn, pit.robotWidthIn, pit.robotHeightIn) +
-                (pit.trenchCapable ? ' · trench ✓' : '')
-              }
-              testid="team-pit-dimensions"
-            />
-            <div className="flex flex-col gap-1.5" data-testid="team-pit-auto">
-              <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
-                <Route />
-                Preferred auto
-              </span>
-              {pit.preferredAutoStartPosition || pit.preferredAutoPath ? (
-                <div className="mx-auto w-full max-w-[420px]">
-                  <FieldDiagram
-                    mode="view"
-                    startPosition={pit.preferredAutoStartPosition}
-                    path={pit.preferredAutoPath}
-                    data-testid="team-pit-auto-field"
+
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(340px,1.1fr)] lg:items-start">
+              <div className="flex min-w-0 flex-col gap-5">
+                <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
+                  <ChipRow
+                    icon={<Cog />}
+                    label="Mechanisms"
+                    items={pit.mechanisms}
+                    testid="team-pit-mechanisms"
+                  />
+                  <ChipRow
+                    icon={<Sparkles />}
+                    label="Capabilities"
+                    items={pit.capabilities}
+                    testid="team-pit-capabilities"
+                  />
+                  <ChipRow
+                    icon={<Inbox />}
+                    label="Intake sources"
+                    items={pit.intakeSources}
+                    testid="team-pit-intake"
+                  />
+                  <ChipRow
+                    icon={<Swords />}
+                    label="Match strategy"
+                    items={pit.matchStrategy}
+                    testid="team-pit-strategy"
                   />
                 </div>
-              ) : (
-                <span className="text-sm text-muted-foreground" data-testid="team-pit-auto-empty">
-                  No preferred auto recorded.
-                </span>
-              )}
-            </div>
-            {pit.notes ? (
-              <div className="flex flex-col gap-1.5" data-testid="team-pit-notes">
-                <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
-                  <StickyNote />
-                  Notes
-                </span>
-                <p className="rounded-xl border border-border bg-muted/30 p-3 text-sm leading-relaxed text-foreground">
-                  {pit.notes}
-                </p>
+
+                <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3">
+                  <DetailRow
+                    icon={<BatteryCharging />}
+                    label="Batteries"
+                    value={batteryStr(
+                      pit.batteryCount,
+                      pit.chargerCount,
+                      pit.batteryBrand,
+                      pit.batteryConnector,
+                    )}
+                    testid="team-pit-batteries"
+                  />
+                  <DetailRow
+                    icon={<Ruler />}
+                    label="Dimensions"
+                    value={
+                      dimensionsStr(pit.robotLengthIn, pit.robotWidthIn, pit.robotHeightIn) +
+                      (pit.trenchCapable ? ' · trench ✓' : '')
+                    }
+                    testid="team-pit-dimensions"
+                  />
+                </div>
               </div>
-            ) : null}
+
+              <div className="flex min-w-0 flex-col gap-4">
+                <div className="flex flex-col gap-2" data-testid="team-pit-auto">
+                  <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
+                    <Route />
+                    Preferred auto
+                  </span>
+                  {pit.preferredAutoStartPosition || pit.preferredAutoPath ? (
+                    <div className="w-full max-w-[520px] overflow-hidden rounded-lg border border-border bg-muted/20 p-2">
+                      <FieldDiagram
+                        mode="view"
+                        startPosition={pit.preferredAutoStartPosition}
+                        path={pit.preferredAutoPath}
+                        data-testid="team-pit-auto-field"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground" data-testid="team-pit-auto-empty">
+                      No preferred auto recorded.
+                    </span>
+                  )}
+                </div>
+                {pit.notes ? (
+                  <div className="flex flex-col gap-1.5" data-testid="team-pit-notes">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
+                      <StickyNote />
+                      Notes
+                    </span>
+                    <p className="rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed text-foreground">
+                      {pit.notes}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         )}
       </CardContent>
@@ -604,16 +650,61 @@ function TeamPhotoThumb(props: {
   eventKey: string;
   teamNumber: number;
   pitPhotoPath: string | null;
+  pitPhotoPaths?: string[];
 }): JSX.Element | null {
-  const { eventKey, teamNumber, pitPhotoPath } = props;
-  const photoQuery = useTeamPhoto(eventKey, teamNumber, pitPhotoPath);
+  const { eventKey, teamNumber, pitPhotoPath, pitPhotoPaths } = props;
+  const photoQuery = useTeamPhoto(eventKey, teamNumber, pitPhotoPath, pitPhotoPaths);
   const url = photoQuery.data?.url ?? null;
+  const urls = photoQuery.data?.urls ?? (url ? [url] : []);
   const source = photoQuery.data?.source ?? null;
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    setOpen(false);
+    setActiveIndex(0);
+  }, [eventKey, teamNumber]);
+
+  useEffect(() => {
+    if (!open) return;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      triggerRef.current?.focus();
+    };
+  }, [open]);
+
   if (!url) return null;
+  const activeUrl = urls[activeIndex] ?? url;
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         data-testid="team-photo-thumb"
         onClick={() => setOpen(true)}
@@ -626,22 +717,63 @@ function TeamPhotoThumb(props: {
           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         />
         <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-200 backdrop-blur-sm">
-          {source === 'tba' ? 'TBA' : 'Pit photo'}
+          {source === 'tba' ? 'TBA' : urls.length > 1 ? `${urls.length} pit photos` : 'Pit photo'}
         </span>
       </button>
       {open ? (
         <div
+          ref={dialogRef}
           data-testid="team-photo-lightbox"
           role="dialog"
+          aria-modal="true"
           aria-label={`Robot photo for team ${teamNumber}`}
           onClick={() => setOpen(false)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
         >
-          <img
-            src={url}
-            alt={`Robot for team ${teamNumber}`}
-            className="max-h-[90vh] max-w-full rounded-xl border border-border object-contain"
-          />
+          <div
+            className="relative flex max-h-[95vh] max-w-full flex-col items-center gap-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Button
+              ref={closeRef}
+              type="button"
+              variant="secondary"
+              size="icon"
+              aria-label="Close robot photo"
+              onClick={() => setOpen(false)}
+              className="absolute right-2 top-2 z-10"
+            >
+              <X className="size-5" />
+            </Button>
+            <img
+              src={activeUrl}
+              alt={`Robot for team ${teamNumber}, photo ${activeIndex + 1}`}
+              className="max-h-[78vh] max-w-full rounded-xl border border-border object-contain"
+            />
+            {urls.length > 1 ? (
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label="Previous pit photo"
+                  onClick={() => setActiveIndex((index) => (index - 1 + urls.length) % urls.length)}
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span className="font-mono text-sm text-white">
+                  {activeIndex + 1} / {urls.length}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label="Next pit photo"
+                  onClick={() => setActiveIndex((index) => (index + 1) % urls.length)}
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </>
@@ -818,9 +950,9 @@ function TempoCard(props: { matches: MsrRow[] }): JSX.Element | null {
 
 /**
  * Scout notes for a team, aggregated into one block (instead of buried per-match
- * in the scouted-match rows). A quiet scouting log: each note anchored to its
- * match + scouter, set off by a left brand rule so the column reads as a running
- * record. Chronological by play order. Renders nothing when no match has a note.
+ * in the scouted-match rows). A compact scouting log: each note is anchored to
+ * its match + scouter and the log expands to two columns when space permits.
+ * Chronological by play order. Renders nothing when no match has a note.
  */
 function TeamNotes(props: {
   matches: MsrRow[];
@@ -843,20 +975,20 @@ function TeamNotes(props: {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ul className="flex flex-col gap-3">
+        <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {noted.map((m, i) => (
             <li
               key={`${m.match_key}-${i}`}
               data-testid={`team-note-${i}`}
-              className="border-l-2 border-brand/40 pl-3"
+              className="min-w-0 rounded-lg border border-zinc-800/80 border-l-2 border-l-brand/50 bg-zinc-900/40 px-3 py-2.5"
             >
-              <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-zinc-400">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs text-zinc-400">
                 <span className="font-semibold text-zinc-200">
                   {formatMatchKeyRaw(m.match_key)}
                 </span>
-                <span>· {props.scoutName(m.scout_id)}</span>
+                <span>{props.scoutName(m.scout_id)}</span>
               </div>
-              <p className="mt-0.5 text-sm leading-relaxed text-zinc-300">{m.notes}</p>
+              <p className="mt-1 break-words text-sm leading-snug text-zinc-300">{m.notes}</p>
             </li>
           ))}
         </ul>
@@ -1032,7 +1164,7 @@ function TeamDetail(props: {
             label="Avg defense"
             value={fmtPM(agg.avgDefenseRating, agg.stdDevDefenseRating)}
             testid="team-avg-defense-rating"
-            hint={`range ${fmt(agg.minDefenseRating)} – ${fmt(agg.maxDefenseRating)}`}
+            hint={`1–10 · range ${fmt(agg.minDefenseRating)} – ${fmt(agg.maxDefenseRating)}`}
             tone="brand"
           />
           {/* Subjective super-scout ratings, averaged over RATED matches (0 = not
@@ -1042,13 +1174,13 @@ function TeamDetail(props: {
             label="Driver skill"
             value={ratedMeanText(matches, (m) => m.driver_skill)}
             testid="team-driver-skill"
-            hint="0–3 · rated matches"
+            hint="1–10 · rated matches"
           />
           <Stat
             label="Agility"
             value={ratedMeanText(matches, (m) => m.agility)}
             testid="team-agility"
-            hint="0–3 · rated matches"
+            hint="1–10 · rated matches"
           />
           <Stat
             label="Defended fuel ↓"
@@ -1300,7 +1432,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   const { eventKey, selectedTeam } = props;
   const [selected, setSelected] = useState<number | null>(selectedTeam ?? null);
   const [teamSearch, setTeamSearch] = useState('');
-  const [openReport, setOpenReport] = useState<MsrRow | null>(null);
+  const [openReportId, setOpenReportId] = useState<string | null>(null);
 
   // Manual selection: update local state AND notify the parent so the choice
   // persists across tab switches (the parent feeds it back via `selectedTeam`).
@@ -1312,11 +1444,13 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   // Sync from the incoming prop (e.g. a click in Ranking) without clobbering
   // manual dropdown changes: only when the prop names a real, different team.
   useEffect(() => {
-    if (selectedTeam != null && selectedTeam !== selected) {
-      setSelected(selectedTeam);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setSelected(selectedTeam ?? null);
   }, [selectedTeam]);
+
+  useEffect(() => {
+    setOpenReportId(null);
+    setTeamSearch('');
+  }, [eventKey, selected]);
 
   const teamsQuery = useEventTeams(eventKey);
   const reportsQuery = useEventReports(eventKey);
@@ -1341,6 +1475,9 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
 
   // Aggregate the whole event once; index the selected team's TeamAgg out of it.
   const reports = reportsQuery.data ?? [];
+  const openReport = openReportId
+    ? reports.find((report) => msrReportIdentity(report) === openReportId) ?? null
+    : null;
   const aggByTeam = useMemo(() => aggregateEvent(reports), [reports]);
 
   // Multi-scout conflicts across the whole event once; the selected team's
@@ -1357,7 +1494,13 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   const teamMatches = useMemo(
     () =>
       selected != null
-        ? reports.filter((r) => r.target_team_number === selected && !r.deleted)
+        ? reports
+            .filter((r) => r.target_team_number === selected && !r.deleted)
+            .sort(
+              (a, b) =>
+                compareMatchKeys(a.match_key, b.match_key) ||
+                msrReportIdentity(a).localeCompare(msrReportIdentity(b)),
+            )
         : [],
     [reports, selected],
   );
@@ -1373,15 +1516,26 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
 
   // EPA node: number when available, "unavailable" note when Statbotics is down.
   const epa = epaQuery.data;
-  const epaValue = selected != null ? epa?.epaByTeam.get(selected) ?? null : null;
-  const epaAvailable = epa?.available === true && epaValue != null;
-  const epaIsLocal = epa?.source === 'local';
+  const externalEpa = selected != null ? epa?.epaByTeam.get(selected) ?? null : null;
+  const epaValue =
+    externalEpa ?? (agg && agg.matchesScouted > 0 ? agg.scoutingExpectedPoints : null);
+  const epaAvailable = epaValue != null;
+  const selectedEpaSource =
+    selected != null
+      ? epa?.sourceByTeam?.get(selected) ?? (externalEpa != null ? epa?.source : undefined)
+      : undefined;
+  const epaIsLocal = selectedEpaSource === 'local';
+  const epaIsScouting = externalEpa == null && epaValue != null;
   const epaNode = (
     <div data-testid="team-epa">
       {epaAvailable ? (
         <div className="flex flex-col items-start gap-2">
           <span className="text-2xl font-semibold text-energy">{fmt(epaValue as number)}</span>
-          {epaIsLocal ? (
+          {epaIsScouting ? (
+            <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+              In-house estimate from scouting data.
+            </span>
+          ) : epaIsLocal ? (
             <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
               Local estimate — Statbotics offline (computed from match results).
             </span>
@@ -1399,20 +1553,34 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     </div>
   );
 
-  const pitNode = <PitPanel pit={pitQuery.data ?? null} isLoading={pitQuery.isLoading} />;
+  const pitNode = (
+    <PitPanel
+      pit={pitQuery.data ?? null}
+      isLoading={pitQuery.isLoading}
+      scoutName={scoutName}
+    />
+  );
 
   // Compact robot-photo thumbnail for the team header: scouted pit photo if
   // present, else a TBA fallback. Resolved HERE (same query key as the thumb →
   // shared cache, no double fetch) so photoNode is truly null when no image
   // exists — TeamDetail then gives the TBA card the full width instead of
   // reserving a dead 16rem grid column beside it.
-  const photoQuery = useTeamPhoto(eventKey, selected, pitQuery.data?.photoPath ?? null);
+  const pitPhotoPaths =
+    pitQuery.data?.photos?.map((photo) => photo.path).filter((path): path is string => Boolean(path)) ?? [];
+  const photoQuery = useTeamPhoto(
+    eventKey,
+    selected,
+    pitQuery.data?.photoPath ?? null,
+    pitPhotoPaths,
+  );
   const photoThumb =
     selected != null && photoQuery.data?.url ? (
       <TeamPhotoThumb
         eventKey={eventKey}
         teamNumber={selected}
         pitPhotoPath={pitQuery.data?.photoPath ?? null}
+        pitPhotoPaths={pitPhotoPaths}
       />
     ) : null;
 
@@ -1454,100 +1622,185 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
               String(t.team_number).includes(teamSearchQ) ||
               (t.nickname?.toLowerCase().includes(teamSearchQ) ?? false),
           );
+  const selectedTeamRow =
+    selected == null ? null : teams.find((team) => team.team_number === selected) ?? null;
 
   return (
     <div data-testid="dash-team" className="flex flex-col gap-4 text-zinc-100">
-      <div className="flex flex-col gap-2">
-        <label htmlFor="team-select" className="text-sm font-medium text-zinc-300">
-          Team
-        </label>
-        <div className="flex w-full max-w-xs flex-col gap-2">
-          <input
-            type="search"
-            inputMode="search"
-            data-testid="team-search"
-            value={teamSearch}
-            onChange={(e) => setTeamSearch(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter jumps straight to the top match — fast keyboard select.
-              if (e.key === 'Enter' && matchedTeams.length > 0) {
-                e.preventDefault();
-                chooseTeam(matchedTeams[0].team_number);
-                setTeamSearch('');
-              }
-            }}
-            placeholder="Search team # or name…"
-            aria-label="Search teams by number or name"
-            className={cn(
-              'w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500',
-            )}
-          />
-          {/* Live results: typing shows clickable matches (a filtered <select> only
-              changes the collapsed dropdown, which reads as "nothing happened"). */}
-          {teamSearchQ !== '' ? (
-            matchedTeams.length === 0 ? (
-              <div data-testid="team-search-empty" className="text-sm text-zinc-400">
-                No teams match your search.
+      <Card
+        data-testid="team-picker"
+        className="border-zinc-800 bg-zinc-950/80 shadow-sm"
+      >
+        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(13rem,18rem)] lg:items-stretch">
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <div>
+                <h2 className="font-display text-base font-semibold text-zinc-100">Find a team</h2>
+                <p className="text-xs text-zinc-500">Search the event roster or browse every team.</p>
+              </div>
+              <span className="font-mono text-xs text-zinc-500">
+                {teams.length} team{teams.length === 1 ? '' : 's'} at event
+              </span>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(15rem,0.8fr)] md:items-start">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <label htmlFor="team-search" className="text-xs font-medium text-zinc-400">
+                  Search roster
+                </label>
+                <div className="relative">
+                  <Search
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"
+                  />
+                  <input
+                    id="team-search"
+                    type="search"
+                    inputMode="search"
+                    data-testid="team-search"
+                    value={teamSearch}
+                    onChange={(e) => setTeamSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter jumps straight to the top match — fast keyboard select.
+                      if (e.key === 'Enter' && matchedTeams.length > 0) {
+                        e.preventDefault();
+                        chooseTeam(matchedTeams[0].team_number);
+                        setTeamSearch('');
+                      }
+                    }}
+                    placeholder="Team number or nickname…"
+                    aria-label="Search teams by number or name"
+                    aria-controls={teamSearchQ !== '' ? 'team-search-results' : undefined}
+                    aria-expanded={teamSearchQ !== ''}
+                    style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                    className={cn(
+                      'w-full rounded-md border border-zinc-700 bg-zinc-900 py-2 pl-10 pr-3 text-sm text-zinc-100 placeholder:text-zinc-500',
+                      'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
+                    )}
+                  />
+                </div>
+                {/* Live results: typing shows clickable matches (a filtered <select> only
+                    changes the collapsed dropdown, which reads as "nothing happened"). */}
+                {teamSearchQ !== '' ? (
+                  matchedTeams.length === 0 ? (
+                    <div
+                      id="team-search-results"
+                      data-testid="team-search-empty"
+                      role="status"
+                      className="px-1 py-2 text-sm text-zinc-400"
+                    >
+                      No teams match your search.
+                    </div>
+                  ) : (
+                    <ul
+                      id="team-search-results"
+                      data-testid="team-search-results"
+                      aria-label="Matching teams"
+                      className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900/80 p-1"
+                    >
+                      {matchedTeams.slice(0, 60).map((t) => (
+                        <li key={t.team_number}>
+                          <button
+                            type="button"
+                            data-testid={`team-search-result-${t.team_number}`}
+                            onClick={() => {
+                              chooseTeam(t.team_number);
+                              setTeamSearch('');
+                            }}
+                            style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm',
+                              selected === t.team_number
+                                ? 'bg-brand/15 text-zinc-100'
+                                : 'text-zinc-200 hover:bg-zinc-800',
+                              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
+                            )}
+                          >
+                            <span className="font-mono font-semibold tabular-nums text-brand">
+                              {t.team_number}
+                            </span>
+                            {t.nickname ? (
+                              <span className="truncate text-zinc-400">{t.nickname}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                ) : null}
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <label htmlFor="team-select" className="text-xs font-medium text-zinc-400">
+                  Browse roster
+                </label>
+                <select
+                  id="team-select"
+                  data-testid="team-select"
+                  value={selected ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    chooseTeam(v === '' ? null : Number(v));
+                  }}
+                  style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                  className={cn(
+                    'w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100',
+                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
+                  )}
+                >
+                  <option value="">Select a team…</option>
+                  {teams
+                    .slice()
+                    .sort((a, b) => a.team_number - b.team_number)
+                    .map((t) => (
+                      <option key={t.team_number} value={t.team_number}>
+                        {t.team_number}
+                        {t.nickname ? ` — ${t.nickname}` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div
+            data-testid="team-picker-context"
+            className="flex min-h-20 items-center border-t border-zinc-800 pt-4 lg:min-h-0 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0"
+            aria-live="polite"
+          >
+            {selected == null ? (
+              <div className="flex items-center gap-3 text-zinc-400">
+                <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-zinc-800 bg-zinc-900">
+                  <Users aria-hidden="true" className="size-5 text-zinc-500" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-zinc-300">No team selected</p>
+                  <p className="text-xs text-zinc-500">Choose one to open its profile.</p>
+                </div>
               </div>
             ) : (
-              <ul
-                data-testid="team-search-results"
-                className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-900/60 p-1"
-              >
-                {matchedTeams.slice(0, 60).map((t) => (
-                  <li key={t.team_number}>
-                    <button
-                      type="button"
-                      data-testid={`team-search-result-${t.team_number}`}
-                      onClick={() => {
-                        chooseTeam(t.team_number);
-                        setTeamSearch('');
-                      }}
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm',
-                        selected === t.team_number
-                          ? 'bg-brand/15 text-zinc-100'
-                          : 'text-zinc-200 hover:bg-zinc-800',
-                      )}
-                    >
-                      <span className="font-medium tabular-nums text-brand">{t.team_number}</span>
-                      {t.nickname ? (
-                        <span className="truncate text-zinc-400">{t.nickname}</span>
-                      ) : null}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : null}
-          <select
-            id="team-select"
-            data-testid="team-select"
-            value={selected ?? ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              chooseTeam(v === '' ? null : Number(v));
-            }}
-            style={{ minHeight: CONTROL_MIN_HEIGHT }}
-            className={cn(
-              'w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500',
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Viewing team
+                </p>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="font-mono text-2xl font-bold tabular-nums text-brand">
+                    {selected}
+                  </span>
+                  <span className="text-xs text-zinc-500">
+                    {teamMatches.length} scouted
+                  </span>
+                </div>
+                {selectedTeamRow?.nickname ? (
+                  <p className="mt-0.5 truncate text-sm text-zinc-300">
+                    {selectedTeamRow.nickname}
+                  </p>
+                ) : null}
+              </div>
             )}
-          >
-            <option value="">Select a team…</option>
-            {teams
-              .slice()
-              .sort((a, b) => a.team_number - b.team_number)
-              .map((t) => (
-                <option key={t.team_number} value={t.team_number}>
-                  {t.team_number}
-                  {t.nickname ? ` — ${t.nickname}` : ''}
-                </option>
-              ))}
-          </select>
+          </div>
         </div>
-      </div>
+      </Card>
 
       {loading ? (
         <div
@@ -1595,6 +1848,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             </span>
           </div>
           <TeamDetail
+            key={`${eventKey}:${selected}`}
             agg={agg}
             teamNumber={selected}
             matches={teamMatches}
@@ -1604,7 +1858,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             epaNode={epaNode}
             pitNode={pitNode}
             scoutName={scoutName}
-            onOpenReport={setOpenReport}
+            onOpenReport={(report) => setOpenReportId(msrReportIdentity(report))}
             conflictByRobotKey={conflicts.byRobotKey}
             robotKey={conflicts.robotKey}
             conflictCount={teamConflictCount}
@@ -1640,7 +1894,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
 
       <Sheet
         open={openReport != null}
-        onClose={() => setOpenReport(null)}
+        onClose={() => setOpenReportId(null)}
         side="right"
         title={
           openReport
@@ -1655,7 +1909,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             scoutName={scoutName(openReport.scout_id)}
             conflictGroup={conflicts.byRobotKey.get(conflicts.robotKey(openReport))}
             siblingName={scoutName}
-            onOpenSibling={setOpenReport}
+            onOpenSibling={(report) => setOpenReportId(msrReportIdentity(report))}
           />
         ) : null}
       </Sheet>

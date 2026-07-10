@@ -28,18 +28,21 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY as string;
 const BASE = `${SUPABASE_URL}/functions/v1/ingest-reports`;
 
 // Gate the whole suite on env (mirrors tba-proxy: skip locally when unset).
-const HAS_ENV = Boolean(SUPABASE_URL && ANON && SERVICE_ROLE_KEY);
+const RUN_ID = process.env.E2E_RUN_ID?.replace(/[^a-zA-Z0-9_]/g, "_") ?? "";
+const HAS_ENV = Boolean(
+  SUPABASE_URL && ANON && SERVICE_ROLE_KEY && RUN_ID && RUN_ID !== "local",
+);
 const d = HAS_ENV ? describe : describe.skip;
 
 // The member's own event.
-const EVENT_KEY = "2099test_ingest_jwt";
+const EVENT_KEY = `_e2etest_${RUN_ID}_ingest`.slice(0, 63);
 const EVENT_CODE = "INGSTJWT";
-const MATCH_KEY = "2099test_ingest_jwt_qm1";
+const MATCH_KEY = `${EVENT_KEY}_qm1`;
 const TEAM_NUMBER = 99992;
 // A separate event the member never joins (the 403-foreign case).
-const FOREIGN_EVENT_KEY = "2099test_ingest_foreign";
+const FOREIGN_EVENT_KEY = `_e2etest_${RUN_ID}_ingest_foreign`.slice(0, 63);
 const FOREIGN_CODE = "INGFRGN1";
-const FOREIGN_MATCH_KEY = "2099test_ingest_foreign_qm1";
+const FOREIGN_MATCH_KEY = `${FOREIGN_EVENT_KEY}_qm1`;
 
 const REPORT_ID = "00000000-d4d4-d4d4-d4d4-000000000099";
 const FOREIGN_REPORT_ID = "00000000-d4d4-d4d4-d4d4-0000000000fe";
@@ -57,7 +60,7 @@ async function seed() {
   await admin.from("event").upsert({
     event_key: EVENT_KEY,
     name: "Ingest JWT Test Event",
-    is_active: true,
+    is_active: false,
   });
   await admin.from("event_secret").upsert({
     event_key: EVENT_KEY,
@@ -67,11 +70,16 @@ async function seed() {
     team_number: TEAM_NUMBER,
     nickname: "Ingest JWT Team",
   });
+  await admin.from("event_team").upsert({
+    event_key: EVENT_KEY,
+    team_number: TEAM_NUMBER,
+  });
   await admin.from("match").upsert({
     match_key: MATCH_KEY,
     event_key: EVENT_KEY,
     comp_level: "qm",
     match_number: 1,
+    red1: TEAM_NUMBER,
   });
 
   // Foreign event (member never joins it) + a match so a forged event_key is
@@ -115,27 +123,8 @@ async function seed() {
 }
 
 async function cleanup() {
-  // FK-safe order across BOTH events.
-  await admin
-    .from("match_scouting_report")
-    .delete()
-    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
-  await admin
-    .from("scout")
-    .delete()
-    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
-  await admin
-    .from("match")
-    .delete()
-    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
-  await admin
-    .from("event_secret")
-    .delete()
-    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
-  await admin
-    .from("event")
-    .delete()
-    .in("event_key", [EVENT_KEY, FOREIGN_EVENT_KEY]);
+  await admin.rpc("delete_event", { p_event_key: EVENT_KEY });
+  await admin.rpc("delete_event", { p_event_key: FOREIGN_EVENT_KEY });
   await admin.from("team").delete().eq("team_number", TEAM_NUMBER);
 }
 

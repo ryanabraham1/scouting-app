@@ -40,7 +40,7 @@ test.describe('match video', () => {
     await page.goto('/dashboard');
     await page.getByRole('tab', { name: 'Match', exact: true }).click();
     await page.locator('[data-testid^="match-item-"]').first().click();
-    await expect(page.getByText('Match video')).toBeVisible(); // CardTitle
+    await expect(page.getByText('Match video & activity', { exact: true })).toBeVisible();
     // One of the terminal states must appear (frame, none, unavailable, or error).
     await expect(
       page

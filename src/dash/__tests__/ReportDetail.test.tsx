@@ -26,7 +26,9 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     climb_success: true,
     auto_left_starting_line: true,
     auto_climb_level1: false,
-    defense_rating: 4,
+    defense_rating: 8,
+    driver_skill: 10,
+    agility: 7,
     pins: 2,
     no_show: false,
     died: false,
@@ -76,6 +78,9 @@ describe('ReportDetail', () => {
     const text = getByTestId('report-detail').textContent ?? '';
     expect(text).toContain('L3');
     expect(text).toContain('Defense rating');
+    expect(text).toContain('8/10');
+    expect(text).toContain('10/10');
+    expect(text).toContain('7/10');
     expect(text).toContain('Pins');
   });
 

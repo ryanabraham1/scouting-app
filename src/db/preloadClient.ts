@@ -13,6 +13,7 @@ import { db } from './localStore';
 import type {
   CachedMatch,
   CachedAssignment,
+  CachedPitAssignment,
   CachedRosterScouter,
   CachedTeam,
   PreloadMeta,
@@ -21,7 +22,13 @@ import type {
 export interface PreloadResult {
   ok: boolean;
   at: string; // ISO time of attempt
-  counts: { matches: number; assignments: number; roster: number; teams: number };
+  counts: {
+    matches: number;
+    assignments: number;
+    pitAssignments: number;
+    roster: number;
+    teams: number;
+  };
   errors: string[]; // human-readable per-section errors; empty on full success
 }
 
@@ -46,7 +53,16 @@ export async function preloadEventData(opts: {
   const { eventKey, scoutId } = opts;
   const at = new Date().toISOString();
   const errors: string[] = [];
-  const counts = { matches: 0, assignments: 0, roster: 0, teams: 0 };
+  const counts = { matches: 0, assignments: 0, pitAssignments: 0, roster: 0, teams: 0 };
+  const succeeded = {
+    matches: false,
+    assignments: false,
+    pitAssignments: false,
+    roster: false,
+    teams: false,
+  };
+  let assignmentRows: CachedAssignment[] | null = null;
+  let pitAssignmentRows: CachedPitAssignment[] | null = null;
 
   // --- Matches (event schedule + any synced results) -----------------------
   try {
@@ -60,13 +76,13 @@ export async function preloadEventData(opts: {
     // but ONLY when the query returned data. A successful-but-empty response
     // (transient race / inconsistency) must NOT wipe a good offline cache.
     if (rows.length) {
-      await db.cachedMatches.where('event_key').equals(eventKey).delete();
-      await db.cachedMatches.bulkPut(rows);
-      // Prune OTHER events' cached matches so the cache stays bounded to the event
-      // being scouted (otherwise every event ever preloaded accumulates forever).
-      await db.cachedMatches.where('event_key').notEqual(eventKey).delete();
+      await db.transaction('rw', db.cachedMatches, async () => {
+        await db.cachedMatches.where('event_key').equals(eventKey).delete();
+        await db.cachedMatches.bulkPut(rows);
+      });
     }
     counts.matches = rows.length;
+    succeeded.matches = true;
   } catch (err) {
     errors.push(`matches: ${errMsg(err, 'failed to preload matches')}`);
   }
@@ -86,16 +102,18 @@ export async function preloadEventData(opts: {
       await db.cachedRoster.bulkPut(rows);
     }
     counts.roster = rows.length;
+    succeeded.roster = true;
   } catch (err) {
     errors.push(`roster: ${errMsg(err, 'failed to preload roster')}`);
   }
 
-  // --- Assignments (this scout only; needs a scoutId) ----------------------
+  // --- Assignments (all event rows; counts remain this scout only) ---------
   if (scoutId) {
     try {
-      const res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
+      const res = await supabase.from('assignment').select('*').eq('event_key', eventKey);
       if (res.error) throw new Error(res.error.message);
       const raw = (res.data as Array<{
+        id?: string;
         scout_id: string;
         match_key: string;
         alliance_color: 'red' | 'blue';
@@ -104,7 +122,7 @@ export async function preloadEventData(opts: {
         event_key: string;
       }> | null) ?? [];
       const rows: CachedAssignment[] = raw.map((a) => ({
-        id: `${a.scout_id}:${a.match_key}`,
+        id: a.id ?? `${a.event_key}:${a.match_key}:${a.alliance_color}:${a.station}`,
         scout_id: a.scout_id,
         match_key: a.match_key,
         alliance_color: a.alliance_color,
@@ -112,18 +130,46 @@ export async function preloadEventData(opts: {
         target_team_number: a.target_team_number,
         event_key: a.event_key,
       }));
-      // Clean refresh, but only when the server actually returned assignments.
-      // This is the critical case: select_scouter re-points a scout's rows to a
-      // different scout_id, so for a brief window the queried id legitimately
-      // returns zero rows. Wiping here would permanently clear a scout's cached
-      // assignments mid-event (the "assignments disappear after a while" bug).
-      if (rows.length) {
-        await db.cachedAssignments.where('scout_id').equals(scoutId).delete();
-        await db.cachedAssignments.bulkPut(rows);
-      }
-      counts.assignments = rows.length;
+      // Fetching the complete event avoids the select_scouter old-id race and
+      // makes a successful empty result authoritative. Replace only this event;
+      // assignments cached for every other event remain untouched.
+      assignmentRows = rows;
+      counts.assignments = rows.filter((row) => row.scout_id === scoutId).length;
+      succeeded.assignments = true;
     } catch (err) {
       errors.push(`assignments: ${errMsg(err, 'failed to preload assignments')}`);
+    }
+
+    try {
+      const res = await supabase
+        .from('pit_assignment')
+        .select('event_key,team_number,scout_id,source,scout:scout(display_name)')
+        .eq('event_key', eventKey);
+      if (res.error) throw new Error(res.error.message);
+      const raw = (res.data as unknown as Array<{
+        event_key: string;
+        team_number: number;
+        scout_id: string;
+        source: 'manual' | 'auto';
+        scout: { display_name: string | null } | null;
+      }> | null) ?? [];
+      const rows: CachedPitAssignment[] = raw.map((assignment) => ({
+        id: `${assignment.event_key}:${assignment.team_number}:${assignment.scout_id}`,
+        event_key: assignment.event_key,
+        team_number: assignment.team_number,
+        scout_id: assignment.scout_id,
+        scout_name: assignment.scout?.display_name ?? null,
+        source: assignment.source,
+      }));
+      // A successful empty response is authoritative for this event: publishing
+      // an empty crew intentionally removes all assignments. Defer the cache
+      // replacement to the metadata transaction below so rows/count metadata
+      // cannot disagree after a crash.
+      pitAssignmentRows = rows;
+      counts.pitAssignments = rows.filter((row) => row.scout_id === scoutId).length;
+      succeeded.pitAssignments = true;
+    } catch (err) {
+      errors.push(`pit assignments: ${errMsg(err, 'failed to preload pit assignments')}`);
     }
   }
 
@@ -150,31 +196,53 @@ export async function preloadEventData(opts: {
     // Only refresh when teams came back; don't wipe to empty on a transient
     // empty response.
     if (rows.length) {
-      await db.cachedTeams.where('event_key').equals(eventKey).delete();
-      await db.cachedTeams.bulkPut(rows);
-      // Prune OTHER events' cached teams so the cache stays bounded to the event
-      // being scouted.
-      await db.cachedTeams.where('event_key').notEqual(eventKey).delete();
+      await db.transaction('rw', db.cachedTeams, async () => {
+        await db.cachedTeams.where('event_key').equals(eventKey).delete();
+        await db.cachedTeams.bulkPut(rows);
+      });
     }
     counts.teams = rows.length;
+    succeeded.teams = true;
   } catch (err) {
     errors.push(`teams: ${errMsg(err, 'failed to preload teams')}`);
   }
 
-  // Record the attempt regardless of partial failures so the UI can show a
-  // "last synced" time and the counts that did make it in.
+  // Preserve the last fully-successful timestamp across partial failures. For
+  // counts, update only sections that actually succeeded; a failed section must
+  // retain its last-known-good metadata instead of being rewritten as zero.
+  const previousMeta = await db.preloadMeta.get(eventKey).catch(() => undefined);
+  const previousCounts = previousMeta?.counts ?? {};
+  const countFor = (key: keyof typeof counts): number =>
+    succeeded[key] ? counts[key] : previousCounts[key] ?? 0;
   const meta: PreloadMeta = {
     key: eventKey,
-    lastPreloadAt: at,
+    lastPreloadAt: errors.length === 0 ? at : previousMeta?.lastPreloadAt ?? at,
     counts: {
-      matches: counts.matches,
-      assignments: counts.assignments,
-      roster: counts.roster,
-      teams: counts.teams,
+      matches: countFor('matches'),
+      assignments: countFor('assignments'),
+      pitAssignments: countFor('pitAssignments'),
+      roster: countFor('roster'),
+      teams: countFor('teams'),
     },
   };
   try {
-    await db.preloadMeta.put(meta);
+    await db.transaction(
+      'rw',
+      db.cachedAssignments,
+      db.cachedPitAssignments,
+      db.preloadMeta,
+      async () => {
+        if (assignmentRows != null) {
+          await db.cachedAssignments.where('event_key').equals(eventKey).delete();
+          if (assignmentRows.length) await db.cachedAssignments.bulkPut(assignmentRows);
+        }
+        if (pitAssignmentRows != null) {
+          await db.cachedPitAssignments.where('event_key').equals(eventKey).delete();
+          if (pitAssignmentRows.length) await db.cachedPitAssignments.bulkPut(pitAssignmentRows);
+        }
+        await db.preloadMeta.put(meta);
+      },
+    );
   } catch (err) {
     errors.push(`meta: ${errMsg(err, 'failed to record preload meta')}`);
   }
@@ -193,6 +261,61 @@ export async function getCachedMatches(eventKey: string): Promise<CachedMatch[]>
 /** Cached assignments for a scout. */
 export async function getCachedAssignments(scoutId: string): Promise<CachedAssignment[]> {
   return db.cachedAssignments.where('scout_id').equals(scoutId).toArray();
+}
+
+/** Cached match assignments for an event (offline dashboard fallback). */
+export async function getCachedAssignmentsForEvent(
+  eventKey: string,
+): Promise<CachedAssignment[]> {
+  const rows = await db.cachedAssignments.toArray();
+  return rows.filter((row) => row.event_key === eventKey);
+}
+
+/**
+ * Atomically replace one event's cached match assignments.
+ *
+ * Both the preload flow and the lead assignment editor receive complete
+ * event-wide snapshots. Keeping this replacement event-scoped means a confirmed
+ * empty publish can clear stale rows without touching another event's offline
+ * data.
+ */
+export async function replaceCachedAssignmentsForEvent(
+  eventKey: string,
+  rows: CachedAssignment[],
+): Promise<void> {
+  await db.transaction('rw', db.cachedAssignments, async () => {
+    await db.cachedAssignments.where('event_key').equals(eventKey).delete();
+    if (rows.length) await db.cachedAssignments.bulkPut(rows);
+  });
+}
+
+/** Cached pit assignments for a scout, ordered by team number. */
+export async function getCachedPitAssignments(
+  scoutId: string,
+): Promise<CachedPitAssignment[]> {
+  const rows = await db.cachedPitAssignments.where('scout_id').equals(scoutId).toArray();
+  return rows.sort((a, b) => a.team_number - b.team_number);
+}
+
+/** All cached pit crews for an event, used to show a scout their crew partners. */
+export async function getCachedPitAssignmentsForEvent(
+  eventKey: string,
+): Promise<CachedPitAssignment[]> {
+  const rows = await db.cachedPitAssignments.where('event_key').equals(eventKey).toArray();
+  return rows.sort(
+    (a, b) => a.team_number - b.team_number || (a.scout_name ?? '').localeCompare(b.scout_name ?? ''),
+  );
+}
+
+/** Atomically replace one event's cached pit-assignment snapshot. */
+export async function replaceCachedPitAssignmentsForEvent(
+  eventKey: string,
+  rows: CachedPitAssignment[],
+): Promise<void> {
+  await db.transaction('rw', db.cachedPitAssignments, async () => {
+    await db.cachedPitAssignments.where('event_key').equals(eventKey).delete();
+    if (rows.length) await db.cachedPitAssignments.bulkPut(rows);
+  });
 }
 
 /** Cached roster, alphabetical (case-insensitive). */

@@ -1,7 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
+import { config as loadEnv } from 'dotenv';
+import { assertDedicatedRemoteTestProject } from './tests/remoteTestSafety';
 
 const PORT = 5173;
 const BASE_URL = `http://localhost:${PORT}`;
+loadEnv({ path: '.env.local' });
+process.env.E2E_RUN_ID ??= `${Date.now()}_${process.pid}`;
+assertDedicatedRemoteTestProject();
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -18,6 +23,7 @@ export default defineConfig({
     baseURL: BASE_URL,
     headless: true,
     trace: 'on-first-retry',
+    storageState: 'test-results/e2e-auth-state.json',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

@@ -3,7 +3,7 @@
 // Ranking · Picklist · Draft · Setup. Initial tab is read from ?tab= so the
 // legacy /admin -> /dashboard?tab=setup alias lands on Setup; the retired
 // ?tab=scouter and ?tab=roster both resolve to the merged Scouters tab.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   MonitorPlay,
   Presentation,
@@ -83,28 +83,62 @@ function initialTab(): Tab {
 }
 
 export default function DashboardScreen(): JSX.Element {
-  const { eventKey, loading } = useActiveEvent();
+  const { eventKey, loading, authoritative } = useActiveEvent();
   // Real-time engine for the whole dashboard: pushes Nexus field snapshots +
   // freshly-scored results into the query cache the instant they land, and runs
   // the TBA results reconcile safety net. No-op without an event.
   useEventLiveSync(eventKey);
   const [tab, setTab] = useState<Tab>(initialTab);
   // Lifted so a click in Ranking can preselect the team on the Team tab.
-  const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  const [teamSelection, setTeamSelection] = useState<{
+    eventKey: string | null;
+    value: number | null;
+  }>({ eventKey, value: null });
   // Lifted so a click on a team's last-match card deep-links to the Match tab.
-  const [selectedMatchKey, setSelectedMatchKey] = useState<string | null>(null);
+  const [matchSelection, setMatchSelection] = useState<{
+    eventKey: string | null;
+    value: string | null;
+  }>({ eventKey, value: null });
+  const selectedTeam = teamSelection.eventKey === eventKey ? teamSelection.value : null;
+  const selectedMatchKey = matchSelection.eventKey === eventKey ? matchSelection.value : null;
+
+  function selectTab(next: Tab, historyMode: 'push' | 'replace' = 'push'): void {
+    setTab(next);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', next);
+      window.history[historyMode === 'replace' ? 'replaceState' : 'pushState'](
+        null,
+        '',
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    } catch {
+      /* URL history is unavailable in non-browser renders. */
+    }
+  }
+
+  useEffect(() => {
+    const onPopState = () => setTab(initialTab());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
+    setTeamSelection({ eventKey, value: null });
+    setMatchSelection({ eventKey, value: null });
+  }, [eventKey]);
 
   const current = TABS.find((t) => t.key === tab);
   const dataGated = current?.needsEvent ?? true;
 
   function openTeam(teamNumber: number): void {
-    setSelectedTeam(teamNumber);
-    setTab('team');
+    setTeamSelection({ eventKey, value: teamNumber });
+    selectTab('team');
   }
 
   function openMatch(matchKey: string): void {
-    setSelectedMatchKey(matchKey);
-    setTab('match');
+    setMatchSelection({ eventKey, value: matchKey });
+    selectTab('match');
   }
 
   return (
@@ -123,7 +157,7 @@ export default function DashboardScreen(): JSX.Element {
       <IconTabs<Tab>
         ariaLabel="Dashboard sections"
         value={tab}
-        onChange={setTab}
+        onChange={selectTab}
         tabs={[...TABS]
           .filter((t) => !t.hidden)
           // Setup is pinned to the far right no matter what other tabs exist
@@ -134,6 +168,17 @@ export default function DashboardScreen(): JSX.Element {
             return { value: t.key, label: t.label, icon: <Icon /> };
           })}
       />
+
+      {!authoritative && eventKey ? (
+        <div
+          role="status"
+          data-testid="dashboard-event-unverified"
+          className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          Showing cached event {eventKey} while server authority is being verified. Destructive
+          event-scoped edits are paused.
+        </div>
+      ) : null}
 
       {/* Scouters stays usable without an event (roster lives on its own table). */}
       {tab === 'scouters' && <ScoutersTab eventKey={eventKey} />}
@@ -156,7 +201,7 @@ export default function DashboardScreen(): JSX.Element {
               <TeamView
                 eventKey={eventKey}
                 selectedTeam={selectedTeam}
-                onSelectTeam={setSelectedTeam}
+                onSelectTeam={(team) => setTeamSelection({ eventKey, value: team })}
                 onOpenMatch={openMatch}
               />
             )}
@@ -164,13 +209,21 @@ export default function DashboardScreen(): JSX.Element {
               <MatchView
                 eventKey={eventKey}
                 initialMatchKey={selectedMatchKey}
-                onSelectMatch={setSelectedMatchKey}
+                onSelectMatch={(matchKey) =>
+                  setMatchSelection({ eventKey, value: matchKey })
+                }
               />
             )}
             {tab === 'ranking' && (
               <RankingView eventKey={eventKey} onSelectTeam={openTeam} />
             )}
-            {tab === 'picklist' && <PicklistView eventKey={eventKey} onSelectTeam={openTeam} />}
+            {tab === 'picklist' && (
+              <PicklistView
+                eventKey={eventKey}
+                onSelectTeam={openTeam}
+                readOnly={!authoritative}
+              />
+            )}
             {tab === 'draft' && <DraftBoardView eventKey={eventKey} onSelectTeam={openTeam} />}
             {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
           </section>

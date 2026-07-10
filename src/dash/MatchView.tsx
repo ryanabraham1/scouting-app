@@ -38,7 +38,7 @@ import {
 import { useEventScoutCoverage } from '@/dash/useMatchScoutCoverage';
 import { COVERAGE_STATION_CAP } from '@/dash/aggregate';
 import { relativeTime } from '@/dash/relativeTime';
-import type { MatchScoutCoverage } from '@/dash/types';
+import { msrReportIdentity, type MatchScoutCoverage } from '@/dash/types';
 import ReportDetail from '@/dash/ReportDetail';
 import TeamTimeline from '@/dash/TeamTimeline';
 import MatchVideo from '@/dash/MatchVideo';
@@ -53,6 +53,7 @@ import {
   type TbaValidationSeverity,
 } from '@/dash/validateVsTba';
 import type { MsrRow, MultiScoutGroup } from '@/dash/types';
+import { QUALITATIVE_RATING_MAX } from '@/ratings';
 
 export interface MatchViewProps {
   eventKey: string;
@@ -74,6 +75,17 @@ const CONTROL_MIN_HEIGHT = 56; // px — touch target floor
 function fmt(n: number, digits = 1): string {
   if (!Number.isFinite(n)) return '—';
   return n.toFixed(digits);
+}
+
+/**
+ * Result sync stamps played matches after writing both official scores. Keep
+ * the complete-score fallback because cached/demo rows can legitimately carry
+ * scores without the sync timestamp.
+ */
+function hasPlayedResult(match: MatchRow): boolean {
+  const hasCompleteScore =
+    match.actual_red_score != null && match.actual_blue_score != null;
+  return hasCompleteScore || match.result_synced_at != null;
 }
 
 /** Friendly station label, e.g. "Red 1". */
@@ -312,7 +324,10 @@ function MatchDetail(props: {
                             <Mountain className="size-4" /> {climb}
                           </span>
                           <span className="inline-flex items-center gap-1">
-                            <Shield className="size-4 text-brand" /> {r.defense_rating}
+                            <Shield className="size-4 text-brand" />{' '}
+                            {r.defense_rating > 0
+                              ? `${r.defense_rating}/${QUALITATIVE_RATING_MAX}`
+                              : '—'}
                           </span>
                         </span>
                         {flags.length ? (
@@ -528,13 +543,11 @@ function statusTone(covered: number, total: number): string {
 }
 
 /**
- * Scouting-status SUMMARY (dashboard-heartbeat, compact): a slim one-line pill
- * ("✓ 4/6 stations · N synced · last report 2m ago") plus a DENSE secondary
- * row of who reported (name + station chip, sorted by station). The bulky
- * "not reported yet" roster list is collapsed behind a small "N not reported"
- * toggle so it never dominates the detail pane. Pure / prop-driven; `nowMs`
- * ticks via the parent so the relative stamps stay fresh. Rendered INSIDE the
- * "Reports on this match" card header so the status + tiles read as one block.
+ * Scouting-status SUMMARY (dashboard-heartbeat, compact): a coverage rail plus
+ * a responsive status roster. Server rows are definitively "synced"; roster
+ * members without one remain "not reported" because another device's pending /
+ * failed outbox state is not observable here. Pure / prop-driven; `nowMs` ticks
+ * via the parent so relative stamps stay fresh.
  */
 function ScoutingStatusSummary(props: {
   reports: MsrRow[];
@@ -545,7 +558,25 @@ function ScoutingStatusSummary(props: {
   const { reports, coverage, scoutName, nowMs } = props;
   const [showMissing, setShowMissing] = useState(false);
   const rel = relativeTime(coverage.lastReportAt, nowMs);
-  const reported = reports.slice().sort((a, b) => a.station - b.station);
+  const reported = reports.slice().sort(
+    (a, b) =>
+      a.alliance_color.localeCompare(b.alliance_color) ||
+      a.station - b.station ||
+      a.target_team_number - b.target_team_number ||
+      msrReportIdentity(a).localeCompare(msrReportIdentity(b)),
+  );
+  const coveredByAlliance = {
+    red: new Set(
+      reports
+        .filter((report) => report.alliance_color === 'red')
+        .map((report) => report.station),
+    ).size,
+    blue: new Set(
+      reports
+        .filter((report) => report.alliance_color === 'blue')
+        .map((report) => report.station),
+    ).size,
+  };
   // Coverage fullness is measured in STATIONS (6 per match), the same metric the
   // pill and the heartbeat tile show — never scout-count (a 5-scout roster still
   // covers 6 stations). BUG-9: the pill read "0/6 stations" but the tone keyed
@@ -554,6 +585,7 @@ function ScoutingStatusSummary(props: {
   const full = stations >= COVERAGE_STATION_CAP;
   const tone = statusTone(stations, COVERAGE_STATION_CAP);
   const missing = coverage.missingScouts;
+  const statusGridClass = 'grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-2';
 
   // Coverage bar fill + tone: success when every station is covered, warning
   // while partial, muted when nothing's in yet.
@@ -562,10 +594,10 @@ function ScoutingStatusSummary(props: {
   const countColor = full ? 'text-success' : stations > 0 ? 'text-warning' : 'text-muted-foreground';
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {/* Lead: clear coverage indicator + slim coverage bar. */}
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span className="inline-flex items-center gap-1.5">
             <span
               className={cn(
@@ -581,13 +613,18 @@ function ScoutingStatusSummary(props: {
             </span>
           </span>
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            Red {coveredByAlliance.red}/3 · Blue {coveredByAlliance.blue}/3 ·{' '}
             {coverage.scoutsCovered} synced · {rel}
           </span>
         </div>
         {/* Slim coverage bar. */}
         <div
           className="h-1.5 w-full overflow-hidden rounded-full bg-muted/50"
-          role="presentation"
+          role="progressbar"
+          aria-label="Match station coverage"
+          aria-valuemin={0}
+          aria-valuemax={COVERAGE_STATION_CAP}
+          aria-valuenow={stations}
         >
           <div
             className={cn('h-full rounded-full motion-safe:transition-all', barColor)}
@@ -596,64 +633,130 @@ function ScoutingStatusSummary(props: {
         </div>
       </div>
 
-      {/* Reporter chips on their own row. */}
+      {/* Synced server reports use the same scan pattern as missing scouts. */}
       {reported.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          <span className="eyebrow">Reported</span>
-          <ul className="flex flex-wrap items-center gap-1.5">
+        <section aria-labelledby="match-scout-synced-heading" className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <h4 id="match-scout-synced-heading" className="eyebrow text-success">
+              Synced reports
+            </h4>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {reported.length} received
+            </span>
+          </div>
+          <ul className={statusGridClass}>
             {reported.map((r, i) => (
               <li
                 key={`${r.scout_id ?? 'na'}-${r.station}-${i}`}
                 data-testid={`match-scout-reported-${r.scout_id ?? 'unassigned'}`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground"
+                className={cn(
+                  'grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-2',
+                  r.scout_id
+                    ? 'border-success/25 bg-success/5'
+                    : 'border-warning/30 bg-warning/5',
+                )}
               >
-                <span className="font-medium text-foreground">{scoutName(r.scout_id)}</span>
-                <span className="rounded border border-border bg-muted/50 px-1 py-0.5 font-mono text-[10px] tabular-nums">
-                  {stationLabel(r)}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span
+                    className="truncate text-sm font-semibold text-foreground"
+                    title={scoutName(r.scout_id)}
+                  >
+                    {scoutName(r.scout_id)}
+                  </span>
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1 text-[11px] font-medium',
+                      r.scout_id ? 'text-success' : 'text-warning',
+                    )}
+                  >
+                    {r.scout_id ? (
+                      <CheckCircle2 aria-hidden className="size-3" />
+                    ) : (
+                      <AlertTriangle aria-hidden className="size-3" />
+                    )}
+                    {r.scout_id ? 'Synced' : 'Synced, unassigned'}
+                  </span>
                 </span>
-                <span className="font-mono tabular-nums">
-                  {relativeTime(r.server_received_at ?? null, nowMs)}
+                <span className="flex flex-col items-end gap-0.5">
+                  <span className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {stationLabel(r)}
+                  </span>
+                  <time
+                    dateTime={r.server_received_at}
+                    className="font-mono text-[10px] tabular-nums text-muted-foreground"
+                  >
+                    {relativeTime(r.server_received_at ?? null, nowMs)}
+                  </time>
                 </span>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       ) : null}
 
-      {/* Clearly-labeled collapsible "not reported" section. */}
+      {/* Missing roster stays collapsible, but expands into a width-filling grid. */}
       {missing.length > 0 ? (
-        <div className="flex flex-col gap-1">
+        <section className="flex flex-col gap-2">
           <button
             type="button"
             data-testid="match-scout-missing-toggle"
             aria-expanded={showMissing}
+            aria-controls="match-scout-missing-panel"
             onClick={() => setShowMissing((v) => !v)}
-            className="inline-flex items-center gap-1.5 self-start text-muted-foreground hover:text-foreground"
+            className="flex w-full items-center justify-between gap-3 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2 text-left text-muted-foreground hover:bg-warning/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ChevronDown
-              className={cn(
-                'size-3.5 motion-safe:transition-transform',
-                showMissing && 'rotate-180',
-              )}
-            />
-            <span className="eyebrow">
-              {missing.length} not reported
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <span aria-hidden className="size-2 rounded-full bg-warning" />
+              <span className="eyebrow text-warning">
+                {missing.length} not reported
+              </span>
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium">
+              {showMissing ? 'Hide' : 'Show'}
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  'size-3.5 motion-safe:transition-transform',
+                  showMissing && 'rotate-180',
+                )}
+              />
             </span>
           </button>
           {showMissing ? (
-            <ul className="flex flex-col gap-0.5 pl-5 text-xs">
-              {missing.map((s) => (
-                <li
-                  key={s.id}
-                  data-testid={`match-scout-missing-${s.id}`}
-                  className="text-muted-foreground/70"
-                >
-                  {s.display_name ?? '(unnamed)'} — no report yet
-                </li>
-              ))}
-            </ul>
+            <div id="match-scout-missing-panel" className="flex flex-col gap-2">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                No synced report has reached the dashboard. Uploads still pending or failed on a
+                scout device remain here until sync succeeds.
+              </p>
+              <ul data-testid="match-scout-missing-list" className={statusGridClass}>
+                {missing.map((s) => {
+                  const name = s.display_name ?? '(unnamed)';
+                  return (
+                    <li
+                      key={s.id}
+                      data-testid={`match-scout-missing-${s.id}`}
+                      aria-label={`${name}: no synced report received`}
+                      className="flex min-h-12 min-w-0 items-center gap-2.5 rounded-lg border border-border bg-muted/20 px-3 py-2"
+                    >
+                      <span
+                        aria-hidden
+                        className="size-2 shrink-0 rounded-full border border-warning/70"
+                      />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate text-sm font-medium text-foreground" title={name}>
+                          {name}
+                        </span>
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          No synced report
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           ) : null}
-        </div>
+        </section>
       ) : null}
     </div>
   );
@@ -672,9 +775,10 @@ function useNow(intervalMs = 30_000): number {
 export default function MatchView(props: MatchViewProps): JSX.Element {
   const { eventKey, initialMatchKey, onSelectMatch } = props;
   const [selected, setSelected] = useState<string | null>(initialMatchKey ?? null);
-  const [openReport, setOpenReport] = useState<MsrRow | null>(null);
+  const [openReportId, setOpenReportId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true); // collapsible match list
+  const selectedEventRef = useRef(eventKey);
 
   // Synced-video state. `videoSeconds` is the raw YT playback position; `offset`
   // is the video time we treat as match t=0 (pre-roll alignment). Both reset
@@ -689,6 +793,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
 
   const selectMatch = (matchKey: string): void => {
     setSelected(matchKey);
+    setOpenReportId(null);
     onSelectMatch?.(matchKey); // persist across tab switches (parent holds it)
     setVideoSeconds(null);
     setOffsetSeconds(0);
@@ -700,17 +805,35 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
     }
   };
 
+  useEffect(() => {
+    if (selectedEventRef.current === eventKey) return;
+    selectedEventRef.current = eventKey;
+    // Match keys, detail state, and video alignment are event-scoped. Clear the
+    // previous event synchronously on a scope change so the new event can choose
+    // its own latest-played default.
+    setSelected(null);
+    setOpenReportId(null);
+    setSearch('');
+    setVideoSeconds(null);
+    setOffsetSeconds(0);
+  }, [eventKey]);
+
   // Sync from the incoming deep-link prop (e.g. a click on a team's last-match
   // card) without clobbering manual list clicks: only when the prop names a
   // real, different match. Resets the synced-video state for the new match.
   useEffect(() => {
-    if (initialMatchKey != null && initialMatchKey !== selected) {
+    if (
+      initialMatchKey != null &&
+      initialMatchKey.startsWith(`${eventKey}_`) &&
+      initialMatchKey !== selected
+    ) {
       setSelected(initialMatchKey);
+      setOpenReportId(null);
       setVideoSeconds(null);
       setOffsetSeconds(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMatchKey]);
+  }, [eventKey, initialMatchKey]);
 
   // matchMs = (videoSeconds - offset) * 1000, clamped to [0, MATCH_MS]. Null when
   // we have no live video time → timelines render with no playhead.
@@ -731,7 +854,31 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
   const loading = matchesQuery.isLoading || reportsQuery.isLoading;
   const matches = matchesQuery.data ?? [];
   const reports = reportsQuery.data ?? [];
+  const openReport = openReportId
+    ? reports.find((report) => msrReportIdentity(report) === openReportId) ?? null
+    : null;
   const scouts = scoutsQuery.data ?? [];
+
+  const latestPlayedMatchKey = useMemo(() => {
+    const played = matches
+      .filter(hasPlayedResult)
+      .sort((a, b) => compareMatchKeys(a.match_key, b.match_key));
+    return played[played.length - 1]?.match_key ?? null;
+  }, [matches]);
+
+  // Supply a useful initial selection once result data arrives. The null guard
+  // makes this a one-time default in practice: a manual selection, an incoming
+  // deep link, or the first auto-default all prevent later result refreshes
+  // from moving the user to a different match.
+  useEffect(() => {
+    if (
+      selected == null &&
+      (initialMatchKey == null || !initialMatchKey.startsWith(`${eventKey}_`)) &&
+      latestPlayedMatchKey != null
+    ) {
+      setSelected(latestPlayedMatchKey);
+    }
+  }, [eventKey, initialMatchKey, latestPlayedMatchKey, selected]);
 
   const countByMatch = useMemo(() => {
     const m = new Map<string, number>();
@@ -763,7 +910,17 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
     id ? nameById.get(id) ?? '(unknown)' : 'unassigned';
 
   const selectedReports = useMemo(
-    () => (selected != null ? reports.filter((r) => r.match_key === selected) : []),
+    () =>
+      selected != null
+        ? reports
+            .filter((r) => r.match_key === selected)
+            .sort(
+              (a, b) =>
+                a.alliance_color.localeCompare(b.alliance_color) ||
+                a.station - b.station ||
+                msrReportIdentity(a).localeCompare(msrReportIdentity(b)),
+            )
+        : [],
     [reports, selected],
   );
 
@@ -966,7 +1123,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
                       reports={selectedReports}
                       coverage={selectedCoverage}
                       scoutName={scoutName}
-                      onOpenReport={setOpenReport}
+                      onOpenReport={(report) => setOpenReportId(msrReportIdentity(report))}
                       byRobotKey={byRobotKey}
                       nowMs={now}
                     />
@@ -984,7 +1141,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
 
       <Sheet
         open={openReport != null}
-        onClose={() => setOpenReport(null)}
+        onClose={() => setOpenReportId(null)}
         side="right"
         title={
           openReport
@@ -999,7 +1156,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
             scoutName={scoutName(openReport.scout_id)}
             conflictGroup={openConflictGroup}
             siblingName={scoutName}
-            onOpenSibling={setOpenReport}
+            onOpenSibling={(report) => setOpenReportId(msrReportIdentity(report))}
           />
         ) : null}
       </Sheet>

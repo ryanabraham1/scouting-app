@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { autoAssign } from './autoAssign';
-import { publishAssignments } from './setAssignmentsClient';
+import {
+  loadMatchAssignmentSnapshot,
+  publishAssignments,
+} from './setAssignmentsClient';
 import { ensureEventScoutsFromRoster } from './ensureEventScoutsClient';
 import type { AssignMatch, AssignScout, Assignment, AllianceColor } from './types';
 import {
@@ -11,13 +14,17 @@ import {
   type Seat,
 } from './coverage';
 import { CoverageGapPanel } from './CoverageGapPanel';
-import { useEventAssignments } from '@/dash/useEventData';
 import { isQualMatchKey } from '@/lib/formatMatch';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Settings2, ChevronDown } from 'lucide-react';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
+import {
+  getCachedAssignmentsForEvent,
+  replaceCachedAssignmentsForEvent,
+} from '@/db/preloadClient';
+import type { CachedAssignment } from '@/db/types';
 
 type Slot = Seat;
 
@@ -38,6 +45,15 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   const [busy, setBusy] = useState(false);
   const [published, setPublished] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [publishedRows, setPublishedRows] = useState<Assignment[]>([]);
+  const [batchRevision, setBatchRevision] = useState<number | null>(null);
+  const [batchLoading, setBatchLoading] = useState(true);
+  const [authorityIssue, setAuthorityIssue] = useState<string | null>(null);
+  const [verificationIssue, setVerificationIssue] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [editorEventKey, setEditorEventKey] = useState(eventKey);
+  const currentEventKey = useRef(eventKey);
+  currentEventKey.current = eventKey;
 
   // Auto-generate tuning — surfaced to the lead so they control HOW seats get
   // filled, not just that they do.
@@ -57,7 +73,134 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   const [seeding, setSeeding] = useState(false);
   useEffect(() => {
     setPool(scouts);
-  }, [scouts]);
+  }, [eventKey, scouts]);
+
+  useEffect(() => {
+    // Slot keys and scout ids are event-scoped. Reset synchronously after any
+    // event change and keep publish locked for the intervening render.
+    setEditorEventKey(eventKey);
+    setPicks({});
+    setGenerated(false);
+    setBusy(false);
+    setPublished(null);
+    setError(null);
+    setSeeding(false);
+    setPublishedRows([]);
+    setBatchRevision(null);
+    setBatchLoading(true);
+    setAuthorityIssue(null);
+    setVerificationIssue(null);
+    setConfirmClearAll(false);
+  }, [eventKey]);
+
+  const updatePublishedCaches = useCallback(
+    (key: string, rows: Assignment[]): void => {
+      queryClient.setQueryData(
+        ['assignments', key],
+        rows.map((row) => ({
+          event_key: key,
+          match_key: row.matchKey,
+          scout_id: row.scoutId,
+          alliance_color: row.allianceColor,
+          station: row.station,
+          target_team_number: row.targetTeamNumber,
+        })),
+      );
+      const cached: CachedAssignment[] = rows.map((row) => ({
+        id: `${key}:${row.matchKey}:${row.allianceColor}:${row.station}`,
+        event_key: key,
+        scout_id: row.scoutId,
+        match_key: row.matchKey,
+        alliance_color: row.allianceColor,
+        station: row.station,
+        target_team_number: row.targetTeamNumber,
+      }));
+      void replaceCachedAssignmentsForEvent(key, cached).catch(() => {
+        // The authoritative in-memory/query snapshot remains usable if IndexedDB
+        // is unavailable (private mode/quota). A later preload can repair Dexie.
+      });
+    },
+    [queryClient],
+  );
+
+  const loadFallbackRows = useCallback(
+    async (key: string): Promise<Assignment[]> => {
+      type QueryAssignment = {
+        event_key?: string;
+        match_key: string;
+        scout_id: string | null;
+        alliance_color: string;
+        station: number;
+        target_team_number: number | null;
+      };
+      const queryRows = queryClient.getQueryData<QueryAssignment[]>(['assignments', key]);
+      if (queryRows !== undefined) {
+        return queryRows
+          .filter(
+            (row) =>
+              (!row.event_key || row.event_key === key) &&
+              typeof row.scout_id === 'string' &&
+              (row.alliance_color === 'red' || row.alliance_color === 'blue') &&
+              (row.station === 1 || row.station === 2 || row.station === 3) &&
+              typeof row.target_team_number === 'number',
+          )
+          .map((row) => ({
+            matchKey: row.match_key,
+            scoutId: row.scout_id as string,
+            allianceColor: row.alliance_color as AllianceColor,
+            station: row.station as 1 | 2 | 3,
+            targetTeamNumber: row.target_team_number as number,
+          }));
+      }
+      const cached = await getCachedAssignmentsForEvent(key);
+      return cached.map((row) => ({
+        matchKey: row.match_key,
+        scoutId: row.scout_id,
+        allianceColor: row.alliance_color,
+        station: row.station,
+        targetTeamNumber: row.target_team_number,
+      }));
+    },
+    [queryClient],
+  );
+
+  const refreshAuthoritativeSnapshot = useCallback(
+    async (useFallback: boolean): Promise<boolean> => {
+      if (!eventKey) return false;
+      const requestEventKey = eventKey;
+      setBatchLoading(true);
+      setAuthorityIssue(null);
+      try {
+        const snapshot = await loadMatchAssignmentSnapshot(requestEventKey);
+        if (currentEventKey.current !== requestEventKey) return false;
+        setPublishedRows(snapshot.assignments);
+        setBatchRevision(snapshot.state.revision);
+        setVerificationIssue(null);
+        updatePublishedCaches(requestEventKey, snapshot.assignments);
+        return true;
+      } catch {
+        if (currentEventKey.current !== requestEventKey) return false;
+        setBatchRevision(null);
+        if (useFallback) {
+          const fallback = await loadFallbackRows(requestEventKey).catch(() => []);
+          if (currentEventKey.current !== requestEventKey) return false;
+          setPublishedRows(fallback);
+        }
+        setAuthorityIssue(
+          'Server revision unavailable. You can keep editing the last saved snapshot; Publish and Clear all stay locked until the server check succeeds.',
+        );
+        return false;
+      } finally {
+        if (currentEventKey.current === requestEventKey) setBatchLoading(false);
+      }
+    },
+    [eventKey, loadFallbackRows, updatePublishedCaches],
+  );
+
+  useEffect(() => {
+    if (!eventKey) return;
+    void refreshAuthoritativeSnapshot(true);
+  }, [eventKey, refreshAuthoritativeSnapshot]);
 
   // Always seed the (non-hidden) roster into the event scout pool on mount, so
   // EVERY scouter is assignable — not just whoever has already picked their name
@@ -71,7 +214,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     void (async () => {
       try {
         const seeded = await ensureEventScoutsFromRoster(eventKey);
-        if (!cancelled && seeded.length) setPool(seeded);
+        if (!cancelled && currentEventKey.current === eventKey && seeded.length) setPool(seeded);
       } catch {
         /* offline or no roster yet — keep the scouts passed in via props */
       }
@@ -120,19 +263,13 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     [slots, picks],
   );
 
-  // Published coverage — what scouts actually pull right now. The hook swallows
-  // offline errors and returns [], so `rows` is always an array (never undefined).
-  const { data: publishedRows } = useEventAssignments(eventKey);
-  const publishedMapped = useMemo(
-    () =>
-      (publishedRows ?? []).map((r) => ({
-        matchKey: r.match_key,
-        allianceColor: r.alliance_color as AllianceColor,
-        station: r.station,
-        scoutId: r.scout_id,
-      })),
-    [publishedRows],
-  );
+  // The rows and revision come from one stable before/after snapshot. A cached
+  // row query cannot safely be paired with a separately loaded CAS revision.
+  // Cached rows ARE still safe for local authoring; only publish/CAS needs the
+  // authoritative revision.
+  const publishedMapped = publishedRows;
+  const editorReady = editorEventKey === eventKey && !batchLoading;
+  const publishReady = editorReady && batchRevision !== null;
   const publishedSummary = useMemo(
     () => computeCoverageFromAssignments(slots, publishedMapped),
     [slots, publishedMapped],
@@ -175,9 +312,12 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     setGenerated(true);
     setPublished(null);
     setError(null);
+    setConfirmClearAll(false);
   }
 
   async function onAutoGenerate(): Promise<void> {
+    if (!editorReady) return;
+    const requestEventKey = eventKey;
     setError(null);
     // No per-event scouts checked in yet: seed the pool from the persistent
     // roster so the lead can assign before anyone has picked their name.
@@ -186,6 +326,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
       setSeeding(true);
       try {
         const seeded = await ensureEventScoutsFromRoster(eventKey);
+        if (currentEventKey.current !== requestEventKey) return;
         setPool(seeded);
         if (seeded.length === 0) {
           setError('No scouters on the roster yet. Add scouters in the Roster tab first.');
@@ -193,9 +334,10 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
         }
         generateFrom(seeded);
       } catch (err) {
+        if (currentEventKey.current !== requestEventKey) return;
         setError(err instanceof Error ? err.message : 'Could not load scouters.');
       } finally {
-        setSeeding(false);
+        if (currentEventKey.current === requestEventKey) setSeeding(false);
       }
       return;
     }
@@ -206,21 +348,25 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   // is already published so the lead keeps live assignments and edits from there;
   // starts blank if nothing is published yet.
   async function onStartManual(): Promise<void> {
+    if (!editorReady) return;
+    const requestEventKey = eventKey;
     setError(null);
     if (pool.length === 0 && !seeding) {
       setSeeding(true);
       try {
         const seeded = await ensureEventScoutsFromRoster(eventKey);
+        if (currentEventKey.current !== requestEventKey) return;
         setPool(seeded);
         if (seeded.length === 0) {
           setError('No scouters on the roster yet. Add scouters in the Roster tab first.');
           return;
         }
       } catch (err) {
+        if (currentEventKey.current !== requestEventKey) return;
         setError(err instanceof Error ? err.message : 'Could not load scouters.');
         return;
       } finally {
-        setSeeding(false);
+        if (currentEventKey.current === requestEventKey) setSeeding(false);
       }
     }
     const next: Record<string, string> = {};
@@ -231,14 +377,17 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     setPicks(next);
     setGenerated(true);
     setPublished(null);
+    setConfirmClearAll(false);
   }
 
   function setSlot(key: string, scoutId: string): void {
     setPicks((prev) => ({ ...prev, [key]: scoutId }));
+    setConfirmClearAll(false);
   }
 
   // Clear every seat of one match in a single tap (manual-authoring aid).
   function clearMatch(matchKey: string): void {
+    setConfirmClearAll(false);
     setPicks((prev) => {
       const next = { ...prev };
       for (const s of slots) {
@@ -248,11 +397,91 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     });
   }
 
-  async function onPublish(): Promise<void> {
-    if (busy) return;
+  async function publishDraft(assignments: Assignment[], clearingAll = false): Promise<void> {
+    if (
+      busy ||
+      !publishReady ||
+      batchRevision === null ||
+      (!clearingAll && draftSummary.coveredSeats === 0)
+    ) {
+      return;
+    }
+    const publishEventKey = eventKey;
+    const publishBaseRevision = batchRevision;
     setBusy(true);
     setError(null);
     setPublished(null);
+    try {
+      const result = await publishAssignments(
+        publishEventKey,
+        assignments,
+        publishBaseRevision,
+      );
+      if (currentEventKey.current !== publishEventKey) return;
+      if (result.status === 'conflict') {
+        // The conflict result has an authoritative revision/count but no rows.
+        // Do not pair it with our stale published rows; lock server actions until
+        // a coherent snapshot is loaded, while leaving the local draft editable.
+        setBatchRevision(null);
+        await refreshAuthoritativeSnapshot(false);
+        if (currentEventKey.current !== publishEventKey) return;
+        if (clearingAll) setConfirmClearAll(false);
+        setError(
+          'Another lead changed match assignments. Your draft was kept; review the refreshed live coverage before publishing again.',
+        );
+        return;
+      }
+
+      // Applied/idempotent is an atomic server confirmation. The submitted rows
+      // and returned revision/count are therefore the authoritative post-RPC
+      // snapshot even if the optional read-back below cannot reach the server.
+      setPublishedRows(assignments);
+      setBatchRevision(result.revision);
+      setPublished(result.count);
+      updatePublishedCaches(publishEventKey, assignments);
+      if (clearingAll) {
+        setPicks({});
+        setGenerated(false);
+      }
+      setConfirmClearAll(false);
+
+      try {
+        const snapshot = await loadMatchAssignmentSnapshot(publishEventKey);
+        if (currentEventKey.current !== publishEventKey) return;
+        setPublishedRows(snapshot.assignments);
+        setBatchRevision(snapshot.state.revision);
+        updatePublishedCaches(publishEventKey, snapshot.assignments);
+        if (snapshot.state.revision !== result.revision) {
+          setVerificationIssue(
+            'Publish succeeded, but live assignments changed again before verification finished. The latest server snapshot is shown.',
+          );
+        } else {
+          setVerificationIssue(null);
+        }
+      } catch {
+        if (currentEventKey.current !== publishEventKey) return;
+        // Keep the result revision, never the pre-publish base revision.
+        setVerificationIssue(
+          'Publish succeeded, but the follow-up server refresh failed. The confirmed published rows are shown; retry the server check when connectivity returns.',
+        );
+      }
+
+      // The cache was already updated synchronously above. Refetching is a
+      // best-effort background verification and cannot turn a confirmed publish
+      // into an error.
+      void queryClient
+        .invalidateQueries({ queryKey: ['assignments', publishEventKey] })
+        .catch(() => undefined);
+    } catch (err) {
+      if (currentEventKey.current !== publishEventKey) return;
+      if (clearingAll) setConfirmClearAll(false);
+      setError(err instanceof Error ? err.message : 'Publish failed.');
+    } finally {
+      if (currentEventKey.current === publishEventKey) setBusy(false);
+    }
+  }
+
+  async function onPublish(): Promise<void> {
     const assignments: Assignment[] = slots
       .map((s) => ({ ...s, scoutId: picks[slotKey(s)] ?? '' }))
       .filter((s) => s.scoutId !== '')
@@ -263,18 +492,16 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
         station: s.station,
         targetTeamNumber: s.targetTeamNumber,
       }));
-    try {
-      const count = await publishAssignments(eventKey, assignments);
-      setPublished(count);
-      // Refresh the published panel + diverged flag immediately — otherwise they
-      // keep showing pre-publish rows for the full staleTime window, leaving a
-      // false "unpublished changes" note right after the lead JUST published.
-      void queryClient.invalidateQueries({ queryKey: ['assignments', eventKey] });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Publish failed.');
-    } finally {
-      setBusy(false);
+    await publishDraft(assignments);
+  }
+
+  async function onClearAll(): Promise<void> {
+    if (!confirmClearAll) {
+      setConfirmClearAll(true);
+      setError(null);
+      return;
     }
+    await publishDraft([], true);
   }
 
   // One-line published/live-for-scouts status shown under the single coverage
@@ -341,7 +568,11 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             type="button"
             data-testid="auto-generate-btn"
             onClick={() => void onAutoGenerate()}
-            disabled={qualMatches.length === 0 || seeding}
+            disabled={
+              qualMatches.length === 0 ||
+              seeding ||
+              !editorReady
+            }
             variant="outline"
             className="h-11"
           >
@@ -351,7 +582,11 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             type="button"
             data-testid="assign-manually-btn"
             onClick={() => void onStartManual()}
-            disabled={qualMatches.length === 0 || seeding}
+            disabled={
+              qualMatches.length === 0 ||
+              seeding ||
+              !editorReady
+            }
             variant="outline"
             className="h-11"
           >
@@ -375,12 +610,29 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             type="button"
             data-testid="publish-assignments-btn"
             onClick={() => void onPublish()}
-            disabled={busy || !generated}
+            disabled={
+              busy ||
+              !generated ||
+              !publishReady ||
+              draftSummary.coveredSeats === 0
+            }
             variant="brand"
             className="ml-auto h-11"
           >
             {busy ? 'Publishing…' : 'Publish'}
           </Button>
+          {publishedRows.length > 0 ? (
+            <Button
+              type="button"
+              data-testid="clear-all-assignments-btn"
+              onClick={() => void onClearAll()}
+              disabled={busy || !publishReady}
+              variant="outline"
+              className={confirmClearAll ? 'h-11 border-destructive text-destructive' : 'h-11'}
+            >
+              {confirmClearAll ? 'Confirm clear all' : 'Clear all'}
+            </Button>
+          ) : null}
         </div>
 
         {showOptions ? (
@@ -460,6 +712,28 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
         {error ? (
           <p data-testid="assignments-publish-error" className="mt-4 text-sm text-destructive">
             {error}
+          </p>
+        ) : null}
+        {authorityIssue || verificationIssue ? (
+          <div
+            data-testid="assignments-authority-status"
+            className="mt-4 flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm text-warning sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p>{authorityIssue ?? verificationIssue}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 shrink-0"
+              disabled={batchLoading}
+              onClick={() => void refreshAuthoritativeSnapshot(false)}
+            >
+              {batchLoading ? 'Checking…' : 'Retry server check'}
+            </Button>
+          </div>
+        ) : null}
+        {batchLoading ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Loading authoritative assignment revision…
           </p>
         ) : null}
         {published !== null ? (

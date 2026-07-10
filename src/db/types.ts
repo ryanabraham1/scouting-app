@@ -1,5 +1,6 @@
 import type { FuelBurst, TimeInterval } from '@/scoring';
 import type { Stroke, RobotPos } from '@/dash/strategy/strokes';
+import type { QualitativeRating } from '@/ratings';
 
 export interface LocalMatchReport {
   id: string;
@@ -41,12 +42,12 @@ export interface LocalMatchReport {
   autoClimbLevel1: boolean;
   intakeSources: string[];
   maxFuelCapacityObserved: number;
-  defenseRating: 0 | 1 | 2 | 3;
-  // Subjective super-scout ratings (0 = not rated, 1–3 scale). Advisory only —
+  defenseRating: QualitativeRating;
+  // Subjective super-scout ratings (0 = not rated, 1–10 scale). Advisory only —
   // never scored. Optional: reports captured before this field (pre-0039) lack
   // it, so consumers default to 0.
-  driverSkill?: 0 | 1 | 2 | 3;
-  agility?: 0 | 1 | 2 | 3;
+  driverSkill?: QualitativeRating;
+  agility?: QualitativeRating;
   // Exact durations in ms (no buckets). defenseDurationMs = time this robot played
   // defense on others; defendedDurationMs = time this robot was being defended.
   defenseDurationMs: number;
@@ -78,6 +79,8 @@ export interface LocalMatchReport {
   rowRevision: number;
   syncAttempts: number;
   lastSyncError: string | null;
+  /** Persisted retry schedule; omitted on legacy rows and cleared after success/edit. */
+  nextSyncAt?: number | null;
 }
 
 export interface CaptureDraft {
@@ -125,6 +128,16 @@ export interface CachedAssignment {
   event_key: string;
 }
 
+/** Cached team-level pit assignment for one scout. */
+export interface CachedPitAssignment {
+  id: string; // many-to-many key `${event_key}:${team_number}:${scout_id}`
+  event_key: string;
+  team_number: number;
+  scout_id: string;
+  scout_name?: string | null;
+  source: 'manual' | 'auto';
+}
+
 /** Cached `scouter_roster` row (global — not event-scoped). */
 export interface CachedRosterScouter {
   id: string;
@@ -143,14 +156,21 @@ export interface CachedTeam {
 export interface PreloadMeta {
   key: string; // event_key (the roster is folded into each event's preload + counts)
   lastPreloadAt: string; // ISO timestamp
-  counts: { matches?: number; assignments?: number; roster?: number; teams?: number };
+  counts: {
+    matches?: number;
+    assignments?: number;
+    pitAssignments?: number;
+    roster?: number;
+    teams?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Matchup notes (matchup-intelligence feature).
 //
-// Per-opponent free-text strategy notes, keyed event-scoped on the two alliance
-// LEAD teams (the lowest team number on each alliance — see matchupNotesClient).
+// Event-scoped free-text strategy notes. Legacy rows are keyed on two alliance
+// leads; current per-team rows reserve our_team = -1 and put the actual target
+// team in opp_team (see matchupNotesClient), so the two formats cannot collide.
 // `MatchupNoteRow` is the server read shape (snake_case, from `matchup_note`);
 // `LocalMatchupNote` is the Dexie draft/outbox shape mirroring LocalMatchReport's
 // sync-state machine so notes survive a dead venue network exactly like reports.
@@ -190,6 +210,20 @@ export interface StrategyCanvasRow {
   updated_at: string;
 }
 
+export type LocalRecoveryIssue =
+  | {
+      kind: 'conflict';
+      code: 'MATCHUP_NOTE_CONFLICT' | 'STRATEGY_CANVAS_CONFLICT';
+      detectedAt: string;
+      serverRevision: number | null;
+    }
+  | {
+      kind: 'terminal';
+      code: string;
+      detectedAt: string;
+      serverRevision?: null;
+    };
+
 /** Dexie outbox row for a whiteboard doc. `key` = `${eventKey}:${matchKey}:${phase}`. */
 export interface LocalStrategyCanvas {
   key: string;
@@ -205,9 +239,12 @@ export interface LocalStrategyCanvas {
   syncState: 'dirty' | 'pending' | 'synced' | 'error';
   syncAttempts: number;
   lastSyncError: string | null;
+  nextSyncAt?: number | null;
+  /** Typed recovery metadata; old rows without it are normalized on read. */
+  recoveryIssue?: LocalRecoveryIssue | null;
 }
 
-/** Dexie draft/outbox row for a matchup note. `key` = `${eventKey}:${ourTeam}:${oppTeam}`. */
+/** Dexie draft/outbox row. Team notes use `key` = `${eventKey}:-1:${targetTeam}`. */
 export interface LocalMatchupNote {
   key: string;
   eventKey: string;
@@ -219,4 +256,7 @@ export interface LocalMatchupNote {
   syncState: 'dirty' | 'pending' | 'synced' | 'error';
   syncAttempts: number;
   lastSyncError: string | null;
+  nextSyncAt?: number | null;
+  /** Typed recovery metadata; old rows without it are normalized on read. */
+  recoveryIssue?: LocalRecoveryIssue | null;
 }

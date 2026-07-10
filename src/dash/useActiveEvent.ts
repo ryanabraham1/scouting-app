@@ -1,9 +1,18 @@
 import { useEffect, useId } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { getStoredActiveEvent, setStoredActiveEvent } from './activeEventStore';
+import { useOnline } from '@/sync/useOnline';
+import {
+  ACTIVE_EVENT_STORAGE_KEY,
+  getStoredActiveEvent,
+  isValidStoredEventKey,
+  setStoredActiveEvent,
+} from './activeEventStore';
 
-export const ACTIVE_EVENT_KEY = ['active-event'] as const;
+// v2 intentionally abandons any old persisted React Query entry. The active
+// event is server authority; only the explicit localStorage value is an offline
+// fallback.
+export const ACTIVE_EVENT_KEY = ['active-event', 'server-authority-v2'] as const;
 
 /**
  * How often (ms) to re-resolve the active event as a safety net. The active
@@ -13,11 +22,13 @@ export const ACTIVE_EVENT_KEY = ['active-event'] as const;
  * instant work; this slow poll + a window-focus refetch are the always-present
  * fallbacks. Kept slow — the key changes at most a few times per event.
  */
-const ACTIVE_EVENT_POLL_MS = 60_000;
+const ACTIVE_EVENT_POLL_MS = 30_000;
 
 export interface ActiveEvent {
   eventKey: string | null;
   loading: boolean;
+  /** True once this browser has resolved the server, or when it is offline. */
+  authoritative: boolean;
 }
 
 interface EventRow {
@@ -26,13 +37,12 @@ interface EventRow {
 }
 
 /**
- * Resolve the active event for staff. Reads `event.is_active` from the server but
- * seeds React Query's initialData from localStorage so a refetch / tab-focus never
- * blanks the selection mid-session (root of the "selected event disappears" bug).
- * Setting the active event happens via `setActiveEvent`.
+ * Resolve the globally active event. The server's `event.is_active` row wins on
+ * every successful online read. localStorage is display/operation fallback only
+ * when that read cannot run (offline) or fails.
  */
 export function useActiveEvent(): ActiveEvent {
-  const stored = getStoredActiveEvent();
+  const online = useOnline();
   const queryClient = useQueryClient();
   // Unique per hook instance. This hook mounts in BOTH DashboardScreen and its
   // child SetupTab at once; a shared fixed channel topic made the second mount
@@ -44,11 +54,16 @@ export function useActiveEvent(): ActiveEvent {
 
   const query = useQuery({
     queryKey: ACTIVE_EVENT_KEY,
-    initialData: stored ?? undefined,
-    // Re-resolve on tab focus and on a slow interval so a switch made on another
-    // device propagates to the data tabs without a manual reload (BUG-LIVE-2).
+    // placeholderData does not stamp the browser-local fallback as a fresh,
+    // successful server result (unlike initialData). An online mount therefore
+    // always verifies it immediately.
+    placeholderData: () => getStoredActiveEvent() ?? undefined,
+    enabled: online,
+    staleTime: 0,
     refetchOnWindowFocus: true,
-    refetchInterval: ACTIVE_EVENT_POLL_MS,
+    refetchOnReconnect: true,
+    refetchInterval: online ? ACTIVE_EVENT_POLL_MS : false,
+    retry: 1,
     queryFn: async (): Promise<string | null> => {
       const { data, error } = await supabase
         .from('event')
@@ -59,19 +74,29 @@ export function useActiveEvent(): ActiveEvent {
       }
       const rows = (data ?? []) as EventRow[];
       const next = rows[0]?.event_key ?? null;
-      // Read storage FRESH here rather than closing over the render-time `stored`.
-      // If the active event was just deleted, deleteEvent() has already cleared
-      // localStorage; a refetch fired by invalidateQueries() must then resolve to
-      // null, NOT resurrect the dead key through a stale closure. For a transient
-      // empty server result, storage still holds the good value, so this fallback
-      // still prevents blanking the selection mid-session.
-      const persisted = getStoredActiveEvent();
-      // Keep the local cache in step with the server's source of truth, but never
-      // erase a known-good local value on a transient empty result.
-      if (next) setStoredActiveEvent(next);
-      return next ?? persisted ?? null;
+      // A successful empty result is authoritative "no active event". Transport
+      // failures throw above and React Query preserves the prior/local fallback.
+      setStoredActiveEvent(next);
+      return next;
     },
   });
+
+  // Same-browser tabs do not share a QueryClient. A storage event from another
+  // tab is therefore a useful prompt: online tabs re-resolve from the server;
+  // offline tabs adopt the validated fallback immediately.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key !== ACTIVE_EVENT_STORAGE_KEY) return;
+      if (online) {
+        void queryClient.invalidateQueries({ queryKey: ACTIVE_EVENT_KEY });
+        return;
+      }
+      const next = isValidStoredEventKey(event.newValue) ? event.newValue : null;
+      queryClient.setQueryData(ACTIVE_EVENT_KEY, next);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [online, queryClient]);
 
   // Realtime: when the `event` table is in the Supabase realtime publication, a
   // flip of `is_active` on ANY device pushes here and we re-resolve immediately.
@@ -95,7 +120,14 @@ export function useActiveEvent(): ActiveEvent {
   }, [queryClient, channelId]);
 
   return {
-    eventKey: query.data ?? stored ?? null,
-    loading: query.isLoading && !stored,
+    eventKey: query.data !== undefined ? query.data : getStoredActiveEvent(),
+    // Gate only the first online authority check. Background poll/focus refreshes
+    // keep the current event visible and swap atomically when the answer arrives.
+    loading:
+      online &&
+      query.isFetching &&
+      query.dataUpdatedAt === 0 &&
+      query.failureCount === 0,
+    authoritative: !online || (!query.isPlaceholderData && query.dataUpdatedAt > 0),
   };
 }

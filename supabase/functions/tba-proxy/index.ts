@@ -1,10 +1,13 @@
 // supabase/functions/tba-proxy/index.ts
 import { corsHeaders } from "../_shared/cors.ts";
+import { readTextResponse } from "../_shared/readJsonBody.ts";
 import { isSafeProxyPath } from "../_shared/validatePath.ts";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
 const TBA_API_KEY = Deno.env.get("TBA_API_KEY") ?? "";
 const CACHE_TTL_MS = 60_000;
+const MAX_CACHE_ENTRIES = 128;
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 interface CacheEntry {
   expires: number;
@@ -12,6 +15,16 @@ interface CacheEntry {
   body: string;
 }
 const cache = new Map<string, CacheEntry>();
+
+function cacheResponse(path: string, entry: CacheEntry): void {
+  cache.delete(path);
+  while (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  cache.set(path, entry);
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -56,6 +69,7 @@ Deno.serve(async (req) => {
   try {
     upstream = await fetch(`${TBA_BASE}${path}`, {
       headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
     });
   } catch (_err) {
     // Upstream network failure: return a clean, CORS-friendly handled error
@@ -69,10 +83,22 @@ Deno.serve(async (req) => {
       },
     );
   }
-  const body = await upstream.text();
+  let body: string;
+  try {
+    body = await readTextResponse(upstream, MAX_RESPONSE_BYTES);
+  } catch {
+    return new Response(JSON.stringify({ error: "tba response too large" }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   if (upstream.ok) {
-    cache.set(path, { expires: now + CACHE_TTL_MS, status: upstream.status, body });
+    cacheResponse(path, {
+      expires: now + CACHE_TTL_MS,
+      status: upstream.status,
+      body,
+    });
   }
 
   return new Response(body, {

@@ -160,7 +160,7 @@ describe('aggregateScouterAccuracy', () => {
     expect(acc.get('c')!.climbAgreeRate).toBe(0);
   });
 
-  it('defense ±1: ratings 0,1,1,2,3 → mode 1; 0/1/1/2 agree, 3 disagrees', () => {
+  it('defense ±1: unrated 0 is excluded; 1/1/2 agree with mode 1 and 3 disagrees', () => {
     const reports = [
       makeRow({ scout_id: 'a', match_key: 'qm1', target_team_number: 1, defense_rating: 0 }),
       makeRow({ scout_id: 'b', match_key: 'qm1', target_team_number: 1, defense_rating: 1 }),
@@ -169,7 +169,7 @@ describe('aggregateScouterAccuracy', () => {
       makeRow({ scout_id: 'e', match_key: 'qm1', target_team_number: 1, defense_rating: 3 }),
     ];
     const acc = aggregateScouterAccuracy(reports);
-    expect(acc.get('a')!.defenseAgreeRate).toBe(1); // |0-1|=1
+    expect(acc.get('a')!.defenseAgreeRate).toBeNull();
     expect(acc.get('b')!.defenseAgreeRate).toBe(1);
     expect(acc.get('c')!.defenseAgreeRate).toBe(1);
     expect(acc.get('d')!.defenseAgreeRate).toBe(1); // |2-1|=1

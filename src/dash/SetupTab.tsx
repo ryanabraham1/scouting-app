@@ -1,7 +1,7 @@
 // src/dash/SetupTab.tsx — lead event setup: import an event (which becomes the
 // ACTIVE event and persists across sessions), set the BASE team the dashboard is
 // built around, and assign scouters. Folds the old /admin page in.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EventSetup } from '@/admin/EventSetup';
 import { MatchPlanner } from '@/admin/MatchPlanner';
-import type { AssignMatch, AssignScout } from '@/admin/types';
+import type { AssignMatch, AssignScout, AssignTeam } from '@/admin/types';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { setActiveEvent } from '@/dash/setActiveEvent';
 import { deleteEvent } from '@/dash/deleteEvent';
@@ -43,10 +43,21 @@ interface ScoutRow {
   display_name: string;
 }
 
+interface EventTeamRow {
+  team: { team_number: number; nickname: string | null } | null;
+}
+
 interface EventOption {
   event_key: string;
   name: string | null;
   is_active: boolean;
+}
+
+interface LoadedEventData {
+  eventKey: string;
+  matches: AssignMatch[];
+  scouts: AssignScout[];
+  teams: AssignTeam[];
 }
 
 /** localStorage key remembering the Events & settings disclosure state. */
@@ -57,6 +68,11 @@ export default function SetupTab(): JSX.Element {
   const { eventKey: activeEvent } = useActiveEvent();
   const [matches, setMatches] = useState<AssignMatch[]>([]);
   const [scouts, setScouts] = useState<AssignScout[]>([]);
+  const [teams, setTeams] = useState<AssignTeam[]>([]);
+  const [loadedEventKey, setLoadedEventKey] = useState<string | null>(null);
+  const [eventDataLoading, setEventDataLoading] = useState(false);
+  const [failedEventKey, setFailedEventKey] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
   const [events, setEvents] = useState<EventOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Two-step delete: first click arms the confirm for one event_key, second
@@ -110,29 +126,76 @@ export default function SetupTab(): JSX.Element {
     void queryClient.invalidateQueries();
   }, [queryClient]);
 
-  const loadEventData = useCallback(async (key: string) => {
-    const [matchRes, scoutRes] = await Promise.all([
+  const loadEventData = useCallback(async (key: string): Promise<LoadedEventData> => {
+    const [matchRes, scoutRes, teamRes] = await Promise.all([
       supabase
         .from('match')
         .select('match_key,match_number,red1,red2,red3,blue1,blue2,blue3')
         .eq('event_key', key)
         .order('match_number', { ascending: true }),
       supabase.from('scout').select('id,display_name').eq('event_key', key),
+      supabase
+        .from('event_team')
+        .select('team:team(team_number,nickname)')
+        .eq('event_key', key),
     ]);
+    const firstError = matchRes.error ?? scoutRes.error ?? teamRes.error;
+    if (firstError) throw new Error(firstError.message);
     const matchRows = (matchRes.data as MatchRow[] | null) ?? [];
-    setMatches(
-      matchRows.map((m) => ({
-        matchKey: m.match_key,
-        redTeams: [m.red1, m.red2, m.red3],
-        blueTeams: [m.blue1, m.blue2, m.blue3],
-      })),
-    );
+    const nextMatches: AssignMatch[] = matchRows.map((m) => ({
+      matchKey: m.match_key,
+      redTeams: [m.red1, m.red2, m.red3] as [number, number, number],
+      blueTeams: [m.blue1, m.blue2, m.blue3] as [number, number, number],
+    }));
     const scoutRows = (scoutRes.data as ScoutRow[] | null) ?? [];
-    setScouts(scoutRows.map((s) => ({ id: s.id, displayName: s.display_name })));
+    const nextScouts = scoutRows.map((s) => ({ id: s.id, displayName: s.display_name }));
+    const teamRows = (teamRes.data as unknown as EventTeamRow[] | null) ?? [];
+    const nextTeams = teamRows
+      .map((row) => row.team)
+      .filter((team): team is NonNullable<EventTeamRow['team']> => team != null)
+      .map((team) => ({ teamNumber: team.team_number, nickname: team.nickname }))
+      .sort((a, b) => a.teamNumber - b.teamNumber);
+    return {
+      eventKey: key,
+      matches: nextMatches,
+      scouts: nextScouts,
+      teams: nextTeams,
+    };
   }, []);
 
   useEffect(() => {
-    if (activeEvent) void loadEventData(activeEvent);
+    const generation = ++loadGeneration.current;
+    if (!activeEvent) {
+      setMatches([]);
+      setScouts([]);
+      setTeams([]);
+      setLoadedEventKey(null);
+      setEventDataLoading(false);
+      setFailedEventKey(null);
+      return;
+    }
+
+    // Never render the new event key with the previous event's planner props.
+    // The generation guard also prevents a slow A response from overwriting B.
+    setLoadedEventKey(null);
+    setEventDataLoading(true);
+    setFailedEventKey(null);
+    void loadEventData(activeEvent)
+      .then((loaded) => {
+        if (loadGeneration.current !== generation || loaded.eventKey !== activeEvent) return;
+        setMatches(loaded.matches);
+        setScouts(loaded.scouts);
+        setTeams(loaded.teams);
+        setLoadedEventKey(loaded.eventKey);
+      })
+      .catch((err) => {
+        if (loadGeneration.current !== generation) return;
+        setFailedEventKey(activeEvent);
+        setError(err instanceof Error ? err.message : 'Failed to load event assignments.');
+      })
+      .finally(() => {
+        if (loadGeneration.current === generation) setEventDataLoading(false);
+      });
   }, [activeEvent, loadEventData]);
 
   // All already-imported events, so the lead can switch the active one WITHOUT
@@ -497,8 +560,22 @@ export default function SetupTab(): JSX.Element {
         </div>
       </details>
 
-      {activeEvent ? (
-        <MatchPlanner eventKey={activeEvent} matches={matches} scouts={scouts} />
+      {activeEvent && loadedEventKey === activeEvent && !eventDataLoading ? (
+        <MatchPlanner
+          key={activeEvent}
+          eventKey={activeEvent}
+          matches={matches}
+          scouts={scouts}
+          teams={teams}
+        />
+      ) : activeEvent && failedEventKey === activeEvent ? (
+        <p data-testid="setup-event-data-error" className="text-sm text-destructive">
+          Could not load {activeEvent} assignment data.
+        </p>
+      ) : activeEvent ? (
+        <p data-testid="setup-event-data-loading" className="text-sm text-muted-foreground">
+          Loading {activeEvent} assignments…
+        </p>
       ) : (
         <p className="text-sm text-muted-foreground">Import an event to begin.</p>
       )}

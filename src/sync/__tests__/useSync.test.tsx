@@ -17,7 +17,7 @@ vi.mock('@/sync/outbox', () => ({
   syncOnce: () => syncOnceMock(),
 }));
 
-import { useSync } from '../useSync';
+import { resetSyncControllerForTests, useSync } from '../useSync';
 
 function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport {
   const bursts: FuelBurst[] = [{ startMs: 0, endMs: 500, rate: 2, window: 'shift1' }];
@@ -79,6 +79,7 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
 
 describe('useSync', () => {
   beforeEach(async () => {
+    resetSyncControllerForTests();
     await db.reports.clear();
     onlineRef.value = true;
     syncOnceMock.mockClear();
@@ -87,6 +88,7 @@ describe('useSync', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    resetSyncControllerForTests();
   });
 
   it('exposes online status from useOnline', async () => {
@@ -209,13 +211,14 @@ describe('useSync', () => {
     expect(typeof result.current.lastSyncedAt).toBe('number');
   });
 
-  it('leaves lastSyncedAt null when syncOnce throws', async () => {
+  it('does not advance the shared lastSyncedAt when syncOnce throws', async () => {
     syncOnceMock.mockRejectedValue(new Error('boom'));
     const { result } = renderHook(() => useSync());
+    const before = result.current.lastSyncedAt;
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalled());
     // The run rejected, so the success stamp is never set.
     await waitFor(() => expect(result.current.syncing).toBe(false));
-    expect(result.current.lastSyncedAt).toBeNull();
+    expect(result.current.lastSyncedAt).toBe(before);
   });
 
   it('coalesces overlapping runs: a syncNow while a run is in flight queues ONE follow-up drain', async () => {
@@ -255,5 +258,38 @@ describe('useSync', () => {
     });
     await waitFor(() => expect(result.current.syncing).toBe(false));
     expect(syncOnceMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares one same-tab controller across multiple mounted consumers', async () => {
+    const resolvers: Array<() => void> = [];
+    let active = 0;
+    let maxActive = 0;
+    syncOnceMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          resolvers.push(() => {
+            active -= 1;
+            resolve({ attempted: 0, synced: 0, retried: 0, deadLettered: 0 });
+          });
+        }),
+    );
+
+    const first = renderHook(() => useSync());
+    const second = renderHook(() => useSync());
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
+    expect(first.result.current.syncing).toBe(true);
+    expect(second.result.current.syncing).toBe(true);
+    expect(maxActive).toBe(1);
+
+    await act(async () => {
+      resolvers.shift()?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(first.result.current.syncing).toBe(false));
+    expect(second.result.current.syncing).toBe(false);
+    expect(syncOnceMock).toHaveBeenCalledTimes(1);
+    expect(maxActive).toBe(1);
   });
 });

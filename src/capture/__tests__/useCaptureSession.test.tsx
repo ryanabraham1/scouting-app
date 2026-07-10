@@ -4,10 +4,12 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import {
   useCaptureSession,
   adjustIntervalsTotal,
+  flushCaptureSessionWritesForTests,
   type CaptureTarget,
 } from '@/capture/useCaptureSession';
-import { db, getDraft, saveDraft, listReports } from '@/db/localStore';
+import { db, getDraft, saveDraft, listDrafts, listReports } from '@/db/localStore';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
+import type { CaptureSessionStorage } from '@/capture/captureSessionStorage';
 
 const target: CaptureTarget = {
   eventKey: '2026demo',
@@ -102,6 +104,72 @@ describe('useCaptureSession.save', () => {
     const draft = await getDraft('qm1:scout-1:254');
     expect(draft).toBeUndefined();
   });
+
+  it('serializes draft writes so a slow older write cannot overwrite newer state', async () => {
+    let releaseFirst!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let writeCount = 0;
+    let savedState: unknown;
+    const storage: CaptureSessionStorage = {
+      getDraft: async () => undefined,
+      saveDraft: async (_key, state) => {
+        writeCount += 1;
+        if (writeCount === 1) await firstWrite;
+        savedState = state;
+      },
+      deleteDraft: async () => undefined,
+      getReport: async () => undefined,
+      saveReport: async () => undefined,
+    };
+    const { result } = renderHook(() => useCaptureSession(target, { storage }));
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('ready'));
+
+    act(() => result.current.setFoulsMinor(1));
+    act(() => result.current.setFoulsMinor(2));
+    await waitFor(() => expect(writeCount).toBe(1));
+    releaseFirst();
+    await waitFor(() =>
+      expect(
+        (savedState as { deferred?: { foulsMinor?: number } }).deferred?.foulsMinor,
+      ).toBe(2),
+    );
+  });
+
+  it('provides a deterministic teardown boundary for queued draft writes', async () => {
+    let releaseWrite!: () => void;
+    const blockedWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let saveStarted = false;
+    const storage: CaptureSessionStorage = {
+      getDraft: async () => undefined,
+      saveDraft: async () => {
+        saveStarted = true;
+        await blockedWrite;
+      },
+      deleteDraft: async () => undefined,
+      getReport: async () => undefined,
+      saveReport: async () => undefined,
+    };
+    const { result, unmount } = renderHook(() => useCaptureSession(target, { storage }));
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('ready'));
+    act(() => result.current.setFoulsMinor(1));
+    await waitFor(() => expect(saveStarted).toBe(true));
+    unmount();
+
+    let drained = false;
+    const drain = flushCaptureSessionWritesForTests().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    releaseWrite();
+    await drain;
+    expect(drained).toBe(true);
+  });
 });
 
 describe('useCaptureSession draft target', () => {
@@ -128,6 +196,109 @@ describe('useCaptureSession draft resume', () => {
     expect(result.current.bursts).toHaveLength(1);
     expect(result.current.inactiveFirst).toBe(true);
     expect(result.current.climbLevel).toBe(2);
+  });
+
+  it('restores Auto frozen at the saved elapsed time until explicit re-anchor', async () => {
+    let now = 1_000;
+    const first = renderHook(() => useCaptureSession(target, { now: () => now }));
+    await waitFor(() => expect(first.result.current.hydrationStatus).toBe('ready'));
+
+    act(() => {
+      first.result.current.setPlacementComplete(true);
+      first.result.current.clock.startAuto();
+    });
+    now = 6_000;
+    act(() => first.result.current.setFoulsMinor(1));
+    await waitFor(async () => {
+      const state = (await getDraft('qm1:scout-1:254'))?.state as {
+        captureSession?: { clock?: { autoElapsedMs?: number } };
+      };
+      expect(state.captureSession?.clock?.autoElapsedMs).toBe(5_000);
+    });
+    first.unmount();
+
+    now = 50_000;
+    const resumed = renderHook(() => useCaptureSession(target, { now: () => now }));
+    await waitFor(() => expect(resumed.result.current.draftResumed).toBe(true));
+    expect(resumed.result.current.placementComplete).toBe(true);
+    expect(resumed.result.current.clock.state.phase).toBe('auto');
+    expect(resumed.result.current.clock.autoElapsedMs).toBe(5_000);
+    expect(resumed.result.current.clock.resumeRequired).toBe(true);
+
+    act(() => resumed.result.current.clock.resumeFromSaved());
+    now = 51_000;
+    resumed.rerender();
+    expect(resumed.result.current.clock.autoElapsedMs).toBe(6_000);
+  });
+
+  it('restores Teleop without counting time while the app was closed', async () => {
+    let now = 1_000;
+    const first = renderHook(() => useCaptureSession(target, { now: () => now }));
+    await waitFor(() => expect(first.result.current.hydrationStatus).toBe('ready'));
+    act(() => {
+      first.result.current.setPlacementComplete(true);
+      first.result.current.clock.startAuto();
+    });
+    now = 21_000;
+    act(() => first.result.current.clock.markGo());
+    now = 51_000;
+    act(() => first.result.current.setFoulsMajor(1));
+    await waitFor(async () => {
+      const state = (await getDraft('qm1:scout-1:254'))?.state as {
+        captureSession?: { clock?: { teleopElapsedMs?: number } };
+      };
+      expect(state.captureSession?.clock?.teleopElapsedMs).toBe(30_000);
+    });
+    first.unmount();
+
+    now = 500_000;
+    const resumed = renderHook(() => useCaptureSession(target, { now: () => now }));
+    await waitFor(() => expect(resumed.result.current.draftResumed).toBe(true));
+    expect(resumed.result.current.clock.state.phase).toBe('teleop');
+    expect(resumed.result.current.clock.teleopElapsedMs).toBe(30_000);
+    expect(resumed.result.current.clock.resumeRequired).toBe(true);
+  });
+
+  it('restores the review stage and exact wizard step', async () => {
+    const first = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(first.result.current.hydrationStatus).toBe('ready'));
+    act(() => {
+      first.result.current.setPlacementComplete(true);
+      first.result.current.setFlowStage('review');
+      first.result.current.setReviewStep(3);
+    });
+    await waitFor(async () => {
+      const state = (await getDraft('qm1:scout-1:254'))?.state as {
+        captureSession?: { stage?: string; reviewStep?: number };
+      };
+      expect(state.captureSession).toMatchObject({ stage: 'review', reviewStep: 3 });
+    });
+    first.unmount();
+
+    const resumed = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(resumed.result.current.draftResumed).toBe(true));
+    expect(resumed.result.current.flowStage).toBe('review');
+    expect(resumed.result.current.reviewStep).toBe(3);
+  });
+
+  it('quarantines a future-version capture envelope instead of opening it', async () => {
+    await saveDraft('qm1:scout-1:254', {
+      schemaVersion: SCHEMA_VERSION,
+      bursts: [],
+      inactiveFirst: false,
+      rate: 1,
+      deferred: {},
+      captureSession: { version: 99 },
+    });
+
+    const { result } = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('ready'));
+    expect(result.current.draftResumed).toBe(false);
+    expect(result.current.storageError).toMatch(/quarantined/i);
+    expect(await getDraft('qm1:scout-1:254')).toBeUndefined();
+    expect((await listDrafts()).some((draft) => draft.draftKey.startsWith('quarantine:'))).toBe(
+      true,
+    );
   });
 });
 

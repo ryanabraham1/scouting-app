@@ -133,6 +133,11 @@ describe('RankingView', () => {
     expect(within(row9999).getByTestId('epa-9999').textContent).toBe('42');
     // …and it carries 0 matches scouted.
     expect(within(row9999).getByText('0')).toBeTruthy();
+    const cells = within(row9999).getAllByRole('cell');
+    expect(cells[3].textContent).toBe('—'); // expected points
+    expect(cells[4].textContent).toBe('—'); // climb
+    expect(cells[5].textContent).toBe('—'); // defense
+    expect(cells[6].textContent).toBe('—'); // reliability
     // All three roster teams render (254 scouted, 1678 + 9999 EPA-only).
     const rows = getAllByTestId(/^ranking-row-/);
     const ids = rows.map((r) => r.getAttribute('data-testid'));
@@ -167,6 +172,13 @@ describe('RankingView', () => {
     const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
     expect(getByTestId('ranking-row-254')).toBeTruthy();
     expect(getByTestId('ranking-row-1678')).toBeTruthy();
+  });
+
+  it('does not advertise visible columns that CSS hides on mobile', () => {
+    reportsReturn = { data: reports, isLoading: false };
+    const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
+    expect(getByTestId('sort-epa').closest('th')?.className).not.toContain('hidden');
+    expect(getByTestId('epa-254').className).not.toContain('hidden');
   });
 
   it('defaults to sorting by scoutingExpectedPoints descending (254 before 1678)', () => {
@@ -218,8 +230,10 @@ describe('RankingView', () => {
     };
     const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
     expect(within(getByTestId('ranking-row-254')).getByTestId('epa-254').textContent).toBe('55');
-    // null EPA still renders "—"
-    expect(within(getByTestId('ranking-row-1678')).getByTestId('epa-1678').textContent).toBe('—');
+    // Missing external EPA falls back per team to its scouting estimate.
+    expect(within(getByTestId('ranking-row-1678')).getByTestId('epa-1678').textContent).toMatch(
+      /^\d+est$/,
+    );
   });
 
   it('shows "—" for TBA rank when rankings are unavailable', () => {
@@ -257,21 +271,42 @@ describe('RankingView', () => {
     expect(within(getByTestId('ranking-row-254')).getByText('254')).toBeTruthy();
   });
 
-  it('selecting teams populates the compare panel', () => {
+  it('shows helpful empty and single-team comparison states', () => {
     reportsReturn = { data: reports, isLoading: false };
-    const { getByTestId, queryByTestId } = render(<RankingView eventKey="2026casnv" />);
-    // No compare panel before any selection.
-    expect(queryByTestId('compare-panel')).toBeNull();
+    const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
+    const panel = getByTestId('compare-panel');
+    expect(within(panel).getByText(/Select 2–6 teams/)).toBeTruthy();
+
+    fireEvent.click(getByTestId('cmp-254'));
+    expect(within(panel).getByText(/Select one more team/)).toBeTruthy();
+    expect(within(panel).getAllByText('254').length).toBeGreaterThan(0);
+  });
+
+  it('renders full-width unit-specific charts for multiple selected teams', () => {
+    reportsReturn = { data: reports, isLoading: false };
+    epaReturn = {
+      data: { epaByTeam: new Map([[254, 55], [1678, 31]]), available: true },
+    };
+    const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
 
     fireEvent.click(getByTestId('cmp-254'));
     fireEvent.click(getByTestId('cmp-1678'));
 
     const panel = getByTestId('compare-panel');
-    expect(panel).toBeTruthy();
-    // The team number appears in the panel (radar legend + per-stat winner table),
-    // so assert it's present at least once rather than requiring a single match.
+    expect(within(panel).getByTestId('team-compare-scoring')).toBeTruthy();
+    expect(within(panel).getByTestId('team-compare-rates')).toBeTruthy();
+    expect(within(panel).getByTestId('team-compare-defense-rating')).toBeTruthy();
+    expect(within(panel).getByTestId('team-compare-defense-impact')).toBeTruthy();
+    expect(within(panel).getByTestId('team-compare-scoring').className).toContain(
+      'lg:col-span-2',
+    );
+    expect(within(panel).getByTestId('team-compare-defense-impact').className).toContain(
+      'lg:col-span-2',
+    );
+    expect(within(panel).getByTestId('team-compare-scoring-epa-254')).toBeTruthy();
     expect(within(panel).getAllByText('254').length).toBeGreaterThan(0);
     expect(within(panel).getAllByText('1678').length).toBeGreaterThan(0);
+    expect(within(panel).getByText(/Text comparison of selected teams/)).toBeTruthy();
   });
 
   describe('user-selectable columns', () => {

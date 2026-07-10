@@ -7,11 +7,10 @@
 //   no/empty response.
 // terminal (→ markSyncError dead-letter):
 //   PostgREST validation (4xx other than 408/429), auth/ownership (42501, 401, 403),
-//   malformed payload. (Persistent transients are converted to terminal by the
-//   engine's SYNC_MAX_ATTEMPTS cap — not here.)
+//   malformed payload.
 //
-// Unknown / ambiguous → 'transient': we'd rather retry than dead-letter
-// prematurely; the attempt-cap is the safety net.
+// Unknown / ambiguous → 'transient': preserve local data rather than
+// dead-lettering without a definitive server verdict.
 
 export type SyncErrorKind = 'transient' | 'terminal';
 

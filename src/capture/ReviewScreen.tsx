@@ -14,11 +14,15 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NumberField } from '@/components/ui/NumberField';
+import { RatingSlider } from '@/components/ui/RatingSlider';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
 import { FOUL_REASONS } from '@/scoring/fouls';
-import { useTeamAutoHistory } from '@/capture/useTeamAutoHistory';
+import {
+  useTeamAutoHistory,
+  type TeamAutoHistory,
+} from '@/capture/useTeamAutoHistory';
 import AutoHistoryPicker from '@/capture/AutoHistoryPicker';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
@@ -34,6 +38,27 @@ const STEPS = [
 ] as const;
 const STEP_TITLES = STEPS.map((s) => s.title);
 const TOTAL_STEPS = STEPS.length;
+
+export type ReviewObservedAction =
+  | 'climb_level'
+  | 'climb_attempted'
+  | 'climb_success'
+  | 'intake_sources'
+  | 'defense_seconds'
+  | 'defended_seconds'
+  | 'pins'
+  | 'max_capacity'
+  | 'defense_rating'
+  | 'driver_rating'
+  | 'agility_rating'
+  | 'rating_clear'
+  | 'fouls_minor'
+  | 'fouls_major'
+  | 'foul_reason'
+  | 'flag'
+  | 'auto_path'
+  | 'notes'
+  | 'next';
 
 /**
  * True when the viewport is in portrait orientation. Drives the Step 4 auto-path
@@ -56,42 +81,6 @@ function useIsPortrait(): boolean {
   return portrait;
 }
 
-const RATING_LEVELS: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3];
-const RATING_LABEL: Record<0 | 1 | 2 | 3, string> = { 0: '—', 1: 'Low', 2: 'Mid', 3: 'High' };
-
-/**
- * One 0–3 subjective rating row (super-scout ratings): a label and four big
- * touch buttons. 0 means "not rated". Active button uses the brand tone.
- */
-function RatingRow(props: {
-  label: string;
-  value: 0 | 1 | 2 | 3;
-  onChange: (v: 0 | 1 | 2 | 3) => void;
-  testid: string;
-}): JSX.Element {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-muted-foreground">{props.label}</span>
-      <div data-testid={props.testid} className="grid grid-cols-4 gap-2">
-        {RATING_LEVELS.map((lvl) => (
-          <Button
-            key={lvl}
-            size="big"
-            variant={props.value === lvl ? 'default' : 'outline'}
-            className="flex-col gap-0 px-2 leading-tight landscape:px-4"
-            aria-pressed={props.value === lvl}
-            data-testid={`${props.testid}-${lvl}`}
-            onClick={() => props.onChange(lvl)}
-          >
-            <span className="text-lg font-semibold tabular-nums">{lvl}</span>
-            <span className="text-[10px] font-normal opacity-80">{RATING_LABEL[lvl]}</span>
-          </Button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function ReviewScreen(props: {
   session: ReturnType<typeof useCaptureSession>;
   onSaved: (id: string) => void;
@@ -107,24 +96,36 @@ export function ReviewScreen(props: {
    * scout knows this resubmits an existing report rather than creating a new one.
    */
   editingRevision?: number;
+  /** Optional injected auto history keeps practice/replay fully offline. */
+  autoHistory?: TeamAutoHistory;
+  /** Read-only observer for coach chrome; does not alter review navigation. */
+  onStepChange?: (step: number) => void;
+  /** Read-only interaction observer for app-native coaching. */
+  onAction?: (action: ReviewObservedAction) => void;
 }) {
   const s = props.session;
-  const [step, setStep] = useState(0); // 0-indexed; UI shows step + 1
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const step = s.reviewStep;
   const isPortrait = useIsPortrait();
 
   // Step 4 auto: offer the routines this team has already been scouted running so a
   // scout can reuse one instead of re-tracing it. Only looked up once the auto step
   // is reached (saves a request if the scout exits earlier). `known` mode shows the
   // picker, `draw` keeps the trace-it-yourself field.
-  const { autos: priorAutos } = useTeamAutoHistory(s.eventKey, s.targetTeamNumber, {
+  const loadedAutoHistory = useTeamAutoHistory(s.eventKey, s.targetTeamNumber, {
     excludeMatchKey: s.matchKey,
-    enabled: step >= 3,
+    enabled: step >= 3 && props.autoHistory === undefined,
   });
+  const priorAutos = (props.autoHistory ?? loadedAutoHistory).autos;
   const hasPriorAutos = priorAutos.length > 0;
   const [autoMode, setAutoMode] = useState<'known' | 'draw'>('known');
   // Effective mode: with no prior autos there's nothing to pick, so always draw.
   const effectiveAutoMode = hasPriorAutos ? autoMode : 'draw';
+
+  useEffect(() => {
+    props.onStepChange?.(step);
+  }, [props.onStepChange, step]);
 
   const agg = computeAggregates({
     schemaVersion: SCHEMA_VERSION,
@@ -137,12 +138,14 @@ export function ReviewScreen(props: {
   const toggleIntake = (src: string) => {
     const has = s.intakeSources.includes(src);
     s.setIntakeSources(has ? s.intakeSources.filter((x) => x !== src) : [...s.intakeSources, src]);
+    props.onAction?.('intake_sources');
   };
 
   const foulReasons = s.foulReasons ?? [];
   const toggleFoulReason = (key: string) => {
     const has = foulReasons.includes(key);
     s.setFoulReasons(has ? foulReasons.filter((x) => x !== key) : [...foulReasons, key]);
+    props.onAction?.('foul_reason');
   };
 
   const onSave = async () => {
@@ -151,20 +154,23 @@ export function ReviewScreen(props: {
     // one-active-report-per-match unique index (idx_msr_match_scout_active).
     if (saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const id = await s.save();
       props.onSaved(id);
     } catch {
-      // save() persists locally first, so a failure here is unexpected; re-enable
-      // the button so the scout can retry rather than getting stuck.
+      setSaveError('Could not save this report on this device. Your draft is still available.');
       setSaving(false);
     }
   };
 
   const isFirst = step === 0;
   const isLast = step === TOTAL_STEPS - 1;
-  const goBack = () => setStep((v) => Math.max(0, v - 1));
-  const goNext = () => setStep((v) => Math.min(TOTAL_STEPS - 1, v + 1));
+  const goBack = () => s.setReviewStep(Math.max(0, step - 1));
+  const goNext = () => {
+    props.onAction?.('next');
+    s.setReviewStep(Math.min(TOTAL_STEPS - 1, step + 1));
+  };
 
   const StepIcon = STEPS[step].icon;
 
@@ -242,22 +248,33 @@ export function ReviewScreen(props: {
                     key={lvl}
                     size="big"
                     variant={s.climbLevel === lvl ? 'default' : 'outline'}
+                    aria-pressed={s.climbLevel === lvl}
                     className="px-2 text-2xl tabular-nums landscape:px-6"
-                    onClick={() => s.setClimbLevel(lvl)}
+                    onClick={() => {
+                      s.setClimbLevel(lvl);
+                      props.onAction?.('climb_level');
+                    }}
                   >
                     {lvl}
                   </Button>
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+            <div
+              data-testid="review-climb-outcome"
+              className="rounded-2xl border border-border bg-card p-3 landscape:p-4"
+            >
               <p className="mb-2 text-base font-semibold landscape:mb-3">Outcome</p>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   size="big"
                   variant={s.climbAttempted ? 'default' : 'outline'}
+                  aria-pressed={s.climbAttempted}
                   className="px-2 landscape:px-6"
-                  onClick={() => s.setClimbAttempted(!s.climbAttempted)}
+                  onClick={() => {
+                    s.setClimbAttempted(!s.climbAttempted);
+                    props.onAction?.('climb_attempted');
+                  }}
                 >
                   {s.climbAttempted && <Check />}
                   Attempted
@@ -265,8 +282,12 @@ export function ReviewScreen(props: {
                 <Button
                   size="big"
                   variant={s.climbSuccess ? 'default' : 'outline'}
+                  aria-pressed={s.climbSuccess}
                   className={`px-2 landscape:px-6 ${s.climbSuccess ? 'bg-success text-success-foreground hover:bg-success' : ''}`}
-                  onClick={() => s.setClimbSuccess(!s.climbSuccess)}
+                  onClick={() => {
+                    s.setClimbSuccess(!s.climbSuccess);
+                    props.onAction?.('climb_success');
+                  }}
                 >
                   {s.climbSuccess && <Check />}
                   Success
@@ -284,7 +305,10 @@ export function ReviewScreen(props: {
                 <Shield className="size-5 text-brand" />
                 Intake sources
               </p>
-              <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3">
+              <div
+                data-testid="review-intake-sources"
+                className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3"
+              >
                 {INTAKE.map((src) => {
                   const selected = s.intakeSources.includes(src);
                   // Tone by meaning, echoing the live slider colors: human_feed →
@@ -299,6 +323,7 @@ export function ReviewScreen(props: {
                       key={src}
                       size="big"
                       variant={selected ? 'default' : 'outline'}
+                      aria-pressed={selected}
                       className={`truncate px-2 text-sm landscape:px-6 ${selected ? activeTone : ''}`}
                       onClick={() => toggleIntake(src)}
                     >
@@ -319,7 +344,10 @@ export function ReviewScreen(props: {
                     step={0.1}
                     value={s.defenseDurationMs / 1000}
                     format={(v) => v.toFixed(1)}
-                    onCommit={(v) => s.setDefenseDurationMs(Math.round(v * 1000))}
+                    onCommit={(v) => {
+                      s.setDefenseDurationMs(Math.round(v * 1000));
+                      props.onAction?.('defense_seconds');
+                    }}
                     className={`${inputClass} ${s.defenseDurationMs > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
                   />
                 </label>
@@ -331,25 +359,36 @@ export function ReviewScreen(props: {
                     step={0.1}
                     value={s.defendedDurationMs / 1000}
                     format={(v) => v.toFixed(1)}
-                    onCommit={(v) => s.setDefendedDurationMs(Math.round(v * 1000))}
+                    onCommit={(v) => {
+                      s.setDefendedDurationMs(Math.round(v * 1000));
+                      props.onAction?.('defended_seconds');
+                    }}
                     className={`${inputClass} ${s.defendedDurationMs > 0 ? 'border-destructive bg-destructive/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
                   Pins
                   <NumberField
+                    data-testid="review-pins"
                     min={0}
                     value={s.pins}
-                    onCommit={(v) => s.setPins(v)}
+                    onCommit={(v) => {
+                      s.setPins(v);
+                      props.onAction?.('pins');
+                    }}
                     className={inputClass}
                   />
                 </label>
                 <label className={labelClass}>
                   Max capacity
                   <NumberField
+                    data-testid="review-max-capacity"
                     min={0}
                     value={s.maxFuelCapacityObserved}
-                    onCommit={(v) => s.setMaxFuelCapacityObserved(v)}
+                    onCommit={(v) => {
+                      s.setMaxFuelCapacityObserved(v);
+                      props.onAction?.('max_capacity');
+                    }}
                     className={inputClass}
                   />
                 </label>
@@ -358,29 +397,41 @@ export function ReviewScreen(props: {
             {/* Subjective super-scout ratings (0 = not rated). Advisory only — they
                 never feed the scored fuel/climb points, just the dashboard's
                 qualitative read of a robot. */}
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+            <div
+              data-testid="review-ratings"
+              className="rounded-2xl border border-border bg-card p-3 landscape:p-4"
+            >
               <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <Shield className="size-5 text-brand" />
                 Ratings
               </p>
               <div className="grid grid-cols-1 gap-3 landscape:grid-cols-3 landscape:gap-4">
-                <RatingRow
+                <RatingSlider
                   label="Defense quality"
                   value={s.defenseRating}
-                  onChange={s.setDefenseRating}
-                  testid="review-defense-rating"
+                  onChange={(value) => {
+                    s.setDefenseRating(value);
+                    props.onAction?.(value === 0 ? 'rating_clear' : 'defense_rating');
+                  }}
+                  testId="review-defense-rating"
                 />
-                <RatingRow
+                <RatingSlider
                   label="Driver skill"
                   value={s.driverSkill}
-                  onChange={s.setDriverSkill}
-                  testid="review-driver-skill"
+                  onChange={(value) => {
+                    s.setDriverSkill(value);
+                    props.onAction?.(value === 0 ? 'rating_clear' : 'driver_rating');
+                  }}
+                  testId="review-driver-skill"
                 />
-                <RatingRow
+                <RatingSlider
                   label="Agility"
                   value={s.agility}
-                  onChange={s.setAgility}
-                  testid="review-agility"
+                  onChange={(value) => {
+                    s.setAgility(value);
+                    props.onAction?.(value === 0 ? 'rating_clear' : 'agility_rating');
+                  }}
+                  testId="review-agility"
                 />
               </div>
             </div>
@@ -399,18 +450,26 @@ export function ReviewScreen(props: {
                 <label className={labelClass}>
                   Fouls minor
                   <NumberField
+                    data-testid="review-fouls-minor"
                     min={0}
                     value={s.foulsMinor}
-                    onCommit={(v) => s.setFoulsMinor(v)}
+                    onCommit={(v) => {
+                      s.setFoulsMinor(v);
+                      props.onAction?.('fouls_minor');
+                    }}
                     className={`${inputClass} ${s.foulsMinor > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
                   />
                 </label>
                 <label className={labelClass}>
                   Fouls major
                   <NumberField
+                    data-testid="review-fouls-major"
                     min={0}
                     value={s.foulsMajor}
-                    onCommit={(v) => s.setFoulsMajor(v)}
+                    onCommit={(v) => {
+                      s.setFoulsMajor(v);
+                      props.onAction?.('fouls_major');
+                    }}
                     className={`${inputClass} ${s.foulsMajor > 0 ? 'border-destructive text-destructive' : ''}`}
                   />
                 </label>
@@ -446,7 +505,10 @@ export function ReviewScreen(props: {
                 </div>
               </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+            <div
+              data-testid="review-flags"
+              className="rounded-2xl border border-border bg-card p-3 landscape:p-4"
+            >
               <p className="mb-2 text-base font-semibold landscape:mb-3">Flags</p>
               <div className="grid grid-cols-2 gap-2 landscape:grid-cols-3">
                 {(
@@ -462,8 +524,12 @@ export function ReviewScreen(props: {
                     key={label}
                     size="big"
                     variant={val ? 'default' : 'outline'}
+                    aria-pressed={val}
                     className={`text-sm ${val ? activeTone : ''}`}
-                    onClick={() => set(!val)}
+                    onClick={() => {
+                      set(!val);
+                      props.onAction?.('flag');
+                    }}
                   >
                     {val && <Check />}
                     {label}
@@ -542,7 +608,10 @@ export function ReviewScreen(props: {
                     fillHeight={isPortrait}
                     startPosition={s.autoStartPosition}
                     path={s.autoPath}
-                    onPathChange={(pts: FieldPoint[]) => s.setAutoPath(pts)}
+                    onPathChange={(pts: FieldPoint[]) => {
+                      s.setAutoPath(pts);
+                      props.onAction?.('auto_path');
+                    }}
                     data-testid="review-field-path"
                   />
                 </div>
@@ -584,8 +653,12 @@ export function ReviewScreen(props: {
               <label className="flex flex-col gap-1 text-sm font-medium text-muted-foreground landscape:gap-1.5">
                 Notes
                 <textarea
+                  data-testid="review-notes"
                   value={s.notes}
-                  onChange={(e) => s.setNotes(e.target.value)}
+                  onChange={(e) => {
+                    s.setNotes(e.target.value);
+                    props.onAction?.('notes');
+                  }}
                   className="min-h-[72px] rounded-xl border border-border bg-input p-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring landscape:min-h-[96px]"
                 />
               </label>
@@ -601,6 +674,11 @@ export function ReviewScreen(props: {
                 <Save />
                 {saving ? 'SAVING…' : 'SAVE'}
               </Button>
+              {saveError ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {saveError}
+                </p>
+              ) : null}
             </div>
           </section>
         )}

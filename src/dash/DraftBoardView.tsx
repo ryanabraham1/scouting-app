@@ -17,16 +17,23 @@ import { Gavel, Star, X, RotateCcw, Search, Trophy, Ban, Lock, StickyNote } from
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { aggregateEvent, emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
+import {
+  aggregateEvent,
+  aggregateTeamComponentSplit,
+  emptyTeamAgg,
+  type TeamAgg,
+} from '@/dash/aggregate';
 import {
   useEventReports,
   useEventEpa,
+  useEventComponentEpas,
   useEventMatches,
   useEventTeams,
   useTbaRankings,
 } from '@/dash/useEventData';
 import { resolveRowEpa } from '@/dash/sorting';
-import { OUR_TEAM } from '@/dash/constants';
+import { getStoredBaseTeam } from '@/dash/baseTeamStore';
+import { predictMatch } from '@/dash/predict';
 import { useQuery } from '@tanstack/react-query';
 import { getPicklist, entryList, type PicklistEntry, type PicklistId } from '@/dash/picklistClient';
 import {
@@ -68,9 +75,6 @@ const TOP8_CAPTAINS = 8;
 
 function fmt(n: number, digits = 0): string {
   return Number.isFinite(n) ? n.toFixed(digits) : EM_DASH;
-}
-function pct(rate: number): string {
-  return `${Math.round(rate * 100)}%`;
 }
 
 /**
@@ -119,6 +123,7 @@ function rowTone(status: DraftRow['status']): string {
 
 export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element {
   const { eventKey, onSelectTeam } = props;
+  const baseTeam = getStoredBaseTeam();
 
   const reportsQuery = useEventReports(eventKey);
   const teamsQuery = useEventTeams(eventKey);
@@ -142,10 +147,72 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   }, [reports, teamsQuery.data]);
 
   const teamNumbers = useMemo(() => aggs.map((a) => a.teamNumber), [aggs]);
+  const aggByTeam = useMemo(
+    () => new Map(aggs.map((agg) => [agg.teamNumber, agg])),
+    [aggs],
+  );
   const epaQuery = useEventEpa(teamNumbers, eventKey, matchesQuery.data ?? []);
   const epaByTeam = epaQuery.data?.epaByTeam;
   const epaAvailable = epaQuery.data?.available === true;
   const epaFromScouting = !epaAvailable;
+  const componentQuery = useEventComponentEpas(teamNumbers, eventKey);
+  const playedMatches = useMemo(
+    () =>
+      (matchesQuery.data ?? []).filter(
+        (match) => match.actual_red_score != null && match.actual_blue_score != null,
+      ).length,
+    [matchesQuery.data],
+  );
+
+  // One auto-points value per team. Real per-match scouting auto is authoritative;
+  // an unscouted team may fall back to the established event-fitted EPA component
+  // estimate (including its played-match gate). Keeping this map team-keyed lets
+  // both rows and the alliance total consume the same value without double-counting.
+  const autoByTeam = useMemo(() => {
+    const out = new Map<
+      number,
+      { points: number | null; source: 'scouting' | 'epa' | 'none' }
+    >();
+    const fraction = componentQuery.data?.fraction;
+    const predictions = fraction
+      ? predictMatch({
+          redTeams: teamNumbers,
+          blueTeams: [],
+          agg: aggByTeam,
+          epaByTeam: epaByTeam ?? new Map(),
+          statboticsAvailable: epaAvailable,
+          fraction,
+          playedMatches,
+        }).red.teams
+      : [];
+    const predictionByTeam = new Map(predictions.map((prediction) => [prediction.teamNumber, prediction]));
+
+    for (const teamNumber of teamNumbers) {
+      const agg = aggByTeam.get(teamNumber);
+      if (agg && agg.matchesScouted > 0) {
+        out.set(teamNumber, {
+          points: aggregateTeamComponentSplit(agg).auto,
+          source: 'scouting',
+        });
+        continue;
+      }
+      const component = predictionByTeam.get(teamNumber)?.components;
+      out.set(
+        teamNumber,
+        component?.source === 'epa'
+          ? { points: component.auto, source: 'epa' }
+          : { points: null, source: 'none' },
+      );
+    }
+    return out;
+  }, [
+    aggByTeam,
+    componentQuery.data?.fraction,
+    epaAvailable,
+    epaByTeam,
+    playedMatches,
+    teamNumbers,
+  ]);
 
   // Official event ranks → which teams are ranked ABOVE us (can't pick them).
   const tbaRankingsQuery = useTbaRankings(eventKey);
@@ -153,7 +220,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     () => buildTbaRankMap(tbaRankingsQuery.data),
     [tbaRankingsQuery.data],
   );
-  const ourRank = tbaRankByTeam.get(OUR_TEAM) ?? null;
+  const ourRank = tbaRankByTeam.get(baseTeam) ?? null;
 
   const nicknameByTeam = useMemo(() => {
     const m = new Map<number, string | null>();
@@ -221,15 +288,16 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       const rank = activeRankByTeam.get(agg.teamNumber) ?? null;
       const tbaRank = tbaRankByTeam.get(agg.teamNumber) ?? null;
       const blockedByRank =
-        ourRank != null && tbaRank != null && tbaRank < ourRank && agg.teamNumber !== OUR_TEAM;
+        ourRank != null && tbaRank != null && tbaRank < ourRank && agg.teamNumber !== baseTeam;
       const blockedTop8 =
-        madeFirstPick && tbaRank != null && tbaRank <= TOP8_CAPTAINS && agg.teamNumber !== OUR_TEAM;
+        madeFirstPick && tbaRank != null && tbaRank <= TOP8_CAPTAINS && agg.teamNumber !== baseTeam;
       return {
         teamNumber: agg.teamNumber,
         nickname: nicknameByTeam.get(agg.teamNumber) ?? null,
         epa: resolveRowEpa({ agg, epaByTeam, epaAvailable, epaFromScouting }),
         expectedPoints: agg.scoutingExpectedPoints,
-        climbSuccessRate: agg.climbSuccessRate,
+        autoPoints: autoByTeam.get(agg.teamNumber)?.points ?? null,
+        autoSource: autoByTeam.get(agg.teamNumber)?.source ?? 'none',
         matchesScouted: agg.matchesScouted,
         dnp: pl?.dnp ?? false,
         tier: pl?.tier ?? null,
@@ -239,8 +307,13 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
         tbaRank,
         blockedByRank,
         blockedTop8,
-        isUs: agg.teamNumber === OUR_TEAM,
-        status: statusOf(agg.teamNumber, state),
+        isUs: agg.teamNumber === baseTeam,
+        // A captain that picked us is already committed to our alliance and
+        // must not remain eligible in best-available recommendations.
+        status:
+          state.pickedBy === agg.teamNumber
+            ? 'taken'
+            : statusOf(agg.teamNumber, state),
       };
     });
     rows.sort(compareDraftOrder);
@@ -250,11 +323,13 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     epaByTeam,
     epaAvailable,
     epaFromScouting,
+    autoByTeam,
     picklistByTeam,
     activeRankByTeam,
     nicknameByTeam,
     tbaRankByTeam,
     ourRank,
+    baseTeam,
     state,
   ]);
 
@@ -269,7 +344,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
 
   // Who picked us (a captain team), or null when WE are the captain.
   const pickedBy = state.pickedBy ?? null;
-  const captainTeam = pickedBy ?? OUR_TEAM;
+  const captainTeam = pickedBy ?? baseTeam;
 
   // Our full alliance, captain first, then us (when we were picked), then picks —
   // deduped, resolved to ranked rows. When we're the captain, we lead the list.
@@ -281,10 +356,10 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       if (n != null && !ids.includes(n)) ids.push(n);
     };
     push(captainTeam); // captain leads (us when not picked, else the picker)
-    if (pickedBy != null) push(OUR_TEAM); // we're a member when someone picked us
+    if (pickedBy != null) push(baseTeam); // we're a member when someone picked us
     for (const r of ourPicks) push(r.teamNumber);
     return ids.map(byNum).filter((r): r is DraftRow => r != null);
-  }, [rankedRows, ourPicks, captainTeam, pickedBy]);
+  }, [rankedRows, ourPicks, captainTeam, pickedBy, baseTeam]);
 
   // Teams sorted by number for the "we got picked by" selector.
   const teamsByNumber = useMemo(
@@ -305,22 +380,43 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   const setPickedBy = (team: number | null): void =>
     setState((s) => withAutoListSwitch(s, { ...s, pickedBy: team }));
 
-  // Combined alliance stats for the viz: summed best-available EPA + summed
-  // scouting expected points across members, and how many are reliable climbers.
+  // Combined alliance stats: each deduped member contributes once. Auto uses the
+  // exact same scouting-first/EPA-fallback value shown in that member's pool row.
   const allianceStats = useMemo(() => {
     let epaSum = 0;
     let epaKnown = false;
     let expSum = 0;
-    let climbers = 0;
+    let autoSum = 0;
+    let autoKnown = false;
+    let hasScoutingAuto = false;
+    let hasEpaAuto = false;
     for (const r of alliance) {
       if (r.epa != null) {
         epaSum += r.epa;
         epaKnown = true;
       }
       expSum += r.expectedPoints;
-      if (r.climbSuccessRate >= 0.5) climbers += 1;
+      if (r.autoPoints != null) {
+        autoSum += r.autoPoints;
+        autoKnown = true;
+        if (r.autoSource === 'scouting') hasScoutingAuto = true;
+        if (r.autoSource === 'epa') hasEpaAuto = true;
+      }
     }
-    return { epaSum: epaKnown ? epaSum : null, expSum, climbers, size: alliance.length };
+    const autoSource =
+      hasScoutingAuto && hasEpaAuto
+        ? 'mixed'
+        : hasScoutingAuto
+          ? 'scouting'
+          : hasEpaAuto
+            ? 'epa'
+            : 'none';
+    return {
+      epaSum: epaKnown ? epaSum : null,
+      expSum,
+      autoSum: autoKnown ? autoSum : null,
+      autoSource,
+    };
   }, [alliance]);
 
   const counts = useMemo(() => {
@@ -635,12 +731,32 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     {fmt(allianceStats.expSum, 1)}
                   </span>
                 </div>
-                <div className="flex flex-col rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <div
+                  className="flex flex-col rounded-lg border border-border bg-muted/30 px-3 py-2"
+                  title="Sum of one auto-points value per alliance team; scouting preferred, EPA component estimate used when unscouted"
+                >
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Climbers
+                    Total auto
                   </span>
-                  <span className="text-lg font-semibold tabular-nums text-success">
-                    {allianceStats.climbers}/{allianceStats.size}
+                  <span className="flex items-baseline gap-1.5">
+                    <span
+                      data-testid="draft-alliance-auto"
+                      className="text-lg font-semibold tabular-nums text-energy"
+                    >
+                      {allianceStats.autoSum == null ? EM_DASH : fmt(allianceStats.autoSum, 1)}
+                    </span>
+                    {allianceStats.autoSource !== 'none' ? (
+                      <span
+                        data-testid="draft-alliance-auto-source"
+                        className="text-[9px] uppercase tracking-wide text-muted-foreground"
+                      >
+                        {allianceStats.autoSource === 'mixed'
+                          ? 'scout + est.'
+                          : allianceStats.autoSource === 'scouting'
+                            ? 'scout'
+                            : 'est.'}
+                      </span>
+                    ) : null}
                   </span>
                 </div>
               </div>
@@ -742,108 +858,116 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
               No teams match your search.
             </div>
           ) : (
-            <ul data-testid="draft-pool" className="flex flex-col gap-2">
+            <ul data-testid="draft-pool" className="flex flex-col gap-1.5">
+              {/* Desktop column guide. The pool becomes a compact draft console
+                  at large widths; phones keep each row self-contained below. */}
+              <li
+                aria-hidden="true"
+                className="hidden grid-cols-[2rem_minmax(10rem,1.4fr)_minmax(15rem,1fr)_minmax(8rem,0.75fr)_10.5rem] items-end gap-x-4 px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground lg:grid"
+              >
+                <span className="text-right">Rank</span>
+                <span>Team</span>
+                <span className="text-right">Performance</span>
+                <span>Draft status</span>
+                <span className="text-center">Decision</span>
+              </li>
               {visibleRows.map((r, i) => (
                 <li
                   key={r.teamNumber}
                   data-testid={`draft-row-${r.teamNumber}`}
+                  data-status={r.status}
                   className={cn(
-                    'flex flex-col gap-2 rounded-xl border px-3 py-2 text-sm',
+                    'relative grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 overflow-hidden rounded-xl border px-3 py-2 text-sm sm:grid-cols-[2rem_minmax(10rem,1fr)_auto] lg:grid-cols-[2rem_minmax(10rem,1.4fr)_minmax(15rem,1fr)_minmax(8rem,0.75fr)_10.5rem] lg:gap-x-4 lg:gap-y-0 lg:py-1.5',
                     rowTone(r.status),
                     // Teams we can't pick (ranked above us, or a top-8 seed after
                     // our first pick) read as taken — dimmed + struck through.
                     (r.blockedByRank || r.blockedTop8) && r.status === 'available' && 'opacity-55',
                   )}
                 >
-                  {/* Line 1 — identity on the left, primary action on the right. */}
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                        {i + 1}
-                      </span>
-                      <TeamNumber
-                        team={r.teamNumber}
-                        onSelect={onSelectTeam}
-                        testid={`draft-team-${r.teamNumber}`}
-                        className={cn(
-                          'font-display text-base font-semibold tabular-nums text-brand',
-                          (r.status === 'taken' || r.blockedByRank || r.blockedTop8) &&
-                            'line-through',
-                        )}
-                      />
-                      {r.nickname ? (
-                        <span className="truncate text-xs text-muted-foreground">{r.nickname}</span>
-                      ) : null}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={r.status === 'ours' ? 'default' : 'outline'}
-                        data-testid={`draft-ours-${r.teamNumber}`}
-                        // Can't add ourselves, a team ranked above us, or (after our
-                        // first pick) a top-8 seed to our alliance.
-                        disabled={
-                          r.isUs || ((r.blockedByRank || r.blockedTop8) && r.status !== 'ours')
-                        }
-                        title={
-                          r.isUs
-                            ? "That's us — you're the captain"
-                            : r.blockedByRank
-                              ? `Ranked above us (#${r.tbaRank}) — can't pick`
-                              : r.blockedTop8
-                                ? `Top-8 seed (#${r.tbaRank}) — unavailable by our 2nd pick`
-                                : undefined
-                        }
-                        onClick={() => toggle(r.teamNumber, 'ours')}
-                        aria-label={`Mark team ${r.teamNumber} as ours`}
-                      >
-                        {/* Icon-only under 420px so the team nickname keeps
-                            readable width on phones. */}
-                        <Star /> <span className="max-[420px]:hidden">Ours</span>
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={r.status === 'taken' ? 'secondary' : 'ghost'}
-                        data-testid={`draft-taken-${r.teamNumber}`}
-                        // We can't be "taken" by another alliance — we're a captain.
-                        disabled={r.isUs}
-                        onClick={() => toggle(r.teamNumber, 'taken')}
-                        aria-label={
-                          r.status === 'taken'
-                            ? `Undo taken for team ${r.teamNumber}`
-                            : `Mark team ${r.teamNumber} as taken`
-                        }
-                      >
-                        {r.status === 'taken' ? (
-                          <>
-                            <RotateCcw /> <span className="max-[420px]:hidden">Undo</span>
-                          </>
-                        ) : (
-                          <>
-                            <X /> <span className="max-[420px]:hidden">Taken</span>
-                          </>
-                        )}
-                      </Button>
-                    </span>
+                  <span className="col-start-1 row-start-1 self-center text-right font-mono text-xs tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+
+                  {/* Identity gets the widest flexible column on desktop. */}
+                  <div
+                    data-testid={`draft-identity-${r.teamNumber}`}
+                    className="col-start-2 row-start-1 flex min-w-0 items-baseline gap-2"
+                  >
+                    <TeamNumber
+                      team={r.teamNumber}
+                      onSelect={onSelectTeam}
+                      testid={`draft-team-${r.teamNumber}`}
+                      className={cn(
+                        'shrink-0 font-display text-lg font-semibold leading-none tabular-nums text-brand',
+                        (r.status === 'taken' || r.blockedByRank || r.blockedTop8) &&
+                          'line-through',
+                      )}
+                    />
+                    {r.nickname ? (
+                      <span className="truncate text-xs text-muted-foreground">{r.nickname}</span>
+                    ) : null}
                   </div>
-                  {/* Line 2 — compact stat strip + small badges, aligned. */}
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8">
-                    <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
-                      <span>
-                        <span className="text-muted-foreground/60">EPA</span>{' '}
+
+                  {/* Three fixed metric lanes scan vertically during a live draft. */}
+                  <div
+                    data-testid={`draft-metrics-${r.teamNumber}`}
+                    className="col-start-2 grid grid-cols-3 gap-1.5 sm:col-span-1 lg:col-start-3 lg:row-start-1 lg:gap-3"
+                  >
+                    <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 first:border-l-0 first:pl-0 lg:items-end">
+                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                        EPA
+                      </span>
+                      <span
+                        data-testid={`draft-epa-${r.teamNumber}`}
+                        className="font-mono text-xs font-semibold tabular-nums text-foreground"
+                      >
                         {r.epa == null ? EM_DASH : fmt(r.epa)}
                       </span>
-                      <span>
-                        {fmt(r.expectedPoints, 1)}
-                        <span className="text-muted-foreground/60"> pts</span>
+                    </span>
+                    <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 lg:items-end">
+                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                        Exp. pts
                       </span>
-                      <span>
-                        <span className="text-muted-foreground/60">climb</span>{' '}
-                        {pct(r.climbSuccessRate)}
+                      <span
+                        data-testid={`draft-points-${r.teamNumber}`}
+                        className="font-mono text-xs font-semibold tabular-nums text-foreground"
+                      >
+                        {fmt(r.expectedPoints, 1)}
                       </span>
                     </span>
+                    <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 lg:items-end">
+                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                        Auto pts
+                      </span>
+                      <span
+                        data-testid={`draft-auto-${r.teamNumber}`}
+                        className="flex items-baseline gap-1 font-mono text-xs font-semibold tabular-nums text-foreground"
+                        title={
+                          r.autoSource === 'scouting'
+                            ? 'Average auto points from scouting'
+                            : r.autoSource === 'epa'
+                              ? 'Estimated auto points from the event EPA component model'
+                              : 'No auto score available'
+                        }
+                      >
+                        <span>{r.autoPoints == null ? EM_DASH : fmt(r.autoPoints, 1)}</span>
+                        {r.autoSource !== 'none' ? (
+                          <span
+                            data-testid={`draft-auto-source-${r.teamNumber}`}
+                            className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground"
+                          >
+                            {r.autoSource === 'scouting' ? 'scout' : 'est.'}
+                          </span>
+                        ) : null}
+                      </span>
+                    </span>
+                  </div>
+
+                  {/* Picklist and availability context stay separate from metrics. */}
+                  <div
+                    data-testid={`draft-badges-${r.teamNumber}`}
+                    className="col-start-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:col-start-4 lg:row-start-1"
+                  >
                     {r.picklistRank != null ? (
                       <span
                         data-testid={`draft-picklist-rank-${r.teamNumber}`}
@@ -900,6 +1024,63 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         {r.tier}
                       </span>
                     ) : null}
+                  </div>
+
+                  {/* Full-width touch controls on phones; compact decision column
+                      on desktop. Labels stay visible at every breakpoint. */}
+                  <div
+                    data-testid={`draft-actions-${r.teamNumber}`}
+                    className="col-start-2 grid grid-cols-2 gap-2 sm:col-start-3 sm:row-start-1 sm:w-[10.5rem] lg:col-start-5 lg:row-start-1"
+                  >
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={r.status === 'ours' ? 'default' : 'outline'}
+                      className="h-11 min-w-0 px-3 lg:h-8 lg:px-2.5"
+                      data-testid={`draft-ours-${r.teamNumber}`}
+                      // Can't add ourselves, a team ranked above us, or (after our
+                      // first pick) a top-8 seed to our alliance.
+                      disabled={
+                        r.isUs || ((r.blockedByRank || r.blockedTop8) && r.status !== 'ours')
+                      }
+                      title={
+                        r.isUs
+                          ? "That's us — you're the captain"
+                          : r.blockedByRank
+                            ? `Ranked above us (#${r.tbaRank}) — can't pick`
+                            : r.blockedTop8
+                              ? `Top-8 seed (#${r.tbaRank}) — unavailable by our 2nd pick`
+                              : undefined
+                      }
+                      onClick={() => toggle(r.teamNumber, 'ours')}
+                      aria-pressed={r.status === 'ours'}
+                      aria-label={
+                        r.status === 'ours'
+                          ? `Remove team ${r.teamNumber} from our alliance`
+                          : `Mark team ${r.teamNumber} as ours`
+                      }
+                    >
+                      <Star /> <span>Ours</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={r.status === 'taken' ? 'secondary' : 'ghost'}
+                      className="h-11 min-w-0 px-3 lg:h-8 lg:px-2.5"
+                      data-testid={`draft-taken-${r.teamNumber}`}
+                      // We can't be "taken" by another alliance — we're a captain.
+                      disabled={r.isUs}
+                      onClick={() => toggle(r.teamNumber, 'taken')}
+                      aria-pressed={r.status === 'taken'}
+                      aria-label={
+                        r.status === 'taken'
+                          ? `Undo taken for team ${r.teamNumber}`
+                          : `Mark team ${r.teamNumber} as taken`
+                      }
+                    >
+                      {r.status === 'taken' ? <RotateCcw /> : <X />}
+                      <span>{r.status === 'taken' ? 'Undo' : 'Taken'}</span>
+                    </Button>
                   </div>
                 </li>
               ))}

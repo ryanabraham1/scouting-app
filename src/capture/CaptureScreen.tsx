@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, Plane, MoveUpRight, Lock, ChevronRight, MapPin, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
-import { useCaptureEvents } from '@/capture/useCaptureEvents';
+import {
+  useCaptureEvents,
+  type BurstPayload,
+  type CaptureEvent,
+  type TogglePayload,
+} from '@/capture/useCaptureEvents';
 import { AUTO_MS, TELEOP_MS, remainingMs } from '@/capture/clock';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
@@ -47,9 +52,54 @@ function secs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function undoActionLabel(event: CaptureEvent | undefined): string | null {
+  if (!event) return null;
+  switch (event.type) {
+    case 'defense':
+      return 'defense timer';
+    case 'defended':
+      return 'defended timer';
+    case 'burst':
+      return (event.payload as BurstPayload).kind === 'feeding'
+        ? 'feed burst'
+        : 'fuel burst';
+    case 'foul':
+      return 'foul';
+    case 'toggle': {
+      const key = (event.payload as TogglePayload).key;
+      if (key === 'autoLeftStartingLine') return 'left line';
+      if (key === 'autoClimbLevel1') return 'auto climb';
+      return 'change';
+    }
+    default:
+      return null;
+  }
+}
+
 // Combined press-drag slider-shoot lives inline so it can wire straight into the
 // session's holdStart/holdEnd (rate-override) without prop drilling timing.
 import { SliderShoot } from '@/capture/SliderShoot';
+
+export type CaptureObservedAction =
+  | 'placement_set'
+  | 'placement_submitted'
+  | 'match_started'
+  | 'go_pressed'
+  | 'inactive_answered'
+  | 'fuel_burst'
+  | 'left_line'
+  | 'auto_climb'
+  | 'feeding_burst'
+  | 'defense_started'
+  | 'defense_locked'
+  | 'defense_stopped'
+  | 'defended_started'
+  | 'defended_locked'
+  | 'defended_stopped'
+  | 'foul_added'
+  | 'undo'
+  | 'reanchored'
+  | 'to_review';
 
 // Distance the pointer must travel RIGHT (from its press X) to latch a lock.
 export const LOCK_SLIDE_PX = 64;
@@ -195,6 +245,7 @@ function HoldSlideLockButton(props: {
       data-testid={testid}
       data-active={active ? 'true' : 'false'}
       data-locked={locked ? 'true' : 'false'}
+      aria-pressed={active}
       variant={active ? 'default' : 'secondary'}
       size="xl"
       className={`relative h-full w-full touch-none select-none flex-col gap-0.5 overflow-hidden rounded-2xl px-2 text-base ${
@@ -205,6 +256,18 @@ function HoldSlideLockButton(props: {
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onLostPointerCapture={onPointerEnd}
+      onKeyDown={(event) => {
+        if ((event.key !== ' ' && event.key !== 'Enter') || event.repeat) return;
+        event.preventDefault();
+        wasLockedAtDownRef.current = locked;
+        startXRef.current = 0;
+        if (!locked) onBegin();
+      }}
+      onKeyUp={(event) => {
+        if (event.key !== ' ' && event.key !== 'Enter') return;
+        event.preventDefault();
+        onPointerEnd();
+      }}
     >
       {/* slide-to-lock progress track (only while holding, unlocked) */}
       {active && !locked && (
@@ -240,6 +303,8 @@ function HoldSlideLockButton(props: {
 export function CaptureScreen(props: {
   session: ReturnType<typeof useCaptureSession>;
   onToReview: () => void;
+  /** Read-only action observation for wrappers such as training/coaching UI. */
+  onAction?: (action: CaptureObservedAction) => void;
   /**
    * Abandon this capture and return to Scout Home. Installed PWAs have no browser
    * back button, so without this an unfinished capture is a dead end. The draft
@@ -248,9 +313,9 @@ export function CaptureScreen(props: {
   onExit?: () => void;
 }) {
   const s = props.session;
-  const [showGo, setShowGo] = useState(false);
-  // Pre-match placement step gates the live match screen.
-  const [placed, setPlaced] = useState(false);
+  const showGo = s.showGo;
+  // Pre-match placement step gates the live match screen and persists across reload.
+  const placed = s.placementComplete;
   const isPortrait = useIsPortrait();
   // Which half of the field to show on the placement step. The field image is
   // red-structure-left / blue-structure-right, so a red team starts on the LEFT
@@ -312,6 +377,7 @@ export function CaptureScreen(props: {
     defenseStartRef.current = performance.now();
     setDefenseActive(true);
     s.beginDefense(); // session records the open interval start
+    props.onAction?.('defense_started');
     buzz();
   };
   // Commit the in-progress interval and clear active + locked state.
@@ -328,11 +394,13 @@ export function CaptureScreen(props: {
     const durationMs = Math.max(0, end - start);
     s.endDefense(); // session commits duration + interval (no manual accumulate)
     events.recordDefense({ startMs: start, endMs: end, durationMs });
+    props.onAction?.('defense_stopped');
     buzz(20);
   };
   // Latch locked-on (interval already begun on press).
   const lockDefense = () => {
     setDefenseLocked(true);
+    props.onAction?.('defense_locked');
     buzz(20);
   };
 
@@ -342,6 +410,7 @@ export function CaptureScreen(props: {
     defendedStartRef.current = performance.now();
     setDefendedActive(true);
     s.beginDefended();
+    props.onAction?.('defended_started');
     buzz();
   };
   const commitDefended = () => {
@@ -357,10 +426,12 @@ export function CaptureScreen(props: {
     const durationMs = Math.max(0, end - start);
     s.endDefended();
     events.recordDefended({ startMs: start, endMs: end, durationMs });
+    props.onAction?.('defended_stopped');
     buzz(20);
   };
   const lockDefended = () => {
     setDefendedLocked(true);
+    props.onAction?.('defended_locked');
     buzz(20);
   };
 
@@ -381,13 +452,44 @@ export function CaptureScreen(props: {
   if (!placed) {
     return (
       <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
-        <header className="flex shrink-0 items-center justify-between gap-2">
-          <span className="flex items-center gap-2 text-base font-semibold">
-            <MapPin className="size-5 text-brand" /> Place the robot
+        <header className="flex shrink-0 items-center gap-2">
+          <span
+            data-testid="capture-placement-title"
+            className="flex shrink-0 items-center gap-2 text-base font-semibold"
+          >
+            <MapPin className="size-5 text-brand" />
+            <span className="hidden sm:inline">Place the robot</span>
           </span>
-          <div className="flex items-center gap-2">
-            <span className="max-w-[8.5rem] text-right text-xs text-muted-foreground">
-              Tap the field where it starts
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+            <span
+              data-testid="capture-target"
+              role="group"
+              aria-label={`Scouting Team ${s.targetTeamNumber}, ${
+                s.allianceColor === 'red' ? 'Red' : 'Blue'
+              } alliance station ${s.station}. Tap the field where it starts.`}
+              className="flex min-w-0 flex-1 items-center justify-end gap-1.5"
+            >
+              <span className="flex min-w-0 flex-col items-end text-right">
+                <strong className="max-w-full truncate text-base font-extrabold leading-tight text-foreground">
+                  Team{' '}
+                  <span className="font-mono text-xl font-black tracking-tight">
+                    {s.targetTeamNumber}
+                  </span>
+                </strong>
+                <span className="max-w-full truncate text-[11px] leading-tight text-muted-foreground">
+                  Tap the field where it starts
+                </span>
+              </span>
+              <span
+                data-testid="capture-alliance-station"
+                className={`shrink-0 rounded-lg border px-2 py-1 text-xs font-black tracking-wide text-white ${
+                  s.allianceColor === 'red'
+                    ? 'border-red-700 bg-red-600'
+                    : 'border-blue-800 bg-blue-600'
+                }`}
+              >
+                {s.allianceColor === 'red' ? 'RED' : 'BLUE'} {s.station}
+              </span>
             </span>
             {props.onExit && (
               <Button
@@ -449,6 +551,7 @@ export function CaptureScreen(props: {
                 startPosition={s.autoStartPosition}
                 onStartChange={(p: FieldPoint) => {
                   s.setAutoStartPosition(p);
+                  props.onAction?.('placement_set');
                   buzz();
                 }}
                 data-testid="capture-field"
@@ -468,11 +571,12 @@ export function CaptureScreen(props: {
           disabled={!s.autoStartPosition}
           onClick={() => {
             if (!s.autoStartPosition) return;
-            setPlaced(true);
+            s.setPlacementComplete(true);
+            props.onAction?.('placement_submitted');
             buzz(25);
           }}
         >
-          <Play /> {s.autoStartPosition ? 'Submit / Start match' : 'Tap the field to place'}
+          <Play /> {s.autoStartPosition ? 'Confirm position' : 'Tap the field to place'}
         </Button>
       </div>
     );
@@ -493,8 +597,9 @@ export function CaptureScreen(props: {
             onClick={() => {
               s.setInactiveFirst(true);
               s.clock.markGo();
+              props.onAction?.('inactive_answered');
               buzz(25);
-              setShowGo(false);
+              s.setShowGo(false);
             }}
           >
             Yes
@@ -507,11 +612,57 @@ export function CaptureScreen(props: {
             onClick={() => {
               s.setInactiveFirst(false);
               s.clock.markGo();
+              props.onAction?.('inactive_answered');
               buzz(25);
-              setShowGo(false);
+              s.setShowGo(false);
             }}
           >
             No
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (s.clock.resumeRequired) {
+    const savedElapsed =
+      phase === 'teleop' ? s.clock.teleopElapsedMs : s.clock.autoElapsedMs;
+    const phaseLabel =
+      phase === 'teleop'
+        ? 'Teleop'
+        : phase === 'pause'
+          ? 'the Auto-to-Teleop pause'
+          : 'Auto';
+    return (
+      <div
+        data-testid="capture-resume-clock"
+        className="flex min-h-dvh flex-col items-center justify-center gap-5 bg-background p-6 text-center text-foreground"
+      >
+        <Timer className="size-10 text-warning" />
+        <div className="max-w-md space-y-2">
+          <h2 className="text-xl font-bold">Re-anchor the match clock</h2>
+          <p className="text-muted-foreground">
+            This draft stopped in {phaseLabel} at {mmss(savedElapsed)} elapsed.
+            Time while the app was closed was not counted.
+          </p>
+        </div>
+        <div className="flex w-full max-w-md flex-col gap-3 sm:flex-row">
+          <Button
+            data-testid="capture-resume-clock-confirm"
+            size="big"
+            className="flex-1"
+            onClick={() => s.clock.resumeFromSaved()}
+          >
+            Resume from {mmss(savedElapsed)}
+          </Button>
+          <Button
+            data-testid="capture-resume-to-review"
+            variant="outline"
+            size="big"
+            className="flex-1"
+            onClick={props.onToReview}
+          >
+            Go to review
           </Button>
         </div>
       </div>
@@ -528,10 +679,19 @@ export function CaptureScreen(props: {
           ? 0
           : AUTO_MS;
   const inAuto = phase === 'auto' || phase === 'pause' || phase === 'idle';
+  // `pause` is the match clock's authoritative "Auto elapsed, still awaiting
+  // GO" state. Deriving readiness from phase keeps production, resumed drafts,
+  // and tutorial-injected clocks on one timing source.
+  const autoEndedAwaitingGo = phase === 'pause';
+  const latestUndoableEvent = events.events.reduce<CaptureEvent | undefined>(
+    (latest, event) => (event.type === 'phase' ? latest : event),
+    undefined,
+  );
+  const latestUndoLabel = undoActionLabel(latestUndoableEvent);
 
   return (
     <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
-      {/* Top bar: phase/window · countdown timer · undo */}
+      {/* Top bar stays glanceable: match state · countdown · optional exit. */}
       <header className="flex shrink-0 items-center justify-between gap-1.5">
         <span
           data-testid="capture-window"
@@ -545,20 +705,6 @@ export function CaptureScreen(props: {
         >
           <Timer className="size-5 max-[380px]:hidden" /> {mmss(remaining)}
         </span>
-        <Button
-          data-testid="capture-undo"
-          variant="outline"
-          size="icon"
-          className="size-11 shrink-0"
-          aria-label="Undo last action"
-          disabled={!events.canUndo}
-          onClick={() => {
-            events.undoLast();
-            buzz();
-          }}
-        >
-          <Undo2 className="size-5" />
-        </Button>
         {props.onExit && (
           <Button
             data-testid="capture-exit"
@@ -626,15 +772,25 @@ export function CaptureScreen(props: {
 
         {/* Phase-scoped primary action */}
         {phase === 'idle' && (
-          <Button data-testid="capture-start" size="xl" className="h-12 shrink-0 rounded-2xl text-xl" onClick={() => { s.clock.startAuto(); buzz(25); }}>
+          <Button data-testid="capture-start" size="xl" className="h-12 shrink-0 rounded-2xl text-xl" onClick={() => { s.clock.startAuto(); props.onAction?.('match_started'); buzz(25); }}>
             <Play /> START
           </Button>
         )}
         {(phase === 'auto' || phase === 'pause') && (
           <Button
             data-testid="capture-go"
+            data-auto-ended={autoEndedAwaitingGo ? 'true' : 'false'}
             size="xl"
-            className="h-12 shrink-0 rounded-2xl bg-energy text-energy-foreground hover:bg-energy text-xl"
+            className={`h-12 shrink-0 rounded-2xl text-xl ${
+              autoEndedAwaitingGo
+                ? 'bg-success text-success-foreground hover:bg-success'
+                : 'bg-energy text-energy-foreground hover:bg-energy'
+            }`}
+            aria-label={
+              autoEndedAwaitingGo
+                ? 'GO to Teleop — Auto ended'
+                : 'GO to Teleop'
+            }
             onClick={() => {
               // Commit any in-flight slider hold NOW: the interstitial swap
               // unmounts the sliders, so onShootEnd would never fire — the
@@ -642,14 +798,16 @@ export function CaptureScreen(props: {
               // keep ghost-integrating against the stale hold refs.
               s.holdEnd();
               s.feedHoldEnd();
-              setShowGo(true);
+              props.onAction?.('go_pressed');
+              s.setShowGo(true);
             }}
           >
-            <FastForward /> GO (Teleop)
+            <FastForward />
+            {autoEndedAwaitingGo ? 'GO · TELEOP READY' : 'GO (Teleop)'}
           </Button>
         )}
         {phase === 'teleop' && (
-          <Button data-testid="capture-reanchor" variant="outline" size="big" className="h-11 shrink-0 rounded-2xl text-base" onClick={() => { s.reAnchorCue(); buzz(); }}>
+          <Button data-testid="capture-reanchor" variant="outline" size="big" className="h-11 shrink-0 rounded-2xl text-base" onClick={() => { s.reAnchorCue(); props.onAction?.('reanchored'); buzz(); }}>
             0:30 Endgame cue
           </Button>
         )}
@@ -700,7 +858,7 @@ export function CaptureScreen(props: {
               className="h-full"
               onShootStart={() => { s.holdStart(); buzz(); }}
               onShootRate={(r) => s.holdSample(r)}
-              onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate, kind: 'fuel' }); buzz(20); }}
+              onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate, kind: 'fuel' }); props.onAction?.('fuel_burst'); buzz(20); }}
             />
           </div>
           <div className="flex min-h-0 flex-1">
@@ -714,7 +872,7 @@ export function CaptureScreen(props: {
               className="h-full"
               onShootStart={() => { s.feedHoldStart(); buzz(); }}
               onShootRate={(r) => s.feedHoldSample(r)}
-              onShootEnd={(rate) => { s.feedHoldEnd(rate); events.recordBurst({ rate, kind: 'feeding' }); buzz(20); }}
+              onShootEnd={(rate) => { s.feedHoldEnd(rate); events.recordBurst({ rate, kind: 'feeding' }); props.onAction?.('feeding_burst'); buzz(20); }}
             />
           </div>
         </div>
@@ -726,51 +884,79 @@ export function CaptureScreen(props: {
             variant="outline"
             size="big"
             className={`h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5 ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
-            onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); buzz(); }}
+            onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); props.onAction?.('foul_added'); buzz(); }}
           >
             <Flag /> Foul ({s.foulsMinor})
           </Button>
           {inAuto && (
             <Button
+              data-testid="capture-left-line"
               variant={s.autoLeftStartingLine ? 'default' : 'outline'}
+              aria-pressed={s.autoLeftStartingLine}
               size="big"
               className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
-              onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); buzz(); }}
+              onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); props.onAction?.('left_line'); buzz(); }}
             >
               <MoveUpRight /> Left Line
             </Button>
           )}
           {inAuto && (
             <Button
+              data-testid="capture-auto-climb"
               variant={s.autoClimbLevel1 ? 'default' : 'outline'}
+              aria-pressed={s.autoClimbLevel1}
               size="big"
               className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
-              onClick={() => { const prev = s.autoClimbLevel1; s.setAutoClimbLevel1(!prev); events.recordToggle({ key: 'autoClimbLevel1', value: !prev, prev }); buzz(); }}
+              onClick={() => { const prev = s.autoClimbLevel1; s.setAutoClimbLevel1(!prev); events.recordToggle({ key: 'autoClimbLevel1', value: !prev, prev }); props.onAction?.('auto_climb'); buzz(); }}
             >
               <Plane /> Auto Climb
             </Button>
           )}
         </div>
 
-        <Button
-          data-testid="capture-to-review"
-          variant="secondary"
-          size="big"
-          className="h-11 shrink-0 rounded-2xl"
-          onClick={() => {
-            // CaptureScreen unmounts on the stage switch. Commit anything still
-            // open — a slide-LOCKED defense/defended timer (the lock exists
-            // precisely so no finger is on it at match end) and any in-flight
-            // slider hold — or that data silently vanishes from the report.
-            commitDefense();
-            commitDefended();
-            s.holdEnd();
-            s.feedHoldEnd();
-            props.onToReview();
-          }}
-        >
-          To Review
-        </Button>
+        {/* Persistent bottom action row: correction sits beside the forward
+            action it balances. Undo only occupies space when there is something
+            real to reverse, and names that action before the scout commits. */}
+        <div className="flex shrink-0 gap-2">
+          {events.canUndo && latestUndoLabel && (
+            <Button
+              data-testid="capture-undo"
+              variant="outline"
+              size="big"
+              className="h-11 min-w-0 flex-[1.15] justify-start gap-1.5 rounded-2xl border-warning/50 bg-warning/5 px-3 text-base hover:bg-warning/10 [&_svg]:size-5"
+              aria-label={`Undo last action: ${latestUndoLabel}`}
+              title={`Undo ${latestUndoLabel}`}
+              onClick={() => {
+                events.undoLast();
+                props.onAction?.('undo');
+                buzz();
+              }}
+            >
+              <Undo2 />
+              <span className="min-w-0 truncate">Undo {latestUndoLabel}</span>
+            </Button>
+          )}
+          <Button
+            data-testid="capture-to-review"
+            variant="secondary"
+            size="big"
+            className="h-11 min-w-0 flex-1 rounded-2xl px-3 text-base"
+            onClick={() => {
+              // CaptureScreen unmounts on the stage switch. Commit anything still
+              // open — a slide-LOCKED defense/defended timer (the lock exists
+              // precisely so no finger is on it at match end) and any in-flight
+              // slider hold — or that data silently vanishes from the report.
+              commitDefense();
+              commitDefended();
+              s.holdEnd();
+              s.feedHoldEnd();
+              props.onAction?.('to_review');
+              props.onToReview();
+            }}
+          >
+            To Review
+          </Button>
+        </div>
       </div>
     </div>
   );

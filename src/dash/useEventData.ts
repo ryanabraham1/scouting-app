@@ -24,6 +24,11 @@ import {
 } from '@/dash/aggregate';
 import { fetchMatchupNotesForEvent } from '@/dash/matchupNotesClient';
 import { listMatchupNotesForEvent } from '@/db/localStore';
+import type { LocalMatchupNote, MatchupNoteRow } from '@/db/types';
+import {
+  getCachedAssignmentsForEvent,
+  getCachedPitAssignmentsForEvent,
+} from '@/db/preloadClient';
 import {
   NEXUS_POLL_MS,
   NEXUS_STALE_MS,
@@ -62,13 +67,23 @@ export interface ScoutRow {
   event_key: string;
 }
 
-/** One published assignment row (the 5 columns coverage-gaps needs). */
+/** One published assignment row, including its event scope for stale-data guards. */
 export interface AssignmentRow {
+  // Older persisted Query snapshots predate this field; the query key itself
+  // remains event-scoped, while fresh server/cache rows always include it.
+  event_key?: string;
   match_key: string;
   scout_id: string | null;
   alliance_color: string;
   station: number;
   target_team_number: number | null;
+}
+
+export interface PitAssignmentRow {
+  event_key: string;
+  team_number: number;
+  scout_id: string;
+  source: 'manual' | 'auto';
 }
 
 export interface EventEpa {
@@ -130,8 +145,34 @@ export function useEventReports(eventKey: string | null): UseQueryResult<MsrRow[
   });
 }
 
+/** Merge server notes with the local outbox without hiding a newer server edit. */
+export function mergeMatchupNotes(
+  serverRows: MatchupNoteRow[],
+  localRows: LocalMatchupNote[],
+): Map<string, string> {
+  const merged = new Map<string, string>();
+  const serverRevisions = new Map<string, number>();
+
+  for (const row of serverRows) {
+    const key = `${row.event_key}:${row.our_team}:${row.opp_team}`;
+    merged.set(key, row.note);
+    serverRevisions.set(key, Number(row.row_revision) || 0);
+  }
+
+  for (const row of localRows) {
+    const serverRevision = serverRevisions.get(row.key);
+    const localRevision = Date.parse(row.updatedAt) || 0;
+    const isUnsynced = row.syncState !== 'synced';
+    if (serverRevision == null || isUnsynced || localRevision >= serverRevision) {
+      merged.set(row.key, row.note);
+    }
+  }
+
+  return merged;
+}
+
 /**
- * Per-opponent matchup notes for an event as a key→note Map
+ * Team strategy and legacy matchup notes for an event as a key→note Map
  * (`${eventKey}:${ourTeam}:${oppTeam}` → note text). Reads the server first, then
  * merges Dexie-LOCAL notes over the server rows so an unsynced edit shows
  * immediately (local is authoritative for dirty/pending). queryKey
@@ -157,16 +198,11 @@ export function useMatchupNotes(
     queryFn: async (): Promise<Map<string, string>> => {
       const key = eventKey as string;
       const local = await listMatchupNotesForEvent(key);
-      const localMap = new Map<string, string>();
-      for (const n of local) localMap.set(n.key, n.note);
+      const localMap = new Map(local.map((n) => [n.key, n.note]));
 
-      let serverMap: Map<string, string>;
+      let serverRows: MatchupNoteRow[];
       try {
-        const rows = await fetchMatchupNotesForEvent(key);
-        serverMap = new Map<string, string>();
-        for (const r of rows) {
-          serverMap.set(`${r.event_key}:${r.our_team}:${r.opp_team}`, r.note);
-        }
+        serverRows = await fetchMatchupNotesForEvent(key);
       } catch (err) {
         // Offline: serve Dexie-only as a graceful fallback. Online error: rethrow
         // so the persisted snapshot is preserved (mirrors useEventReports).
@@ -176,11 +212,7 @@ export function useMatchupNotes(
         throw err;
       }
 
-      // Merge: server is the base; local (dirty/pending) overrides so unsynced
-      // edits show immediately.
-      const merged = new Map(serverMap);
-      for (const [k, v] of localMap) merged.set(k, v);
-      return merged;
+      return mergeMatchupNotes(serverRows, local);
     },
   });
 }
@@ -247,11 +279,9 @@ export function useEventScouts(eventKey: string | null): UseQueryResult<ScoutRow
 }
 
 /**
- * Published assignments for an event (the coverage-gap board's "live for scouts"
- * source). Reads the open-SELECT `assignment` table. The queryFn swallows Supabase
- * errors and returns `[]` (mirroring useTbaTeam) so an offline fetch yields an empty
- * array — never `undefined`/error — and the published coverage panel renders the
- * "no published assignments cached" line instead of throwing.
+ * Published assignments for an event. Online errors are thrown so TanStack keeps
+ * the last-known-good persisted snapshot. Only a definitely-offline request may
+ * use the validated Dexie preload fallback.
  */
 export function useEventAssignments(eventKey: string | null): UseQueryResult<AssignmentRow[]> {
   return useQuery({
@@ -259,15 +289,57 @@ export function useEventAssignments(eventKey: string | null): UseQueryResult<Ass
     enabled: !!eventKey,
     staleTime: STALE_TIME,
     queryFn: async (): Promise<AssignmentRow[]> => {
+      const key = eventKey as string;
       try {
         const { data, error } = await supabase
           .from('assignment')
-          .select('match_key,scout_id,alliance_color,station,target_team_number')
-          .eq('event_key', eventKey as string);
-        if (error) return [];
+          .select('event_key,match_key,scout_id,alliance_color,station,target_team_number')
+          .eq('event_key', key);
+        if (error) throw error;
         return (data ?? []) as AssignmentRow[];
-      } catch {
-        return [];
+      } catch (error) {
+        if (typeof navigator === 'undefined' || navigator.onLine !== false) throw error;
+        const cached = await getCachedAssignmentsForEvent(key);
+        return cached.map((row) => ({
+          event_key: row.event_key,
+          match_key: row.match_key,
+          scout_id: row.scout_id,
+          alliance_color: row.alliance_color,
+          station: row.station,
+          target_team_number: row.target_team_number,
+        }));
+      }
+    },
+  });
+}
+
+/** Published pit crew memberships; a team may have multiple scout rows. */
+export function useEventPitAssignments(
+  eventKey: string | null,
+): UseQueryResult<PitAssignmentRow[]> {
+  return useQuery({
+    queryKey: ['pit-assignments', eventKey],
+    enabled: !!eventKey,
+    staleTime: STALE_TIME,
+    queryFn: async (): Promise<PitAssignmentRow[]> => {
+      const key = eventKey as string;
+      try {
+        const { data, error } = await supabase
+          .from('pit_assignment')
+          .select('event_key,team_number,scout_id,source')
+          .eq('event_key', key)
+          .order('team_number', { ascending: true });
+        if (error) throw error;
+        return (data ?? []) as PitAssignmentRow[];
+      } catch (error) {
+        if (typeof navigator === 'undefined' || navigator.onLine !== false) throw error;
+        const cached = await getCachedPitAssignmentsForEvent(key);
+        return cached.map(({ event_key, team_number, scout_id, source }) => ({
+          event_key,
+          team_number,
+          scout_id,
+          source,
+        }));
       }
     },
   });
@@ -409,19 +481,30 @@ export async function seasonEpaForTeam(
     queryKey: ['epa', 'season-team', team, year, EPA_RECENCY_BOOST],
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<TeamSeasonEpa> => {
-      const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
-      const unavailable =
-        typeof json === 'object' &&
-        json !== null &&
-        (json as { available?: unknown }).available === false;
-      const sb = unavailable
-        ? { worldRank: null, totalEpa: null, record: null }
-        : parseStatboticsTeamYear(json);
+      let sb = { worldRank: null, totalEpa: null, record: null } as ReturnType<
+        typeof parseStatboticsTeamYear
+      >;
+      try {
+        const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
+        const unavailable =
+          typeof json === 'object' &&
+          json !== null &&
+          (json as { available?: unknown }).available === false;
+        if (!unavailable) sb = parseStatboticsTeamYear(json);
+      } catch {
+        // A team-specific proxy failure must still get the in-house fallback.
+      }
       if (sb.totalEpa != null) {
         return { epa: sb.totalEpa, worldRank: sb.worldRank, record: sb.record, source: 'statbotics' };
       }
-      const rows = await fetchSeasonMatchRows([team], eventKey, year);
-      const epa = computeLocalEpa(rows, { recencyBoost: EPA_RECENCY_BOOST }).get(team) ?? null;
+      let epa: number | null = null;
+      try {
+        const rows = await fetchSeasonMatchRows([team], eventKey, year);
+        const computed = computeLocalEpa(rows, { recencyBoost: EPA_RECENCY_BOOST }).get(team);
+        epa = computed != null && Number.isFinite(computed) ? computed : null;
+      } catch {
+        // Keep this team unavailable without rejecting every other team's EPA.
+      }
       return {
         epa,
         worldRank: sb.worldRank,
@@ -452,7 +535,7 @@ export function useEventEpa(
     enabled: !!eventKey && sortedTeams.length > 0,
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<EventEpa> => {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         sortedTeams.map((team) => seasonEpaForTeam(team, eventKey as string, year)),
       );
       const epaByTeam = new Map<number, number | null>();
@@ -460,7 +543,11 @@ export function useEventEpa(
       let anyStatbotics = false;
       let anyEpa = false;
       sortedTeams.forEach((team, i) => {
-        const r = results[i];
+        const settled = results[i];
+        const r: TeamSeasonEpa =
+          settled.status === 'fulfilled'
+            ? settled.value
+            : { epa: null, worldRank: null, record: null, source: 'none' };
         epaByTeam.set(team, r.epa);
         // seasonEpaForTeam returns 'inhouse' for the local fallback; normalize to
         // the event-level 'local' label so the per-team source matches `source`.
@@ -750,6 +837,35 @@ export function useEventLiveSync(eventKey: string | null): void {
           // it this branch is a harmless no-op. The 60s poll + manual Sync are
           // the always-present fallback refresh paths.
           queryClient.invalidateQueries({ queryKey: ['reports', eventKey] });
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'matchup_note',
+          filter: `event_key=eq.${eventKey}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['matchup-notes', eventKey] });
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pit_scouting_report',
+          filter: `event_key=eq.${eventKey}`,
+        },
+        (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+          const team = Number(payload.new?.team_number ?? payload.old?.team_number);
+          queryClient.invalidateQueries({ queryKey: ['event-pits', eventKey] });
+          if (Number.isInteger(team) && team > 0) {
+            queryClient.invalidateQueries({ queryKey: ['team-pit', eventKey, team] });
+            queryClient.invalidateQueries({ queryKey: ['team-photo', eventKey, team] });
+          }
         },
       )
       .subscribe();

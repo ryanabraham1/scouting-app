@@ -44,6 +44,8 @@ export interface PicklistEpaBoardProps {
   onToggleDnp?: (teamNumber: number) => void;
   /** Open a team on the dashboard's Team tab. When absent, numbers are plain text. */
   onSelectTeam?: (teamNumber: number) => void;
+  /** Disable all picklist mutations while retaining read-only browsing. */
+  readOnly?: boolean;
 }
 
 /** A fully-resolved board row: identity + resolved EPA + its source label. */
@@ -61,23 +63,32 @@ function fmtEpa(n: number): string {
 }
 
 export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Element {
-  const { teams, epa, aggByTeam, inListTeams, onAdd, dnpTeams, onToggleDnp, onSelectTeam } = props;
+  const {
+    teams,
+    epa,
+    aggByTeam,
+    inListTeams,
+    onAdd,
+    dnpTeams,
+    onToggleDnp,
+    onSelectTeam,
+    readOnly = false,
+  } = props;
 
   const epaByTeam = epa?.epaByTeam;
   const sourceByTeam = epa?.sourceByTeam;
   const epaAvailable = epa?.available === true;
   const epaSource = epa?.source ?? 'none';
-  // When NO external EPA source resolved (Statbotics down AND no played-match
-  // results), fall back to our in-house scouting estimate — same rule as
-  // RankingView so the board and the table agree on every team's number.
-  const epaFromScouting = !epaAvailable;
 
   const rows = useMemo<BoardRow[]>(() => {
     const resolved = teams.map((t): BoardRow => {
-      const external = epaAvailable ? epaByTeam?.get(t.team_number) ?? null : null;
-      const inHouse = external == null && epaFromScouting;
+      const rawExternal = epaAvailable ? epaByTeam?.get(t.team_number) ?? null : null;
+      const external =
+        rawExternal != null && Number.isFinite(rawExternal) ? rawExternal : null;
       const agg = aggByTeam.get(t.team_number);
-      const epaValue = inHouse ? agg?.scoutingExpectedPoints ?? null : external;
+      const inHouse = external == null && (agg?.matchesScouted ?? 0) > 0;
+      const rawEpa = inHouse ? agg?.scoutingExpectedPoints ?? null : external;
+      const epaValue = rawEpa != null && Number.isFinite(rawEpa) ? rawEpa : null;
       // A team's own source label: Statbotics/local from the map, else 'est' for
       // the in-house fallback (only when we actually produced an estimate).
       const externalSource = sourceByTeam?.get(t.team_number);
@@ -99,7 +110,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
       return bv - av;
     });
     return resolved;
-  }, [teams, epaByTeam, sourceByTeam, epaAvailable, epaFromScouting, aggByTeam]);
+  }, [teams, epaByTeam, sourceByTeam, epaAvailable, aggByTeam]);
 
   // Field max EPA for the strength bar (positive only — a non-positive max means
   // there's nothing to scale against, so every bar is empty).
@@ -177,6 +188,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                   }
                   title={isDnp ? 'Do not pick — tap to clear' : 'Mark do not pick'}
                   onClick={() => onToggleDnp(r.teamNumber)}
+                  disabled={readOnly}
                   className={cn(
                     'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                     isDnp
@@ -279,6 +291,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                           type="button"
                           data-testid={`epa-board-add-${r.teamNumber}`}
                           onClick={() => onAdd(r.teamNumber)}
+                          disabled={readOnly}
                           aria-label={`Add team ${r.teamNumber} to picklist`}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         >

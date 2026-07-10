@@ -229,6 +229,10 @@ describe('TeamView', () => {
     const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
     expect(getByTestId('dash-team')).toBeTruthy();
     expect(getByTestId('team-select')).toBeTruthy();
+    const picker = getByTestId('team-picker');
+    expect(picker.className).not.toContain('max-w-xs');
+    expect(picker.firstElementChild?.className).toContain('lg:grid-cols-');
+    expect(getByTestId('team-picker-context').textContent).toContain('No team selected');
   });
 
   // --- team-search live results above the <select> (TeamView change) ----------
@@ -262,6 +266,23 @@ describe('TeamView', () => {
     // No matches → a clear empty state.
     fireEvent.change(getByTestId('team-search'), { target: { value: 'zzzzz' } });
     expect(getByTestId('team-search-empty')).toBeTruthy();
+  });
+
+  it('selects the top live result with Enter and updates the selected-team context', () => {
+    const onSelectTeam = vi.fn();
+    const { getByTestId, queryByTestId } = render(
+      <TeamView eventKey="2026casnv" onSelectTeam={onSelectTeam} />,
+    );
+    const search = getByTestId('team-search');
+    fireEvent.change(search, { target: { value: 'citrus' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(onSelectTeam).toHaveBeenCalledWith(1678);
+    expect((getByTestId('team-select') as HTMLSelectElement).value).toBe('1678');
+    expect((search as HTMLInputElement).value).toBe('');
+    expect(queryByTestId('team-search-results')).toBeNull();
+    expect(getByTestId('team-picker-context').textContent).toContain('1678');
+    expect(getByTestId('team-picker-context').textContent).toContain('Citrus Circuits');
   });
 
   it('shows a loading state while teams are loading', () => {
@@ -306,12 +327,12 @@ describe('TeamView', () => {
     expect(epa.textContent).toContain('48.5');
   });
 
-  it('shows an EPA-unavailable note when available is false', () => {
+  it('uses the selected team scouting fallback when external EPA is unavailable', () => {
     useEventEpaMock.mockReturnValue(querySuccess(epaResult(null, false)));
     const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
     selectTeam(getByTestId, '254');
     const epa = getByTestId('team-epa');
-    expect(epa.textContent?.toLowerCase()).toContain('unavailable');
+    expect(epa.textContent?.toLowerCase()).toContain('in-house estimate');
   });
 
   it('lists the team scouted matches with friendly labels', () => {
@@ -322,6 +343,31 @@ describe('TeamView', () => {
     expect(scope.getByText(/Qual 1/)).toBeTruthy();
     expect(scope.getByText(/Qual 2/)).toBeTruthy();
     expect(scope.queryByText(/2026casnv_qm/)).toBeNull();
+  });
+
+  it('lays out multiple scout notes in a responsive compact grid', () => {
+    useEventReportsMock.mockReturnValue(
+      querySuccess(
+        Array.from({ length: 9 }, (_, i) =>
+          row({
+            match_key: `2026casnv_qm${i + 1}`,
+            scout_id: 's1',
+            notes: `Observation from match ${i + 1}`,
+          }),
+        ),
+      ),
+    );
+    const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
+    selectTeam(getByTestId, '254');
+
+    const notes = getByTestId('team-notes');
+    const list = notes.querySelector('ul');
+    expect(list?.className).toContain('grid');
+    expect(list?.className).toContain('sm:grid-cols-2');
+    expect(within(notes).getAllByTestId(/^team-note-\d+$/)).toHaveLength(9);
+    expect(getByTestId('team-note-0').textContent).toContain('Qual 1');
+    expect(getByTestId('team-note-0').textContent).toContain('Ada');
+    expect(getByTestId('team-note-8').textContent).toContain('Observation from match 9');
   });
 
   it('reveals a match report detail (with scouter) when a scouted-match row is clicked', () => {
@@ -357,6 +403,7 @@ describe('TeamView', () => {
     expect(scope.getByText('L3 climb')).toBeTruthy();
     expect(scope.getByText('Corral')).toBeTruthy();
     expect(scope.getByText(/Fast and reliable/)).toBeTruthy();
+    expect(scope.getByTestId('team-pit-author').textContent).toContain('Scouted by Ada');
   });
 
   it('shows a friendly empty state when no pit report exists', () => {
@@ -596,6 +643,24 @@ describe('TeamView', () => {
       selectTeam(getByTestId, '254');
       expect(queryByTestId('team-photo-thumb')).toBeNull();
       expect(queryByTestId('team-pit-photo')).toBeNull();
+    });
+
+    it('navigates multiple pit photos in the lightbox', () => {
+      useTeamPhotoMock.mockReturnValue({
+        data: {
+          url: 'https://example.com/one.jpg',
+          urls: ['https://example.com/one.jpg', 'https://example.com/two.jpg'],
+          source: 'pit',
+        },
+        isLoading: false,
+      });
+      const { getByTestId, getByRole, getByAltText } = render(
+        <TeamView eventKey="2026casnv" />,
+      );
+      selectTeam(getByTestId, '254');
+      fireEvent.click(getByTestId('team-photo-thumb'));
+      fireEvent.click(getByRole('button', { name: 'Next pit photo' }));
+      expect(getByAltText(/photo 2/i)).toHaveAttribute('src', 'https://example.com/two.jpg');
     });
   });
 

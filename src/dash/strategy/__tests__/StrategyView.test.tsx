@@ -4,7 +4,8 @@
 // Match), OUR-matches-only selector with tracking, manual team entry, and
 // per-team red flags.
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { render, cleanup, within, fireEvent, type RenderResult } from '@testing-library/react';
+import { render, cleanup, within, fireEvent, waitFor, type RenderResult } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { MsrRow } from '@/dash/types';
 import { OUR_TEAM } from '@/dash/constants';
 
@@ -14,6 +15,7 @@ const useEventReportsMock = vi.fn();
 const useEventTeamsMock = vi.fn();
 const useEventEpaMock = vi.fn();
 const useNexusEventStatusMock = vi.fn();
+const useMatchupNotesMock = vi.fn();
 
 vi.mock('@/dash/useEventData', () => ({
   useEventMatches: (eventKey: string | null) => useEventMatchesMock(eventKey),
@@ -31,7 +33,7 @@ vi.mock('@/dash/useEventData', () => ({
     },
   }),
   // Matchup-intelligence: the MatchupPanel mounted by StrategyView reads notes.
-  useMatchupNotes: () => ({ data: new Map<string, string>() }),
+  useMatchupNotes: (eventKey: string | null) => useMatchupNotesMock(eventKey),
 }));
 
 // useSync: mounted for the outbox drain — mock to the real shape.
@@ -121,6 +123,8 @@ beforeEach(() => {
   useEventTeamsMock.mockReset();
   useEventEpaMock.mockReset();
   useNexusEventStatusMock.mockReset();
+  useMatchupNotesMock.mockReset();
+  useMatchupNotesMock.mockReturnValue({ data: new Map<string, string>() });
   // Default: Nexus unavailable so the view degrades to the schedule.
   useNexusEventStatusMock.mockReturnValue(dataResult({ status: null, available: false }));
 });
@@ -388,16 +392,143 @@ describe('StrategyView', () => {
     expect(within(ourRow).getByTestId('dash-next-us-chip')).toBeTruthy();
   });
 
-  it('mounts the slim matchup-notes card (no prose synthesis) in analytics', () => {
+  it('keeps red notes left/first and blue right/second when our team is red', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
     const card = utils.getByTestId('dash-matchup-panel');
-    expect(within(card).getByTestId('matchup-notes-btn')).toBeTruthy();
-    expect(within(card).getByTestId('matchup-note-text')).toBeTruthy();
+    expect(card.textContent).toContain('Matchup notes by team');
+    expect(card.textContent).toContain('Red alliance');
+    expect(card.textContent).toContain('Blue alliance');
+    const red = utils.getByTestId('matchup-notes-red-alliance');
+    const blue = utils.getByTestId('matchup-notes-blue-alliance');
+    expect(within(card).getAllByRole('region')).toEqual([red, blue]);
+    expect(
+      within(red).getAllByTestId('matchup-notes-btn').map((control) => control.dataset.team),
+    ).toEqual(['111', '222']);
+    expect(
+      within(blue).getAllByTestId('matchup-notes-btn').map((control) => control.dataset.team),
+    ).toEqual(['333', '444', '555']);
+    expect(red.textContent).toContain('Our partner');
+    expect(blue.textContent).toContain('Opponent');
+    const controls = within(card).getAllByTestId('matchup-notes-btn');
+    expect(controls).toHaveLength(5);
+    expect(controls.map((control) => control.getAttribute('data-team'))).toEqual([
+      '111',
+      '222',
+      '333',
+      '444',
+      '555',
+    ]);
+    expect(controls.map((control) => control.getAttribute('aria-label'))).toEqual([
+      'Edit strategy note for team 111',
+      'Edit strategy note for team 222',
+      'Edit strategy note for team 333',
+      'Edit strategy note for team 444',
+      'Edit strategy note for team 555',
+    ]);
     // The old exploit/watch bullet blocks are gone.
     expect(utils.queryByTestId('matchup-alliance-red')).toBeNull();
     expect(utils.queryByTestId('matchup-alliance-blue')).toBeNull();
+  });
+
+  it('keeps red notes left/first and blue right/second when our team is blue', () => {
+    setupHappyPath(true);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    fireEvent.change(utils.getByTestId('dash-next-match-select'), {
+      target: { value: '2026evt_qm4' },
+    });
+    openAnalytics(utils);
+
+    const card = utils.getByTestId('dash-matchup-panel');
+    const red = utils.getByTestId('matchup-notes-red-alliance');
+    const blue = utils.getByTestId('matchup-notes-blue-alliance');
+    expect(within(card).getAllByRole('region')).toEqual([red, blue]);
+    expect(
+      within(red).getAllByTestId('matchup-notes-btn').map((control) => control.dataset.team),
+    ).toEqual(['777', '888', '999']);
+    expect(
+      within(blue).getAllByTestId('matchup-notes-btn').map((control) => control.dataset.team),
+    ).toEqual(['555', '444']);
+    expect(red.textContent).toContain('Opponent');
+    expect(blue.textContent).toContain('Our partner');
+  });
+
+  it('selected match → Analytics opens distinct partner and opponent editors', () => {
+    useMatchupNotesMock.mockReturnValue({
+      data: new Map<string, string>([
+        ['2026evt:-1:111', 'partner auto plan'],
+        ['2026evt:-1:333', 'first opponent plan'],
+        ['2026evt:-1:444', 'second opponent plan'],
+      ]),
+    });
+    setupHappyPath(true);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const utils = render(
+      <QueryClientProvider client={queryClient}>
+        <StrategyView eventKey="2026evt" />
+      </QueryClientProvider>,
+    );
+
+    // Exercise the same visible flow: selected schedule match, then Analytics.
+    expect((utils.getByTestId('dash-next-match-select') as HTMLSelectElement).value).toBe(
+      '2026evt_qm2',
+    );
+    openAnalytics(utils);
+
+    const redAlliance = utils.getByRole('region', { name: 'Red alliance strategy notes' });
+    const blueAlliance = utils.getByRole('region', { name: 'Blue alliance strategy notes' });
+    expect(within(redAlliance).getByRole('button', {
+      name: 'Edit strategy note for team 111',
+    })).toBeTruthy();
+    for (const team of [333, 444, 555]) {
+      expect(within(blueAlliance).getByRole('button', {
+        name: `Edit strategy note for team ${team}`,
+      })).toBeTruthy();
+    }
+
+    fireEvent.click(within(redAlliance).getByRole('button', {
+      name: 'Edit strategy note for team 111',
+    }));
+    expect(utils.getByText('Strategy note for team 111')).toBeTruthy();
+    expect((utils.getByTestId('matchup-notes-textarea') as HTMLTextAreaElement).value).toBe(
+      'partner auto plan',
+    );
+    fireEvent.click(utils.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(within(blueAlliance).getByRole('button', {
+      name: 'Edit strategy note for team 444',
+    }));
+    expect(utils.getByText('Strategy note for team 444')).toBeTruthy();
+    expect((utils.getByTestId('matchup-notes-textarea') as HTMLTextAreaElement).value).toBe(
+      'second opponent plan',
+    );
+    expect(utils.queryByText(/alliance lead/i)).toBeNull();
+  });
+
+  it('renders distinct per-team notes and preserves the legacy opponent-lead note', () => {
+    useMatchupNotesMock.mockReturnValue({
+      data: new Map<string, string>([
+        ['2026evt:-1:111', 'partner runs left auto'],
+        ['2026evt:-1:444', 'force 444 away from tower'],
+        // V1 key for this lineup: min(red)=111, min(blue)=333.
+        ['2026evt:111:333', 'legacy alliance note'],
+      ]),
+    });
+    setupHappyPath(true);
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    const card = utils.getByTestId('dash-matchup-panel');
+
+    expect(within(card).getByRole('button', { name: 'Edit strategy note for team 111' }).textContent)
+      .toContain('partner runs left auto');
+    expect(within(card).getByRole('button', { name: 'Edit strategy note for team 444' }).textContent)
+      .toContain('force 444 away from tower');
+    expect(within(card).getByRole('button', { name: 'Edit strategy note for team 333' }).textContent)
+      .toContain('legacy alliance note');
+    expect(within(card).getAllByTestId('matchup-note-badge')).toHaveLength(3);
   });
 
   it('renders the matchup dashboard (tale of the tape + per-team comparison) in analytics', async () => {
@@ -464,6 +595,27 @@ describe('StrategyView', () => {
     expect(values).toContain('2026evt_qm2');
     expect(values).toContain('2026evt_qm4');
     expect(values).not.toContain('2026evt_qm3'); // not our match
+  });
+
+  it('presents the match selector as a labeled, responsive schedule control', () => {
+    setupHappyPath(true);
+    const { getByLabelText, getByTestId } = render(<StrategyView eventKey="2026evt" />);
+
+    const picker = getByTestId('dash-next-match-picker');
+    const selector = getByTestId('dash-next-match-select') as HTMLSelectElement;
+    expect(getByLabelText('Match to strategize')).toBe(selector);
+    expect(picker.querySelector('label')?.htmlFor).toBe(selector.id);
+    expect(picker.textContent).toContain(`${OUR_TEAM} schedule · 3 matches`);
+
+    // Full-width in the single-column mobile layout; the desktop grid caps this
+    // middle track at 24rem instead of stretching the native select across the bar.
+    expect(selector.className).toContain('w-full');
+    expect(selector.className).toContain('min-h-[44px]');
+    expect(selector.className).not.toContain('max-w-xl');
+    expect(selector.className).not.toContain('flex-1');
+    expect(picker.parentElement?.className).toContain(
+      'lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)_auto]',
+    );
   });
 
   it('defaults the selector to OUR next match and lets the user pin another OUR match', () => {
@@ -568,6 +720,47 @@ describe('StrategyView', () => {
     expect(within(ourRow).getByTestId('dash-next-us-chip')).toBeTruthy();
   });
 
+  it('reloads event-scoped manual lineups when the event changes', async () => {
+    setupHappyPath(true);
+    localStorage.setItem(
+      'strategy_manual_teams:2026old',
+      JSON.stringify({ red: [111], blue: [222] }),
+    );
+    localStorage.setItem(
+      'strategy_manual_teams:2026new',
+      JSON.stringify({ red: [999], blue: [888] }),
+    );
+    const rendered = render(<StrategyView eventKey="2026old" />);
+    fireEvent.click(rendered.getByTestId('dash-strategy-edit-teams'));
+    expect(rendered.getByTestId('manual-team-red1')).toHaveValue(111);
+
+    rendered.rerender(<StrategyView eventKey="2026new" />);
+    await waitFor(() =>
+      expect(rendered.queryByTestId('manual-teams-editor')).not.toBeInTheDocument(),
+    );
+    fireEvent.click(rendered.getByTestId('dash-strategy-edit-teams'));
+    expect(rendered.getByTestId('manual-team-red1')).toHaveValue(999);
+  });
+
+  it('sanitizes malformed, duplicate, and oversized stored lineups', () => {
+    setupHappyPath(true);
+    localStorage.setItem(
+      'strategy_manual_teams:2026evt',
+      JSON.stringify({
+        red: [1, 1, -2, 3, 4, 5, '6'],
+        blue: [3, 7, 8, 9, 10],
+      }),
+    );
+    const rendered = render(<StrategyView eventKey="2026evt" />);
+    fireEvent.click(rendered.getByTestId('dash-strategy-edit-teams'));
+    expect(rendered.getByTestId('manual-team-red1')).toHaveValue(1);
+    expect(rendered.getByTestId('manual-team-red2')).toHaveValue(3);
+    expect(rendered.getByTestId('manual-team-red3')).toHaveValue(4);
+    expect(rendered.getByTestId('manual-team-blue1')).toHaveValue(7);
+    expect(rendered.getByTestId('manual-team-blue2')).toHaveValue(8);
+    expect(rendered.getByTestId('manual-team-blue3')).toHaveValue(9);
+  });
+
   it('renders the win-prob banner with BOTH percentages summing to 100', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
@@ -628,5 +821,27 @@ describe('StrategyView', () => {
     const label = utils.getByTestId('dash-next-winprob-label').textContent ?? '';
     expect(label).toMatch(/Even/i);
     expect(label).not.toMatch(/favored/i);
+  });
+
+  it('renders source-less predictions as unavailable instead of a 0–0 toss-up', () => {
+    const matches = [mkMatch('2026evt_qm2', 2, RED, BLUE)];
+    const teams = [...RED, ...BLUE].map((team) => ({ team_number: team, nickname: null }));
+    useEventMatchesMock.mockReturnValue(dataResult(matches));
+    useEventReportsMock.mockReturnValue(dataResult([]));
+    useEventTeamsMock.mockReturnValue(dataResult(teams));
+    useEventEpaMock.mockReturnValue(
+      dataResult({
+        epaByTeam: new Map([...RED, ...BLUE].map((team) => [team, null])),
+        available: false,
+        source: 'none',
+      }),
+    );
+
+    const utils = render(<StrategyView eventKey="2026evt" />);
+    openAnalytics(utils);
+    expect(utils.getByTestId('dash-next-prediction-unavailable')).toBeTruthy();
+    expect(utils.queryByTestId('dash-next-winprob-banner')).toBeNull();
+    expect(utils.getAllByTestId('dash-next-team-expected').every((node) => node.textContent === '—'))
+      .toBe(true);
   });
 });

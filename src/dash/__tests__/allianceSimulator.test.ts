@@ -243,10 +243,10 @@ describe('classifyRoles thresholds', () => {
     expect(classifyRoles(agg({ meanFuelPoints: 0 }), undefined).fuel).toBe('none');
   });
 
-  it('defense boundaries 1.4/1.5/2.4/2.5 → none/partial/partial/strong (0..3 scale)', () => {
-    expect(classifyRoles(agg({ avgDefenseRating: 1.4 }), undefined).defense).toBe('none');
+  it('defense boundaries 4.9/5/7.9/8 → none/partial/partial/strong (1–10 scale)', () => {
+    expect(classifyRoles(agg({ avgDefenseRating: 4.9 }), undefined).defense).toBe('none');
     expect(classifyRoles(agg({ avgDefenseRating: DEFENSE_PARTIAL }), undefined).defense).toBe('partial');
-    expect(classifyRoles(agg({ avgDefenseRating: 2.4 }), undefined).defense).toBe('partial');
+    expect(classifyRoles(agg({ avgDefenseRating: 7.9 }), undefined).defense).toBe('partial');
     expect(classifyRoles(agg({ avgDefenseRating: DEFENSE_STRONG }), undefined).defense).toBe('strong');
   });
 

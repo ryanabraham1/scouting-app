@@ -38,6 +38,7 @@ import {
   INITIAL_WHITEBOARD,
   whiteboardReducer,
   newStrokeId,
+  nextCanvasGeneration,
   erasedIdsAt,
   docOf,
   canvasDocsEqual,
@@ -177,32 +178,52 @@ export default function FieldWhiteboard({
     dispatch(action);
   }, []);
 
+  const flushSave = useCallback(() => {
+    if (!userDirtyRef.current) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const snapshot = docOf(stateRef.current);
+    void saveStrategyCanvas(eventKey, matchKey, phase, snapshot).then(() => {
+      if (canvasDocsEqual(snapshot, docOf(stateRef.current))) {
+        userDirtyRef.current = false;
+        setSaveState('saved');
+      }
+    });
+  }, [eventKey, matchKey, phase]);
+
   useEffect(() => {
     if (!userDirtyRef.current) return;
     setSaveState('pending');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      void saveStrategyCanvas(eventKey, matchKey, phase, docOf(state)).then(() =>
-        setSaveState('saved'),
-      );
+      flushSave();
     }, SAVE_DEBOUNCE_MS);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [state, eventKey, matchKey, phase]);
+  }, [state, flushSave]);
+
+  // A board can be replaced immediately when match/phase changes. Flush its
+  // last dirty snapshot during that transition and on unmount.
+  useEffect(
+    () => () => {
+      flushSave();
+    },
+    [flushSave],
+  );
 
   // Flush the pending save when the tab is hidden/backgrounded mid-debounce.
   useEffect(() => {
     function flush(): void {
-      if (document.visibilityState === 'hidden' && userDirtyRef.current && saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-        void saveStrategyCanvas(eventKey, matchKey, phase, docOf(stateRef.current));
+      if (document.visibilityState === 'hidden') {
+        flushSave();
       }
     }
     document.addEventListener('visibilitychange', flush);
     return () => document.removeEventListener('visibilitychange', flush);
-  }, [eventKey, matchKey, phase]);
+  }, [flushSave]);
 
   const toNormalized = useCallback((clientX: number, clientY: number): [number, number] => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -252,7 +273,7 @@ export default function FieldWhiteboard({
       if (pts && pts.length > 0) {
         const stroke: Stroke = {
           id: newStrokeId(),
-          seq: Date.now(),
+          seq: nextCanvasGeneration(),
           color: toolRef.current.color,
           size: toolRef.current.size,
           points: pts,
@@ -371,7 +392,7 @@ export default function FieldWhiteboard({
         team: seed.team,
         x: drag.x,
         y: drag.y,
-        movedAt: Date.now(),
+        movedAt: nextCanvasGeneration(),
       };
       commit({ type: 'moveRobot', robot });
     },

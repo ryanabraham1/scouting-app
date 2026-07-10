@@ -1,5 +1,21 @@
 import { useEffect, useState } from 'react';
 
+function useMediaMatch(query: string, fallback: boolean): boolean {
+  const [matches, setMatches] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return fallback;
+    return window.matchMedia(query).matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia(query);
+    const onChange = (): void => setMatches(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, [query]);
+  return matches;
+}
+
 /**
  * True when the viewport is in portrait orientation. Used to render the (very
  * wide) FieldDiagram rotated 90° so it's large and tappable on a phone held
@@ -8,17 +24,13 @@ import { useEffect, useState } from 'react';
  * (SSR / jsdom).
  */
 export function useIsPortrait(): boolean {
-  const [portrait, setPortrait] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return true;
-    return window.matchMedia('(orientation: portrait)').matches;
-  });
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(orientation: portrait)');
-    const onChange = (): void => setPortrait(mq.matches);
-    onChange();
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
-  }, []);
-  return portrait;
+  return useMediaMatch('(orientation: portrait)', true);
+}
+
+/**
+ * True only for phone-sized portrait viewports. A portrait tablet is wide
+ * enough to show an upright field diagram with more usable drawing area.
+ */
+export function useIsPhonePortrait(): boolean {
+  return useMediaMatch('(orientation: portrait) and (max-width: 639px)', true);
 }

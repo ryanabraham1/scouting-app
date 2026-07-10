@@ -57,6 +57,8 @@ export function resolveRowEpa(p: {
   epaFromScouting: boolean;
 }): number | null {
   const external = p.epaAvailable ? p.epaByTeam?.get(p.agg.teamNumber) ?? null : null;
-  const epaInHouse = external == null && p.epaFromScouting;
+  // Resolve fallback per team. One team having Statbotics/local EPA must not
+  // suppress a different, scouted team's usable in-house estimate.
+  const epaInHouse = external == null && p.agg.matchesScouted > 0;
   return epaInHouse ? p.agg.scoutingExpectedPoints : external;
 }

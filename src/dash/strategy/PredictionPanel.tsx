@@ -16,6 +16,7 @@ import type { TeamPrediction, ComponentBreakdown } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
 import type { MsrRow } from '@/dash/types';
 import type { TeamPit } from '@/dash/useTeamPit';
+import { QUALITATIVE_RATING_MAX } from '@/ratings';
 
 export const SOURCE_LABEL: Record<TeamPrediction['source'], string> = {
   blend: 'blend',
@@ -37,12 +38,16 @@ function round(n: number): number {
   return Math.round(n);
 }
 
+function scoreText(n: number): string {
+  return Number.isFinite(n) ? String(round(n)) : EM_DASH;
+}
+
 function pct(x: number): string {
-  return `${Math.round(x * 100)}%`;
+  return Number.isFinite(x) ? `${Math.round(x * 100)}%` : EM_DASH;
 }
 
 function comp(n: number | null | undefined, source: ComponentBreakdown['source']): string {
-  if (source === 'none' || n == null) return EM_DASH;
+  if (source === 'none' || n == null || !Number.isFinite(n)) return EM_DASH;
   return String(Math.round(n));
 }
 
@@ -78,6 +83,8 @@ export function TeamRowView({
   isBaseTeam,
 }: TeamRowViewProps): JSX.Element {
   const matchesScouted = agg?.matchesScouted ?? 0;
+  const hasScouting = matchesScouted > 0;
+  const expectedAvailable = pred.source !== 'none' && Number.isFinite(pred.expected);
   const c = pred.components;
   const source = c?.source ?? 'none';
   const hasDefense = c?.defense != null && c.defense > 0;
@@ -123,7 +130,7 @@ export function TeamRowView({
         </span>
         <span className="flex items-center gap-2">
           <span className="tabular-nums text-foreground" data-testid="dash-next-team-expected">
-            {round(pred.expected)} pts
+            {expectedAvailable ? `${round(pred.expected)} pts` : EM_DASH}
           </span>
           <span
             data-testid="dash-next-source-badge"
@@ -166,26 +173,30 @@ export function TeamRowView({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>scouted: {matchesScouted}</span>
+        <span>scouted: {hasScouting ? matchesScouted : EM_DASH}</span>
         <span>
           climb:{' '}
           <span
             className={cn(
               'font-medium',
-              agg
-                ? agg.climbSuccessRate >= 0.7
+              hasScouting
+                ? agg!.climbSuccessRate >= 0.7
                   ? 'text-success'
                   : 'text-warning'
                 : 'text-muted-foreground',
             )}
           >
-            {agg ? pct(agg.climbSuccessRate) : EM_DASH}
+            {hasScouting && Number.isFinite(agg?.climbSuccessRate)
+              ? pct(agg!.climbSuccessRate)
+              : EM_DASH}
           </span>
         </span>
         <span>
           defense:{' '}
-          <span className={cn('font-medium', agg ? 'text-brand' : 'text-muted-foreground')}>
-            {agg ? agg.avgDefenseRating.toFixed(1) : EM_DASH}
+          <span className={cn('font-medium', hasScouting ? 'text-brand' : 'text-muted-foreground')}>
+            {hasScouting && Number.isFinite(agg?.avgDefenseRating)
+              ? `${agg!.avgDefenseRating.toFixed(1)}/${QUALITATIVE_RATING_MAX}`
+              : EM_DASH}
           </span>
         </span>
         <span>
@@ -276,6 +287,8 @@ export function AllianceColumn({
   baseTeam,
   isOurs,
 }: AllianceColumnProps): JSX.Element {
+  const scoreAvailable =
+    Number.isFinite(score) && teams.some((team) => team.source !== 'none');
   return (
     <Card
       className={cn(
@@ -302,7 +315,7 @@ export function AllianceColumn({
             side === 'red' ? 'text-red-400' : 'text-blue-400',
           )}
         >
-          {round(score)}
+          {scoreAvailable ? round(score) : EM_DASH}
         </span>
       </CardHeader>
       <CardContent className="p-4 pt-0">
@@ -342,7 +355,9 @@ export function WinProbBanner({
   redScore: number;
   blueScore: number;
 }): JSX.Element {
-  const redProb = Math.min(1, Math.max(0, redWinProb));
+  const redProb = Number.isFinite(redWinProb)
+    ? Math.min(1, Math.max(0, redWinProb))
+    : 0.5;
   const blueProb = 1 - redProb;
   // A perfect 50/50 (within rounding) is a genuine toss-up — don't crown a side.
   const even = Math.round(redProb * 100) === Math.round(blueProb * 100);
@@ -362,9 +377,9 @@ export function WinProbBanner({
         </span>
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Projected{' '}
-          <span className="font-mono tabular-nums font-semibold text-red-400">{round(redScore)}</span>
+          <span className="font-mono tabular-nums font-semibold text-red-400">{scoreText(redScore)}</span>
           {' – '}
-          <span className="font-mono tabular-nums font-semibold text-blue-400">{round(blueScore)}</span>
+          <span className="font-mono tabular-nums font-semibold text-blue-400">{scoreText(blueScore)}</span>
         </span>
       </div>
 

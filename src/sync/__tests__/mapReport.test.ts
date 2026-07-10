@@ -88,9 +88,9 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
     autoClimbLevel1: true,
     intakeSources: ['ground', 'station'],
     maxFuelCapacityObserved: 7,
-    defenseRating: 1,
-    driverSkill: 3,
-    agility: 2,
+    defenseRating: 8,
+    driverSkill: 10,
+    agility: 7,
     defenseDurationMs: 4200,
     defendedDurationMs: 1500,
     defenseIntervals: [],
@@ -167,9 +167,9 @@ describe('toUpsertPayload', () => {
     expect(p.auto_left_starting_line).toBe(true);
     expect(p.auto_climb_level1).toBe(true);
     expect(p.max_fuel_capacity_observed).toBe(7);
-    expect(p.defense_rating).toBe(1);
-    expect(p.driver_skill).toBe(3);
-    expect(p.agility).toBe(2);
+    expect(p.defense_rating).toBe(8);
+    expect(p.driver_skill).toBe(10);
+    expect(p.agility).toBe(7);
     expect(p.pins).toBe(2);
     expect(p.fouls_minor).toBe(3);
     expect(p.fouls_major).toBe(1);

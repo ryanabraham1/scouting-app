@@ -3,8 +3,17 @@ import type { ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+const setupState = vi.hoisted(() => ({
+  activeEvent: '2026demo' as string | null,
+  eventData: new Map<string, unknown>(),
+  events: [
+    { event_key: '2026casnv', name: 'Silicon Valley', is_active: true },
+    { event_key: '2026caetb', name: 'East Bay', is_active: false },
+  ],
+}));
+
 vi.mock('@/dash/useActiveEvent', () => ({
-  useActiveEvent: () => ({ eventKey: '2026demo', loading: false }),
+  useActiveEvent: () => ({ eventKey: setupState.activeEvent, loading: false }),
 }));
 
 const setActiveEventMock = vi.fn().mockResolvedValue(undefined);
@@ -36,22 +45,50 @@ vi.mock('@/admin/EventSetup', () => ({
 }));
 vi.mock('@/admin/ScheduleView', () => ({ ScheduleView: () => <div data-testid="schedule-stub" /> }));
 vi.mock('@/admin/AssignmentBoard', () => ({ AssignmentBoard: () => <div data-testid="assign-stub" /> }));
+vi.mock('@/admin/MatchPlanner', () => ({
+  MatchPlanner: (props: {
+    eventKey: string;
+    matches: Array<{ matchKey: string }>;
+    scouts: Array<{ displayName: string }>;
+    teams: Array<{ teamNumber: number }>;
+  }) => (
+    <div
+      data-testid="planner-stub"
+      data-event={props.eventKey}
+      data-matches={props.matches.map((row) => row.matchKey).join(',')}
+      data-scouts={props.scouts.map((row) => row.displayName).join(',')}
+      data-teams={props.teams.map((row) => row.teamNumber).join(',')}
+    />
+  ),
+}));
 
-const EVENTS = [
-  { event_key: '2026casnv', name: 'Silicon Valley', is_active: true },
-  { event_key: '2026caetb', name: 'East Bay', is_active: false },
-];
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    from: (table: string) => ({
-      select: () => ({
-        // loadEventData: match/scout queries (select -> eq [-> order]).
-        eq: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
-        // loadEvents: event query (select -> order), returns the imported events.
-        order: () =>
-          Promise.resolve({ data: table === 'event' ? EVENTS : [], error: null }),
-      }),
-    }),
+    from: (table: string) => {
+      let eventKey: string | null = null;
+      const resolve = (): unknown => {
+        if (table === 'event' && eventKey == null) {
+          return { data: setupState.events, error: null };
+        }
+        return (
+          setupState.eventData.get(`${table}:${eventKey ?? ''}`) ??
+          { data: [], error: null }
+        );
+      };
+      const builder = {
+        select: () => builder,
+        eq: (column: string, value: string) => {
+          if (column === 'event_key') eventKey = value;
+          return builder;
+        },
+        order: () => builder,
+        then: (
+          onFulfilled: (value: unknown) => unknown,
+          onRejected?: (reason: unknown) => unknown,
+        ) => Promise.resolve(resolve()).then(onFulfilled, onRejected),
+      };
+      return builder;
+    },
   },
 }));
 
@@ -82,6 +119,8 @@ beforeEach(() => {
   enableDemoMock.mockClear();
   disableDemoMock.mockClear();
   store.team = DEFAULT_BASE_TEAM;
+  setupState.activeEvent = '2026demo';
+  setupState.eventData.clear();
 });
 
 describe('SetupTab', () => {
@@ -170,5 +209,79 @@ describe('SetupTab', () => {
     fireEvent.click(screen.getByTestId('setup-base-team-reset'));
     expect(getStoredBaseTeam()).toBe(DEFAULT_BASE_TEAM);
     expect(screen.getByTestId('setup-base-team-current').textContent).toContain('3256');
+  });
+
+  it('ignores a late A load and renders only B until switching back to A', async () => {
+    let resolveAMatches!: (value: unknown) => void;
+    const delayedAMatches = new Promise((resolve) => {
+      resolveAMatches = resolve;
+    });
+    setupState.activeEvent = '2026a';
+    setupState.eventData.set('match:2026a', delayedAMatches);
+    setupState.eventData.set('scout:2026a', {
+      data: [{ id: 'a-scout', display_name: 'Alice A' }],
+      error: null,
+    });
+    setupState.eventData.set('event_team:2026a', {
+      data: [{ team: { team_number: 101, nickname: 'A Team' } }],
+      error: null,
+    });
+    setupState.eventData.set('match:2026b', {
+      data: [{
+        match_key: '2026b_qm1',
+        match_number: 1,
+        red1: 201,
+        red2: 202,
+        red3: 203,
+        blue1: 204,
+        blue2: 205,
+        blue3: 206,
+      }],
+      error: null,
+    });
+    setupState.eventData.set('scout:2026b', {
+      data: [{ id: 'b-scout', display_name: 'Blair B' }],
+      error: null,
+    });
+    setupState.eventData.set('event_team:2026b', {
+      data: [{ team: { team_number: 201, nickname: 'B Team' } }],
+      error: null,
+    });
+
+    const rendered = render(<SetupTab />, { wrapper });
+    expect(screen.getByTestId('setup-event-data-loading')).toHaveTextContent('2026a');
+
+    setupState.activeEvent = '2026b';
+    rendered.rerender(<SetupTab />);
+    const bPlanner = await screen.findByTestId('planner-stub');
+    expect(bPlanner).toHaveAttribute('data-event', '2026b');
+    expect(bPlanner).toHaveAttribute('data-matches', '2026b_qm1');
+    expect(bPlanner).toHaveAttribute('data-scouts', 'Blair B');
+    expect(bPlanner).toHaveAttribute('data-teams', '201');
+
+    resolveAMatches({
+      data: [{
+        match_key: '2026a_qm1',
+        match_number: 1,
+        red1: 101,
+        red2: 102,
+        red3: 103,
+        blue1: 104,
+        blue2: 105,
+        blue3: 106,
+      }],
+      error: null,
+    });
+    await Promise.resolve();
+    expect(screen.getByTestId('planner-stub')).toHaveAttribute('data-event', '2026b');
+    expect(screen.getByTestId('planner-stub')).toHaveAttribute('data-matches', '2026b_qm1');
+
+    setupState.activeEvent = '2026a';
+    rendered.rerender(<SetupTab />);
+    const aPlanner = await screen.findByTestId('planner-stub');
+    await waitFor(() => expect(aPlanner).toHaveAttribute('data-event', '2026a'));
+    expect(aPlanner).toHaveAttribute('data-matches', '2026a_qm1');
+    expect(aPlanner).toHaveAttribute('data-scouts', 'Alice A');
+    expect(aPlanner).toHaveAttribute('data-teams', '101');
   });
 });

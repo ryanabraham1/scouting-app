@@ -158,8 +158,8 @@ describe('aggregateTeamDefensePts', () => {
   });
 
   it('falls back to the ordinal avgDefenseRating map when no co-occurrence signal', () => {
-    const agg = makeAgg({ matchesScouted: 3, avgDefenseRating: 1.5 });
-    // 1.5/3 * DEFENSE_RATING_MAX_PTS(20) = 10.
+    const agg = makeAgg({ matchesScouted: 3, avgDefenseRating: 5 });
+    // 5/10 * DEFENSE_RATING_MAX_PTS(20) = 10.
     expect(aggregateTeamDefensePts(agg)).toBeCloseTo(10, 9);
   });
 

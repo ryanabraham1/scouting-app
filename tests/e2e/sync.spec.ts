@@ -76,9 +76,24 @@ test('captured report syncs to the server on reconnect with no duplicate', async
   await hold.dispatchEvent('pointerdown');
   await hold.dispatchEvent('pointerup');
 
-  // Multi-step review wizard: climb is step 1, SAVE is on the last step.
+  // Multi-step review wizard: climb is step 1; qualitative ratings are step 2.
   await page.getByTestId('capture-to-review').click();
   await page.getByTestId('review-climb').getByRole('button', { name: '3', exact: true }).click();
+  await page.getByTestId('review-next').click();
+  const defenseRating = page.getByTestId('review-defense-rating');
+  await defenseRating.press('End');
+  await defenseRating.press('ArrowLeft');
+  await defenseRating.press('ArrowLeft');
+  await page.getByTestId('review-driver-skill').press('End');
+  const agility = page.getByTestId('review-agility');
+  await agility.press('Home');
+  for (let value = 0; value < 7; value += 1) {
+    await agility.press('ArrowRight');
+  }
+  await expect(defenseRating).toHaveValue('8');
+  await expect(defenseRating).toHaveAttribute('aria-valuetext', '8 out of 10');
+  await expect(page.getByTestId('review-driver-skill')).toHaveValue('10');
+  await expect(agility).toHaveValue('7');
   const save = page.getByTestId('review-save');
   for (let i = 0; i < 6 && !(await save.isVisible()); i += 1) {
     await page.getByTestId('review-next').click();
@@ -92,6 +107,19 @@ test('captured report syncs to the server on reconnect with no duplicate', async
 
   // Exactly one row on the server.
   expect(await reportCount()).toBe(1);
+  const { data: synced, error: readError } = await admin
+    .from('match_scouting_report')
+    .select('defense_rating,driver_skill,agility')
+    .eq('event_key', E2E_EVENT_KEY)
+    .eq('match_key', E2E_MATCH_KEY)
+    .eq('target_team_number', E2E_TEAM)
+    .single();
+  expect(readError).toBeNull();
+  expect(synced).toMatchObject({
+    defense_rating: 8,
+    driver_skill: 10,
+    agility: 7,
+  });
 
   // Re-trigger a sync: the queue is empty and the synced report is not re-sent,
   // so still exactly one row (no duplicate / no regression). Server-side

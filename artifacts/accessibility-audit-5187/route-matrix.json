@@ -1,0 +1,2210 @@
+[
+  {
+    "name": "home",
+    "path": "/",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "FRC SCOUTING Pick your station Two ways in — grabbing data on the floor, or running the show from the dashboard. Scout Capture match data from the stands. Lead Dashboard Rankings, picklist, roster and event setup for leads.",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        320,
+        584
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "scout",
+    "path": "/scout",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/scout",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        324,
+        721
+      ],
+      "horizontalOverflow": 4,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "tutorial",
+    "path": "/scout/tutorial",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/scout/tutorial",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "SCOUTER TUTORIAL Choose what to practice Pick one module now. You can return here and practice the other one at any time. Practice match scouting Not started Use the real match controls for Practice Match 12, Team 3256, red station 2. 42 guided controls Practice match scouting Practice pit scouting Not started Use the real pit form for Team 3256, including preferred Auto and photos. 29 guided controls Practice pit scouting Quick offline help",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        342,
+        851
+      ],
+      "horizontalOverflow": 22,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "summary",
+          "name": "Quick offline help",
+          "size": [
+            254,
+            24
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 4,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "my-data",
+    "path": "/my-data",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/my-data",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "My Data 0 matches No matches scouted yet on this device.",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        320,
+        568
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-send",
+    "path": "/qr/send",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/qr/send",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Send over QR Point the receiving device's camera at the code. It flips through symbols on its own — leave this screen up until the receiver's bar is full. Nothing to send — your reports are all synced.",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        320,
+        568
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-receive",
+    "path": "/qr/receive",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/qr/receive",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Receive over QR Pick your name before receiving reports. This device needs a scouter selected so the reports you receive are uploaded under a known identity. Choose your name",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        320,
+        568
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/dashboard",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "warning: Allow attribute will take precedence over 'allowfullscreen'."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Dashboard 2026casnv Pit Display Strategy Team Scouters Match Ranking Picklist Draft Setup CA District Silicon Valley Event presented by Apple 3256 | 2026casnv Fullscreen EVENT RANKINGS Event Record 8-4-0 Event Rank 5 / 37 Avg RP 3.250 SEASON RANKINGS Season Record — World Rank — Total EPA — 3256 Next Match F2 Final · 574–274 On Field — Queuing — OUR PLAYOFF PATH Event over — finalists.",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        322,
+        1411
+      ],
+      "horizontalOverflow": 2,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 9,
+        "sliders": 0
+      },
+      "focusables": 11,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "sync",
+    "path": "/sync",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/sync",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Sync status This device — local outbox 0 queued to upload · 0 failed No failed reports on this device. Server coverage Qual 1 0/6 none received Missing: #6665, #6822, #1700, #254, #1351, #6059 Qual 10 0/5 none received Missing: #5499, #2813, #6665, #8404, #1868 Qual 11 0/6 none received Missing: #972, #5419, #6059, #1854, #10372, #6962 Qual 12 0/6 none received Missing: #254, #10644, #115, #766, #7607, #581 Qual 13 0/6 none received Missing:",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        320,
+        7204
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "pit",
+    "path": "/scout?mode=pit",
+    "size": "320x568",
+    "url": "http://127.0.0.1:5187/scout?mode=pit",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        320,
+        568
+      ],
+      "scroll": [
+        324,
+        721
+      ],
+      "horizontalOverflow": 4,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "home",
+    "path": "/",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "FRC SCOUTING Pick your station Two ways in — grabbing data on the floor, or running the show from the dashboard. Scout Capture match data from the stands. Lead Dashboard Rankings, picklist, roster and event setup for leads.",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "scout",
+    "path": "/scout",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/scout",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "tutorial",
+    "path": "/scout/tutorial",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/scout/tutorial",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "SCOUTER TUTORIAL Choose what to practice Pick one module now. You can return here and practice the other one at any time. Practice match scouting Not started Use the real match controls for Practice Match 12, Team 3256, red station 2. 42 guided controls Practice match scouting Practice pit scouting Not started Use the real pit form for Team 3256, including preferred Auto and photos. 29 guided controls Practice pit scouting Quick offline help",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "summary",
+          "name": "Quick offline help",
+          "size": [
+            324,
+            24
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 4,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "my-data",
+    "path": "/my-data",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/my-data",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "My Data 0 matches No matches scouted yet on this device.",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-send",
+    "path": "/qr/send",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/qr/send",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Send over QR Point the receiving device's camera at the code. It flips through symbols on its own — leave this screen up until the receiver's bar is full. Nothing to send — your reports are all synced.",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-receive",
+    "path": "/qr/receive",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/qr/receive",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Receive over QR Pick your name before receiving reports. This device needs a scouter selected so the reports you receive are uploaded under a known identity. Choose your name",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/dashboard",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "warning: Allow attribute will take precedence over 'allowfullscreen'."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Dashboard 2026casnv Pit Display Strategy Team Scouters Match Ranking Picklist Draft Setup CA District Silicon Valley Event presented by Apple 3256 | 2026casnv Fullscreen EVENT RANKINGS Event Record 8-4-0 Event Rank 5 / 37 Avg RP 3.250 SEASON RANKINGS Season Record — World Rank — Total EPA — 3256 Next Match F2 Final · 574–274 On Field — Queuing — OUR PLAYOFF PATH Event over — finalists.",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        1426
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 9,
+        "sliders": 0
+      },
+      "focusables": 11,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "sync",
+    "path": "/sync",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/sync",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Sync status This device — local outbox 0 queued to upload · 0 failed No failed reports on this device. Server coverage Qual 1 0/6 none received Missing: #6665, #6822, #1700, #254, #1351, #6059 Qual 10 0/5 none received Missing: #5499, #2813, #6665, #8404, #1868 Qual 11 0/6 none received Missing: #972, #5419, #6059, #1854, #10372, #6962 Qual 12 0/6 none received Missing: #254, #10644, #115, #766, #7607, #581 Qual 13 0/6 none received Missing:",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        6956
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "pit",
+    "path": "/scout?mode=pit",
+    "size": "390x844",
+    "url": "http://127.0.0.1:5187/scout?mode=pit",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        390,
+        844
+      ],
+      "scroll": [
+        390,
+        844
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "home",
+    "path": "/",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "FRC SCOUTING Pick your station Two ways in — grabbing data on the floor, or running the show from the dashboard. Scout Capture match data from the stands. Lead Dashboard Rankings, picklist, roster and event setup for leads.",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "scout",
+    "path": "/scout",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/scout",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "tutorial",
+    "path": "/scout/tutorial",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/scout/tutorial",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "SCOUTER TUTORIAL Choose what to practice Pick one module now. You can return here and practice the other one at any time. Practice match scouting Not started Use the real match controls for Practice Match 12, Team 3256, red station 2. 42 guided controls Practice match scouting Practice pit scouting Not started Use the real pit form for Team 3256, including preferred Auto and photos. 29 guided controls Practice pit scouting Quick offline help",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "summary",
+          "name": "Quick offline help",
+          "size": [
+            702,
+            24
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 4,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "my-data",
+    "path": "/my-data",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/my-data",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "My Data 0 matches No matches scouted yet on this device.",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-send",
+    "path": "/qr/send",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/qr/send",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Send over QR Point the receiving device's camera at the code. It flips through symbols on its own — leave this screen up until the receiver's bar is full. Nothing to send — your reports are all synced.",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-receive",
+    "path": "/qr/receive",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/qr/receive",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Receive over QR Pick your name before receiving reports. This device needs a scouter selected so the reports you receive are uploaded under a known identity. Choose your name",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/dashboard",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "warning: Allow attribute will take precedence over 'allowfullscreen'."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Dashboard 2026casnv Pit Display Strategy Team Scouters Match Ranking Picklist Draft Setup CA District Silicon Valley Event presented by Apple 3256 | 2026casnv Fullscreen EVENT RANKINGS Event Record 8-4-0 Event Rank 5 / 37 Avg RP 3.250 SEASON RANKINGS Season Record — World Rank — Total EPA — 3256 Next Match F2 Final · 574–274 On Field — Queuing — OUR PLAYOFF PATH Event over — finalists.",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1331
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 9,
+        "sliders": 0
+      },
+      "focusables": 11,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "sync",
+    "path": "/sync",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/sync",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Sync status This device — local outbox 0 queued to upload · 0 failed No failed reports on this device. Server coverage Qual 1 0/6 none received Missing: #6665, #6822, #1700, #254, #1351, #6059 Qual 10 0/5 none received Missing: #5499, #2813, #6665, #8404, #1868 Qual 11 0/6 none received Missing: #972, #5419, #6059, #1854, #10372, #6962 Qual 12 0/6 none received Missing: #254, #10644, #115, #766, #7607, #581 Qual 13 0/6 none received Missing:",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        5996
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "pit",
+    "path": "/scout?mode=pit",
+    "size": "768x1024",
+    "url": "http://127.0.0.1:5187/scout?mode=pit",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        768,
+        1024
+      ],
+      "scroll": [
+        768,
+        1024
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "home",
+    "path": "/",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "FRC SCOUTING Pick your station Two ways in — grabbing data on the floor, or running the show from the dashboard. Scout Capture match data from the stands. Lead Dashboard Rankings, picklist, roster and event setup for leads.",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "scout",
+    "path": "/scout",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/scout",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "tutorial",
+    "path": "/scout/tutorial",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/scout/tutorial",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "SCOUTER TUTORIAL Choose what to practice Pick one module now. You can return here and practice the other one at any time. Practice match scouting Not started Use the real match controls for Practice Match 12, Team 3256, red station 2. 42 guided controls Practice match scouting Practice pit scouting Not started Use the real pit form for Team 3256, including preferred Auto and photos. 29 guided controls Practice pit scouting Quick offline help",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "summary",
+          "name": "Quick offline help",
+          "size": [
+            862,
+            24
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 4,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "my-data",
+    "path": "/my-data",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/my-data",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "My Data 0 matches No matches scouted yet on this device.",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-send",
+    "path": "/qr/send",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/qr/send",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Send over QR Point the receiving device's camera at the code. It flips through symbols on its own — leave this screen up until the receiver's bar is full. Nothing to send — your reports are all synced.",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-receive",
+    "path": "/qr/receive",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/qr/receive",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Receive over QR Pick your name before receiving reports. This device needs a scouter selected so the reports you receive are uploaded under a known identity. Choose your name",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/dashboard",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "warning: Allow attribute will take precedence over 'allowfullscreen'."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Dashboard 2026casnv Pit Display Strategy Team Scouters Match Ranking Picklist Draft Setup CA District Silicon Valley Event presented by Apple 3256 | 2026casnv Fullscreen EVENT RANKINGS Event Record 8-4-0 Event Rank 5 / 37 Avg RP 3.250 SEASON RANKINGS Season Record — World Rank — Total EPA — 3256 Next Match F2 Final · 574–274 On Field — Queuing — OUR PLAYOFF PATH Event over — finalists.",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        815
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 9,
+        "sliders": 0
+      },
+      "focusables": 11,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "sync",
+    "path": "/sync",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/sync",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Sync status This device — local outbox 0 queued to upload · 0 failed No failed reports on this device. Server coverage Qual 1 0/6 none received Missing: #6665, #6822, #1700, #254, #1351, #6059 Qual 10 0/5 none received Missing: #5499, #2813, #6665, #8404, #1868 Qual 11 0/6 none received Missing: #972, #5419, #6059, #1854, #10372, #6962 Qual 12 0/6 none received Missing: #254, #10644, #115, #766, #7607, #581 Qual 13 0/6 none received Missing:",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        5996
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "pit",
+    "path": "/scout?mode=pit",
+    "size": "1024x768",
+    "url": "http://127.0.0.1:5187/scout?mode=pit",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        1024,
+        768
+      ],
+      "scroll": [
+        1024,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "home",
+    "path": "/",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "FRC SCOUTING Pick your station Two ways in — grabbing data on the floor, or running the show from the dashboard. Scout Capture match data from the stands. Lead Dashboard Rankings, picklist, roster and event setup for leads.",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "scout",
+    "path": "/scout",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/scout",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "tutorial",
+    "path": "/scout/tutorial",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/scout/tutorial",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "SCOUTER TUTORIAL Choose what to practice Pick one module now. You can return here and practice the other one at any time. Practice match scouting Not started Use the real match controls for Practice Match 12, Team 3256, red station 2. 42 guided controls Practice match scouting Practice pit scouting Not started Use the real pit form for Team 3256, including preferred Auto and photos. 29 guided controls Practice pit scouting Quick offline help",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "summary",
+          "name": "Quick offline help",
+          "size": [
+            862,
+            24
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 4,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "my-data",
+    "path": "/my-data",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/my-data",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "My Data 0 matches No matches scouted yet on this device.",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-send",
+    "path": "/qr/send",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/qr/send",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Send over QR Point the receiving device's camera at the code. It flips through symbols on its own — leave this screen up until the receiver's bar is full. Nothing to send — your reports are all synced.",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-receive",
+    "path": "/qr/receive",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/qr/receive",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Receive over QR Pick your name before receiving reports. This device needs a scouter selected so the reports you receive are uploaded under a known identity. Choose your name",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/dashboard",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "warning: Allow attribute will take precedence over 'allowfullscreen'."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Dashboard 2026casnv Pit Display Strategy Team Scouters Match Ranking Picklist Draft Setup CA District Silicon Valley Event presented by Apple 3256 | 2026casnv Fullscreen EVENT RANKINGS Event Record — Event Rank — Avg RP — SEASON RANKINGS Season Record — World Rank — Total EPA — 3256 Next Match F2 Final · 574–274 On Field — Queuing — OUR PLAYOFF PATH Event over — finalists.",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        933
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 9,
+        "sliders": 0
+      },
+      "focusables": 11,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "sync",
+    "path": "/sync",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/sync",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Sync status This device — local outbox 0 queued to upload · 0 failed No failed reports on this device. Server coverage Qual 1 0/6 none received Missing: #6665, #6822, #1700, #254, #1351, #6059 Qual 10 0/5 none received Missing: #5499, #2813, #6665, #8404, #1868 Qual 11 0/6 none received Missing: #972, #5419, #6059, #1854, #10372, #6962 Qual 12 0/6 none received Missing: #254, #10644, #115, #766, #7607, #581 Qual 13 0/6 none received Missing:",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        5996
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "pit",
+    "path": "/scout?mode=pit",
+    "size": "1366x768",
+    "url": "http://127.0.0.1:5187/scout?mode=pit",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. No scouters on the roster yet — ask your lead to add names.",
+      "viewport": [
+        1366,
+        768
+      ],
+      "scroll": [
+        1366,
+        768
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 5,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "home",
+    "path": "/",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "FRC SCOUTING Pick your station Two ways in — grabbing data on the floor, or running the show from the dashboard. Scout Capture match data from the stands. Lead Dashboard Rankings, picklist, roster and event setup for leads.",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "scout",
+    "path": "/scout",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/scout",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "tutorial",
+    "path": "/scout/tutorial",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/scout/tutorial",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "SCOUTER TUTORIAL Choose what to practice Pick one module now. You can return here and practice the other one at any time. Practice match scouting Not started Use the real match controls for Practice Match 12, Team 3256, red station 2. 42 guided controls Practice match scouting Practice pit scouting Not started Use the real pit form for Team 3256, including preferred Auto and photos. 29 guided controls Practice pit scouting Quick offline help",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "summary",
+          "name": "Quick offline help",
+          "size": [
+            862,
+            24
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 4,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "my-data",
+    "path": "/my-data",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/my-data",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "My Data 0 matches No matches scouted yet on this device.",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-send",
+    "path": "/qr/send",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/qr/send",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Send over QR Point the receiving device's camera at the code. It flips through symbols on its own — leave this screen up until the receiver's bar is full. Nothing to send — your reports are all synced.",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "qr-receive",
+    "path": "/qr/receive",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/qr/receive",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Back Receive over QR Pick your name before receiving reports. This device needs a scouter selected so the reports you receive are uploaded under a known identity. Choose your name",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 2,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/dashboard",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "warning: Allow attribute will take precedence over 'allowfullscreen'."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Dashboard 2026casnv Pit Display Strategy Team Scouters Match Ranking Picklist Draft Setup CA District Silicon Valley Event presented by Apple 3256 | 2026casnv Fullscreen EVENT RANKINGS Event Record 8-4-0 Event Rank 5 / 37 Avg RP 3.250 SEASON RANKINGS Season Record — World Rank — Total EPA — 3256 Next Match F2 Final · 574–274 On Field — Queuing — OUR PLAYOFF PATH Event over — finalists.",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1125
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 9,
+        "sliders": 0
+      },
+      "focusables": 11,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "sync",
+    "path": "/sync",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/sync",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "Home Sync status This device — local outbox 0 queued to upload · 0 failed No failed reports on this device. Server coverage Qual 1 0/6 none received Missing: #6665, #6822, #1700, #254, #1351, #6059 Qual 10 0/5 none received Missing: #5499, #2813, #6665, #8404, #1868 Qual 11 0/6 none received Missing: #972, #5419, #6059, #1854, #10372, #6962 Qual 12 0/6 none received Missing: #254, #10644, #115, #766, #7607, #581 Qual 13 0/6 none received Missing:",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        5996
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 1,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  },
+  {
+    "name": "pit",
+    "path": "/scout?mode=pit",
+    "size": "1920x1080",
+    "url": "http://127.0.0.1:5187/scout?mode=pit",
+    "navError": null,
+    "logs": [
+      "warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."
+    ],
+    "pageErrors": [],
+    "audit": {
+      "title": "3256 Scouting",
+      "body": "3256 SCOUTING Scout Tutorial Home online 0 0 · synced just now Who are you? Select your name to start scouting event 2026casnv. E2E Capture Scout E2E Correction Scout E2E Scout 1 E2E Scout 2 E2E Scout 3 E2E Sync Scout test 1 test 2 test 3 test 4 test 5 test 6",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "scroll": [
+        1920,
+        1080
+      ],
+      "horizontalOverflow": 0,
+      "offscreenControls": [],
+      "smallTargets": [
+        {
+          "tag": "a",
+          "name": "View sync status",
+          "size": [
+            201,
+            20
+          ]
+        },
+        {
+          "tag": "button",
+          "name": "Sync now",
+          "size": [
+            40,
+            40
+          ]
+        }
+      ],
+      "unlabeled": [],
+      "duplicateControlNames": [],
+      "roles": {
+        "dialogs": 0,
+        "tabs": 0,
+        "sliders": 0
+      },
+      "focusables": 17,
+      "motionMatches": true,
+      "forcedColors": false
+    }
+  }
+]

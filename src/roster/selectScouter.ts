@@ -96,6 +96,35 @@ function commitSelection(row: ScoutRow, name: string): void {
   cacheScoutRow(row);
 }
 
+async function selectScouterFromServer(eventKey: string, name: string): Promise<ScoutRow> {
+  const { data, error } = await supabase.rpc('select_scouter', {
+    p_event_key: eventKey,
+    p_name: name,
+  });
+  if (error) throw new Error(error.message);
+  // The RPC `returns scout`; supabase-js may surface it as a single row or a
+  // one-element array depending on the function shape.
+  const row = (Array.isArray(data) ? data[0] : data) as ScoutRow | null;
+  if (!row) throw new Error('select_scouter returned no row');
+  return row;
+}
+
+/**
+ * Re-resolve a selected name against the server without an offline fallback.
+ *
+ * Background assignment refreshes use this stricter variant because a cached
+ * identity cannot prove that an empty assignment result is authoritative after
+ * server-side identity consolidation.
+ */
+export async function reconcileScouterIdentity(
+  eventKey: string,
+  name: string,
+): Promise<ScoutRow> {
+  const row = await selectScouterFromServer(eventKey, name);
+  commitSelection(row, name);
+  return row;
+}
+
 /**
  * Bind this device to `name` for `eventKey` and return the resolved scout row.
  * Persists the chosen name locally on success.
@@ -108,16 +137,8 @@ function commitSelection(row: ScoutRow, name: string): void {
  * instead of a raw "Failed to fetch".
  */
 export async function selectScouter(eventKey: string, name: string): Promise<ScoutRow> {
-  let row: ScoutRow | null = null;
   try {
-    const { data, error } = await supabase.rpc('select_scouter', {
-      p_event_key: eventKey,
-      p_name: name,
-    });
-    if (error) throw new Error(error.message);
-    // The RPC `returns scout`; supabase-js may surface it as a single row or a
-    // one-element array depending on the function shape.
-    row = (Array.isArray(data) ? data[0] : data) as ScoutRow | null;
+    return await reconcileScouterIdentity(eventKey, name);
   } catch (err) {
     if (isOfflineLike(err)) {
       const cached = getCachedScoutIdentity(eventKey, name);
@@ -132,9 +153,4 @@ export async function selectScouter(eventKey: string, name: string): Promise<Sco
     }
     throw err instanceof Error ? err : new Error('Failed to select scouter.');
   }
-  if (!row) {
-    throw new Error('select_scouter returned no row');
-  }
-  commitSelection(row, name);
-  return row;
 }

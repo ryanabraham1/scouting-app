@@ -1,0 +1,198 @@
+{
+  "home": {
+    "focus": {
+      "tag": "a",
+      "text": "ScoutCapture match data from the stands.",
+      "aria": null,
+      "testid": "home-go-scout",
+      "role": null,
+      "selected": null,
+      "tabindex": null
+    },
+    "focusStyle": {
+      "outline": "rgba(0, 0, 0, 0) solid 2px",
+      "outlineWidth": "2px",
+      "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 0px, rgb(13, 162, 231) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px"
+    },
+    "enterUrl": "http://127.0.0.1:5187/scout"
+  },
+  "dashboard": {
+    "count": 9,
+    "before": {
+      "tag": "button",
+      "text": "Pit Display",
+      "aria": null,
+      "testid": null,
+      "role": "tab",
+      "selected": "true",
+      "tabindex": null
+    },
+    "attrs": [
+      {
+        "name": "Pit Display",
+        "selected": "true",
+        "tabindex": null
+      },
+      {
+        "name": "Strategy",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Team",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Scouters",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Match",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Ranking",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Picklist",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Draft",
+        "selected": "false",
+        "tabindex": null
+      },
+      {
+        "name": "Setup",
+        "selected": "false",
+        "tabindex": null
+      }
+    ],
+    "afterArrow": {
+      "tag": "button",
+      "text": "Pit Display",
+      "aria": null,
+      "testid": null,
+      "role": "tab",
+      "selected": "true",
+      "tabindex": null
+    },
+    "afterArrowSelected": [
+      "Pit Display"
+    ],
+    "focusStyle": {
+      "outline": "rgb(0, 95, 204) auto 1px",
+      "outlineWidth": "1px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(13, 162, 231) 0px 2px 0px 0px inset"
+    },
+    "nextTab": {
+      "tag": "button",
+      "text": "Strategy",
+      "aria": null,
+      "testid": null,
+      "role": "tab",
+      "selected": "false",
+      "tabindex": null
+    },
+    "enterSelected": "true",
+    "spaceSelected": "true"
+  },
+  "tutorial": {
+    "tabSequence": [
+      {
+        "tag": "a",
+        "text": "",
+        "aria": "Exit tutorial",
+        "testid": null,
+        "role": null,
+        "selected": null,
+        "tabindex": null
+      },
+      {
+        "tag": "button",
+        "text": "Practice match scouting",
+        "aria": null,
+        "testid": "tutorial-hub-match",
+        "role": null,
+        "selected": null,
+        "tabindex": null
+      },
+      {
+        "tag": "button",
+        "text": "Practice pit scouting",
+        "aria": null,
+        "testid": "tutorial-hub-pit",
+        "role": null,
+        "selected": null,
+        "tabindex": null
+      },
+      {
+        "tag": "summary",
+        "text": "Quick offline help",
+        "aria": null,
+        "testid": null,
+        "role": null,
+        "selected": null,
+        "tabindex": null
+      },
+      {
+        "tag": "body",
+        "text": "Scouter tutorialChoose what to practicePick one module now. You can return here ",
+        "aria": null,
+        "testid": null,
+        "role": null,
+        "selected": null,
+        "tabindex": null
+      }
+    ],
+    "detailsBefore": null,
+    "detailsAfter": "",
+    "escapeUrl": "http://127.0.0.1:5187/"
+  },
+  "motionMatches": true,
+  "forcedColorsMatches": true,
+  "zoom200": {
+    "inner": [
+      1366,
+      768
+    ],
+    "client": [
+      1366,
+      768
+    ],
+    "scroll": [
+      1366,
+      768
+    ],
+    "overflow": 0
+  },
+  "blockedRemoteMutationAttempts": [
+    {
+      "method": "POST",
+      "url": "https://oztsfxyfovwnwutrxzmo.supabase.co/auth/v1/signup"
+    },
+    {
+      "method": "POST",
+      "url": "https://oztsfxyfovwnwutrxzmo.supabase.co/auth/v1/signup"
+    },
+    {
+      "method": "POST",
+      "url": "https://oztsfxyfovwnwutrxzmo.supabase.co/auth/v1/signup"
+    },
+    {
+      "method": "POST",
+      "url": "https://oztsfxyfovwnwutrxzmo.supabase.co/auth/v1/signup"
+    },
+    {
+      "method": "POST",
+      "url": "https://oztsfxyfovwnwutrxzmo.supabase.co/auth/v1/signup"
+    }
+  ],
+  "blockedRemoteRequestCount": 12
+}

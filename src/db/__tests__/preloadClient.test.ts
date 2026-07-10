@@ -11,12 +11,17 @@ const tableResults: Record<string, TableResult> = {};
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    from: (table: string) => ({
-      select: () => ({
-        eq: () =>
-          Promise.resolve(tableResults[table] ?? { data: [], error: null }),
-      }),
-    }),
+    from: (table: string) => {
+      const result = () => tableResults[table] ?? { data: [], error: null };
+      const query = {
+        eq: () => query,
+        then: (
+          resolve: (value: TableResult) => unknown,
+          reject?: (reason: unknown) => unknown,
+        ) => Promise.resolve(result()).then(resolve, reject),
+      };
+      return { select: () => query };
+    },
   },
 }));
 
@@ -25,56 +30,75 @@ vi.mock('@/roster/rosterClient', () => ({
   listRoster: () => Promise.resolve(rosterRows),
 }));
 
-import { preloadEventData, getCachedAssignments } from '../preloadClient';
+import {
+  preloadEventData,
+  getCachedAssignments,
+  getCachedPitAssignments,
+  getCachedPitAssignmentsForEvent,
+  getPreloadMeta,
+} from '../preloadClient';
 import { db } from '../localStore';
-import type { CachedAssignment } from '../types';
+import type { CachedAssignment, CachedPitAssignment } from '../types';
 
-function assignmentRow(scoutId: string, matchKey: string): CachedAssignment {
+function assignmentRow(
+  scoutId: string,
+  matchKey: string,
+  eventKey = '2026event',
+): CachedAssignment {
   return {
-    id: `${scoutId}:${matchKey}`,
+    id: `${eventKey}:${matchKey}:red:1`,
     scout_id: scoutId,
     match_key: matchKey,
     alliance_color: 'red',
     station: 1,
     target_team_number: 254,
-    event_key: '2026event',
+    event_key: eventKey,
   };
 }
 
-describe('preloadEventData — empty responses do not wipe the offline cache', () => {
+function pitAssignmentRow(scoutId: string): CachedPitAssignment {
+  return {
+    id: '',
+    event_key: '2026event',
+    team_number: 254,
+    scout_id: scoutId,
+    source: 'manual',
+  };
+}
+
+describe('preloadEventData — event-scoped assignment caches', () => {
   beforeEach(async () => {
     await db.cachedAssignments.clear();
+    await db.cachedPitAssignments.clear();
     await db.cachedMatches.clear();
     await db.cachedTeams.clear();
     await db.cachedRoster.clear();
+    await db.preloadMeta.clear();
     for (const k of Object.keys(tableResults)) delete tableResults[k];
     rosterRows = [];
   });
 
-  it('keeps cached assignments when the server returns zero rows', async () => {
-    // Scout already has assignments cached for offline use.
+  it('treats an empty event response as authoritative without clearing another event', async () => {
     await db.cachedAssignments.bulkPut([
       assignmentRow('scout1', '2026event_qm1'),
       assignmentRow('scout1', '2026event_qm2'),
+      assignmentRow('other-scout', '2026other_qm1', '2026other'),
     ]);
-
-    // Server momentarily returns a successful-but-empty assignment list
-    // (e.g. the select_scouter row-consolidation race).
     tableResults['assignment'] = { data: [], error: null };
 
     const res = await preloadEventData({ eventKey: '2026event', scoutId: 'scout1' });
 
     expect(res.counts.assignments).toBe(0);
-    // The cache must survive — this is the regression guard.
     const cached = await getCachedAssignments('scout1');
-    expect(cached.map((a) => a.match_key).sort()).toEqual([
-      '2026event_qm1',
-      '2026event_qm2',
-    ]);
+    expect(cached).toEqual([]);
+    expect(await db.cachedAssignments.where('event_key').equals('2026other').count()).toBe(1);
   });
 
   it('replaces cached assignments when the server returns fresh rows', async () => {
-    await db.cachedAssignments.bulkPut([assignmentRow('scout1', '2026event_qm1')]);
+    await db.cachedAssignments.bulkPut([
+      assignmentRow('scout1', '2026event_qm1'),
+      assignmentRow('other-scout', '2026other_qm1', '2026other'),
+    ]);
 
     tableResults['assignment'] = {
       data: [
@@ -96,6 +120,7 @@ describe('preloadEventData — empty responses do not wipe the offline cache', (
     const cached = await getCachedAssignments('scout1');
     // Clean refresh: the stale qm1 is gone, only the freshly-fetched qm5 remains.
     expect(cached.map((a) => a.match_key)).toEqual(['2026event_qm5']);
+    expect(await db.cachedAssignments.where('event_key').equals('2026other').count()).toBe(1);
   });
 
   it('keeps cached assignments when the server query errors', async () => {
@@ -110,5 +135,60 @@ describe('preloadEventData — empty responses do not wipe the offline cache', (
     // An error must never touch the cache either.
     const cached = await getCachedAssignments('scout1');
     expect(cached.map((a) => a.match_key)).toEqual(['2026event_qm1']);
+  });
+
+  it('keeps same-team pit assignments distinct when scouts share a crew', async () => {
+    tableResults['pit_assignment'] = {
+      data: [pitAssignmentRow('scout1')],
+      error: null,
+    };
+    await preloadEventData({ eventKey: '2026event', scoutId: 'scout1' });
+
+    tableResults['pit_assignment'] = {
+      data: [pitAssignmentRow('scout1'), pitAssignmentRow('scout2')],
+      error: null,
+    };
+    await preloadEventData({ eventKey: '2026event', scoutId: 'scout2' });
+
+    expect(await getCachedPitAssignments('scout1')).toMatchObject([
+      { id: '2026event:254:scout1', team_number: 254, scout_id: 'scout1' },
+    ]);
+    expect(await getCachedPitAssignments('scout2')).toMatchObject([
+      { id: '2026event:254:scout2', team_number: 254, scout_id: 'scout2' },
+    ]);
+  });
+
+  it('treats an empty pit crew response as authoritative and updates metadata atomically', async () => {
+    await db.cachedPitAssignments.bulkPut([
+      {
+        ...pitAssignmentRow('scout1'),
+        id: '2026event:254:scout1',
+      },
+      {
+        ...pitAssignmentRow('other-scout'),
+        id: '2026other:254:other-scout',
+        event_key: '2026other',
+      },
+    ]);
+    tableResults['pit_assignment'] = { data: [], error: null };
+    await preloadEventData({ eventKey: '2026event', scoutId: 'scout1' });
+
+    expect(await getCachedPitAssignmentsForEvent('2026event')).toEqual([]);
+    expect(await getCachedPitAssignmentsForEvent('2026other')).toHaveLength(1);
+    expect((await getPreloadMeta('2026event'))?.counts.pitAssignments).toBe(0);
+  });
+
+  it('preserves last-success metadata for sections that fail on a partial refresh', async () => {
+    await db.preloadMeta.put({
+      key: '2026event',
+      lastPreloadAt: '2026-01-01T00:00:00.000Z',
+      counts: { matches: 2, assignments: 5, pitAssignments: 1, roster: 3, teams: 20 },
+    });
+    tableResults['assignment'] = { data: null, error: { message: 'offline' } };
+    await preloadEventData({ eventKey: '2026event', scoutId: 'scout1' });
+
+    const meta = await getPreloadMeta('2026event');
+    expect(meta?.lastPreloadAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(meta?.counts.assignments).toBe(5);
   });
 });

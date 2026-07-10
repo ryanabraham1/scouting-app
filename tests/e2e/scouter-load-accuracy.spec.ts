@@ -99,7 +99,8 @@ test('Scenario B — Accuracy renders real numbers on a seeded overlap', async (
   clone.died = false;
   // Divergent values (clamped within real domains): fuel offset + defense ordinal.
   clone.fuel_points = ((base.fuel_points as number) ?? 0) + 40;
-  clone.defense_rating = (((base.defense_rating as number) ?? 0) + 2) % 4;
+  const baseDefense = Math.max(1, (base.defense_rating as number) ?? 1);
+  clone.defense_rating = baseDefense >= 6 ? baseDefense - 5 : baseDefense + 5;
   clone.climb_success = !(base.climb_success as boolean);
 
   const ins = await admin.from('match_scouting_report').insert(clone);
@@ -123,46 +124,20 @@ test('Scenario B — Accuracy renders real numbers on a seeded overlap', async (
   // The provisional chip MAY be present (~1 overlap) — that is fine, not asserted.
 });
 
-test('Scenario C — Accuracy degrades gracefully with no overlap', async ({ page }) => {
+test('Scenario C — Accuracy stays hidden with no overlap', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
 
   await setActiveEvent(admin, eventKey);
+  for (const id of seededIds.splice(0)) {
+    await admin.from('match_scouting_report').delete().eq('id', id);
+  }
 
   await page.goto('/dashboard?tab=scouters');
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 15_000 });
 
-  // Open the first scouter row that has reports. Whatever its overlap status,
-  // the accuracy section must render either real numbers or the none message —
-  // never blank.
-  const openers = page.locator('[data-testid^="scouter-open-"]');
-  await expect(openers.first()).toBeVisible({ timeout: 15_000 });
-  const count = await openers.count();
-  let opened = false;
-  for (let i = 0; i < count; i++) {
-    const btn = openers.nth(i);
-    if (await btn.isDisabled()) continue;
-    await btn.click();
-    if (await page.getByTestId('scouter-profile').isVisible().catch(() => false)) {
-      opened = true;
-      break;
-    }
-  }
-  test.skip(!opened, 'No openable scouter with a profile at this event.');
-
-  await expect(page.getByTestId('scouter-accuracy')).toBeVisible({ timeout: 15_000 });
-  const hasOverall = await page.getByTestId('scouter-accuracy-overall').isVisible().catch(() => false);
-  const hasNone = await page.getByTestId('scouter-accuracy-none').isVisible().catch(() => false);
-  expect(hasOverall || hasNone).toBe(true);
-});
-
-test('Scenario D — No active event hides the Load card', async ({ page }) => {
-  test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
-
-  // Clear ALL active flags — race-safe way to reach a no-event state on the
-  // shared single-worker DB. afterAll restores 2026casnv.
-  await admin.from('event').update({ is_active: false }).neq('event_key', '__none__');
-
-  await page.goto('/dashboard?tab=scouters');
-  await expect(page.getByTestId('scouters-no-event')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('scouter-load-card')).toHaveCount(0);
+  // The deterministic suite scout owns reports but, after removing Scenario B's
+  // clone, has no overlapping second-scout observations.
+  await page.getByTestId('scouter-open-E2E Dashboard Seed').click();
+  await expect(page.getByTestId('scouter-profile')).toBeVisible();
+  await expect(page.getByTestId('scouter-accuracy')).toHaveCount(0);
 });

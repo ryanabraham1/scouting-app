@@ -122,7 +122,11 @@ describe('PicklistEpaBoard', () => {
   });
 
   it('falls back to the in-house scouting estimate (marked "est") when no external EPA', () => {
-    const agg: TeamAgg = { ...emptyTeamAgg(254), scoutingExpectedPoints: 33 };
+    const agg: TeamAgg = {
+      ...emptyTeamAgg(254),
+      matchesScouted: 2,
+      scoutingExpectedPoints: 33,
+    };
     const noEpa: EventEpa = {
       epaByTeam: new Map<number, number | null>([
         [254, null],
@@ -159,7 +163,11 @@ describe('PicklistEpaBoard', () => {
   it('renders a non-empty strength bar for each ranked team even when all EPA <= 0 (BUG-13)', () => {
     // All-zero in-house estimates: maxEpa would be 0, which previously zeroed
     // EVERY bar. Each ranked team should still get a minimal (equal) bar.
-    const zeroAgg = (t: number): TeamAgg => ({ ...emptyTeamAgg(t), scoutingExpectedPoints: 0 });
+    const zeroAgg = (t: number): TeamAgg => ({
+      ...emptyTeamAgg(t),
+      matchesScouted: 1,
+      scoutingExpectedPoints: 0,
+    });
     const noEpa: EventEpa = {
       epaByTeam: new Map<number, number | null>([
         [254, null],

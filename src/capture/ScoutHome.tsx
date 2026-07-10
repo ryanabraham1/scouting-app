@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart3,
@@ -14,6 +14,7 @@ import {
   History,
   Crosshair,
   CheckCircle2,
+  GraduationCap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
@@ -24,27 +25,39 @@ import { supabase } from '@/lib/supabase';
 import { useSession, clearCachedScout } from '@/auth/useSession';
 import type { ScoutRow } from '@/auth/scoutRow';
 import { listDrafts, listReports, getReport } from '@/db/localStore';
-import type { CachedMatch, CaptureDraft, LocalMatchReport } from '@/db/types';
-import { CaptureScreen } from '@/capture/CaptureScreen';
-import { ReviewScreen } from '@/capture/ReviewScreen';
-import { useCaptureSession, type CaptureTarget } from '@/capture/useCaptureSession';
+import type {
+  CachedAssignment,
+  CachedMatch,
+  CaptureDraft,
+  LocalMatchReport,
+} from '@/db/types';
+import CaptureFlow from '@/capture/CaptureFlow';
+import type { CaptureTarget } from '@/capture/useCaptureSession';
 import { exportUnsyncedToFile } from '@/export/exportReports';
 import { SyncIndicator } from '@/sync/SyncIndicator';
 import { InstallPrompt } from '@/pwa/InstallPrompt';
-import { getStoredActiveEvent } from '@/dash/activeEventStore';
+import { useActiveEvent } from '@/dash/useActiveEvent';
 import { listRoster } from '@/roster/rosterClient';
 import {
   selectScouter,
+  reconcileScouterIdentity,
   forgetScouterName,
   isScouterLoggedOut,
   markScouterLoggedOut,
 } from '@/roster/selectScouter';
 import { UpcomingMatches, matchLabelFromKey } from '@/capture/UpcomingMatches';
-import { getCachedAssignments, getCachedRoster, getCachedMatches, getCachedTeams } from '@/db/preloadClient';
+import {
+  getCachedAssignments,
+  getCachedRoster,
+  getCachedMatches,
+  getCachedTeams,
+  replaceCachedAssignmentsForEvent,
+} from '@/db/preloadClient';
 import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
 import { cn } from '@/lib/utils';
 
 interface AssignmentRow {
+  scout_id?: string;
   match_key: string;
   alliance_color: 'red' | 'blue';
   station: 1 | 2 | 3;
@@ -61,14 +74,21 @@ interface AssignmentRow {
  * sync, dead-lettering the report permanently (BUG-1 data loss).
  *
  * Manual quals only: a bare number / "q"/"qm" token always maps to a QUAL key.
- * A pasted full key (contains "_") is trusted as-is (lets a scout enter a playoff
- * match explicitly). Returns '' when nothing parseable was entered.
+ * A pasted full key is accepted only for the active event and a recognized FRC
+ * match suffix. Returns '' when nothing parseable was entered.
  */
 export function normalizeManualMatchKey(raw: string, eventKey: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
-  // A full key already carries its event code + level — trust it verbatim.
-  if (trimmed.includes('_')) return trimmed;
+  if (trimmed.includes('_')) {
+    const escapedEvent = eventKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(
+      `^${escapedEvent}_(?:qm[1-9]\\d*|qf[1-9]\\d*m[1-9]\\d*|sf[1-9]\\d*m[1-9]\\d*|f[1-9]\\d*m[1-9]\\d*)$`,
+      'i',
+    ).test(trimmed)
+      ? trimmed
+      : '';
+  }
   // Strip a leading level token ("q"/"qm") then take the trailing number.
   const m = trimmed.match(/^(?:qm|q)?\s*0*(\d+)$/i);
   if (!m) return '';
@@ -109,35 +129,12 @@ function draftTitle(d: CaptureDraft): string {
   return Number.isFinite(teamNum) && teamNum ? `${label} · Team ${teamNum}` : label;
 }
 
-function CaptureFlow(props: {
-  target: CaptureTarget;
-  onDone: () => void;
-  onExit: () => void;
-  // Edit mode opens straight on Review (the live fuel timeline can't be re-run
-  // after the match). Default 'live' for a fresh capture.
-  startStage?: 'live' | 'review';
-  // Loaded revision of the report being corrected — drives the Review edit banner.
-  editingRevision?: number;
-}) {
-  const session = useCaptureSession(props.target);
-  const [stage, setStage] = useState<'live' | 'review'>(props.startStage ?? 'live');
-  if (stage === 'review') {
-    return (
-      <ReviewScreen
-        session={session}
-        onSaved={() => props.onDone()}
-        onExit={props.onExit}
-        editingRevision={props.editingRevision}
-      />
-    );
-  }
-  return (
-    <CaptureScreen
-      session={session}
-      onToReview={() => setStage('review')}
-      onExit={props.onExit}
-    />
-  );
+function draftEventKey(d: CaptureDraft): string | null {
+  const target = (d.state as { target?: CaptureTarget } | null)?.target;
+  if (target?.eventKey) return target.eventKey;
+  const matchKey = target?.matchKey ?? d.draftKey.split(':')[0];
+  const separator = matchKey.indexOf('_');
+  return separator > 0 ? matchKey.slice(0, separator) : null;
 }
 
 // Login-less identity: pick your name from the team roster. Tapping a name binds
@@ -217,12 +214,12 @@ function NamePicker(props: { eventKey: string; onPicked: (s: ScoutRow) => void }
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <ul className="grid grid-cols-2 gap-2 landscape:grid-cols-3">
         {filtered.map((r) => (
-          <li key={r.id}>
+          <li key={r.id} className="min-w-0">
             <Button
               data-testid={`scout-name-option-${r.name}`}
               size="big"
               variant="outline"
-              className="w-full"
+              className="min-w-0 w-full whitespace-normal break-words px-3 py-2 leading-tight"
               disabled={busy}
               onClick={() => void pick(r.name)}
             >
@@ -267,23 +264,9 @@ export default function ScoutHome() {
   // old profile resurrected from cache and the user got "stuck in a profile".
   const [loggedOut, setLoggedOut] = useState<boolean>(() => isScouterLoggedOut());
   const [confirmLogout, setConfirmLogout] = useState(false);
-  // Resolve the active event without React Query (keeps this screen provider-free).
-  const [activeEvent, setActiveEvent] = useState<string | null>(getStoredActiveEvent());
-  useEffect(() => {
-    if (activeEvent) return;
-    let cancelled = false;
-    void (async () => {
-      const { data } = await supabase
-        .from('event')
-        .select('event_key')
-        .eq('is_active', true);
-      const key = (data as { event_key: string }[] | null)?.[0]?.event_key ?? null;
-      if (!cancelled) setActiveEvent(key);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeEvent]);
+  // The server-owned global selection always wins online; local storage is used
+  // by the shared resolver only as an offline fallback.
+  const { eventKey: activeEvent, loading: activeEventLoading } = useActiveEvent();
 
   // A fresh pick on THIS device wins over the session-resolved row: re-picking
   // after logout updates the same auth_uid's scout row, but useSession may still
@@ -296,11 +279,19 @@ export default function ScoutHome() {
   // belongs to a different event. (Guarded on activeEvent so there's no flash
   // before it resolves; a fresh `picked` always reflects the current event.)
   const effective =
-    candidate && activeEvent && candidate.event_key !== activeEvent ? null : candidate;
+    activeEventLoading ||
+    !activeEvent ||
+    (candidate && candidate.event_key !== activeEvent)
+      ? null
+      : candidate;
   const scoutId = effective?.id ?? '';
 
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
+  // Avoid re-running the mutating select_scouter reconciliation on every 30s
+  // poll once this mounted page has server-confirmed the current canonical row.
+  const confirmedIdentity = useRef<string | null>(null);
   const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
+  const [foreignDraftCount, setForeignDraftCount] = useState(0);
   const [reports, setReports] = useState<LocalMatchReport[]>([]);
   const [active, setActive] = useState<CaptureTarget | null>(null);
   // Loaded revision of the report being corrected (drives the Review edit banner).
@@ -328,9 +319,22 @@ export default function ScoutHome() {
   const [knownMatches, setKnownMatches] = useState<Map<string, CachedMatch>>(new Map());
   const [knownTeams, setKnownTeams] = useState<Set<number>>(new Set());
 
-  const refreshLocal = async () => {
-    setDrafts(await listDrafts());
-    setReports(await listReports());
+  const refreshLocal = async (scope = activeEvent || effective?.event_key || '') => {
+    const [allDrafts, allReports] = await Promise.all([listDrafts(), listReports()]);
+    const currentDrafts = allDrafts.filter((draft) => {
+      const draftEvent = draftEventKey(draft);
+      const storedTarget = (draft.state as { target?: CaptureTarget } | null)?.target;
+      const keyScout = draft.draftKey.split(':')[1] ?? '';
+      const draftScout = storedTarget?.scoutId || keyScout;
+      return draftScout === scoutId && (!draftEvent || draftEvent === scope);
+    });
+    setDrafts(currentDrafts);
+    setForeignDraftCount(allDrafts.length - currentDrafts.length);
+    setReports(
+      allReports.filter(
+        (report) => report.scoutId === scoutId && (!scope || report.eventKey === scope),
+      ),
+    );
   };
 
   // Assignments this scout already has a saved report for, keyed by match+team, so
@@ -340,53 +344,134 @@ export default function ScoutHome() {
   );
 
   useEffect(() => {
+    // Identity/event transitions must never display the previous scout's rows
+    // while the next local/network reads are in flight.
+    setAssignments([]);
+    setDrafts([]);
+    setReports([]);
+    setForeignDraftCount(0);
     if (!scoutId) return;
-    const name = effective?.display_name ?? '';
     const ev = effective?.event_key || activeEvent || '';
     let cancelled = false;
-    void (async () => {
+    const refreshAssignments = async (): Promise<void> => {
       // Local-first: show cached assignments immediately so an offline reload
       // still surfaces the schedule (CachedAssignment carries an extra `id`
       // field on top of AssignmentRow — the rest of the shape matches).
       const cached = await getCachedAssignments(scoutId);
-      if (!cancelled && cached.length) {
-        setAssignments(cached as AssignmentRow[]);
+      const cachedForEvent = cached.filter((row) => row.event_key === ev);
+      if (!cancelled && cachedForEvent.length) {
+        setAssignments(cachedForEvent as AssignmentRow[]);
       }
-      // Then refresh from the network. Offline this throws, so guard the whole
-      // block and keep the cached assignments already set.
-      try {
-        let res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
-        // No assignments under this device's row — auto-generated assignments are
-        // published against roster-seeded duplicate scout rows. select_scouter
-        // (migration 0014) consolidates those onto this device's row; re-query after.
-        if (!cancelled && res.data && res.data.length === 0 && name && ev) {
-          try {
-            await selectScouter(ev, name);
-            if (!cancelled) {
-              res = await supabase.from('assignment').select('*').eq('scout_id', scoutId);
-            }
-          } catch {
-            /* non-fatal: keep whatever the first query returned */
-          }
+      // Resolve the selected NAME first. The server's select_scouter contract
+      // returns the canonical event row and may legitimately change its id after
+      // seeded/duplicate identities are consolidated. This strict helper does
+      // not fall back to a cached identity: only a server-confirmed row can make
+      // an empty per-scout result authoritative.
+      const identityName = effective?.display_name ?? '';
+      const currentIdentityKey = `${ev}:${scoutId}:${identityName.toLocaleLowerCase()}`;
+      let canonical: ScoutRow | null = null;
+      let identityConfirmed = confirmedIdentity.current === currentIdentityKey;
+      if (!identityConfirmed) {
+        try {
+          canonical = await reconcileScouterIdentity(ev, identityName);
+          confirmedIdentity.current =
+            `${ev}:${canonical.id}:${canonical.display_name.toLocaleLowerCase()}`;
+          identityConfirmed = true;
+        } catch {
+          // Offline / server unavailable. The event-wide read below may still
+          // recover rows for the current id, but cannot erase a useful cache merely
+          // because no row matches an identity we could not re-confirm.
         }
-        if (!cancelled && res.data) {
-          setAssignments(res.data as AssignmentRow[]);
+      }
+
+      // Fetch the COMPLETE event snapshot, matching preloadEventData. A query
+      // filtered only by the stale scout id returns a misleading empty array
+      // during identity re-pointing. Event-wide emptiness, by contrast, proves a
+      // lead intentionally cleared all assignments.
+      try {
+        const res = await supabase.from('assignment').select('*').eq('event_key', ev);
+        if (res.error) throw new Error(res.error.message);
+        const eventRows: CachedAssignment[] = (
+          (res.data as Array<AssignmentRow & { id?: string }> | null) ?? []
+        )
+          .filter(
+            (assignment) =>
+              assignment.event_key === ev && typeof assignment.scout_id === 'string',
+          )
+          .map((assignment) => ({
+            ...assignment,
+            scout_id: assignment.scout_id as string,
+            id:
+              assignment.id ??
+              `${assignment.event_key}:${assignment.match_key}:${assignment.alliance_color}:${assignment.station}`,
+          }));
+        const resolvedScoutId = canonical?.id ?? scoutId;
+        const liveForScout = eventRows.filter(
+          (assignment) => assignment.scout_id === resolvedScoutId,
+        );
+        const eventIsAuthoritativelyEmpty = eventRows.length === 0;
+        const currentIdentityHasRows = liveForScout.length > 0;
+
+        // A complete event snapshot is safe to persist once identity is known,
+        // when it contains this identity, or when the entire event is empty.
+        // In the unresolved-mismatch case retain the old-id cache until a later
+        // focus/interval/realtime refresh can reconcile it.
+        if (identityConfirmed || currentIdentityHasRows || eventIsAuthoritativelyEmpty) {
+          await replaceCachedAssignmentsForEvent(ev, eventRows);
+        }
+        if (cancelled) return;
+
+        if (canonical && canonical.id !== scoutId) {
+          // `picked` immediately supersedes useSession's stale cached row and
+          // causes the event-scoped effect to restart under the canonical id.
+          setPicked(canonical);
+        }
+        if (identityConfirmed || currentIdentityHasRows || eventIsAuthoritativelyEmpty) {
+          setAssignments(liveForScout as AssignmentRow[]);
         }
       } catch {
         /* offline / network failure: keep the cached assignments set above */
       }
-    })();
-    void refreshLocal();
+    };
+    void refreshAssignments();
+    void refreshLocal(ev);
+    const refreshVisible = (): void => {
+      if (document.visibilityState !== 'hidden') void refreshAssignments();
+    };
+    const interval = window.setInterval(refreshVisible, 30_000);
+    window.addEventListener('focus', refreshVisible);
+    window.addEventListener('preload-cache-changed', refreshVisible);
+    const realtimeClient = supabase as typeof supabase & {
+      channel?: (name: string) => {
+        on: (...args: unknown[]) => { subscribe: () => unknown };
+        subscribe: () => unknown;
+      };
+      removeChannel?: (channel: unknown) => Promise<unknown>;
+    };
+    const realtime = realtimeClient.channel?.(`scout-assignments:${ev}:${scoutId}`);
+    realtime
+      ?.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assignment', filter: `event_key=eq.${ev}` },
+        refreshVisible,
+      )
+      .subscribe();
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshVisible);
+      window.removeEventListener('preload-cache-changed', refreshVisible);
+      if (realtime) void realtimeClient.removeChannel?.(realtime);
     };
-  }, [scoutId, effective?.display_name, effective?.event_key, activeEvent]);
+  }, [scoutId, effective?.event_key, effective?.display_name, activeEvent]);
 
   // Load the cached event schedule + team list so a manual pick can be validated
   // against them before it's allowed to start (and thus before it can dead-letter
   // on the match/team FK). Keyed on the active event; best-effort + offline-safe.
   const validationEventKey = activeEvent || effective?.event_key || '';
   useEffect(() => {
+    setKnownMatches(new Map());
+    setKnownTeams(new Set());
     if (!validationEventKey) return;
     let cancelled = false;
     void (async () => {
@@ -430,6 +515,16 @@ export default function ScoutHome() {
         { replace: true },
       );
       if (!r) return; // not found: fall through
+      if (r.scoutId !== scoutId) {
+        setManualWarning('That report belongs to another scout on this device.');
+        return;
+      }
+      if (r.eventKey !== (activeEvent || effective.event_key)) {
+        setManualWarning(
+          `That report belongs to ${r.eventKey}. Switch the active event or open My Data to recover it safely.`,
+        );
+        return;
+      }
       setEditingRev(r.rowRevision ?? 1);
       if (r.syncState === 'error') {
         // A dead-lettered report is most likely stuck on a bad match/team FK
@@ -459,7 +554,7 @@ export default function ScoutHome() {
     return () => {
       cancelled = true;
     };
-  }, [effective, editId, setSearchParams]);
+  }, [effective, editId, setSearchParams, scoutId, activeEvent]);
 
   // Gate: no scouter selected yet on this device → pick a name (or wait for an event).
   if (!effective) {
@@ -479,15 +574,28 @@ export default function ScoutHome() {
                 <h1 className="truncate text-xl font-bold leading-tight">Scout</h1>
               </div>
             </div>
-            <Link
-              data-testid="nav-home"
-              to="/"
-              aria-label="Home"
-              className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
-            >
-              <Home className="size-5 shrink-0" />
-              <span className="hidden sm:inline">Home</span>
-            </Link>
+            <nav className="flex shrink-0 items-center gap-1.5">
+              <Link
+                key="tutorial"
+                data-testid="scout-tutorial-link"
+                to="/scout/tutorial"
+                aria-label="Open tutorial"
+                className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
+              >
+                <GraduationCap className="size-5 shrink-0" />
+                <span>Tutorial</span>
+              </Link>
+              <Link
+                key="home"
+                data-testid="nav-home"
+                to="/"
+                aria-label="Home"
+                className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
+              >
+                <Home className="size-5 shrink-0" />
+                <span className="hidden sm:inline">Home</span>
+              </Link>
+            </nav>
           </div>
         </header>
         <main className="flex flex-1 flex-col gap-5 px-safe pb-safe pt-4">
@@ -495,7 +603,11 @@ export default function ScoutHome() {
             <SyncIndicator className="min-w-0 flex-1 flex-nowrap" detailsHref="/sync" compact />
           </div>
           <InstallPrompt />
-          {!activeEvent ? (
+          {activeEventLoading ? (
+            <p data-testid="scout-event-loading" className="text-muted-foreground">
+              Checking the active event…
+            </p>
+          ) : !activeEvent ? (
             <p data-testid="scout-no-event" className="text-muted-foreground">
               No active event yet. Ask your scouting lead to set the active event.
             </p>
@@ -577,6 +689,10 @@ export default function ScoutHome() {
     const targetTeam = Number(team);
     if (!normalizedKey) {
       setManualWarning('Enter a match number (e.g. 10, qm10) — couldn’t read that.');
+      return;
+    }
+    if (!Number.isSafeInteger(targetTeam) || targetTeam <= 0) {
+      setManualWarning('Enter a positive whole-number team number.');
       return;
     }
     // Validate against the loaded schedule/roster when we HAVE them. An empty cache
@@ -673,6 +789,7 @@ export default function ScoutHome() {
           </div>
           <nav className="flex shrink-0 items-center gap-1.5">
             <Link
+              key="home"
               data-testid="nav-home"
               to="/"
               aria-label="Home"
@@ -682,6 +799,7 @@ export default function ScoutHome() {
               <span className="hidden sm:inline">Home</span>
             </Link>
             <Link
+              key="my-data"
               data-testid="nav-my-data"
               to="/my-data"
               aria-label="My Data"
@@ -760,7 +878,16 @@ export default function ScoutHome() {
         />
 
         {mode === 'pit' ? (
-          <PitScoutFlow eventKey={eventKey} scoutId={scoutId} />
+          <PitScoutFlow
+            eventKey={eventKey}
+            scoutId={scoutId}
+            initialTeamNumber={
+              Number.isInteger(Number(searchParams.get('pitTeam'))) &&
+              Number(searchParams.get('pitTeam')) > 0
+                ? Number(searchParams.get('pitTeam'))
+                : null
+            }
+          />
         ) : (
           <>
             <UpcomingMatches
@@ -914,6 +1041,12 @@ export default function ScoutHome() {
                   ))}
                 </ul>
               </section>
+            ) : null}
+            {foreignDraftCount > 0 ? (
+              <p data-testid="scout-other-event-drafts" className="text-sm text-muted-foreground">
+                {foreignDraftCount} draft{foreignDraftCount === 1 ? '' : 's'} from another event
+                or scout remain safely stored. <Link to="/my-data" className="text-brand underline">Open My Data</Link>
+              </p>
             ) : null}
           </>
         )}

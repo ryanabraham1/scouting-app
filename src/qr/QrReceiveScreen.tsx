@@ -9,6 +9,12 @@ import { QR_SCAN_DELAY_MS } from '@/sync/constants';
 import { BackLink } from '@/components/ui/BackLink';
 import { useSession } from '@/auth/useSession';
 import { isScouterLoggedOut } from '@/roster/selectScouter';
+import {
+  clearStagedQrTransfer,
+  loadStagedQrTransfer,
+  stageCompletedQrTransfer,
+  type StagedQrTransfer,
+} from '@/qr/receiveStaging';
 
 type Phase = 'scanning' | 'ingesting' | 'done' | 'error';
 
@@ -111,6 +117,7 @@ function QrReceiveScanner() {
   const decoderRef = useRef(new FountainDecoder());
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const completedRef = useRef(false);
+  const stagedRef = useRef<StagedQrTransfer | null>(null);
   // Foreign-session debounce: don't wipe a half-decoded transfer on the FIRST
   // frame from a different session id (a reflection, a screenshot, or a second
   // scout's send screen briefly in frame). Only adopt a new session after several
@@ -129,6 +136,7 @@ function QrReceiveScanner() {
   // True when an ingest failed but the fully-decoded batch is still held in
   // decoderRef, so the upload can be retried WITHOUT re-scanning every frame.
   const [canRetry, setCanRetry] = useState(false);
+  const [stagingReady, setStagingReady] = useState(false);
 
   // Upload the already-decoded batch held in decoderRef. Extracted so both the
   // auto-complete path and a manual "Retry upload" can run it; the decoded bytes
@@ -139,8 +147,9 @@ function QrReceiveScanner() {
     setErrorMessage(null);
     setCanRetry(false);
     try {
-      const decoder = decoderRef.current;
-      const raw = await decompressForQr(decoder.payloadBytes(), decoder.compressed ?? false);
+      const staged = stagedRef.current;
+      if (!staged) throw new Error('Decoded transfer was not safely staged on this device.');
+      const raw = await decompressForQr(staged.payload, staged.compressed);
       const reports = bytesToReports(raw);
       const result = await postIngest(reports);
       setIngested(result.ingested);
@@ -164,6 +173,10 @@ function QrReceiveScanner() {
         // failed subset, which is lost the moment the sender is wiped — the very
         // thing QR transfer exists to prevent.
         setCanRetry(result.failed.length > 0);
+        if (result.failed.length === 0) {
+          await clearStagedQrTransfer();
+          stagedRef.current = null;
+        }
         setPhase('done');
       }
     } catch (err) {
@@ -178,6 +191,49 @@ function QrReceiveScanner() {
     }
   }, []);
 
+  const stageDecodedAndIngest = useCallback(async (): Promise<void> => {
+    try {
+      const decoder = decoderRef.current;
+      const staged = await stageCompletedQrTransfer({
+        sessionId: decoder.sessionId ?? '',
+        compressed: decoder.compressed ?? false,
+        payload: decoder.payloadBytes(),
+      });
+      stagedRef.current = staged;
+      controlsRef.current?.stop();
+      await runIngest();
+    } catch (error) {
+      controlsRef.current?.stop();
+      completedRef.current = false;
+      setErrorMessage(
+        error instanceof Error
+          ? `Received data could not be saved safely: ${error.message}`
+          : 'Received data could not be saved safely.',
+      );
+      setPhase('error');
+      setCanRetry(true);
+    }
+  }, [runIngest]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadStagedQrTransfer()
+      .then((staged) => {
+        if (cancelled) return;
+        setStagingReady(true);
+        if (!staged) return;
+        stagedRef.current = staged;
+        completedRef.current = true;
+        void runIngest();
+      })
+      .catch(() => {
+        if (!cancelled) setStagingReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runIngest]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -190,6 +246,8 @@ function QrReceiveScanner() {
     // Secure-context guard. mediaDevices is undefined on non-HTTPS, non-
     // localhost origins; calling into zxing would otherwise throw an opaque
     // "Cannot read properties of undefined (reading 'getUserMedia')".
+    if (!stagingReady || completedRef.current) return;
+
     if (!navigator.mediaDevices?.getUserMedia) {
       fail(
         'Camera requires HTTPS or localhost. Open this page over a secure (https://) origin to scan.',
@@ -212,7 +270,7 @@ function QrReceiveScanner() {
       if (completedRef.current) return;
       completedRef.current = true;
       controlsRef.current?.stop();
-      void runIngest();
+      void stageDecodedAndIngest();
     };
 
     // Resolve the rear-facing camera id when the platform labels its devices.
@@ -303,7 +361,12 @@ function QrReceiveScanner() {
       cancelled = true;
       controlsRef.current?.stop();
     };
-  }, [runIngest]);
+  }, [stageDecodedAndIngest, stagingReady]);
+
+  const retryTransfer = useCallback((): void => {
+    if (stagedRef.current) void runIngest();
+    else void stageDecodedAndIngest();
+  }, [runIngest, stageDecodedAndIngest]);
 
   return (
     <div
@@ -337,7 +400,7 @@ function QrReceiveScanner() {
               <button
                 type="button"
                 data-testid="qr-receive-retry"
-                onClick={() => void runIngest()}
+                onClick={retryTransfer}
                 className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-destructive/50 px-4 text-sm font-medium text-destructive hover:bg-destructive/15"
               >
                 <RotateCcw className="size-4" /> Retry upload
@@ -366,7 +429,7 @@ function QrReceiveScanner() {
               <button
                 type="button"
                 data-testid="qr-receive-retry"
-                onClick={() => void runIngest()}
+                onClick={retryTransfer}
                 className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-energy/50 px-4 text-sm font-medium text-energy hover:bg-energy/15"
               >
                 <RotateCcw className="size-4" /> Retry failed uploads

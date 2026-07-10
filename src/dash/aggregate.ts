@@ -16,6 +16,7 @@ import {
   TYPICAL_OPP_TELEOP_FUEL,
   DEFENSE_RATING_MAX_PTS,
 } from '@/dash/constants';
+import { QUALITATIVE_RATING_MAX } from '@/ratings';
 
 /** Recent-form trend buckets (distribution-trend feature). */
 export type TrendDirection = 'improving' | 'stable' | 'fading' | 'insufficient';
@@ -114,8 +115,8 @@ export interface TeamAgg {
 export const LOW_CONFIDENCE_THRESHOLD = 0.7;
 
 /**
- * Mean of a 0–3 super-scout rating across a team's RATED matches (0 / null
- * excluded), as "2.3/3"; "—" when no match was rated. Pure over the team's
+ * Mean of a 1–10 super-scout rating across a team's RATED matches (0 / null
+ * excluded), as "7.3/10"; "—" when no match was rated. Pure over the team's
  * reports — the super-scout averages are deliberately kept OFF `TeamAgg`
  * (no new aggregate field / fixture churn). Shared by TeamView and the
  * Strategy tab's team cards.
@@ -128,7 +129,7 @@ export function ratedMeanText(
     .map(sel)
     .filter((v): v is number => typeof v === 'number' && v > 0);
   if (vals.length === 0) return '—';
-  return `${(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)}/3`;
+  return `${(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)}/${QUALITATIVE_RATING_MAX}`;
 }
 
 /**
@@ -193,6 +194,7 @@ function clamp01(x: number): number {
  * never re-implementing the frozen `SCORING.CLIMB` magnitudes.
  */
 export function climbPointsForMatch(r: MsrRow): number {
+  if (r.no_show) return 0;
   const climb = SCORING.CLIMB as Record<number, { auto: number; teleop: number }>;
   let pts = 0;
   if (r.climb_success) {
@@ -211,6 +213,7 @@ export function climbPointsForMatch(r: MsrRow): number {
  * Caller guarantees reports.length >= 1.
  */
 export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
+  reports = deduplicateMatchObservations(reports);
   const n = reports.length;
 
   let sumAuto = 0;
@@ -241,31 +244,40 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
   let baseDur = 0;
 
   for (const r of reports) {
-    sumAuto += r.auto_fuel;
-    sumTeleopActive += r.teleop_fuel_active;
-    sumTeleopInactive += r.teleop_fuel_inactive;
-    sumEndgame += r.endgame_fuel;
-    sumTotal += r.auto_fuel + r.teleop_fuel_active + r.teleop_fuel_inactive + r.endgame_fuel;
-    sumFuelPoints += r.fuel_points;
+    // A no-show is a played schedule slot with zero robot contribution even if
+    // stale capture fields survived on the row.
+    const autoFuel = r.no_show ? 0 : r.auto_fuel;
+    const teleopActive = r.no_show ? 0 : r.teleop_fuel_active;
+    const teleopInactive = r.no_show ? 0 : r.teleop_fuel_inactive;
+    const endgameFuel = r.no_show ? 0 : r.endgame_fuel;
+    const fuelPoints = r.no_show ? 0 : r.fuel_points;
+    sumAuto += autoFuel;
+    sumTeleopActive += teleopActive;
+    sumTeleopInactive += teleopInactive;
+    sumEndgame += endgameFuel;
+    sumTotal += autoFuel + teleopActive + teleopInactive + endgameFuel;
+    sumFuelPoints += fuelPoints;
     // Coalesce legacy NULL confidence to the documented 0.3 so the rate-FUEL
     // low-confidence chip still fires for pre-0008 rows. Display flag only —
     // confidence no longer weights any points. (0008 backfills the column.)
     sumFuelConfidence += r.fuel_estimate_confidence ?? 0.3;
-    if (r.climb_success) climbSuccessCount += 1;
-    sumClimbLevel += r.climb_level;
+    if (!r.no_show && r.climb_success) climbSuccessCount += 1;
+    sumClimbLevel += r.no_show ? 0 : r.climb_level;
     const cp = climbPointsForMatch(r);
     sumClimbPoints += cp;
-    sumDefense += r.defense_rating;
-    fuelPts.push(r.fuel_points);
+    if (!r.no_show && r.defense_rating > 0) {
+      sumDefense += r.defense_rating;
+      defense.push(r.defense_rating);
+    }
+    fuelPts.push(fuelPoints);
     climbPts.push(cp);
-    defense.push(r.defense_rating);
     if (r.no_show) noShowCount += 1;
     if (r.died) diedCount += 1;
     if (r.tipped) tippedCount += 1;
     if (r.no_show || r.died || r.tipped) incidentCount += 1;
 
     // Metric A: pool this report's defended/undefended fuel ball-time.
-    if (Array.isArray(r.fuel_bursts) && r.fuel_bursts.length > 0) {
+    if (!r.no_show && Array.isArray(r.fuel_bursts) && r.fuel_bursts.length > 0) {
       const windows = (r.defended_intervals ?? []).map(intervalAbsRange);
       const wr = weightedRate(r.fuel_bursts, windows);
       defendedBallTimeIn += wr.insideBallTime;
@@ -291,14 +303,14 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
   // Distribution: population std-dev + floor/ceiling per metric.
   const stdDevFuelPoints = stdDev(fuelPts, meanFuelPoints);
   const stdDevClimbPoints = stdDev(climbPts, meanClimbPoints);
-  const avgDefenseRating = sumDefense / n;
+  const avgDefenseRating = defense.length > 0 ? sumDefense / defense.length : 0;
   const stdDevDefenseRating = stdDev(defense, avgDefenseRating);
 
   // Recent form: sort a copy by play order, slice the trailing window of fuel.
   const sortedFuelPts = reports
     .slice()
     .sort((a, b) => compareMatchKeys(a.match_key, b.match_key))
-    .map((r) => r.fuel_points);
+    .map((r) => (r.no_show ? 0 : r.fuel_points));
   const trend = recentTrend(sortedFuelPts, meanFuelPoints);
 
   return {
@@ -340,6 +352,43 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
     recentFuelDelta: trend.delta,
     recentTrend: trend.dir,
   };
+}
+
+/**
+ * Multi-scout reports are coverage of one robot-match, not extra matches.
+ * Select one deterministic canonical observation per match/team so duplicate
+ * coverage cannot inflate sample counts or prediction confidence.
+ */
+export function deduplicateMatchObservations(reports: MsrRow[]): MsrRow[] {
+  const canonical = new Map<string, MsrRow>();
+  const unattributed: MsrRow[] = [];
+  for (const report of reports) {
+    if (report.deleted === true) continue;
+    // Legacy rows without attribution cannot be proven to be duplicate scout
+    // coverage; preserve them rather than collapsing potentially distinct data.
+    if (!report.scout_id) {
+      unattributed.push(report);
+      continue;
+    }
+    const key = `${report.match_key}:${report.target_team_number}`;
+    const previous = canonical.get(key);
+    if (!previous) {
+      canonical.set(key, report);
+      continue;
+    }
+    const reportTime = Date.parse(report.server_received_at);
+    const previousTime = Date.parse(previous.server_received_at);
+    const normalizedReportTime = Number.isFinite(reportTime) ? reportTime : 0;
+    const normalizedPreviousTime = Number.isFinite(previousTime) ? previousTime : 0;
+    if (
+      normalizedReportTime > normalizedPreviousTime ||
+      (normalizedReportTime === normalizedPreviousTime &&
+        (report.scout_id ?? '') > (previous.scout_id ?? ''))
+    ) {
+      canonical.set(key, report);
+    }
+  }
+  return [...canonical.values(), ...unattributed];
 }
 
 /**
@@ -400,6 +449,7 @@ export function attachDefenderEffectiveness(
   aggs: Map<number, TeamAgg>,
   reports: MsrRow[],
 ): void {
+  reports = deduplicateMatchObservations(reports);
   // Index live reports by match, then by alliance color.
   const byMatch = new Map<string, { red: MsrRow[]; blue: MsrRow[] }>();
   for (const r of reports) {
@@ -469,9 +519,9 @@ export function attachDefenderEffectiveness(
  * Skips deleted rows; only produces entries for teams with >= 1 live report.
  */
 export function aggregateEvent(reports: MsrRow[]): Map<number, TeamAgg> {
+  const observations = deduplicateMatchObservations(reports);
   const byTeam = new Map<number, MsrRow[]>();
-  for (const r of reports) {
-    if (r.deleted === true) continue;
+  for (const r of observations) {
     const bucket = byTeam.get(r.target_team_number);
     if (bucket) bucket.push(r);
     else byTeam.set(r.target_team_number, [r]);
@@ -482,7 +532,7 @@ export function aggregateEvent(reports: MsrRow[]): Map<number, TeamAgg> {
     result.set(teamNumber, aggregateTeam(teamNumber, teamReports));
   }
   // Cross-team Metric B pass (needs all reports), filling the map in place.
-  attachDefenderEffectiveness(result, reports);
+  attachDefenderEffectiveness(result, observations);
   return result;
 }
 
@@ -560,7 +610,7 @@ export function aggregateTeamDefensePts(agg: TeamAgg): number | null {
     return agg.defenderEffectiveness * TYPICAL_OPP_TELEOP_FUEL;
   }
   if (agg.matchesScouted > 0 && agg.avgDefenseRating > 0) {
-    return (agg.avgDefenseRating / 3) * DEFENSE_RATING_MAX_PTS;
+    return (agg.avgDefenseRating / QUALITATIVE_RATING_MAX) * DEFENSE_RATING_MAX_PTS;
   }
   return null;
 }
@@ -612,7 +662,7 @@ export const ACCURACY_MIN_OVERLAPS = 3;
 export const FUEL_ABS_TOL = 5;
 /** fuel_points relative tolerance — 10% of the consensus mean. */
 export const FUEL_REL_TOL = 0.1;
-/** defense_rating ordinal (0..3) — within ±1 of consensus mode agrees. */
+/** defense_rating ordinal (1–10; 0 unrated) — within ±1 of consensus mode agrees. */
 export const DEFENSE_TOL = 1;
 
 /** Per-scout load: how much work this scout_id authored at the event. */
@@ -815,7 +865,11 @@ export function aggregateScouterAccuracy(reports: MsrRow[]): Map<string, Scouter
     const climbConsensus = mode(
       scored.map((r) => `${r.climb_success ? 1 : 0}:${r.climb_level}`),
     );
-    const defenseConsensus = mode(group.map((r) => r.defense_rating));
+    const defenseConsensus = mode(
+      group
+        .map((r) => r.defense_rating)
+        .filter((rating) => Number.isFinite(rating) && rating > 0),
+    );
 
     for (const r of group) {
       if (r.scout_id == null) continue;
@@ -835,8 +889,8 @@ export function aggregateScouterAccuracy(reports: MsrRow[]): Map<string, Scouter
           acc.climbAgree += 1;
         }
       }
-      // Defense — always rated; ±1 of consensus mode agrees.
-      if (defenseConsensus != null) {
+      // Defense — 0 is "not rated"; rated values within ±1 of the mode agree.
+      if (r.defense_rating > 0 && defenseConsensus != null) {
         acc.defenseElig += 1;
         if (Math.abs(r.defense_rating - defenseConsensus) <= DEFENSE_TOL) {
           acc.defenseAgree += 1;
@@ -916,7 +970,7 @@ const HIGH_CLIMB_LEVEL = 2.5; // avgClimbLevel
 const UNRELIABLE_CLIMB_RATE = 0.4;
 const HEAVY_FEED_FUEL = 25; // meanTeleopFuelInactive
 const LOW_FUEL_PTS = 30; // meanFuelPoints per match
-const STRONG_DEFENSE = 1.5; // avgDefenseRating (0-3)
+const STRONG_DEFENSE = 5; // avgDefenseRating (1–10; 0 = not rated)
 const FRAGILE_RELIABILITY = 0.6; // reliability = clamp01(1 - noShowRate - diedRate)
 
 function pctText(x: number): string {
@@ -971,7 +1025,7 @@ function guidanceForAlliance(aggs: (TeamAgg | undefined)[]): AllianceGuidance {
         teamNumber: t,
         kind: 'defense',
         severity: 'med',
-        text: `${t} plays defense (${a.avgDefenseRating.toFixed(1)}/3) — protect our shooter`,
+        text: `${t} plays defense (${a.avgDefenseRating.toFixed(1)}/${QUALITATIVE_RATING_MAX}) — protect our shooter`,
       });
     }
     if (a.meanFuelPoints >= 2 * LOW_FUEL_PTS) {
@@ -1011,7 +1065,7 @@ function guidanceForAlliance(aggs: (TeamAgg | undefined)[]): AllianceGuidance {
   }
 
   // Alliance-level rollup (added once, not per team): no defenders anywhere.
-  if (live.length > 0 && live.every((a) => a.avgDefenseRating < 0.5)) {
+  if (live.length > 0 && live.every((a) => a.avgDefenseRating < 2)) {
     exploits.push({
       teamNumber: 0,
       kind: 'defense',

@@ -1,23 +1,21 @@
 // src/dash/MatchupNotesModal.tsx
-// Controlled editor sheet for a per-opponent matchup note (matchup-intelligence).
+// Controlled editor sheet for one actual team's event-scoped strategy note.
 // Pre-fills with the existing note; Save writes to Dexie 'dirty' (offline-first)
-// via saveMatchupNote and invalidates the notes query so the panel re-reads.
-import { useEffect, useState } from 'react';
+// via saveTeamStrategyNote and invalidates the notes query so the panel re-reads.
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sheet } from '@/components/ui/Sheet';
 import { Button } from '@/components/ui/button';
-import { saveMatchupNote } from '@/dash/matchupNotesClient';
+import { saveTeamStrategyNote } from '@/dash/matchupNotesClient';
 
 export interface MatchupNotesModalProps {
   open: boolean;
   onClose: () => void;
   eventKey: string;
-  /** The "our" alliance teams for the keyed pairing (min = our lead). */
-  ourTeams: number[];
-  /** The opponent alliance teams (min = the opponent lead the note keys on). */
-  oppTeams: number[];
-  /** The opponent alliance lead shown in the header (the min of oppTeams). */
-  oppLead: number;
+  /** The actual team this event-scoped note describes. */
+  targetTeam: number;
+  /** Match-relative context, e.g. "Our partner · Red alliance". */
+  allianceContext: string;
   /** Existing note text to pre-fill. */
   initialNote: string;
 }
@@ -26,64 +24,90 @@ export default function MatchupNotesModal({
   open,
   onClose,
   eventKey,
-  ourTeams,
-  oppTeams,
-  oppLead,
+  targetTeam,
+  allianceContext,
   initialNote,
 }: MatchupNotesModalProps): JSX.Element {
   const queryClient = useQueryClient();
   const [text, setText] = useState(initialNote);
   const [saving, setSaving] = useState(false);
-  // Freeze the pairing (and seed note) the editor opened against. The parent
-  // recomputes ourTeams/oppTeams/oppLead from live match data, so without this a
-  // background refresh mid-edit could redirect Save to a different pairing — or
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const openedEventRef = useRef(eventKey);
+  // Freeze the team/context (and seed note) the editor opened against. The parent
+  // recomputes the selected matchup from live data, so without this a background
+  // refresh mid-edit could redirect Save to a different team — or
   // silently reset the in-progress note. Pinned to the open transition only.
-  const [frozen, setFrozen] = useState({ ourTeams, oppTeams, oppLead, note: initialNote });
+  const [frozen, setFrozen] = useState({
+    eventKey,
+    targetTeam,
+    allianceContext,
+    note: initialNote,
+  });
 
   // Re-sync the textarea + pinned pairing when the sheet opens. Intentionally
   // keyed on `open` alone: once editing, everything stays pinned to what the user
   // opened, immune to background team/note updates.
   useEffect(() => {
     if (open) {
+      openedEventRef.current = eventKey;
       setText(initialNote);
-      setFrozen({ ourTeams, oppTeams, oppLead, note: initialNote });
+      setSaveError(null);
+      setFrozen({ eventKey, targetTeam, allianceContext, note: initialNote });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(() => {
+    if (open && openedEventRef.current !== eventKey) onClose();
+  }, [eventKey, onClose, open]);
+
   const onSave = async () => {
     if (saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      await saveMatchupNote(eventKey, frozen.ourTeams, frozen.oppTeams, text);
-      await queryClient.invalidateQueries({ queryKey: ['matchup-notes', eventKey] });
+      const saved = await saveTeamStrategyNote(frozen.eventKey, frozen.targetTeam, text);
+      // React Query pauses network-backed refetches while offline. Update the
+      // visible map directly from the just-persisted Dexie row so closing and
+      // reopening this team's editor immediately shows the independent draft.
+      queryClient.setQueryData<Map<string, string>>(
+        ['matchup-notes', frozen.eventKey],
+        (current) => new Map(current ?? []).set(saved.key, saved.note),
+      );
+      await queryClient.invalidateQueries({ queryKey: ['matchup-notes', frozen.eventKey] });
       onClose();
+    } catch {
+      setSaveError('Could not save this note on this device. Try again.');
     } finally {
       setSaving(false);
     }
   };
 
-  const headerLead = frozen.oppLead;
-
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title={`Notes vs alliance lead ${headerLead}`}
+      title={`Strategy note for team ${frozen.targetTeam}`}
+      initialFocusRef={textareaRef}
       data-testid="matchup-notes-sheet"
     >
       <div className="flex h-full flex-col gap-3">
         <p className="text-xs text-muted-foreground">
-          Event-scoped note keyed on the alliance lead team — it resurfaces for any
-          future match against alliance lead {headerLead} at this event.
+          {frozen.allianceContext}. This event-scoped note follows team {frozen.targetTeam}{' '}
+          across every matchup at this event.
         </p>
         <textarea
+          ref={textareaRef}
           data-testid="matchup-notes-textarea"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="e.g. deny their feed lane; 254 climbs every match"
+          placeholder={`Strategy for team ${frozen.targetTeam}…`}
           className="min-h-[200px] flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
+        {saveError ? (
+          <p role="alert" className="text-sm text-destructive">{saveError}</p>
+        ) : null}
         <div className="flex items-center justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             Cancel

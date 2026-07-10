@@ -4,7 +4,7 @@
 // teams / scouters) so the lead can cross-check.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, cleanup, fireEvent, within } from '@testing-library/react';
+import { render, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { MsrRow } from '@/dash/types';
 import type { MatchRow, ScoutRow } from '@/dash/useEventData';
@@ -37,11 +37,17 @@ import MatchView from '@/dash/MatchView';
 
 function renderView(eventKey: string, initialMatchKey?: string | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = (nextInitialMatchKey: string | null | undefined = initialMatchKey) => (
     <QueryClientProvider client={client}>
-      <MatchView eventKey={eventKey} initialMatchKey={initialMatchKey} />
-    </QueryClientProvider>,
+      <MatchView eventKey={eventKey} initialMatchKey={nextInitialMatchKey} />
+    </QueryClientProvider>
   );
+  const result = render(view());
+  return {
+    ...result,
+    rerenderView: (nextInitialMatchKey: string | null | undefined = initialMatchKey) =>
+      result.rerender(view(nextInitialMatchKey)),
+  };
 }
 
 function row(overrides: Partial<MsrRow>): MsrRow {
@@ -134,6 +140,40 @@ beforeEach(() => {
 });
 
 describe('MatchView', () => {
+  it('resets selection on event switch and defaults to the new latest played match', async () => {
+    const oldMatches = [
+      match({ match_key: '2026old_qm1', event_key: '2026old', match_number: 1 }),
+    ];
+    const newMatches = [
+      match({
+        match_key: '2026new_qm3', event_key: '2026new', match_number: 3,
+        actual_red_score: 10, actual_blue_score: 8,
+      }),
+      match({
+        match_key: '2026new_qm4', event_key: '2026new', match_number: 4,
+        actual_red_score: 20, actual_blue_score: 18,
+      }),
+    ];
+    useEventMatchesMock.mockImplementation((key: string) =>
+      querySuccess(key === '2026old' ? oldMatches : newMatches),
+    );
+    useEventReportsMock.mockReturnValue(querySuccess([]));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (eventKey: string) => (
+      <QueryClientProvider client={client}>
+        <MatchView eventKey={eventKey} />
+      </QueryClientProvider>
+    );
+    const rendered = render(view('2026old'));
+    fireEvent.click(rendered.getByTestId('match-item-2026old_qm1'));
+    rendered.rerender(view('2026new'));
+
+    await waitFor(() =>
+      expect(rendered.getByTestId('match-item-2026new_qm4').className).toContain('border-brand'),
+    );
+    expect(rendered.queryByTestId('match-item-2026old_qm1')).toBeNull();
+  });
+
   it('renders the shell and a match list with friendly labels', () => {
     const { getByTestId } = renderView("2026casnv");
     expect(getByTestId('dash-match')).toBeTruthy();
@@ -290,13 +330,45 @@ describe('MatchView', () => {
     expect(card.textContent).toMatch(/synced/);
     expect(card.textContent).toMatch(/stations/);
     // s1 reported (a reported row keyed by scout id, visible by default).
-    expect(getByTestId('match-scout-reported-s1')).toBeTruthy();
+    expect(getByTestId('match-scout-reported-s1').textContent).toMatch(/Synced/);
+    // The server received the unattributed report too, but it is visibly distinct
+    // from an attributed scout so the lead does not mistake it for roster coverage.
+    expect(getByTestId('match-scout-reported-unassigned').textContent).toMatch(
+      /Synced, unassigned/,
+    );
     // The bulky "not reported" list is collapsed behind a toggle by default…
     expect(queryByTestId('match-scout-missing-s2')).toBeNull();
     expect(getByTestId('match-scout-missing-toggle').textContent).toMatch(/not reported/);
     // …and expands on click to reveal the missing scout row.
     fireEvent.click(getByTestId('match-scout-missing-toggle'));
     expect(getByTestId('match-scout-missing-s2')).toBeTruthy();
+    expect(getByTestId('match-scout-missing-s2').getAttribute('aria-label')).toMatch(
+      /no synced report received/,
+    );
+    expect(card.textContent).toMatch(/pending or failed/i);
+  });
+
+  it('lays a large missing roster out in a responsive status grid', () => {
+    const largeRoster: ScoutRow[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `scout-${i + 1}`,
+      display_name: i === 11 ? 'Scout With A Deliberately Long Name' : `Scout ${i + 1}`,
+      event_key: '2026casnv',
+    }));
+    useEventScoutsMock.mockReturnValue(querySuccess(largeRoster));
+    const { getByTestId } = renderView('2026casnv');
+
+    // qm2 has no reports, so every roster member should appear after expansion.
+    fireEvent.click(getByTestId('match-item-2026casnv_qm2'));
+    fireEvent.click(getByTestId('match-scout-missing-toggle'));
+
+    const list = getByTestId('match-scout-missing-list');
+    expect(list.className).toContain(
+      'grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]',
+    );
+    expect(within(list).getAllByRole('listitem')).toHaveLength(12);
+    expect(getByTestId('match-scout-missing-scout-12').textContent).toContain(
+      'Scout With A Deliberately Long Name',
+    );
   });
 
   it('orders the detail pane: results → video → timelines → combined reports+status', () => {
@@ -383,6 +455,105 @@ describe('MatchView', () => {
     expect(getByTestId('match-detail')).toBeTruthy();
     // qm1 has the two seeded reports, confirming the right match is selected.
     expect(getByTestId('match-report-254-1-0')).toBeTruthy();
+  });
+
+  describe('initial latest-played selection', () => {
+    it('defaults to the latest played match in competition order', () => {
+      useEventMatchesMock.mockReturnValue(
+        querySuccess([
+          // Deliberately unsorted. qm10 must follow qm2 numerically, and a final
+          // follows all quals even though its raw key sorts before "qm".
+          match({
+            match_key: '2026casnv_qm10',
+            match_number: 10,
+            actual_red_score: 80,
+            actual_blue_score: 70,
+          }),
+          match({
+            match_key: '2026casnv_f1m1',
+            comp_level: 'f',
+            match_number: 1,
+            result_synced_at: '2026-06-23T02:00:00Z',
+          }),
+          match({
+            match_key: '2026casnv_qm2',
+            match_number: 2,
+            actual_red_score: 60,
+            actual_blue_score: 50,
+          }),
+          match({ match_key: '2026casnv_f1m2', comp_level: 'f', match_number: 2 }),
+        ]),
+      );
+
+      const { getByTestId, queryByTestId } = renderView('2026casnv');
+      expect(getByTestId('match-item-2026casnv_f1m1').className).toContain('border-brand');
+      expect(queryByTestId('match-prompt')).toBeNull();
+    });
+
+    it('keeps the prompt when no match has a recorded result', () => {
+      const { getByTestId } = renderView('2026casnv');
+      expect(getByTestId('match-prompt')).toBeTruthy();
+    });
+
+    it('preserves an incoming deep-linked selection over the default', () => {
+      useEventMatchesMock.mockReturnValue(
+        querySuccess([
+          match({
+            match_key: '2026casnv_qm1',
+            match_number: 1,
+            actual_red_score: 50,
+            actual_blue_score: 40,
+          }),
+          match({
+            match_key: '2026casnv_qm2',
+            match_number: 2,
+            actual_red_score: 70,
+            actual_blue_score: 60,
+          }),
+        ]),
+      );
+
+      const { getByTestId } = renderView('2026casnv', '2026casnv_qm1');
+      expect(getByTestId('match-item-2026casnv_qm1').className).toContain('border-brand');
+      expect(getByTestId('match-item-2026casnv_qm2').className).not.toContain('border-brand');
+    });
+
+    it('does not replace a manual selection when newer results arrive', () => {
+      const initialMatches = [
+        match({
+          match_key: '2026casnv_qm1',
+          match_number: 1,
+          actual_red_score: 50,
+          actual_blue_score: 40,
+        }),
+        match({ match_key: '2026casnv_qm2', match_number: 2 }),
+      ];
+      useEventMatchesMock.mockReturnValue(querySuccess(initialMatches));
+      const { getByTestId, rerenderView } = renderView('2026casnv');
+
+      fireEvent.click(getByTestId('match-item-2026casnv_qm2'));
+      useEventMatchesMock.mockReturnValue(
+        querySuccess([
+          initialMatches[0],
+          match({
+            match_key: '2026casnv_qm2',
+            match_number: 2,
+            actual_red_score: 75,
+            actual_blue_score: 65,
+          }),
+          match({
+            match_key: '2026casnv_qm3',
+            match_number: 3,
+            actual_red_score: 90,
+            actual_blue_score: 80,
+          }),
+        ]),
+      );
+      rerenderView();
+
+      expect(getByTestId('match-item-2026casnv_qm2').className).toContain('border-brand');
+      expect(getByTestId('match-item-2026casnv_qm3').className).not.toContain('border-brand');
+    });
   });
 
   it('renders a coverage marker on each left-list match item', () => {

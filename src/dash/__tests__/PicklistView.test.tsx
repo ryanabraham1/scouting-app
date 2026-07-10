@@ -1,13 +1,15 @@
 // src/dash/__tests__/PicklistView.test.tsx
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import type { PicklistEntry } from '@/dash/picklistClient';
 
 // --- mock the picklist client ---
 const getPicklistMock = vi.fn();
 const savePicklistMock = vi.fn();
+const getCachedPicklistMock = vi.fn();
 vi.mock('@/dash/picklistClient', () => ({
   getPicklist: (eventKey: string) => getPicklistMock(eventKey),
+  getCachedPicklist: (eventKey: string) => getCachedPicklistMock(eventKey),
   savePicklist: (eventKey: string, entries: PicklistEntry[]) =>
     savePicklistMock(eventKey, entries),
   // Real (pure) list-membership resolution — mirrors picklistClient.entryList.
@@ -74,6 +76,7 @@ const TWO: PicklistEntry[] = [
 beforeEach(() => {
   cleanup();
   getPicklistMock.mockReset();
+  getCachedPicklistMock.mockReset();
   savePicklistMock.mockReset();
   downloadTextMock.mockReset();
   fetchTeamMetadataMock.mockReset();
@@ -90,6 +93,7 @@ beforeEach(() => {
     { team_number: 9999, nickname: 'Test Bots' },
   ];
   getPicklistMock.mockResolvedValue(TWO.map((e) => ({ ...e })));
+  getCachedPicklistMock.mockReturnValue(null);
   savePicklistMock.mockResolvedValue(undefined);
   fetchTeamMetadataMock.mockResolvedValue(new Map());
   buildPresetRowsMock.mockReturnValue([{ rank: 1, teamNumber: 254 }]);
@@ -115,6 +119,11 @@ async function renderLoaded() {
   const utils = render(<PicklistView eventKey="2026casnv" />);
   await waitFor(() => expect(utils.getByTestId('pick-row-254')).toBeTruthy());
   return utils;
+}
+
+function openExportMenu(getByTestId: (id: string) => HTMLElement): HTMLElement {
+  fireEvent.click(getByTestId('pick-export-menu-trigger'));
+  return getByTestId('pick-export-menu');
 }
 
 describe('PicklistView', () => {
@@ -254,6 +263,7 @@ describe('PicklistView', () => {
 
   it('exports CSV via downloadText', async () => {
     const { getByTestId } = await renderLoaded();
+    openExportMenu(getByTestId);
     fireEvent.click(getByTestId('pick-export-csv'));
     expect(downloadTextMock).toHaveBeenCalledTimes(1);
     const [name, mime, text] = downloadTextMock.mock.calls[0] as [string, string, string];
@@ -264,6 +274,7 @@ describe('PicklistView', () => {
 
   it('exports JSON via downloadText', async () => {
     const { getByTestId } = await renderLoaded();
+    openExportMenu(getByTestId);
     fireEvent.click(getByTestId('pick-export-json'));
     expect(downloadTextMock).toHaveBeenCalledTimes(1);
     const [name, mime, text] = downloadTextMock.mock.calls[0] as [string, string, string];
@@ -272,15 +283,42 @@ describe('PicklistView', () => {
     expect(JSON.parse(text)).toHaveLength(2);
   });
 
-  it('renders the three export-preset buttons', async () => {
-    const { getByTestId } = await renderLoaded();
+  it('keeps print primary and groups file formats in a labeled export menu', async () => {
+    const { getByTestId, queryByTestId, getByRole } = await renderLoaded();
+    expect(getByTestId('pick-export-alliance-print').textContent).toMatch(/print alliance sheet/i);
+    expect(queryByTestId('pick-export-menu')).toBeNull();
+
+    openExportMenu(getByTestId);
+    expect(getByRole('menu', { name: 'Export picklist' })).toBeTruthy();
     expect(getByTestId('pick-export-alliance-csv')).toBeTruthy();
-    expect(getByTestId('pick-export-alliance-print')).toBeTruthy();
+    expect(getByTestId('pick-export-csv')).toBeTruthy();
     expect(getByTestId('pick-export-tool-csv')).toBeTruthy();
+    expect(getByTestId('pick-export-json')).toBeTruthy();
+  });
+
+  it('supports menu arrow keys, Escape, and outside-click dismissal', async () => {
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    const trigger = getByTestId('pick-export-menu-trigger');
+    const menu = openExportMenu(getByTestId);
+
+    await waitFor(() => expect(document.activeElement).toBe(getByTestId('pick-export-alliance-csv')));
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(getByTestId('pick-export-csv'));
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(document.activeElement).toBe(getByTestId('pick-export-json'));
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(queryByTestId('pick-export-menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    openExportMenu(getByTestId);
+    fireEvent.mouseDown(document.body);
+    expect(queryByTestId('pick-export-menu')).toBeNull();
   });
 
   it('Alliance Sheet (CSV) downloads alliance-sheet-{eventKey}.csv', async () => {
     const { getByTestId } = await renderLoaded();
+    openExportMenu(getByTestId);
     fireEvent.click(getByTestId('pick-export-alliance-csv'));
     await waitFor(() => expect(downloadTextMock).toHaveBeenCalledTimes(1));
     expect(fetchTeamMetadataMock).toHaveBeenCalledTimes(1);
@@ -293,6 +331,7 @@ describe('PicklistView', () => {
 
   it('Picklist Tool (CSV) downloads picklist-tool-{eventKey}.csv', async () => {
     const { getByTestId } = await renderLoaded();
+    openExportMenu(getByTestId);
     fireEvent.click(getByTestId('pick-export-tool-csv'));
     await waitFor(() => expect(downloadTextMock).toHaveBeenCalledTimes(1));
     expect(picklistToolCsvMock).toHaveBeenCalledTimes(1);
@@ -582,5 +621,84 @@ describe('PicklistView', () => {
     const { getByTestId } = await renderLoaded();
     const banner = getByTestId('pick-export-epa-banner');
     expect(banner.textContent).toContain('in-house estimate');
+  });
+
+  it('shows a cached failed-load fallback read-only and never autosaves it', async () => {
+    getPicklistMock.mockRejectedValue(new Error('offline'));
+    getCachedPicklistMock.mockReturnValue(TWO);
+    const { getByTestId } = render(<PicklistView eventKey="2026casnv" />);
+
+    await waitFor(() => expect(getByTestId('pick-row-254')).toBeTruthy());
+    expect(getByTestId('pick-readonly-warning').textContent).toContain('last verified copy');
+    expect((getByTestId('pick-add') as HTMLButtonElement).disabled).toBe(true);
+    expect((getByTestId('pick-note-254') as HTMLInputElement).disabled).toBe(true);
+    expect(savePicklistMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores reverse-completing loads from a previous event', async () => {
+    let resolveA!: (entries: PicklistEntry[]) => void;
+    let resolveB!: (entries: PicklistEntry[]) => void;
+    getPicklistMock.mockImplementation(
+      (key: string) =>
+        new Promise<PicklistEntry[]>((resolve) => {
+          if (key === 'event-a') resolveA = resolve;
+          else resolveB = resolve;
+        }),
+    );
+    const view = render(<PicklistView eventKey="event-a" />);
+    view.rerender(<PicklistView eventKey="event-b" />);
+
+    await act(async () => resolveB([{ teamNumber: 9999, tier: null, note: null }]));
+    await waitFor(() => expect(view.getByTestId('pick-row-9999')).toBeTruthy());
+    await act(async () => resolveA(TWO));
+    expect(view.queryByTestId('pick-row-254')).toBeNull();
+    expect(view.getByTestId('pick-row-9999')).toBeTruthy();
+  });
+
+  it('serializes saves so a newer snapshot cannot complete before an older one', async () => {
+    let resolveFirst!: () => void;
+    let resolveSecond!: () => void;
+    savePicklistMock
+      .mockReturnValueOnce(new Promise<void>((resolve) => (resolveFirst = resolve)))
+      .mockReturnValueOnce(new Promise<void>((resolve) => (resolveSecond = resolve)));
+    const { getByTestId } = await renderLoaded();
+
+    fireEvent.change(getByTestId('pick-add-input'), { target: { value: '9999' } });
+    fireEvent.click(getByTestId('pick-add'));
+    await waitFor(() => expect(savePicklistMock).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    fireEvent.change(getByTestId('pick-note-9999'), { target: { value: 'late edit' } });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    expect(savePicklistMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveFirst());
+    await waitFor(() => expect(savePicklistMock).toHaveBeenCalledTimes(2));
+    await act(async () => resolveSecond());
+    expect((savePicklistMock.mock.calls[1]![1] as PicklistEntry[]).find((e) => e.teamNumber === 9999)?.note)
+      .toBe('late edit');
+  });
+
+  it('keeps a failed save dirty and retries the same snapshot', async () => {
+    savePicklistMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(undefined);
+    const { getByTestId } = await renderLoaded();
+    fireEvent.change(getByTestId('pick-note-254'), { target: { value: 'retry me' } });
+
+    await waitFor(() => expect(getByTestId('pick-save-error')).toBeTruthy(), { timeout: 2000 });
+    fireEvent.click(getByTestId('pick-save-retry'));
+    await waitFor(() => expect(savePicklistMock).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    expect((savePicklistMock.mock.calls[1]![1] as PicklistEntry[])[0]?.note).toBe('retry me');
+  });
+
+  it('cancels a debounced edit when the event scope changes', async () => {
+    const { getByTestId, rerender } = await renderLoaded();
+    fireEvent.change(getByTestId('pick-note-254'), { target: { value: 'event A only' } });
+    getPicklistMock.mockResolvedValueOnce([]);
+    rerender(<PicklistView eventKey="event-b" />);
+    await waitFor(() => expect(getPicklistMock).toHaveBeenCalledWith('event-b'));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(savePicklistMock).not.toHaveBeenCalled();
   });
 });

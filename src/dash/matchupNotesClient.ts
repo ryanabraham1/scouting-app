@@ -1,13 +1,12 @@
 // src/dash/matchupNotesClient.ts
-// Client helpers for per-opponent matchup notes (matchup-intelligence).
+// Client helpers for event-scoped team strategy notes (matchup-intelligence).
 //
-// Notes are keyed event-scoped on the two alliance LEAD teams — the LOWEST team
-// number on each alliance. That is a stable, order-independent alliance
-// identifier that survives station shuffles, so a note resurfaces for ANY future
-// match pitting the same two alliance leads at the same event. (Known v1
-// limitation: min() is not lineup-revision-independent — a surrogate/backup that
-// changes an alliance's min re-keys the note. The modal header surfaces the lead
-// so a coach understands why a note may not resurface after a lineup change.)
+// The existing matchup_note table has an event + two-int primary key. V1 used
+// those ints for the two alliance leads. Team notes reuse that storage without a
+// schema migration by reserving our_team = -1 and storing the actual target team
+// in opp_team. FRC team numbers are positive and V1 normalization only emitted
+// non-negative values, so this creates an unambiguous namespace while preserving
+// every legacy alliance-pair row.
 //
 // Reads come straight from PostgREST (RLS read is open — migration 0033). Writes
 // go to Dexie 'dirty' immediately (offline-first) and drain through the sync
@@ -15,8 +14,11 @@
 // the offline path single.
 
 import { supabase } from '@/lib/supabase';
-import { saveMatchupNoteLocal } from '@/db/localStore';
+import { getMatchupNote, saveMatchupNoteLocal } from '@/db/localStore';
 import type { MatchupNoteRow, LocalMatchupNote } from '@/db/types';
+
+/** Reserved pair-key namespace for event-scoped notes about one actual team. */
+export const TEAM_STRATEGY_NOTE_NAMESPACE = -1;
 
 /** The two alliance leads (min of each list). Symmetric/order-independent on min. */
 export function normalizeMatchup(
@@ -34,6 +36,27 @@ export function keyFor(eventKey: string, ourTeam: number, oppTeam: number): stri
   return `${eventKey}:${ourTeam}:${oppTeam}`;
 }
 
+/** Collision-free key for one actual team's event-scoped strategy note. */
+export function teamNoteKeyFor(eventKey: string, targetTeam: number): string {
+  return keyFor(eventKey, TEAM_STRATEGY_NOTE_NAMESPACE, targetTeam);
+}
+
+function validTargetTeam(targetTeam: number): void {
+  if (!Number.isInteger(targetTeam) || targetTeam <= 0) {
+    throw new Error(`Invalid strategy-note target team: ${targetTeam}`);
+  }
+}
+
+/**
+ * Generate a locally monotonic revision for sequential edits on this device.
+ * The server still provides the cross-device strictly-newer guard.
+ */
+async function nextUpdatedAt(key: string): Promise<string> {
+  const previous = await getMatchupNote(key);
+  const previousMs = previous ? Date.parse(previous.updatedAt) : 0;
+  return new Date(Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0)).toISOString();
+}
+
 /** Server select of all matchup notes for an event (RLS-scoped, open read). */
 export async function fetchMatchupNotesForEvent(eventKey: string): Promise<MatchupNoteRow[]> {
   const { data, error } = await supabase
@@ -43,6 +66,38 @@ export async function fetchMatchupNotesForEvent(eventKey: string): Promise<Match
     .eq('deleted', false);
   if (error) throw error;
   return (data ?? []) as MatchupNoteRow[];
+}
+
+/**
+ * Persist one actual team's event-scoped strategy note through the existing
+ * offline outbox. The reserved namespace avoids collisions with all V1
+ * alliance-lead pair keys.
+ */
+export async function saveTeamStrategyNote(
+  eventKey: string,
+  targetTeam: number,
+  note: string,
+  authorScoutId: string | null = null,
+): Promise<LocalMatchupNote> {
+  validTargetTeam(targetTeam);
+  const key = teamNoteKeyFor(eventKey, targetTeam);
+  const record: LocalMatchupNote = {
+    key,
+    eventKey,
+    ourTeam: TEAM_STRATEGY_NOTE_NAMESPACE,
+    oppTeam: targetTeam,
+    note,
+    updatedAt: await nextUpdatedAt(key),
+    authorScoutId,
+    syncState: 'dirty',
+    syncAttempts: 0,
+    lastSyncError: null,
+  };
+  await saveMatchupNoteLocal(record);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('scout-sync-changed'));
+  }
+  return record;
 }
 
 /**
@@ -60,13 +115,14 @@ export async function saveMatchupNote(
   authorScoutId: string | null = null,
 ): Promise<LocalMatchupNote> {
   const { ourTeam, oppTeam } = normalizeMatchup(ourTeams, oppTeams);
+  const key = keyFor(eventKey, ourTeam, oppTeam);
   const record: LocalMatchupNote = {
-    key: keyFor(eventKey, ourTeam, oppTeam),
+    key,
     eventKey,
     ourTeam,
     oppTeam,
     note,
-    updatedAt: new Date().toISOString(),
+    updatedAt: await nextUpdatedAt(key),
     authorScoutId,
     syncState: 'dirty',
     syncAttempts: 0,

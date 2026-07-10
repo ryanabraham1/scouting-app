@@ -10,12 +10,22 @@
 // Query strings (statbotics) are allowed; hyphens/underscores (event keys) are fine.
 export function isSafeProxyPath(path: string | null): path is string {
   if (!path || !path.startsWith("/")) return false;
+  if (path.length > 512) return false;
   if (path.startsWith("//")) return false;
   if (path.includes("..")) return false;
   if (path.includes("\\")) return false;
   for (let i = 0; i < path.length; i++) {
     const c = path.charCodeAt(i);
     if (c <= 0x20 || c === 0x7f) return false; // control chars / whitespace
+  }
+  const queryIndex = path.indexOf("?");
+  if (queryIndex >= 0) {
+    const query = new URLSearchParams(path.slice(queryIndex + 1));
+    let count = 0;
+    for (const [key, value] of query) {
+      count += 1;
+      if (count > 20 || key.length > 128 || value.length > 256) return false;
+    }
   }
   return true;
 }

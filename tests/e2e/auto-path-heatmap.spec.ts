@@ -53,38 +53,20 @@ test('TeamView shows the auto-consistency heatmap card for a reported team', asy
   await page.getByTestId('team-select').selectOption(String(target));
   await expect(page.getByTestId('team-detail')).toBeVisible({ timeout: 15_000 });
 
-  // Either a rendered heatmap field + count + consistency chip, or the empty
-  // state — never an error.
-  const hasHeatmap = await page.getByTestId('team-auto-heatmap').count();
-  if (hasHeatmap) {
-    await expect(page.getByTestId('team-auto-heatmap')).toBeVisible();
-    await expect(page.getByTestId('team-auto-heatmap-heatmap')).toBeVisible();
-    await expect(page.getByTestId('team-auto-heatmap-count')).toBeVisible();
-    await expect(page.getByTestId('team-auto-heatmap-consistency')).toBeVisible();
-  } else {
-    await expect(page.getByTestId('team-auto-heatmap-empty')).toBeVisible();
-  }
+  // Current TeamView groups path shapes into distinct, selectable auto options.
+  const card = page.getByTestId('team-auto-options-card');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText(/distinct autos?|No auto paths/);
 });
 
-test('NextMatchView exposes ONE shared Latest/heatmap auto-routines toggle', async ({ page }) => {
+test('Strategy whiteboard exposes one shared auto-overlay toggle', async ({ page }) => {
   await setActiveEvent(admin, eventKey);
-  await page.goto('/dashboard'); // defaults to next-match
+  await page.goto('/dashboard?tab=strategy');
   await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('dash-next')).toBeVisible({ timeout: 25_000 });
 
-  // Exactly ONE shared toggle pair above the alliance grid (no per-column dupes).
-  await expect(page.getByTestId('auto-routines-mode-latest')).toHaveCount(1);
-  await expect(page.getByTestId('auto-routines-mode-heatmap')).toHaveCount(1);
-
-  // Switch to heatmap mode; isolate a team if any chip is present.
-  await page.getByTestId('auto-routines-mode-heatmap').click();
-  const chip = page.getByTestId(/auto-routines-team-\d+/).first();
-  if (await chip.count()) {
-    await chip.click();
-    await expect(page.getByTestId(/-heatmap$/).first()).toBeVisible();
-  }
-
-  // Toggling back to latest restores the broadcast field overlay view.
-  await page.getByTestId('auto-routines-mode-latest').click();
-  await expect(page.getByTestId('auto-routines-field').first()).toBeVisible();
+  const toggle = page.getByTestId('dash-strategy-autos-toggle');
+  await expect(toggle).toHaveCount(1);
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect(toggle).not.toBeChecked();
 });

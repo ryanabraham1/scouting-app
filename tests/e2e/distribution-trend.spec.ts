@@ -69,9 +69,9 @@ test('distribution + recent-form surface in Team and Ranking', async ({ page }) 
   await expect(select).toBeVisible({ timeout: 15_000 });
   await select.selectOption(firstRankedTeam!);
 
-  // Distribution card renders with mean ± σ and a range hint.
-  await expect(page.getByTestId('team-distribution')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('team-dist-fuel')).toContainText('±');
+  // Distribution now lives inline in the Fuel stat: mean ± σ plus range hint.
+  await expect(page.getByTestId('team-mean-fuel-points')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('team-mean-fuel-points')).toContainText('±');
   await expect(page.getByTestId('team-recent-form')).toBeVisible();
   // Recent form is one of the four allowed states.
   await expect(page.getByTestId('team-recent-form')).toContainText(

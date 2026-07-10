@@ -60,6 +60,13 @@ export interface MatchClockState {
   teleopClockUnconfirmed: boolean;
 }
 
+export interface MatchClockSnapshot {
+  phase: ClockPhase;
+  autoElapsedMs: number;
+  teleopElapsedMs: number;
+  teleopClockUnconfirmed: boolean;
+}
+
 const INITIAL_STATE: MatchClockState = {
   phase: 'idle',
   autoStartedAt: null,
@@ -72,6 +79,10 @@ export function useMatchClock(now: () => number = () => Date.now()) {
   nowRef.current = now;
 
   const [state, setState] = useState<MatchClockState>(INITIAL_STATE);
+  const [suspendedElapsed, setSuspendedElapsed] = useState<{
+    autoElapsedMs: number;
+    teleopElapsedMs: number;
+  } | null>(null);
   const [, setTick] = useState(0);
 
   // Tick to refresh elapsed/window readouts; `now` is injectable for tests.
@@ -81,23 +92,35 @@ export function useMatchClock(now: () => number = () => Date.now()) {
   }, []);
 
   const autoElapsedMs =
-    state.autoStartedAt === null ? 0 : nowRef.current() - state.autoStartedAt;
+    suspendedElapsed !== null
+      ? suspendedElapsed.autoElapsedMs
+      : state.autoStartedAt === null
+        ? 0
+        : nowRef.current() - state.autoStartedAt;
   const teleopElapsedMs =
-    state.teleopAnchoredAt === null
-      ? 0
-      : nowRef.current() - state.teleopAnchoredAt;
+    suspendedElapsed !== null
+      ? suspendedElapsed.teleopElapsedMs
+      : state.teleopAnchoredAt === null
+        ? 0
+        : nowRef.current() - state.teleopAnchoredAt;
 
   // Auto auto-advances to 'pause' once AUTO_MS has elapsed.
   useEffect(() => {
-    if (state.phase === 'auto' && autoElapsedMs >= AUTO_MS) {
+    if (suspendedElapsed === null && state.phase === 'auto' && autoElapsedMs >= AUTO_MS) {
       setState((s) => (s.phase === 'auto' ? { ...s, phase: 'pause' } : s));
     }
-  }, [state.phase, autoElapsedMs]);
+  }, [state.phase, autoElapsedMs, suspendedElapsed]);
 
   // Pause auto-advances to teleop (flagged UNCONFIRMED) if the scout never taps
   // GO. A tap of GO afterwards still re-anchors and clears the flag (markGo).
   useEffect(() => {
-    if (state.phase !== 'pause' || state.autoStartedAt === null) return;
+    if (
+      suspendedElapsed !== null ||
+      state.phase !== 'pause' ||
+      state.autoStartedAt === null
+    ) {
+      return;
+    }
     const pauseElapsedMs = nowRef.current() - (state.autoStartedAt + AUTO_MS);
     const id = setTimeout(() => {
       setState((s) =>
@@ -112,11 +135,12 @@ export function useMatchClock(now: () => number = () => Date.now()) {
       );
     }, Math.max(0, PAUSE_FALLBACK_MS - pauseElapsedMs));
     return () => clearTimeout(id);
-  }, [state.phase, state.autoStartedAt]);
+  }, [state.phase, state.autoStartedAt, suspendedElapsed]);
 
   const window: MatchWindow = windowForBurst(state.phase, teleopElapsedMs);
 
   const startAuto = useCallback(() => {
+    setSuspendedElapsed(null);
     setState({
       phase: 'auto',
       autoStartedAt: nowRef.current(),
@@ -127,6 +151,7 @@ export function useMatchClock(now: () => number = () => Date.now()) {
 
   // Confirmed two-tap teleop entry: scout taps GO at the real teleop start.
   const markGo = useCallback(() => {
+    setSuspendedElapsed(null);
     setState((s) => ({
       ...s,
       phase: 'teleop',
@@ -137,6 +162,7 @@ export function useMatchClock(now: () => number = () => Date.now()) {
 
   // Fallback teleop entry (no GO tap): anchor now but flag the clock unconfirmed.
   const enterTeleopFallback = useCallback(() => {
+    setSuspendedElapsed(null);
     setState((s) => ({
       ...s,
       phase: 'teleop',
@@ -147,6 +173,7 @@ export function useMatchClock(now: () => number = () => Date.now()) {
 
   // 0:30 cue: remap the anchor so the current `now` maps to endgame start.
   const reAnchor = useCallback(() => {
+    setSuspendedElapsed(null);
     setState((s) => ({
       ...s,
       teleopAnchoredAt: nowRef.current() - SHIFT_BOUNDS.endgame.start,
@@ -154,12 +181,60 @@ export function useMatchClock(now: () => number = () => Date.now()) {
   }, []);
 
   const finish = useCallback(() => {
+    setSuspendedElapsed(null);
     setState((s) => ({ ...s, phase: 'done' }));
   }, []);
 
   const reset = useCallback(() => {
+    setSuspendedElapsed(null);
     setState(INITIAL_STATE);
   }, []);
+
+  const restore = useCallback((snapshot: MatchClockSnapshot) => {
+    const autoElapsed = Math.max(0, Math.min(AUTO_MS, snapshot.autoElapsedMs));
+    const teleopElapsed = Math.max(0, Math.min(TELEOP_MS, snapshot.teleopElapsedMs));
+    const requiresResume =
+      snapshot.phase === 'auto' ||
+      snapshot.phase === 'pause' ||
+      snapshot.phase === 'teleop';
+    setState({
+      phase: snapshot.phase,
+      autoStartedAt: null,
+      teleopAnchoredAt: null,
+      teleopClockUnconfirmed: snapshot.teleopClockUnconfirmed,
+    });
+    setSuspendedElapsed(
+      requiresResume
+        ? { autoElapsedMs: autoElapsed, teleopElapsedMs: teleopElapsed }
+        : null,
+    );
+  }, []);
+
+  const resumeFromSaved = useCallback(() => {
+    setSuspendedElapsed((saved) => {
+      if (!saved) return null;
+      const current = nowRef.current();
+      setState((s) => ({
+        ...s,
+        autoStartedAt:
+          s.phase === 'auto' || s.phase === 'pause'
+            ? current - saved.autoElapsedMs
+            : s.autoStartedAt,
+        teleopAnchoredAt:
+          s.phase === 'teleop'
+            ? current - saved.teleopElapsedMs
+            : s.teleopAnchoredAt,
+      }));
+      return null;
+    });
+  }, []);
+
+  const snapshot: MatchClockSnapshot = {
+    phase: state.phase,
+    autoElapsedMs: Math.max(0, Math.min(AUTO_MS, autoElapsedMs)),
+    teleopElapsedMs: Math.max(0, Math.min(TELEOP_MS, teleopElapsedMs)),
+    teleopClockUnconfirmed: state.teleopClockUnconfirmed,
+  };
 
   return {
     state,
@@ -172,5 +247,9 @@ export function useMatchClock(now: () => number = () => Date.now()) {
     reAnchor,
     finish,
     reset,
+    restore,
+    resumeFromSaved,
+    resumeRequired: suspendedElapsed !== null,
+    snapshot,
   };
 }

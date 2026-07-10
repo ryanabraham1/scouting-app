@@ -17,7 +17,10 @@ export default function PitRoute(): JSX.Element {
   }
 
   return (
-    <main data-testid="pit-route" className="mx-auto flex max-w-md flex-col gap-4 px-0 py-6">
+    <main
+      data-testid="pit-route"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-safe py-6"
+    >
       <PitScoutFlow eventKey={scout.event_key} scoutId={scout.id} />
     </main>
   );

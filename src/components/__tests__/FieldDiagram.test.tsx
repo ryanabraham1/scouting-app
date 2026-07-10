@@ -250,6 +250,28 @@ describe('FieldDiagram heatmap', () => {
     ).toBeNull();
   });
 
+  it('lets keyboard users place and nudge a starting position', () => {
+    const onStartChange = vi.fn();
+    const { getByTestId, rerender } = render(
+      <FieldDiagram mode="pick-start" startPosition={null} onStartChange={onStartChange} />,
+    );
+    const field = getByTestId('field-diagram');
+    expect(field.getAttribute('tabindex')).toBe('0');
+
+    fireEvent.keyDown(field, { key: 'ArrowRight' });
+    expect(onStartChange).toHaveBeenLastCalledWith({ x: 0.52, y: 0.5 });
+
+    rerender(
+      <FieldDiagram
+        mode="pick-start"
+        startPosition={{ x: 0.52, y: 0.5 }}
+        onStartChange={onStartChange}
+      />,
+    );
+    fireEvent.keyDown(getByTestId('field-diagram'), { key: 'ArrowUp', shiftKey: true });
+    expect(onStartChange).toHaveBeenLastCalledWith({ x: 0.52, y: 0.4 });
+  });
+
   it('marks the heatmap <g> pointer-events:none (never blocks interaction)', () => {
     const { container } = render(
       <FieldDiagram mode="view" heatmap={{ points: [{ x: 0.5, y: 0.5 }] }} />,

@@ -6,9 +6,19 @@ import {
   type TimeInterval,
   type MatchReportInputs,
 } from '@/scoring';
-import { useMatchClock, windowForBurst } from '@/capture/clock';
-import { saveDraft, getDraft, deleteDraft, saveReport, getReport } from '@/db/localStore';
+import {
+  AUTO_MS,
+  TELEOP_MS,
+  useMatchClock,
+  windowForBurst,
+  type MatchClockSnapshot,
+} from '@/capture/clock';
 import type { LocalMatchReport } from '@/db/types';
+import { normalizeStoredRating, type QualitativeRating } from '@/ratings';
+import {
+  productionCaptureSessionStorage,
+  type CaptureSessionStorage,
+} from '@/capture/captureSessionStorage';
 
 export interface CaptureTarget {
   eventKey: string;
@@ -33,9 +43,9 @@ interface DeferredState {
   climbSuccess: boolean;
   intakeSources: string[];
   maxFuelCapacityObserved: number;
-  defenseRating: 0 | 1 | 2 | 3;
-  driverSkill: 0 | 1 | 2 | 3;
-  agility: 0 | 1 | 2 | 3;
+  defenseRating: QualitativeRating;
+  driverSkill: QualitativeRating;
+  agility: QualitativeRating;
   defenseDurationMs: number;
   defendedDurationMs: number;
   defenseIntervals: TimeInterval[];
@@ -124,6 +134,7 @@ export function adjustIntervalsTotal(
 }
 
 interface DraftPayload {
+  schemaVersion?: number;
   // Both burst arrays are persisted via refs inside persistDraft (see below), so
   // cross-domain call sites that only change rate/inactiveFirst/deferred/feeding
   // can omit the fuel `bursts` (and vice-versa) without dropping the other's data.
@@ -132,14 +143,127 @@ interface DraftPayload {
   rate: number;
   deferred: DeferredState;
   feedingBursts?: FuelBurst[];
+  captureSession?: CaptureSessionEnvelope;
 }
 
-export function useCaptureSession(target: CaptureTarget) {
-  const clock = useMatchClock();
+export const CAPTURE_SESSION_VERSION = 1;
+export type CaptureFlowStage = 'live' | 'review';
+
+export interface CaptureSessionEnvelope {
+  version: typeof CAPTURE_SESSION_VERSION;
+  stage: CaptureFlowStage;
+  reviewStep: number;
+  placementComplete: boolean;
+  showGo: boolean;
+  clock: MatchClockSnapshot;
+}
+
+export interface CaptureSessionOptions {
+  storage?: CaptureSessionStorage;
+  /** Injectable time source for deterministic tests/practice checkpoints. */
+  now?: () => number;
+  initialStage?: CaptureFlowStage;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
+}
+
+function parseCaptureEnvelope(value: unknown): CaptureSessionEnvelope | null {
+  if (!isRecord(value) || value.version !== CAPTURE_SESSION_VERSION) return null;
+  const clock = value.clock;
+  if (
+    (value.stage !== 'live' && value.stage !== 'review') ||
+    !Number.isInteger(value.reviewStep) ||
+    !isFiniteInRange(value.reviewStep, 0, 4) ||
+    typeof value.placementComplete !== 'boolean' ||
+    typeof value.showGo !== 'boolean' ||
+    !isRecord(clock) ||
+    !['idle', 'auto', 'pause', 'teleop', 'done'].includes(String(clock.phase)) ||
+    !isFiniteInRange(clock.autoElapsedMs, 0, AUTO_MS) ||
+    !isFiniteInRange(clock.teleopElapsedMs, 0, TELEOP_MS) ||
+    typeof clock.teleopClockUnconfirmed !== 'boolean'
+  ) {
+    return null;
+  }
+  return value as unknown as CaptureSessionEnvelope;
+}
+
+function draftValidationError(value: unknown): string | null {
+  if (!isRecord(value)) return 'Draft payload is not an object.';
+  if (
+    typeof value.schemaVersion === 'number' &&
+    value.schemaVersion > SCHEMA_VERSION
+  ) {
+    return `Draft schema ${value.schemaVersion} is newer than this app supports.`;
+  }
+  if (value.bursts !== undefined && !Array.isArray(value.bursts)) {
+    return 'Draft fuel bursts are malformed.';
+  }
+  if (value.feedingBursts !== undefined && !Array.isArray(value.feedingBursts)) {
+    return 'Draft feeding bursts are malformed.';
+  }
+  if (value.deferred !== undefined && !isRecord(value.deferred)) {
+    return 'Draft review data is malformed.';
+  }
+  if (value.captureSession !== undefined) {
+    if (
+      isRecord(value.captureSession) &&
+      typeof value.captureSession.version === 'number' &&
+      value.captureSession.version > CAPTURE_SESSION_VERSION
+    ) {
+      return `Capture session ${value.captureSession.version} is newer than this app supports.`;
+    }
+    if (!parseCaptureEnvelope(value.captureSession)) {
+      return 'Capture session navigation or clock data is malformed.';
+    }
+  }
+  return null;
+}
+
+const activeDraftWriterGeneration = new Map<string, number>();
+const draftWriteChains = new Map<string, Promise<void>>();
+
+/**
+ * Wait for every capture draft write that has already been queued.
+ *
+ * Capture-screen tests reuse the same IndexedDB draft key across cases. Their
+ * teardown must drain the real serialized writer before clearing that key;
+ * yielding one event-loop turn is not sufficient when several Dexie writes are
+ * queued. Kept explicit (rather than adding a delay) so test isolation follows
+ * the same durability boundary as production persistence.
+ */
+export async function flushCaptureSessionWritesForTests(): Promise<void> {
+  await Promise.allSettled([...draftWriteChains.values()]);
+}
+
+function claimDraftWriter(draftKey: string): number {
+  const generation = (activeDraftWriterGeneration.get(draftKey) ?? 0) + 1;
+  activeDraftWriterGeneration.set(draftKey, generation);
+  return generation;
+}
+
+export function useCaptureSession(target: CaptureTarget, options?: CaptureSessionOptions) {
+  const storage = options?.storage ?? productionCaptureSessionStorage;
+  const clock = useMatchClock(options?.now);
+  const clockSnapshotRef = useRef(clock.snapshot);
+  clockSnapshotRef.current = clock.snapshot;
+  const restoreClock = clock.restore;
   const draftKey = useMemo(
     () => `${target.matchKey}:${target.scoutId}:${target.targetTeamNumber}`,
     [target.matchKey, target.scoutId, target.targetTeamNumber],
   );
+  const writerGenerationRef = useRef<{ draftKey: string; generation: number } | null>(null);
+  if (writerGenerationRef.current?.draftKey !== draftKey) {
+    writerGenerationRef.current = {
+      draftKey,
+      generation: claimDraftWriter(draftKey),
+    };
+  }
 
   const [bursts, setBursts] = useState<FuelBurst[]>([]);
   const [feedingBursts, setFeedingBursts] = useState<FuelBurst[]>([]);
@@ -153,7 +277,24 @@ export function useCaptureSession(target: CaptureTarget) {
   const [inactiveFirst, setInactiveFirstState] = useState<boolean | null>(null);
   const [rate, setRateState] = useState<number>(1);
   const [deferred, setDeferred] = useState<DeferredState>(initialDeferred);
+  const deferredRef = useRef<DeferredState>(initialDeferred);
+  deferredRef.current = deferred;
   const [draftResumed, setDraftResumed] = useState(false);
+  const [hydrationStatus, setHydrationStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [flowState, setFlowState] = useState(() => ({
+    stage: options?.initialStage ?? ('live' as CaptureFlowStage),
+    reviewStep: 0,
+    placementComplete: options?.initialStage === 'review',
+    showGo: false,
+  }));
+  const flowStateRef = useRef(flowState);
+  flowStateRef.current = flowState;
+  const mountedRef = useRef(true);
+  const draftWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const sessionFinalizedRef = useRef(false);
 
   const holdStartMsRef = useRef<number | null>(null);
   // State mirror of the hold-start so the live ball-count readout re-renders
@@ -182,6 +323,52 @@ export function useCaptureSession(target: CaptureTarget) {
   // still null — write a phantom draft). It's parked here and flushed after
   // hydration iff no stored draft was found; otherwise the resumed state wins.
   const pendingPersistRef = useRef<DraftPayload | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const captureEnvelope = useCallback(
+    (): CaptureSessionEnvelope => ({
+      version: CAPTURE_SESSION_VERSION,
+      ...flowStateRef.current,
+      clock: clockSnapshotRef.current,
+    }),
+    [],
+  );
+
+  const queueDraftWrite = useCallback(
+    (state: DraftPayload) => {
+      if (sessionFinalizedRef.current) return;
+      const payload = {
+        ...state,
+        schemaVersion: SCHEMA_VERSION,
+        bursts: state.bursts ?? burstsRef.current,
+        feedingBursts: state.feedingBursts ?? feedingBurstsRef.current,
+        captureSession: captureEnvelope(),
+        target,
+      };
+      const writerGeneration = writerGenerationRef.current?.generation;
+      const previousWrite = draftWriteChains.get(draftKey) ?? Promise.resolve();
+      const write = previousWrite.catch(() => undefined).then(async () => {
+          if (activeDraftWriterGeneration.get(draftKey) !== writerGeneration) {
+            return;
+          }
+          await storage.saveDraft(draftKey, payload);
+        });
+      const settledWrite = write.catch(() => {
+          if (mountedRef.current) {
+            setStorageError('Draft changes are not saved on this device.');
+          }
+        });
+      draftWriteChains.set(draftKey, settledWrite);
+      draftWriteChainRef.current = settledWrite;
+    },
+    [captureEnvelope, draftKey, storage, target],
+  );
 
   // ── Edit-mode (report correction) refs ───────────────────────────────────────
   // Populated by the load-existing effect when target.editingReportId is set. They
@@ -244,10 +431,10 @@ export function useCaptureSession(target: CaptureTarget) {
   // edit mode skips the live screen, so it is re-applied to the clock state here.
   const reconstituteFrom = useCallback(
     (r: LocalMatchReport) => {
-      const fuel = r.fuelBursts ?? [];
+      const fuel = Array.isArray(r.fuelBursts) ? r.fuelBursts : [];
       setBursts(fuel);
       burstsRef.current = fuel;
-      const feeds = r.feedingBursts ?? [];
+      const feeds = Array.isArray(r.feedingBursts) ? r.feedingBursts : [];
       setFeedingBursts(feeds);
       feedingBurstsRef.current = feeds;
       setInactiveFirstState(r.inactiveFirst);
@@ -256,19 +443,19 @@ export function useCaptureSession(target: CaptureTarget) {
         climbLevel: r.climbLevel,
         climbAttempted: r.climbAttempted,
         climbSuccess: r.climbSuccess,
-        intakeSources: r.intakeSources ?? [],
+        intakeSources: Array.isArray(r.intakeSources) ? r.intakeSources : [],
         maxFuelCapacityObserved: r.maxFuelCapacityObserved,
         defenseRating: r.defenseRating,
         driverSkill: r.driverSkill ?? 0,
         agility: r.agility ?? 0,
         defenseDurationMs: r.defenseDurationMs,
         defendedDurationMs: r.defendedDurationMs,
-        defenseIntervals: r.defenseIntervals ?? [],
-        defendedIntervals: r.defendedIntervals ?? [],
+        defenseIntervals: Array.isArray(r.defenseIntervals) ? r.defenseIntervals : [],
+        defendedIntervals: Array.isArray(r.defendedIntervals) ? r.defendedIntervals : [],
         pins: r.pins,
         foulsMinor: r.foulsMinor,
         foulsMajor: r.foulsMajor,
-        foulReasons: r.foulReasons ?? [],
+        foulReasons: Array.isArray(r.foulReasons) ? r.foulReasons : [],
         noShow: r.noShow,
         died: r.died,
         tipped: r.tipped,
@@ -295,24 +482,37 @@ export function useCaptureSession(target: CaptureTarget) {
     if (!editId) return;
     let cancelled = false;
     void (async () => {
-      const r = await getReport(editId);
-      if (cancelled || !r) {
+      try {
+        const r = await storage.getReport(editId);
+        if (cancelled) return;
+        if (!r) {
+          setHydrationStatus('error');
+          setStorageError('The report being edited is no longer available on this device.');
+          hydratedRef.current = true;
+          pendingPersistRef.current = null;
+          return;
+        }
+        editIdRef.current = r.id;
+        editCreatedAtRef.current = r.createdAt;
+        editRevRef.current = r.rowRevision ?? 1;
+        reconstituteFrom(r);
         hydratedRef.current = true;
+        setHydrationStatus('ready');
+        // Edit mode never writes drafts — discard any raced pre-hydration persist.
         pendingPersistRef.current = null;
-        return;
+      } catch {
+        if (!cancelled) {
+          hydratedRef.current = true;
+          pendingPersistRef.current = null;
+          setHydrationStatus('error');
+          setStorageError('Saved report storage could not be opened. Nothing was overwritten.');
+        }
       }
-      editIdRef.current = r.id;
-      editCreatedAtRef.current = r.createdAt;
-      editRevRef.current = r.rowRevision ?? 1;
-      reconstituteFrom(r);
-      hydratedRef.current = true;
-      // Edit mode never writes drafts — discard any raced pre-hydration persist.
-      pendingPersistRef.current = null;
     })();
     return () => {
       cancelled = true;
     };
-  }, [target.editingReportId, reconstituteFrom]);
+  }, [target.editingReportId, reconstituteFrom, storage]);
 
   // Resume an existing draft on mount.
   useEffect(() => {
@@ -320,18 +520,54 @@ export function useCaptureSession(target: CaptureTarget) {
     if (target.editingReportId) return;
     let cancelled = false;
     void (async () => {
-      const d = await getDraft(draftKey);
+      let d;
+      try {
+        d = await storage.getDraft(draftKey);
+      } catch {
+        if (!cancelled) {
+          hydratedRef.current = true;
+          pendingPersistRef.current = null;
+          setHydrationStatus('error');
+          setStorageError('Saved draft storage could not be opened. Nothing was overwritten.');
+        }
+        return;
+      }
       if (cancelled) {
         return;
       }
-      const found = Boolean(d && d.state && typeof d.state === 'object');
+      let found = Boolean(d);
+      if (d && found) {
+        const validationError = draftValidationError(d.state);
+        if (validationError) {
+          try {
+            if (!storage.quarantineDraft) {
+              throw new Error('Draft quarantine is unavailable.');
+            }
+            await storage.quarantineDraft(draftKey, validationError);
+          } catch {
+            if (!cancelled) {
+              hydratedRef.current = true;
+              pendingPersistRef.current = null;
+              setHydrationStatus('error');
+              setStorageError(
+                'Saved draft is incompatible and could not be preserved safely.',
+              );
+            }
+            return;
+          }
+          found = false;
+          setStorageError(
+            'An incompatible saved draft was quarantined. A new capture was started.',
+          );
+        }
+      }
       if (d && found) {
         const s = d.state as Partial<DraftPayload>;
-        if (s.bursts) {
+        if (Array.isArray(s.bursts)) {
           setBursts(s.bursts);
           burstsRef.current = s.bursts;
         }
-        if (s.feedingBursts) {
+        if (Array.isArray(s.feedingBursts)) {
           setFeedingBursts(s.feedingBursts);
           feedingBurstsRef.current = s.feedingBursts;
         }
@@ -341,12 +577,44 @@ export function useCaptureSession(target: CaptureTarget) {
         if (typeof s.rate === 'number') {
           setRateState(s.rate);
         }
-        if (s.deferred) {
-          setDeferred({ ...initialDeferred, ...s.deferred });
+        if (s.deferred && typeof s.deferred === 'object') {
+          const draftSchema = typeof s.schemaVersion === 'number' ? s.schemaVersion : 1;
+          setDeferred({
+            ...initialDeferred,
+            ...s.deferred,
+            intakeSources: Array.isArray(s.deferred.intakeSources)
+              ? s.deferred.intakeSources
+              : [],
+            defenseIntervals: Array.isArray(s.deferred.defenseIntervals)
+              ? s.deferred.defenseIntervals
+              : [],
+            defendedIntervals: Array.isArray(s.deferred.defendedIntervals)
+              ? s.deferred.defendedIntervals
+              : [],
+            foulReasons: Array.isArray(s.deferred.foulReasons)
+              ? s.deferred.foulReasons
+              : [],
+            defenseRating: normalizeStoredRating(s.deferred.defenseRating, draftSchema),
+            driverSkill: normalizeStoredRating(s.deferred.driverSkill, draftSchema),
+            agility: normalizeStoredRating(s.deferred.agility, draftSchema),
+          });
+        }
+        const restoredSession = parseCaptureEnvelope(s.captureSession);
+        if (restoredSession) {
+          const nextFlow = {
+            stage: restoredSession.stage,
+            reviewStep: restoredSession.reviewStep,
+            placementComplete: restoredSession.placementComplete,
+            showGo: restoredSession.showGo,
+          };
+          flowStateRef.current = nextFlow;
+          setFlowState(nextFlow);
+          restoreClock(restoredSession.clock);
         }
         setDraftResumed(true);
       }
       hydratedRef.current = true;
+      setHydrationStatus('ready');
       // Flush a persist that raced hydration — only when NO stored draft was
       // found. When one was found, the resumed state just applied above wins
       // and the raced payload (built from pre-resume state) must not clobber
@@ -354,17 +622,13 @@ export function useCaptureSession(target: CaptureTarget) {
       const pending = pendingPersistRef.current;
       pendingPersistRef.current = null;
       if (pending && !found) {
-        void saveDraft(draftKey, {
-          ...pending,
-          feedingBursts: pending.feedingBursts ?? feedingBurstsRef.current,
-          target,
-        });
+        queueDraftWrite(pending);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [draftKey]);
+  }, [draftKey, queueDraftWrite, restoreClock, storage]);
 
   // Persist the full CaptureTarget alongside the mutable draft state so a
   // resumed draft reconstructs its event/alliance/station/team from the draft
@@ -387,15 +651,41 @@ export function useCaptureSession(target: CaptureTarget) {
       }
       // Always pin the current feedingBursts from the ref so callers that only
       // know about fuel/deferred state don't wipe feeding data on persist.
-      void saveDraft(draftKey, {
-        ...next,
-        bursts: next.bursts ?? burstsRef.current,
-        feedingBursts: next.feedingBursts ?? feedingBurstsRef.current,
-        target,
+      queueDraftWrite(next);
+    },
+    [queueDraftWrite],
+  );
+
+  const updateFlowState = useCallback(
+    (patch: Partial<typeof flowState>) => {
+      const next = { ...flowStateRef.current, ...patch };
+      flowStateRef.current = next;
+      setFlowState(next);
+      persistDraft({
+        inactiveFirst,
+        rate,
+        deferred,
       });
     },
-    [draftKey, target],
+    [deferred, inactiveFirst, persistDraft, rate],
   );
+
+  // Clock transitions (START, GO, pause, re-anchor, explicit resume) must be
+  // durable even if no scoring action follows before a reload.
+  useEffect(() => {
+    if (!hydratedRef.current || editIdRef.current) return;
+    persistDraft({ inactiveFirst, rate, deferred });
+  }, [
+    clock.state.phase,
+    clock.state.autoStartedAt,
+    clock.state.teleopAnchoredAt,
+    clock.state.teleopClockUnconfirmed,
+    clock.resumeRequired,
+    deferred,
+    inactiveFirst,
+    persistDraft,
+    rate,
+  ]);
 
   const setInactiveFirst = useCallback(
     (b: boolean) => {
@@ -472,21 +762,16 @@ export function useCaptureSession(target: CaptureTarget) {
     const effRate = durationMs > 0 ? (balls * 1000) / durationMs : 0;
     const window = windowForBurst(clock.state.phase, clock.teleopElapsedMs);
     const burst: FuelBurst = { startMs: start, endMs: start + durationMs, rate: effRate, window };
-    // Functional updater (matches undoLastBurst) so a fuel commit racing an undo or
-    // a feeding commit before the next render can't drop a burst via a stale closure.
-    setBursts((prev) => {
-      const nextBursts = [...prev, burst];
-      burstsRef.current = nextBursts;
-      persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred });
-      return nextBursts;
-    });
+    const nextBursts = [...burstsRef.current, burst];
+    burstsRef.current = nextBursts;
+    setBursts(nextBursts);
+    persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred: deferredRef.current });
   }, [
     clock.state.phase,
     clock.teleopElapsedMs,
     clock.autoElapsedMs,
     rate,
     inactiveFirst,
-    deferred,
     persistDraft,
   ]);
 
@@ -541,7 +826,7 @@ export function useCaptureSession(target: CaptureTarget) {
       const next = [...feedingBurstsRef.current, burst];
       feedingBurstsRef.current = next;
       setFeedingBursts(next);
-      persistDraft({ inactiveFirst, rate, deferred, feedingBursts: next });
+      persistDraft({ inactiveFirst, rate, deferred: deferredRef.current, feedingBursts: next });
     },
     [
       clock.state.phase,
@@ -549,7 +834,6 @@ export function useCaptureSession(target: CaptureTarget) {
       clock.autoElapsedMs,
       inactiveFirst,
       rate,
-      deferred,
       persistDraft,
     ],
   );
@@ -583,15 +867,15 @@ export function useCaptureSession(target: CaptureTarget) {
       const endMs = useLiveClock ? liveEndMs : startMs + wallDurationMs;
       const durationMs = useLiveClock ? endMs - startMs : wallDurationMs;
       if (durationMs <= 0) return;
-      setDeferred((prev) => {
-        const next: DeferredState = {
-          ...prev,
-          [durationKey]: prev[durationKey] + durationMs,
-          [intervalsKey]: [...prev[intervalsKey], { startMs, endMs, phase: s.phase }],
-        };
-        persistDraft({ inactiveFirst, rate, deferred: next });
-        return next;
-      });
+      const prev = deferredRef.current;
+      const next: DeferredState = {
+        ...prev,
+        [durationKey]: prev[durationKey] + durationMs,
+        [intervalsKey]: [...prev[intervalsKey], { startMs, endMs, phase: s.phase }],
+      };
+      deferredRef.current = next;
+      setDeferred(next);
+      persistDraft({ inactiveFirst, rate, deferred: next });
     },
     [clock.state.phase, clock.teleopElapsedMs, clock.autoElapsedMs, inactiveFirst, rate, persistDraft],
   );
@@ -618,14 +902,13 @@ export function useCaptureSession(target: CaptureTarget) {
   // Undo button consumed the 'burst' timeline event but never removed the burst,
   // leaving an over-counted, unrecoverable burst in the saved report.
   const undoLastBurst = useCallback(() => {
-    setBursts((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev.slice(0, -1);
-      burstsRef.current = next;
-      persistDraft({ bursts: next, inactiveFirst, rate, deferred });
-      return next;
-    });
-  }, [inactiveFirst, rate, deferred, persistDraft]);
+    const prev = burstsRef.current;
+    if (prev.length === 0) return;
+    const next = prev.slice(0, -1);
+    burstsRef.current = next;
+    setBursts(next);
+    persistDraft({ bursts: next, inactiveFirst, rate, deferred: deferredRef.current });
+  }, [inactiveFirst, rate, persistDraft]);
 
   // Pop the most-recent committed FEEDING burst (feeding was previously not
   // undoable at all — onShootEnd never recorded an undo event).
@@ -635,52 +918,51 @@ export function useCaptureSession(target: CaptureTarget) {
     const next = prev.slice(0, -1);
     feedingBurstsRef.current = next;
     setFeedingBursts(next);
-    persistDraft({ inactiveFirst, rate, deferred, feedingBursts: next });
-  }, [inactiveFirst, rate, deferred, persistDraft]);
+    persistDraft({ inactiveFirst, rate, deferred: deferredRef.current, feedingBursts: next });
+  }, [inactiveFirst, rate, persistDraft]);
 
   // Atomically pop the last defense/being-defended interval AND subtract that
   // exact interval's duration from the running total, so the uploaded report's
   // intervals always equal its duration. (The old undo only adjusted the scalar
   // by CaptureScreen's separately-measured ms and left the interval in the report.)
   const undoLastDefenseInterval = useCallback(() => {
-    setDeferred((prev) => {
-      const ivs = prev.defenseIntervals;
-      if (ivs.length === 0) return prev;
-      const last = ivs[ivs.length - 1];
-      const dur = Math.max(0, last.endMs - last.startMs);
-      const next: DeferredState = {
-        ...prev,
-        defenseIntervals: ivs.slice(0, -1),
-        defenseDurationMs: Math.max(0, prev.defenseDurationMs - dur),
-      };
-      persistDraft({ inactiveFirst, rate, deferred: next });
-      return next;
-    });
+    const prev = deferredRef.current;
+    const ivs = prev.defenseIntervals;
+    if (ivs.length === 0) return;
+    const last = ivs[ivs.length - 1];
+    const dur = Math.max(0, last.endMs - last.startMs);
+    const next: DeferredState = {
+      ...prev,
+      defenseIntervals: ivs.slice(0, -1),
+      defenseDurationMs: Math.max(0, prev.defenseDurationMs - dur),
+    };
+    deferredRef.current = next;
+    setDeferred(next);
+    persistDraft({ inactiveFirst, rate, deferred: next });
   }, [inactiveFirst, rate, persistDraft]);
 
   const undoLastDefendedInterval = useCallback(() => {
-    setDeferred((prev) => {
-      const ivs = prev.defendedIntervals;
-      if (ivs.length === 0) return prev;
-      const last = ivs[ivs.length - 1];
-      const dur = Math.max(0, last.endMs - last.startMs);
-      const next: DeferredState = {
-        ...prev,
-        defendedIntervals: ivs.slice(0, -1),
-        defendedDurationMs: Math.max(0, prev.defendedDurationMs - dur),
-      };
-      persistDraft({ inactiveFirst, rate, deferred: next });
-      return next;
-    });
+    const prev = deferredRef.current;
+    const ivs = prev.defendedIntervals;
+    if (ivs.length === 0) return;
+    const last = ivs[ivs.length - 1];
+    const dur = Math.max(0, last.endMs - last.startMs);
+    const next: DeferredState = {
+      ...prev,
+      defendedIntervals: ivs.slice(0, -1),
+      defendedDurationMs: Math.max(0, prev.defendedDurationMs - dur),
+    };
+    deferredRef.current = next;
+    setDeferred(next);
+    persistDraft({ inactiveFirst, rate, deferred: next });
   }, [inactiveFirst, rate, persistDraft]);
 
   const updateDeferred = useCallback(
     <K extends keyof DeferredState>(key: K, value: DeferredState[K]) => {
-      setDeferred((prev) => {
-        const next = { ...prev, [key]: value };
-        persistDraft({ inactiveFirst, rate, deferred: next });
-        return next;
-      });
+      const next = { ...deferredRef.current, [key]: value };
+      deferredRef.current = next;
+      setDeferred(next);
+      persistDraft({ inactiveFirst, rate, deferred: next });
     },
     [inactiveFirst, rate, persistDraft],
   );
@@ -695,15 +977,15 @@ export function useCaptureSession(target: CaptureTarget) {
       intervalsKey: 'defenseIntervals' | 'defendedIntervals',
       ms: number,
     ) => {
-      setDeferred((prev) => {
-        const next: DeferredState = {
-          ...prev,
-          [durationKey]: ms,
-          [intervalsKey]: adjustIntervalsTotal(prev[intervalsKey], ms),
-        };
-        persistDraft({ inactiveFirst, rate, deferred: next });
-        return next;
-      });
+      const prev = deferredRef.current;
+      const next: DeferredState = {
+        ...prev,
+        [durationKey]: ms,
+        [intervalsKey]: adjustIntervalsTotal(prev[intervalsKey], ms),
+      };
+      deferredRef.current = next;
+      setDeferred(next);
+      persistDraft({ inactiveFirst, rate, deferred: next });
     },
     [inactiveFirst, rate, persistDraft],
   );
@@ -821,15 +1103,35 @@ export function useCaptureSession(target: CaptureTarget) {
       syncAttempts: 0,
       lastSyncError: null,
     };
-    await saveReport(report);
-    // Edit mode never wrote a live-capture draft (persistDraft short-circuits), so
-    // there is no draft to delete; leaving any unrelated fresh draft for the same
-    // key intact. Fresh captures still clear their own draft.
-    if (!editing) {
-      await deleteDraft(draftKey);
+    sessionFinalizedRef.current = true;
+    await draftWriteChainRef.current;
+    try {
+      // Edit mode never wrote a live-capture draft (persistDraft short-circuits), so
+      // there is no draft to delete; leaving any unrelated fresh draft for the same
+      // key intact. Fresh captures still clear their own draft.
+      if (!editing && storage.finalizeReport) {
+        await storage.finalizeReport(report, draftKey);
+      } else {
+        await storage.saveReport(report);
+      }
+      if (!editing && !storage.finalizeReport) {
+        await storage.deleteDraft(draftKey);
+      }
+    } catch (error) {
+      sessionFinalizedRef.current = false;
+      throw error;
     }
     return report.id;
-  }, [inactiveFirst, bursts, feedingBursts, deferred, clock.state.teleopClockUnconfirmed, target, draftKey]);
+  }, [
+    inactiveFirst,
+    bursts,
+    feedingBursts,
+    deferred,
+    clock.state.teleopClockUnconfirmed,
+    target,
+    draftKey,
+    storage,
+  ]);
 
   return {
     clock,
@@ -837,6 +1139,7 @@ export function useCaptureSession(target: CaptureTarget) {
     // blue = right half). Surfaced from the target so CaptureScreen doesn't need
     // the whole target threaded through.
     allianceColor: target.allianceColor,
+    station: target.station,
     // Event + target team are surfaced so the Review auto step can look up the
     // team's previously-scouted auto routines (the "pick a known auto" picker)
     // without threading the whole target through.
@@ -875,11 +1178,11 @@ export function useCaptureSession(target: CaptureTarget) {
     maxFuelCapacityObserved: deferred.maxFuelCapacityObserved,
     setMaxFuelCapacityObserved: (v: number) => updateDeferred('maxFuelCapacityObserved', v),
     defenseRating: deferred.defenseRating,
-    setDefenseRating: (v: 0 | 1 | 2 | 3) => updateDeferred('defenseRating', v),
+    setDefenseRating: (v: QualitativeRating) => updateDeferred('defenseRating', v),
     driverSkill: deferred.driverSkill,
-    setDriverSkill: (v: 0 | 1 | 2 | 3) => updateDeferred('driverSkill', v),
+    setDriverSkill: (v: QualitativeRating) => updateDeferred('driverSkill', v),
     agility: deferred.agility,
-    setAgility: (v: 0 | 1 | 2 | 3) => updateDeferred('agility', v),
+    setAgility: (v: QualitativeRating) => updateDeferred('agility', v),
     defenseDurationMs: deferred.defenseDurationMs,
     setDefenseDurationMs: (v: number) =>
       setDurationAdjusted('defenseDurationMs', 'defenseIntervals', v),
@@ -930,5 +1233,17 @@ export function useCaptureSession(target: CaptureTarget) {
     save,
     reAnchorCue,
     draftResumed,
+    hydrationStatus,
+    storageError,
+    flowStage: flowState.stage,
+    setFlowStage: (stage: CaptureFlowStage) => updateFlowState({ stage }),
+    reviewStep: flowState.reviewStep,
+    setReviewStep: (reviewStep: number) =>
+      updateFlowState({ reviewStep: Math.max(0, Math.min(4, reviewStep)) }),
+    placementComplete: flowState.placementComplete,
+    setPlacementComplete: (placementComplete: boolean) =>
+      updateFlowState({ placementComplete }),
+    showGo: flowState.showGo,
+    setShowGo: (showGo: boolean) => updateFlowState({ showGo }),
   };
 }

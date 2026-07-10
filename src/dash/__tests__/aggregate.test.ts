@@ -5,6 +5,7 @@ import {
   aggregateEvent,
   matchScoutCoverage,
   eventScoutCoverage,
+  ratedMeanText,
 } from '@/dash/aggregate';
 import type { MsrRow, BurstRow, IntervalRow, ScoutLite } from '@/dash/types';
 import { SCORING } from '@/scoring';
@@ -158,6 +159,40 @@ describe('aggregateTeam edge cases', () => {
     expect(agg.meanFuelConfidence).toBeCloseTo(0.3, 10);
     expect(agg.meanFuelPoints).toBeCloseTo(50, 10); // RAW, not down-weighted to 15
   });
+
+  it('scores a no-show as zero even when stale scoring fields remain', () => {
+    const agg = aggregateTeam(7, [
+      row({
+        target_team_number: 7,
+        no_show: true,
+        auto_fuel: 20,
+        teleop_fuel_active: 30,
+        teleop_fuel_inactive: 10,
+        endgame_fuel: 5,
+        fuel_points: 99,
+        climb_level: 3,
+        climb_success: true,
+        auto_climb_level1: true,
+      }),
+    ]);
+    expect(agg.meanTotalFuel).toBe(0);
+    expect(agg.meanFuelPoints).toBe(0);
+    expect(agg.meanClimbPoints).toBe(0);
+    expect(agg.scoutingExpectedPoints).toBe(0);
+  });
+
+  it('excludes unrated zeros from 1–10 qualitative rating means', () => {
+    const reports = [
+      row({ target_team_number: 7, defense_rating: 0, driver_skill: 0 }),
+      row({ target_team_number: 7, defense_rating: 8, driver_skill: 5 }),
+      row({ target_team_number: 7, defense_rating: 10, driver_skill: 10 }),
+    ];
+    const agg = aggregateTeam(7, reports);
+
+    expect(agg.avgDefenseRating).toBe(9);
+    expect(agg.minDefenseRating).toBe(8);
+    expect(ratedMeanText(reports, (report) => report.driver_skill)).toBe('7.5/10');
+  });
 });
 
 describe('aggregateEvent', () => {
@@ -194,6 +229,35 @@ describe('aggregateEvent', () => {
 
   it('returns an empty map for an empty input', () => {
     expect(aggregateEvent([]).size).toBe(0);
+  });
+
+  it('counts multi-scout coverage as one robot-match observation', () => {
+    const result = aggregateEvent([
+      row({
+        target_team_number: 100,
+        match_key: 'e_qm1',
+        scout_id: 'scout-a',
+        fuel_points: 100,
+        server_received_at: '2026-01-01T00:00:00Z',
+      }),
+      row({
+        target_team_number: 100,
+        match_key: 'e_qm1',
+        scout_id: 'scout-b',
+        fuel_points: 80,
+        server_received_at: '2026-01-01T00:00:01Z',
+      }),
+      row({
+        target_team_number: 100,
+        match_key: 'e_qm2',
+        scout_id: 'scout-a',
+        fuel_points: 0,
+        server_received_at: '2026-01-01T00:01:00Z',
+      }),
+    ]);
+
+    expect(result.get(100)?.matchesScouted).toBe(2);
+    expect(result.get(100)?.meanFuelPoints).toBe(40);
   });
 });
 

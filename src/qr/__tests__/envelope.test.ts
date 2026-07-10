@@ -9,6 +9,8 @@ import {
   parseFrame,
   reportsToBytes,
   bytesToReports,
+  MAX_QR_BLOCKS,
+  MAX_QR_REPORTS,
   type QrFrame,
 } from '@/qr/envelope';
 import { FOUNTAIN_BLOCK_BYTES, QR_ENVELOPE_VERSION } from '@/sync/constants';
@@ -121,6 +123,21 @@ describe('frameToString / parseFrame', () => {
     const f = enc.frame(0);
     const tampered: QrFrame = { ...f, d: f.d.slice(0, -1) + (f.d.endsWith('A') ? 'B' : 'A') };
     expect(parseFrame(frameToString(tampered))).toBeNull();
+  });
+  it('rejects oversized block counts and inconsistent payload geometry', () => {
+    const enc = new FountainEncoder(reportsToBytes(makeReports()), 'sid-bounds', false);
+    const frame = enc.frame(0);
+    expect(parseFrame(JSON.stringify({ ...frame, k: MAX_QR_BLOCKS + 1 }))).toBeNull();
+    expect(parseFrame(JSON.stringify({ ...frame, l: frame.k * frame.b + 1 }))).toBeNull();
+  });
+});
+
+describe('report payload bounds', () => {
+  it('rejects excessive report counts and non-array payloads', () => {
+    expect(() =>
+      reportsToBytes(Array.from({ length: MAX_QR_REPORTS + 1 }, () => ({}))),
+    ).toThrow(/report limit/i);
+    expect(() => bytesToReports(new TextEncoder().encode('{}'))).toThrow(/array/i);
   });
 });
 

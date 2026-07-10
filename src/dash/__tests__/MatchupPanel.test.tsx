@@ -8,14 +8,20 @@ const useMatchupNotesMock = vi.fn();
 vi.mock('@/dash/useEventData', () => ({
   useMatchupNotes: (eventKey: string | null) => useMatchupNotesMock(eventKey),
 }));
-const saveMatchupNoteMock = vi.fn().mockResolvedValue(undefined);
+const saveTeamStrategyNoteMock = vi.fn(
+  async (eventKey: string, targetTeam: number, note: string) => ({
+    key: `${eventKey}:-1:${targetTeam}`,
+    note,
+  }),
+);
 vi.mock('@/dash/matchupNotesClient', async () => {
   const actual = await vi.importActual<typeof import('@/dash/matchupNotesClient')>(
     '@/dash/matchupNotesClient',
   );
   return {
     ...actual,
-    saveMatchupNote: (...a: unknown[]) => saveMatchupNoteMock(...a),
+    saveTeamStrategyNote: (eventKey: string, targetTeam: number, note: string) =>
+      saveTeamStrategyNoteMock(eventKey, targetTeam, note),
   };
 });
 
@@ -82,17 +88,15 @@ function renderPanel(props: Partial<React.ComponentProps<typeof MatchupPanel>> =
 beforeEach(() => {
   cleanup();
   useMatchupNotesMock.mockReset();
-  saveMatchupNoteMock.mockClear();
+  saveTeamStrategyNoteMock.mockClear();
   // Default: no notes.
   useMatchupNotesMock.mockReturnValue({ data: new Map<string, string>() });
 });
 
 describe('MatchupPanel', () => {
   it('renders the panel with synthesis bullets and a note badge when a note exists', () => {
-    // Note keyed on the RED alliance block: notes attach to the OTHER side as
-    // "ours", so the red block's note key is (min(blue), min(red)) = (300, 100).
     useMatchupNotesMock.mockReturnValue({
-      data: new Map<string, string>([['2026casnv:300:100', 'scout it']]),
+      data: new Map<string, string>([['2026casnv:-1:100', 'scout it']]),
     });
     const { getByTestId } = renderPanel();
     const panel = getByTestId('dash-matchup-panel');
@@ -113,19 +117,20 @@ describe('MatchupPanel', () => {
     expect(getAllByText('No scouting data yet').length).toBeGreaterThan(0);
   });
 
-  it('opens the modal, types, and Save calls saveMatchupNote with the alliance leads', async () => {
+  it('opens the modal, names the actual team, and saves a team-scoped note', async () => {
     const { getAllByTestId, getByTestId } = renderPanel();
     fireEvent.click(getAllByTestId('matchup-notes-btn')[0]); // red block
     const textarea = getByTestId('matchup-notes-textarea');
     expect(textarea).toBeTruthy();
+    expect(getByTestId('matchup-notes-sheet').textContent).toContain('Strategy note for team 100');
     fireEvent.change(textarea, { target: { value: 'deny their feed lane' } });
     fireEvent.click(getByTestId('matchup-notes-save'));
-    // saveMatchupNote(eventKey, ourTeams, oppTeams, note). For the red block the
-    // pairing treats blue as "ours" and red as opponent.
-    await vi.waitFor(() => expect(saveMatchupNoteMock).toHaveBeenCalled());
-    const call = saveMatchupNoteMock.mock.calls[0];
-    expect(call[0]).toBe('2026casnv');
-    expect(call[3]).toBe('deny their feed lane');
+    await vi.waitFor(() => expect(saveTeamStrategyNoteMock).toHaveBeenCalled());
+    expect(saveTeamStrategyNoteMock).toHaveBeenCalledWith(
+      '2026casnv',
+      100,
+      'deny their feed lane',
+    );
   });
 
   it('ourSide=null uses neutral per-color labels (no Our edges/Our risks)', () => {

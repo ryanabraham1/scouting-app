@@ -1,142 +1,454 @@
-// src/dash/TeamCompare.tsx
-// Multi-team visual comparison for the Ranking tab. Given 2–6 selected teams
-// (each a resolved Ranking row: TeamAgg + best-available EPA), it draws a
-// dependency-free SVG RADAR overlay across the key scouting/EPA metrics, with a
-// per-team legend. Each axis is normalized 0..1 — rate metrics (climb %,
-// reliability) use their natural 0..1 scale; magnitude metrics (Exp. pts, EPA,
-// defense rating, fuel, auto) are normalized against the max among the selected
-// teams so the largest team pins that axis and the rest read as a fraction of it.
-//
-// REUSES the chart design tokens (CHART_COLORS / SERIES_PALETTE) and the shared
-// EmptyChart from src/dash/charts/* — no new charting dependency, no refetch:
-// it consumes the team aggregates RankingView already loaded.
+// Multi-team comparison dashboard for RankingView. Every visual uses a fixed,
+// meaningful unit: points/match, percentages, or the 1–10 qualitative scale.
 
-import { CHART_COLORS, SERIES_PALETTE, EmptyChart } from '@/dash/charts';
-import type { TeamAgg } from '@/dash/aggregate';
+import type { ReactNode } from 'react';
+import { CHART_COLORS, EmptyChart } from '@/dash/charts';
+import { aggregateTeamComponentSplit, type TeamAgg } from '@/dash/aggregate';
+import { DEF_EFF_MIN_SAMPLE } from '@/dash/defenseAnalytics';
+import { cn } from '@/lib/utils';
 
-/** A resolved Ranking row reduced to what the comparison needs. */
 export interface CompareTeam {
   agg: TeamAgg;
   /** Best-available EPA (Statbotics → local → in-house), or null. */
   epa: number | null;
 }
 
-/** A radar axis: a labelled metric pulled from a CompareTeam. */
-export interface CompareAxis {
-  key: string;
-  label: string;
-  /** Raw value for a team, or null when the team has no value for this axis. */
-  get: (t: CompareTeam) => number | null;
-  /**
-   * Normalization mode. `rate` values are already 0..1 (climb %, reliability);
-   * `magnitude` values are normalized against the max among the compared teams.
-   */
-  scale: 'rate' | 'magnitude';
-}
-
-/** The radar axes, in clockwise order. Mirrors the key scouting+EPA metrics. */
-export const COMPARE_AXES: CompareAxis[] = [
-  {
-    key: 'expPts',
-    label: 'Exp. Pts',
-    get: (t) => t.agg.scoutingExpectedPoints,
-    scale: 'magnitude',
-  },
-  { key: 'epa', label: 'EPA', get: (t) => t.epa, scale: 'magnitude' },
-  { key: 'climb', label: 'Climb %', get: (t) => t.agg.climbSuccessRate, scale: 'rate' },
-  { key: 'reliability', label: 'Reliability', get: (t) => t.agg.reliability, scale: 'rate' },
-  { key: 'defense', label: 'Defense', get: (t) => t.agg.avgDefenseRating, scale: 'magnitude' },
-  { key: 'fuel', label: 'Fuel', get: (t) => t.agg.meanFuelPoints, scale: 'magnitude' },
-  { key: 'auto', label: 'Auto', get: (t) => t.agg.meanAutoFuel, scale: 'magnitude' },
-];
-
-/** Max teams supported by the radar palette / legibility. */
+/** Max teams supported without making labels and colors hard to distinguish. */
 export const MAX_COMPARE_TEAMS = 6;
 
-/** A team's normalized values (0..1) per axis, plus identity + display palette. */
-export interface CompareSeries {
+/** Stable selection-order palette shared by every comparison chart. */
+export const TEAM_COMPARE_COLORS = [
+  CHART_COLORS.brand,
+  CHART_COLORS.energy,
+  CHART_COLORS.success,
+  CHART_COLORS.warning,
+  'hsl(265 83% 70%)',
+  'hsl(330 81% 68%)',
+] as const;
+
+export interface ComparisonDatum {
   teamNumber: number;
-  /** Index into SERIES_PALETTE-derived radar palette (see RADAR_PALETTE). */
-  colorIndex: number;
-  /** One normalized value in [0,1] per axis (same order as `axes`). */
-  values: number[];
-}
-
-/** Defense rating is on a fixed 1..5 scale; normalize it against that ceiling so
- *  two teams with similar high ratings don't both pin the axis spuriously. */
-const DEFENSE_MAX = 5;
-
-/**
- * Pure: normalize the selected teams' raw axis values into 0..1 radar series.
- *
- * - `rate` axes pass through clamped to [0,1].
- * - `magnitude` axes divide by the max value observed across the teams for that
- *   axis (so the strongest team reaches the rim and the rest are relative). The
- *   defense axis uses a fixed 1..5 ceiling instead, since it's a bounded rating.
- * - A null/absent value contributes 0 on its axis (no spoke), and never NaN.
- *
- * Kept separate from the component so it's unit-testable.
- */
-export function buildCompareSeries(
-  teams: CompareTeam[],
-  axes: CompareAxis[] = COMPARE_AXES,
-): CompareSeries[] {
-  // Per-axis max across teams for magnitude normalization (skip non-finite).
-  const axisMax = axes.map((axis) => {
-    if (axis.scale !== 'magnitude') return 1;
-    if (axis.key === 'defense') return DEFENSE_MAX;
-    let max = 0;
-    for (const t of teams) {
-      const v = axis.get(t);
-      if (typeof v === 'number' && Number.isFinite(v) && v > max) max = v;
-    }
-    return max;
-  });
-
-  return teams.map((t, ti) => ({
-    teamNumber: t.agg.teamNumber,
-    colorIndex: ti,
-    values: axes.map((axis, ai) => {
-      const raw = axis.get(t);
-      if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return 0;
-      if (axis.scale === 'rate') return Math.min(1, raw);
-      const max = axisMax[ai];
-      return max > 0 ? Math.min(1, raw / max) : 0;
-    }),
-  }));
-}
-
-// --- radar geometry ----------------------------------------------------------
-const VB = 240; // square viewBox
-const CENTER = VB / 2;
-const RADIUS = 92; // outer ring radius
-const RINGS = 4; // concentric grid rings
-
-/** Six-team palette built from the shared chart tokens (+ two extras to reach 6). */
-const RADAR_PALETTE: string[] = [
-  ...SERIES_PALETTE.map((k) => CHART_COLORS[k]), // brand, energy, success, warning
-  'hsl(var(--brand))',
-  'hsl(var(--muted-foreground))',
-];
-
-/** Point on the radar for axis index `i` of `n` at radial fraction `r` (0..1). */
-function radarPoint(i: number, n: number, r: number): { x: number; y: number } {
-  // Start at 12 o'clock, go clockwise.
-  const angle = -Math.PI / 2 + (i / n) * Math.PI * 2;
-  return {
-    x: CENTER + Math.cos(angle) * RADIUS * r,
-    y: CENTER + Math.sin(angle) * RADIUS * r,
+  color: string;
+  matchesScouted: number;
+  scoring: {
+    auto: number;
+    teleopEndgame: number;
+    climb: number;
+    expected: number;
+    epa: number | null;
   };
+  reliability: number;
+  climbSuccess: number;
+  defenseRating: number;
+  fuelSlowdownWhenDefended: number | null;
+  opponentSlowdownCaused: number | null;
 }
 
-function polygonPoints(values: number[]): string {
-  const n = values.length;
-  return values
-    .map((v, i) => {
-      const p = radarPoint(i, n, Math.max(0, Math.min(1, v)));
-      return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-    })
-    .join(' ');
+/** Pure chart-model builder, kept exported for focused unit tests. */
+export function buildComparisonData(teams: CompareTeam[]): ComparisonDatum[] {
+  return teams.slice(0, MAX_COMPARE_TEAMS).map((team, index) => {
+    const split = aggregateTeamComponentSplit(team.agg);
+    const validEpa =
+      typeof team.epa === 'number' && Number.isFinite(team.epa)
+        ? team.epa
+        : null;
+    return {
+      teamNumber: team.agg.teamNumber,
+      color: TEAM_COMPARE_COLORS[index],
+      matchesScouted: team.agg.matchesScouted,
+      scoring: {
+        auto: split.auto,
+        teleopEndgame: split.fuel,
+        climb: split.climb,
+        expected: team.agg.scoutingExpectedPoints,
+        epa: validEpa,
+      },
+      reliability: team.agg.reliability,
+      climbSuccess: team.agg.climbSuccessRate,
+      defenseRating: team.agg.avgDefenseRating,
+      fuelSlowdownWhenDefended: team.agg.fuelSuppressionWhileDefended,
+      opponentSlowdownCaused:
+        team.agg.defenderEffectiveness != null &&
+        team.agg.defenseSampleCount >= DEF_EFF_MIN_SAMPLE
+          ? team.agg.defenderEffectiveness
+          : null,
+    };
+  });
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+}
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function signedPct(value: number): string {
+  const rounded = Math.round(value * 100);
+  return `${rounded > 0 ? '+' : ''}${rounded}%`;
+}
+
+function ChartFrame({
+  title,
+  subtitle,
+  testid,
+  wide = false,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  testid: string;
+  wide?: boolean;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <figure
+      data-testid={testid}
+      className={cn(
+        'm-0 min-w-0 rounded-lg border border-border/70 bg-muted/10 p-3 sm:p-4',
+        wide && 'lg:col-span-2',
+      )}
+      aria-labelledby={`${testid}-title`}
+      aria-describedby={`${testid}-subtitle`}
+    >
+      <figcaption>
+        <h3
+          id={`${testid}-title`}
+          className="text-sm font-semibold text-foreground"
+        >
+          {title}
+        </h3>
+        <p
+          id={`${testid}-subtitle`}
+          className="mt-0.5 text-xs text-muted-foreground"
+        >
+          {subtitle}
+        </p>
+      </figcaption>
+      <div className="mt-4">{children}</div>
+    </figure>
+  );
+}
+
+function TeamLegend({
+  data,
+  testid,
+}: {
+  data: ComparisonDatum[];
+  testid: string;
+}): JSX.Element {
+  return (
+    <ul
+      data-testid={testid}
+      className="flex flex-wrap gap-x-4 gap-y-2"
+      aria-label="Team colors"
+    >
+      {data.map((team) => (
+        <li key={team.teamNumber} className="flex items-center gap-2 text-sm">
+          <span
+            aria-hidden="true"
+            className="inline-block h-2.5 w-5 rounded-sm"
+            style={{ backgroundColor: team.color }}
+          />
+          <span className="font-mono font-semibold tabular-nums text-foreground">
+            {team.teamNumber}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {team.matchesScouted} match{team.matchesScouted === 1 ? '' : 'es'}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ScoringChart({
+  data,
+  testid,
+}: {
+  data: ComparisonDatum[];
+  testid: string;
+}): JSX.Element {
+  const rawMax = Math.max(
+    0,
+    ...data.flatMap((team) => [team.scoring.expected, team.scoring.epa ?? 0]),
+  );
+  const scaleMax = Math.max(10, Math.ceil(rawMax / 10) * 10);
+
+  return (
+    <ChartFrame
+      title="Scoring composition"
+      subtitle="Expected points per match split into auto fuel, teleop/endgame fuel, and climb. The line marks best-available EPA on the same points scale."
+      testid={testid}
+      wide
+    >
+      <div className="space-y-3">
+        {data.map((team) => {
+          const { scoring } = team;
+          const segments = [
+            { key: 'auto', value: scoring.auto, opacity: 0.45 },
+            { key: 'teleop', value: scoring.teleopEndgame, opacity: 0.72 },
+            { key: 'climb', value: scoring.climb, opacity: 1 },
+          ];
+          const details = `Team ${team.teamNumber}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel, ${scoring.climb.toFixed(1)} climb${scoring.epa == null ? '; EPA unavailable' : `; ${scoring.epa.toFixed(1)} EPA`}`;
+          return (
+            <div
+              key={team.teamNumber}
+              data-testid={`${testid}-team-${team.teamNumber}`}
+              className="grid min-w-0 grid-cols-[3.75rem_minmax(0,1fr)_3.25rem] items-center gap-2"
+              role="img"
+              aria-label={details}
+            >
+              <span className="truncate text-right font-mono text-xs font-semibold tabular-nums">
+                {team.teamNumber}
+              </span>
+              <div className="relative h-7 min-w-0 rounded bg-muted/35">
+                <div className="flex h-full overflow-hidden rounded">
+                  {segments.map((segment) => (
+                    <span
+                      key={segment.key}
+                      data-testid={`${testid}-${segment.key}-${team.teamNumber}`}
+                      className="h-full"
+                      style={{
+                        width: `${clamp(segment.value / scaleMax, 0, 1) * 100}%`,
+                        backgroundColor: team.color,
+                        opacity: segment.opacity,
+                      }}
+                    />
+                  ))}
+                </div>
+                {scoring.epa != null ? (
+                  <span
+                    data-testid={`${testid}-epa-${team.teamNumber}`}
+                    aria-hidden="true"
+                    className="absolute -bottom-1 -top-1 w-0.5 -translate-x-1/2 rounded bg-foreground shadow-[0_0_0_1px_hsl(var(--background))]"
+                    style={{
+                      left: `${clamp(scoring.epa / scaleMax, 0, 1) * 100}%`,
+                    }}
+                  />
+                ) : null}
+              </div>
+              <span className="text-right font-mono text-xs tabular-nums">
+                {scoring.expected.toFixed(1)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="ml-[4.25rem] mr-[3.75rem] mt-2 flex justify-between font-mono text-[10px] text-muted-foreground">
+        <span>0</span>
+        <span>{scaleMax} pts</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {[
+          ['opacity-45', 'Auto fuel'],
+          ['opacity-70', 'Teleop + endgame fuel'],
+          ['opacity-100', 'Climb'],
+        ].map(([opacity, label]) => (
+          <span key={label} className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className={cn(
+                'h-2.5 w-4 rounded-sm bg-muted-foreground',
+                opacity,
+              )}
+            />
+            {label}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="h-3 w-0.5 bg-foreground" />
+          EPA
+        </span>
+      </div>
+    </ChartFrame>
+  );
+}
+
+function RateChart({
+  data,
+  testid,
+}: {
+  data: ComparisonDatum[];
+  testid: string;
+}): JSX.Element {
+  return (
+    <ChartFrame
+      title="Reliability & climb"
+      subtitle="Shared 0–100% scale. Reliability excludes no-shows and deaths; climb is successful climbs per scouted match."
+      testid={testid}
+    >
+      <div className="space-y-4">
+        {data.map((team) => (
+          <div key={team.teamNumber} className="space-y-1.5">
+            <div className="font-mono text-xs font-semibold tabular-nums">
+              {team.teamNumber}
+            </div>
+            {[
+              { label: 'Reliability', value: team.reliability },
+              { label: 'Climb success', value: team.climbSuccess },
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="grid grid-cols-[5.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 text-xs"
+                role="img"
+                aria-label={`Team ${team.teamNumber} ${metric.label}: ${pct(metric.value)}`}
+              >
+                <span className="text-muted-foreground">{metric.label}</span>
+                <div className="h-2.5 overflow-hidden rounded-full bg-muted/40">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${clamp(metric.value, 0, 1) * 100}%`,
+                      backgroundColor: team.color,
+                    }}
+                  />
+                </div>
+                <span className="text-right font-mono tabular-nums">
+                  {pct(metric.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="ml-[6.25rem] mr-[3.25rem] mt-2 flex justify-between font-mono text-[10px] text-muted-foreground">
+        <span>0%</span>
+        <span>100%</span>
+      </div>
+    </ChartFrame>
+  );
+}
+
+function DefenseRatingChart({
+  data,
+  testid,
+}: {
+  data: ComparisonDatum[];
+  testid: string;
+}): JSX.Element {
+  return (
+    <ChartFrame
+      title="Defense rating"
+      subtitle="Super-scout qualitative rating on its fixed 1–10 scale; 0 means no positive rating was recorded."
+      testid={testid}
+    >
+      <div className="space-y-3">
+        {data.map((team) => (
+          <div
+            key={team.teamNumber}
+            className="grid grid-cols-[3.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 text-xs"
+            role="img"
+            aria-label={`Team ${team.teamNumber} defense rating: ${team.defenseRating.toFixed(1)} out of 10`}
+          >
+            <span className="text-right font-mono font-semibold tabular-nums">
+              {team.teamNumber}
+            </span>
+            <div className="h-3 overflow-hidden rounded-sm bg-muted/40">
+              <div
+                className="h-full rounded-sm"
+                style={{
+                  width: `${clamp(team.defenseRating / 10, 0, 1) * 100}%`,
+                  backgroundColor: team.color,
+                }}
+              />
+            </div>
+            <span className="text-right font-mono tabular-nums">
+              {team.defenseRating.toFixed(1)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="ml-[4.25rem] mr-[3.25rem] mt-2 flex justify-between font-mono text-[10px] text-muted-foreground">
+        <span>0</span>
+        <span>10</span>
+      </div>
+    </ChartFrame>
+  );
+}
+
+function SignedImpactRail({
+  team,
+  label,
+  value,
+}: {
+  team: ComparisonDatum;
+  label: string;
+  value: number | null;
+}): JSX.Element {
+  const visual = value == null ? 0 : clamp(value, -1, 1);
+  const width = Math.abs(visual) * 50;
+  return (
+    <div
+      className="grid grid-cols-[6.6rem_minmax(0,1fr)_3rem] items-center gap-2 text-xs"
+      role="img"
+      aria-label={`Team ${team.teamNumber} ${label}: ${value == null ? 'unavailable' : signedPct(value)}`}
+    >
+      <span className="text-muted-foreground">{label}</span>
+      <div className="relative h-2.5 rounded-full bg-muted/40">
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-[-2px] left-1/2 w-px bg-border"
+        />
+        {value != null ? (
+          <span
+            className="absolute inset-y-0 rounded-full"
+            style={{
+              left: visual >= 0 ? '50%' : `${50 - width}%`,
+              width: `${width}%`,
+              backgroundColor: team.color,
+            }}
+          />
+        ) : null}
+      </div>
+      <span className="text-right font-mono tabular-nums">
+        {value == null ? '—' : signedPct(value)}
+      </span>
+    </div>
+  );
+}
+
+function DefenseImpactChart({
+  data,
+  testid,
+}: {
+  data: ComparisonDatum[];
+  testid: string;
+}): JSX.Element {
+  return (
+    <ChartFrame
+      title="Measured defense impact"
+      subtitle="Signed fuel-rate change on a −100% to +100% scale. Positive is bad when defended and good when caused to opponents; defender effect requires multiple samples."
+      testid={testid}
+      wide
+    >
+      <div className="space-y-4">
+        {data.map((team) => (
+          <div key={team.teamNumber} className="space-y-1.5">
+            <div className="font-mono text-xs font-semibold tabular-nums">
+              {team.teamNumber}
+            </div>
+            <SignedImpactRail
+              team={team}
+              label="When defended"
+              value={team.fuelSlowdownWhenDefended}
+            />
+            <SignedImpactRail
+              team={team}
+              label="Caused to opp."
+              value={team.opponentSlowdownCaused}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="ml-[7.1rem] mr-[3.5rem] mt-2 flex justify-between font-mono text-[10px] text-muted-foreground">
+        <span>−100%</span>
+        <span>0</span>
+        <span>+100%</span>
+      </div>
+    </ChartFrame>
+  );
 }
 
 export interface TeamCompareProps {
@@ -144,111 +456,50 @@ export interface TeamCompareProps {
   testid?: string;
 }
 
-/**
- * Radar overlay of 2–6 teams across the key scouting+EPA metrics. Degrades to
- * the shared EmptyChart when fewer than 2 teams are selected. Teams beyond
- * MAX_COMPARE_TEAMS are dropped (the caller already caps selection).
- */
-export function TeamCompare({ teams, testid = 'team-compare' }: TeamCompareProps): JSX.Element {
-  const capped = teams.slice(0, MAX_COMPARE_TEAMS);
+export function TeamCompare({
+  teams,
+  testid = 'team-compare',
+}: TeamCompareProps): JSX.Element {
+  const data = buildComparisonData(teams);
 
-  if (capped.length < 2) {
+  if (data.length === 0) {
     return (
-      <EmptyChart testid={`${testid}-empty`} message="Select at least 2 teams to compare." />
+      <EmptyChart
+        testid={`${testid}-empty`}
+        message="Select 2–6 teams from the ranking table to compare."
+      />
     );
   }
 
-  const series = buildCompareSeries(capped, COMPARE_AXES);
-  const axes = COMPARE_AXES;
-  const n = axes.length;
-
-  // Concentric grid rings (fractions 1/RINGS … 1).
-  const rings = Array.from({ length: RINGS }, (_, i) => (i + 1) / RINGS);
+  if (data.length === 1) {
+    return (
+      <div
+        data-testid={`${testid}-empty`}
+        data-chart-empty="true"
+        role="status"
+        className="flex min-h-28 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border p-5 text-center"
+      >
+        <TeamLegend data={data} testid={`${testid}-legend`} />
+        <p className="text-sm text-muted-foreground">
+          Select one more team to unlock side-by-side charts.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div data-testid={testid} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-      <svg
-        viewBox={`0 0 ${VB} ${VB}`}
-        className="block aspect-square w-full max-w-[260px] shrink-0 self-center tabular-nums"
-        role="img"
-        aria-label={`Radar comparison of teams ${capped.map((t) => t.agg.teamNumber).join(', ')}`}
-      >
-        {/* Grid rings */}
-        {rings.map((r) => (
-          <polygon
-            key={`ring-${r}`}
-            points={polygonPoints(Array(n).fill(r))}
-            fill="none"
-            stroke={CHART_COLORS.border}
-            strokeWidth={0.5}
-          />
-        ))}
-
-        {/* Axis spokes + labels */}
-        {axes.map((axis, i) => {
-          const tip = radarPoint(i, n, 1);
-          const lbl = radarPoint(i, n, 1.16);
-          const anchor =
-            Math.abs(lbl.x - CENTER) < 6 ? 'middle' : lbl.x > CENTER ? 'start' : 'end';
-          return (
-            <g key={axis.key}>
-              <line
-                x1={CENTER}
-                y1={CENTER}
-                x2={tip.x}
-                y2={tip.y}
-                stroke={CHART_COLORS.border}
-                strokeWidth={0.5}
-              />
-              <text
-                x={lbl.x}
-                y={lbl.y}
-                textAnchor={anchor}
-                dominantBaseline="middle"
-                fontSize={9}
-                fill={CHART_COLORS.axis}
-              >
-                {axis.label}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Team polygons (overlay) */}
-        {series.map((s) => {
-          const color = RADAR_PALETTE[s.colorIndex % RADAR_PALETTE.length];
-          return (
-            <polygon
-              key={s.teamNumber}
-              data-testid={`${testid}-poly-${s.teamNumber}`}
-              points={polygonPoints(s.values)}
-              fill={color}
-              fillOpacity={0.12}
-              stroke={color}
-              strokeWidth={1.5}
-              strokeLinejoin="round"
-            />
-          );
-        })}
-      </svg>
-
-      {/* Legend */}
-      <ul
-        data-testid={`${testid}-legend`}
-        className="flex flex-wrap gap-x-4 gap-y-1 sm:flex-col sm:gap-y-2"
-      >
-        {series.map((s) => (
-          <li key={s.teamNumber} className="flex items-center gap-2 text-sm">
-            <span
-              aria-hidden
-              className="inline-block h-3 w-3 shrink-0 rounded-sm"
-              style={{ backgroundColor: RADAR_PALETTE[s.colorIndex % RADAR_PALETTE.length] }}
-            />
-            <span className="font-medium tabular-nums text-brand">{s.teamNumber}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <section
+      data-testid={testid}
+      aria-label="Selected team comparison dashboard"
+    >
+      <TeamLegend data={data} testid={`${testid}-legend`} />
+      <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
+        <ScoringChart data={data} testid={`${testid}-scoring`} />
+        <RateChart data={data} testid={`${testid}-rates`} />
+        <DefenseRatingChart data={data} testid={`${testid}-defense-rating`} />
+        <DefenseImpactChart data={data} testid={`${testid}-defense-impact`} />
+      </div>
+    </section>
   );
 }
 

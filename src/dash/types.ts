@@ -56,7 +56,7 @@ export interface MsrRow {
   auto_climb_level1: boolean;
 
   defense_rating: number;
-  // Subjective super-scout ratings (0–3; 0 = not rated). Optional: legacy rows /
+  // Subjective super-scout ratings (1–10; 0 = not rated). Optional: legacy rows /
   // pre-0039 deployments omit the column. SELECT `*` brings it. Consumers null-guard.
   driver_skill?: number | null;
   agility?: number | null;
@@ -97,6 +97,18 @@ export interface MsrRow {
 
   server_received_at: string;
   deleted: boolean;
+}
+
+/** Stable identity for report selection without retaining a stale row snapshot. */
+export function msrReportIdentity(report: MsrRow): string {
+  return [
+    report.match_key,
+    report.target_team_number,
+    report.alliance_color,
+    report.station,
+    report.scout_id ?? 'unassigned',
+    report.server_received_at,
+  ].join('|');
 }
 
 // ===========================================================================

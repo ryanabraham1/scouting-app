@@ -31,6 +31,26 @@ export function SegmentedToggle<T extends string>({
   className,
   size = 'big',
 }: SegmentedToggleProps<T>): JSX.Element {
+  const buttonRefs = React.useRef(new Map<T, HTMLButtonElement>());
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, current: T): void {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const index = options.findIndex((option) => option.value === current);
+    const backwards = event.key === 'ArrowLeft' || event.key === 'ArrowUp';
+    const next =
+      event.key === 'Home'
+        ? options[0]
+        : event.key === 'End'
+          ? options[options.length - 1]
+          : options[(index + (backwards ? -1 : 1) + options.length) % options.length];
+    if (!next) return;
+    onChange(next.value);
+    buttonRefs.current.get(next.value)?.focus();
+  }
+
   return (
     <div
       role="tablist"
@@ -48,7 +68,13 @@ export function SegmentedToggle<T extends string>({
             type="button"
             role="tab"
             aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
             onClick={() => onChange(opt.value)}
+            onKeyDown={(event) => onKeyDown(event, opt.value)}
+            ref={(node) => {
+              if (node) buttonRefs.current.set(opt.value, node);
+              else buttonRefs.current.delete(opt.value);
+            }}
             className={cn(
               'inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg font-semibold transition-colors [&_svg]:size-5',
               // Default (compact) tabs get tight padding so three counted labels

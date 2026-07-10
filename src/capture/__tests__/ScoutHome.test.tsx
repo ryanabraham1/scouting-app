@@ -2,11 +2,13 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const assignmentRows = [
+let assignmentRows = [
   // Upcoming (qm5 has no result yet) — should appear in the scout's to-do list.
   {
     match_key: '2026demo_qm5',
+    scout_id: 'scout-1',
     alliance_color: 'red',
     station: 1,
     target_team_number: 254,
@@ -15,6 +17,7 @@ const assignmentRows = [
   // Already played (qm3 has a winner) — should be filtered OUT of upcoming.
   {
     match_key: '2026demo_qm3',
+    scout_id: 'scout-1',
     alliance_color: 'blue',
     station: 2,
     target_team_number: 22,
@@ -60,6 +63,10 @@ const matchRows = [
   },
 ];
 
+let activeEventRows: { event_key: string; is_active: boolean }[] = [
+  { event_key: '2026demo', is_active: true },
+];
+
 vi.mock('@/lib/supabase', () => {
   return {
     supabase: {
@@ -69,7 +76,12 @@ vi.mock('@/lib/supabase', () => {
           // match: .select(...).eq('event_key', key)
           eq: () =>
             Promise.resolve({
-              data: table === 'match' ? matchRows : assignmentRows,
+              data:
+                table === 'event'
+                  ? activeEventRows
+                  : table === 'match'
+                    ? matchRows
+                    : assignmentRows,
               error: null,
             }),
         }),
@@ -91,6 +103,7 @@ vi.mock('@/auth/useSession', () => ({
 
 const forgetScouterName = vi.fn();
 const markScouterLoggedOut = vi.fn();
+const reconcileScouterIdentity = vi.fn();
 let loggedOutFlag = false;
 vi.mock('@/roster/selectScouter', () => ({
   forgetScouterName: () => forgetScouterName(),
@@ -98,14 +111,21 @@ vi.mock('@/roster/selectScouter', () => ({
   isScouterLoggedOut: () => loggedOutFlag,
   markScouterLoggedOut: () => markScouterLoggedOut(),
   selectScouter: vi.fn(),
+  reconcileScouterIdentity: (...args: unknown[]) => reconcileScouterIdentity(...args),
 }));
 
 vi.mock('@/roster/rosterClient', () => ({
   listRoster: () => Promise.resolve([{ id: 'r1', name: 'Casey' }]),
 }));
 
+let storedActiveEvent: string | null = '2026demo';
 vi.mock('@/dash/activeEventStore', () => ({
-  getStoredActiveEvent: () => '2026demo',
+  ACTIVE_EVENT_STORAGE_KEY: 'active_event_key',
+  getStoredActiveEvent: () => storedActiveEvent,
+  isValidStoredEventKey: (value: unknown) => typeof value === 'string' && value.length > 0,
+  setStoredActiveEvent: (value: string | null) => {
+    storedActiveEvent = value;
+  },
 }));
 
 vi.mock('@/export/exportReports', () => ({
@@ -136,9 +156,11 @@ describe('normalizeManualMatchKey (BUG-1)', () => {
     expect(normalizeManualMatchKey('q10', ev)).toBe('2026txhou1_qm10');
     expect(normalizeManualMatchKey('QM10', ev)).toBe('2026txhou1_qm10');
   });
-  it('trusts a pasted full key verbatim (incl. playoffs)', () => {
+  it('accepts active-event full keys and rejects cross-event targets', () => {
     expect(normalizeManualMatchKey('2026txhou1_qm10', ev)).toBe('2026txhou1_qm10');
     expect(normalizeManualMatchKey('2026txhou1_sf3m1', ev)).toBe('2026txhou1_sf3m1');
+    expect(normalizeManualMatchKey('2026casnv_qm10', ev)).toBe('');
+    expect(normalizeManualMatchKey('2026txhou1_unknown', ev)).toBe('');
   });
   it('returns empty for unparseable / zero / blank input', () => {
     expect(normalizeManualMatchKey('', ev)).toBe('');
@@ -150,10 +172,15 @@ describe('normalizeManualMatchKey (BUG-1)', () => {
 // ScoutHome reads ?mode from the URL via useSearchParams, so renders need a
 // Router. `route` lets a test deep-link into a mode (e.g. /scout?mode=pit).
 function renderHome(route = '/scout') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[route]}>
-      <ScoutHome />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[route]}>
+        <ScoutHome />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -161,10 +188,39 @@ beforeEach(async () => {
   await db.reports.clear();
   await db.drafts.clear();
   await db.cachedMatches.clear();
+  await db.cachedAssignments.clear();
   forgetScouterName.mockClear();
   markScouterLoggedOut.mockClear();
   loggedOutFlag = false;
   sessionScout = { id: 'scout-1', display_name: 'Casey', event_key: '2026demo' };
+  storedActiveEvent = '2026demo';
+  activeEventRows = [{ event_key: '2026demo', is_active: true }];
+  assignmentRows = [
+    {
+      match_key: '2026demo_qm5',
+      scout_id: 'scout-1',
+      alliance_color: 'red',
+      station: 1,
+      target_team_number: 254,
+      event_key: '2026demo',
+    },
+    {
+      match_key: '2026demo_qm3',
+      scout_id: 'scout-1',
+      alliance_color: 'blue',
+      station: 2,
+      target_team_number: 22,
+      event_key: '2026demo',
+    },
+  ];
+  reconcileScouterIdentity.mockReset();
+  reconcileScouterIdentity.mockResolvedValue({
+    id: 'scout-1',
+    display_name: 'Casey',
+    event_key: '2026demo',
+    auth_uid: 'anon-1',
+    created_at: '2026-01-01T00:00:00Z',
+  });
 });
 
 describe('ScoutHome', () => {
@@ -176,6 +232,110 @@ describe('ScoutHome', () => {
     });
   });
 
+  it('preserves cached assignments when live rows miss an unconfirmed stale identity', async () => {
+    await db.cachedAssignments.put({
+      id: 'cached-old-qm5',
+      scout_id: 'scout-old',
+      match_key: '2026demo_qm5',
+      alliance_color: 'red',
+      station: 1,
+      target_team_number: 254,
+      event_key: '2026demo',
+    });
+    sessionScout = { id: 'scout-old', display_name: 'Casey', event_key: '2026demo' };
+    assignmentRows = assignmentRows.map((row) => ({ ...row, scout_id: 'scout-canonical' }));
+    reconcileScouterIdentity.mockRejectedValue(new Error('Failed to fetch'));
+
+    renderHome();
+
+    await waitFor(() => expect(screen.getAllByTestId('scout-assignment')).toHaveLength(1));
+    expect((await db.cachedAssignments.get('cached-old-qm5'))?.scout_id).toBe('scout-old');
+  });
+
+  it('authoritatively clears cached assignments when the whole live event is empty', async () => {
+    await db.cachedAssignments.put({
+      id: 'cached-cleared-qm5',
+      scout_id: 'scout-1',
+      match_key: '2026demo_qm5',
+      alliance_color: 'red',
+      station: 1,
+      target_team_number: 254,
+      event_key: '2026demo',
+    });
+    assignmentRows = [];
+
+    renderHome();
+
+    await waitFor(async () => {
+      expect(await db.cachedAssignments.where('event_key').equals('2026demo').count()).toBe(0);
+    });
+    expect(screen.queryByTestId('scout-assignment')).toBeNull();
+  });
+
+  it('refreshes to the canonical scout identity and its live assignments', async () => {
+    sessionScout = { id: 'scout-old', display_name: 'Casey', event_key: '2026demo' };
+    assignmentRows = assignmentRows.map((row) => ({ ...row, scout_id: 'scout-canonical' }));
+    reconcileScouterIdentity.mockResolvedValue({
+      id: 'scout-canonical',
+      display_name: 'Casey',
+      event_key: '2026demo',
+      auth_uid: 'anon-1',
+      created_at: '2026-01-01T00:00:00Z',
+    });
+
+    renderHome();
+
+    await waitFor(() => expect(screen.getAllByTestId('scout-assignment')).toHaveLength(1));
+    expect(reconcileScouterIdentity).toHaveBeenCalledWith('2026demo', 'Casey');
+    await waitFor(async () => {
+      const cached = await db.cachedAssignments.where('event_key').equals('2026demo').toArray();
+      expect(cached.every((row) => row.scout_id === 'scout-canonical')).toBe(true);
+      expect(cached).toHaveLength(2);
+    });
+  });
+
+  it('does not show tutorial promotion after identity selection', async () => {
+    renderHome();
+    await screen.findByTestId('scout-upcoming-matches');
+    expect(screen.queryByTestId('tutorial-invite')).toBeNull();
+    expect(screen.queryByTestId('scout-tutorial-link')).toBeNull();
+  });
+
+  it('offers one tutorial button before identity selection and with no event', async () => {
+    sessionScout = null;
+    storedActiveEvent = null;
+    activeEventRows = [];
+    renderHome();
+    expect(await screen.findByTestId('scout-no-event')).toBeTruthy();
+    expect(screen.getByTestId('scout-tutorial-link').getAttribute('href')).toBe(
+      '/scout/tutorial',
+    );
+    expect(screen.getByRole('link', { name: /open tutorial/i })).toHaveTextContent(
+      'Tutorial',
+    );
+    expect(screen.getAllByTestId('scout-tutorial-link')).toHaveLength(1);
+  });
+
+  it('allows roster names to wrap inside narrow picker columns', async () => {
+    sessionScout = null;
+    renderHome();
+
+    const option = await screen.findByTestId('scout-name-option-Casey');
+    expect(option).toHaveClass('min-w-0', 'whitespace-normal', 'break-words');
+    expect(option.closest('li')).toHaveClass('min-w-0');
+  });
+
+  it('forces a new identity pick when the server event differs from cached state', async () => {
+    storedActiveEvent = '2026casnv';
+    activeEventRows = [{ event_key: '2026demo', is_active: true }];
+    sessionScout = { id: 'scout-old', display_name: 'Casey', event_key: '2026casnv' };
+    renderHome();
+
+    expect(await screen.findByTestId('scout-name-picker')).toBeTruthy();
+    expect(screen.getByText(/start scouting event/).textContent).toContain('2026demo');
+    expect(screen.queryByTestId('scout-manual-pick')).toBeNull();
+  });
+
   it('lists resume drafts with a human-readable title (not the raw key)', async () => {
     await saveDraft('qm9:scout-1:111', { bursts: [] });
     renderHome();
@@ -184,6 +344,25 @@ describe('ScoutHome', () => {
       expect(screen.getByText(/Qualification 9.*Team 111/)).toBeTruthy();
     });
     expect(screen.queryByText(/qm9:scout-1:111/)).toBeNull();
+  });
+
+  it('does not offer a draft whose stored target belongs to another event', async () => {
+    await saveDraft('2026old_qm7:scout-1:222', {
+      target: {
+        eventKey: '2026old',
+        matchKey: '2026old_qm7',
+        scoutId: 'scout-1',
+        scoutName: 'Casey',
+        targetTeamNumber: 222,
+        allianceColor: 'red',
+        station: 1,
+      },
+    });
+    renderHome();
+    expect(await screen.findByTestId('scout-other-event-drafts')).toHaveTextContent(
+      /another event/i,
+    );
+    expect(screen.queryByTestId('scout-resume-2026old_qm7:scout-1:222')).toBeNull();
   });
 });
 
@@ -229,7 +408,7 @@ function mkCachedMatch(over: Partial<CachedMatch>): CachedMatch {
 describe('ScoutHome manual pick', () => {
   it('disables start until match + team provided', async () => {
     renderHome();
-    const btn = screen.getByTestId('scout-start-capture') as HTMLButtonElement;
+    const btn = await screen.findByTestId('scout-start-capture') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Match'), { target: { value: 'qm5' } });
     fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '111' } });
@@ -239,7 +418,7 @@ describe('ScoutHome manual pick', () => {
   it('derives alliance/station from the cached schedule and hides the selects', async () => {
     await db.cachedMatches.put(mkCachedMatch({}));
     renderHome();
-    fireEvent.change(screen.getByLabelText('Match'), { target: { value: '5' } });
+    fireEvent.change(await screen.findByLabelText('Match'), { target: { value: '5' } });
     fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '300' } });
     // Derived chip appears (blue 2 for team 300); manual selects never show.
     const chip = await screen.findByTestId('scout-manual-derived');
@@ -257,6 +436,7 @@ describe('ScoutHome manual pick', () => {
     // Cache is EMPTY (offline fresh device): typing both fields surfaces the
     // fallback selects instead of a derived chip.
     renderHome();
+    await screen.findByLabelText('Match');
     expect(screen.queryByLabelText('Alliance')).toBeNull();
     fireEvent.change(screen.getByLabelText('Match'), { target: { value: 'qm9' } });
     fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '111' } });
@@ -268,7 +448,7 @@ describe('ScoutHome manual pick', () => {
   it('blocks a team that is not playing in a fully-known lineup', async () => {
     await db.cachedMatches.put(mkCachedMatch({}));
     renderHome();
-    fireEvent.change(screen.getByLabelText('Match'), { target: { value: '5' } });
+    fireEvent.change(await screen.findByLabelText('Match'), { target: { value: '5' } });
     // First type a team that IS in the lineup and wait for its derived chip —
     // that's the visible signal the cached schedule has finished loading, so
     // the click below can't race the async cache read and start a capture.
@@ -374,10 +554,13 @@ describe('ScoutHome Match/Pit toggle', () => {
   it('switching to Pit renders the pit flow inline using the bound identity', async () => {
     renderHome();
     // The toggle keeps the same scout — no name re-pick.
-    fireEvent.click(screen.getByRole('tab', { name: /pit/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /pit/i }));
     expect(await screen.findByTestId('pit-flow')).toBeTruthy();
     // Team picker is shown; the match manual-pick is gone.
     expect(screen.getByTestId('pit-team-input')).toBeTruthy();
+    const startCard = screen.getByTestId('pit-team-start-card');
+    expect(startCard.className).toContain('mx-auto');
+    expect(startCard.className).toContain('max-w-xl');
     expect(screen.queryByTestId('scout-manual-pick')).toBeNull();
     // No name picker — identity is reused.
     expect(screen.queryByTestId('scout-name-picker')).toBeNull();

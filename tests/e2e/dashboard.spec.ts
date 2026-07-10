@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { ensureStrategyMatchup, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -44,6 +44,7 @@ test('lead sees a next-match prediction and builds a persisted picklist (no logi
   // whether or not Statbotics is reachable (the proxy degrades to unavailable).
   await page.getByRole('tab', { name: 'Strategy' }).click();
   await expect(page.getByTestId('dash-strategy')).toBeVisible({ timeout: 25_000 });
+  await ensureStrategyMatchup(page);
   await expect(page.getByTestId('dash-next-red-score')).toBeVisible({ timeout: 25_000 });
   await expect(page.getByTestId('dash-next-red-winprob')).toBeVisible();
 
@@ -53,7 +54,7 @@ test('lead sees a next-match prediction and builds a persisted picklist (no logi
   await page.getByTestId('pick-add-input').fill('254');
   await page.getByTestId('pick-add').click();
   await expect(page.getByTestId('pick-row-254')).toBeVisible();
-  await page.getByTestId('pick-save').click();
+  // Picklist persistence is debounced autosave; there is no manual Save button.
   await expect(page.getByTestId('pick-saved')).toBeVisible({ timeout: 10_000 });
 
   const { data, error } = await admin

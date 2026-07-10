@@ -6,7 +6,7 @@
 // resolve EPA via `resolveRowEpa` (seedPicklist passes epaAvailable +
 // epaFromScouting through to it).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,11 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
   const [topN, setTopN] = useState('24');
   const [minMatches, setMinMatches] = useState('0');
   const [mode, setMode] = useState<'replace' | 'append'>('replace');
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const metricRef = useRef<HTMLSelectElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Reset the form each time the dialog opens so a prior session never lingers.
   useEffect(() => {
@@ -54,17 +59,43 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
 
   useEffect(() => {
     if (!open) return;
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    requestAnimationFrame(() => {
+      (metricRef.current ?? panelRef.current?.querySelector<HTMLButtonElement>('button'))?.focus();
+    });
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
+      previouslyFocused?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   if (typeof document === 'undefined') return null;
@@ -92,21 +123,20 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
     <div
       data-testid="pick-seed-overlay"
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Seed picklist"
     >
-      <button
-        type="button"
-        aria-label="Close seed dialog"
+      <div
         onClick={onClose}
         className="absolute inset-0 bg-black/60"
       />
       <div
+        ref={panelRef}
         data-testid="pick-seed-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="relative z-10 w-full max-w-md space-y-4 rounded-xl border border-border bg-card p-5 text-foreground shadow-xl"
       >
-        <div className="text-base font-semibold">Seed picklist</div>
+        <div id={titleId} className="text-base font-semibold">Seed picklist</div>
 
         {empty ? (
           <div data-testid="pick-seed-empty" className="text-sm text-muted-foreground">
@@ -117,6 +147,7 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
             <label className="block space-y-1 text-sm">
               <span className="text-muted-foreground">Metric</span>
               <select
+                ref={metricRef}
                 data-testid="pick-seed-metric"
                 value={metric}
                 onChange={(e) => setMetric(e.target.value as RankSortKey)}

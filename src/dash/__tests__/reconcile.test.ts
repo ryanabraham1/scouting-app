@@ -221,15 +221,15 @@ describe('classifySeverity — threshold branches', () => {
   it('exports the threshold constants', () => {
     expect(FUEL_MINOR_PTS).toBe(3);
     expect(FUEL_SEVERE_PTS).toBe(8);
-    expect(DEFENSE_SEVERE).toBe(3);
+    expect(DEFENSE_SEVERE).toBe(5);
   });
 
   it('defense spread >= DEFENSE_SEVERE → severe', () => {
     const d = computeDivergences([
-      row({ ...ROBOT, scout_id: 'a', defense_rating: 0 }),
-      row({ ...ROBOT, scout_id: 'b', defense_rating: 3 }),
+      row({ ...ROBOT, scout_id: 'a', defense_rating: 2 }),
+      row({ ...ROBOT, scout_id: 'b', defense_rating: 8 }),
     ]);
-    expect(d.defense_spread).toBe(3);
+    expect(d.defense_spread).toBe(6);
     expect(classifySeverity(d)).toBe('severe');
   });
 

@@ -18,6 +18,16 @@
 //
 // The demo event is inserted with is_active=false; the client activates it.
 import { corsHeaders } from "../_shared/cors.ts";
+import {
+  canonicalDemoFuelBursts,
+  DEMO_SHIFT_BOUNDS as SHIFT_BOUNDS,
+  demoFuelFromAttribution,
+} from "../_shared/demoScoring.ts";
+import {
+  BodyTooLargeError,
+  readJsonBody,
+  readTextResponse,
+} from "../_shared/readJsonBody.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -27,22 +37,14 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const DEFAULT_SOURCE = "2026casnv";
 const DEFAULT_DEMO = "2026demo";
+const ALLOWED_DEMO_EVENT_KEY = "2026demo";
 
 // Frozen scoring magnitudes (mirror src/scoring/constants.ts SCORING.CLIMB).
 const CLIMB_TELEOP_POINTS: Record<number, number> = { 1: 10, 2: 20, 3: 30 };
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const N_SCOUTS = 10;
-
-// Teleop window bounds (ms from teleop start), mirror src/scoring/windows.ts.
-// Used only to place plausible fuel_bursts on the per-report timeline.
-const SHIFT_BOUNDS = {
-  transition: { start: 0, end: 10000 },
-  shift1: { start: 10000, end: 35000 },
-  shift2: { start: 35000, end: 60000 },
-  shift3: { start: 60000, end: 85000 },
-  shift4: { start: 85000, end: 110000 },
-  endgame: { start: 110000, end: 140000 },
-} as const;
+const MAX_REQUEST_BYTES = 8192;
+const MAX_TBA_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 interface TbaEvent {
   name: string;
@@ -85,23 +87,16 @@ function teamNum(teamKey: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function randomJoinCode(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  let out = "";
-  for (let i = 0; i < 8; i++) out += alphabet[bytes[i] % alphabet.length];
-  return out;
-}
-
 async function tba<T>(path: string): Promise<T> {
   const res = await fetch(`${TBA_BASE}${path}`, {
     headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
+    signal: AbortSignal.timeout(10_000),
   });
+  const text = await readTextResponse(res, MAX_TBA_RESPONSE_BYTES);
   if (!res.ok) {
-    throw new Error(`TBA ${path} failed: ${res.status} ${await res.text()}`);
+    throw new Error(`TBA ${path} failed: ${res.status} ${text.slice(0, 2048)}`);
   }
-  return (await res.json()) as T;
+  return JSON.parse(text) as T;
 }
 
 // ── Deterministic PRNG, seeded by a numeric key, so a re-seed is reproducible ──
@@ -149,17 +144,29 @@ Deno.serve(async (req) => {
   // Open posture (matches import-event): no admin gate.
   let body: { source_event_key?: string; demo_event_key?: string };
   try {
-    body = await req.json();
-  } catch {
-    body = {};
+    body = (await readJsonBody(req, MAX_REQUEST_BYTES) ?? {}) as typeof body;
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return json({ error: error.message }, 413);
+    }
+    return json({ error: "invalid JSON body" }, 400);
   }
   const srcKey = (body.source_event_key ?? DEFAULT_SOURCE).trim();
   const demoKey = (body.demo_event_key ?? DEFAULT_DEMO).trim();
+  if (demoKey !== ALLOWED_DEMO_EVENT_KEY) {
+    return json(
+      { error: `demo_event_key must be ${ALLOWED_DEMO_EVENT_KEY}` },
+      403,
+    );
+  }
   if (!srcKey || !demoKey) {
     return json({ error: "missing source_event_key / demo_event_key" }, 400);
   }
   if (srcKey === demoKey) {
     return json({ error: "source and demo event keys must differ" }, 400);
+  }
+  if (!/^[0-9]{4}[a-z0-9]+$/.test(srcKey) || srcKey.length > 64) {
+    return json({ error: "invalid source_event_key" }, 400);
   }
 
   return await runSeed(srcKey, demoKey);
@@ -190,55 +197,15 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       502,
     );
   }
+  if (teams.length > 1000 || qm.length > 500) {
+    return json({ error: "source event exceeds supported size" }, 422);
+  }
 
   const svc = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  // (1) Idempotent reset — wipe any prior demo rows (FK-safe via the RPC).
-  const { error: delErr } = await svc.rpc("delete_event", {
-    p_event_key: demoKey,
-  });
-  if (delErr) return json({ error: `delete_event: ${delErr.message}` }, 500);
-
-  // (3) Insert the DEMO event row. is_active=false — the CLIENT activates it.
-  // Do NOT deactivate other events (unlike import-event).
-  const { error: evErr } = await svc.from("event").insert({
-    event_key: demoKey,
-    name: `Demo — ${ev.name} (simulated)`,
-    start_date: ev.start_date,
-    end_date: ev.end_date,
-    timezone: ev.timezone,
-    city: ev.city,
-    state_prov: ev.state_prov,
-    is_active: false,
-    staged_fuel_per_match: 504,
-    imported_at: new Date().toISOString(),
-  });
-  if (evErr) return json({ error: `event insert: ${evErr.message}` }, 500);
-
-  // Harmless join_code so the demo event behaves like an imported one.
-  const { error: secErr } = await svc
-    .from("event_secret")
-    .upsert({ event_key: demoKey, join_code: randomJoinCode() });
-  if (secErr) return json({ error: `event_secret: ${secErr.message}` }, 500);
-
-  // (4) Teams: REAL, from TBA. Global `team` rows (upsert) + event_team join.
-  const { error: teamErr } = await svc.from("team").upsert(
-    teams.map((t) => ({
-      team_number: t.team_number,
-      nickname: t.nickname,
-      city: t.city,
-      state_prov: t.state_prov,
-      rookie_year: t.rookie_year,
-    })),
-  );
-  if (teamErr) return json({ error: `team upsert: ${teamErr.message}` }, 500);
-
-  const { error: etErr } = await svc.from("event_team").upsert(
-    teams.map((t) => ({ event_key: demoKey, team_number: t.team_number })),
-  );
-  if (etErr) return json({ error: `event_team: ${etErr.message}` }, 500);
+  // All rows are generated in memory. A single transactional RPC replaces the
+  // demo only after the complete bundle has been validated.
 
   // (5) Per-team skill (first pass): average the actual alliance score over the
   // played qm matches each team appears in. "played" iff both alliance scores
@@ -308,21 +275,25 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
 
   // (7) Scouts: ~10 demo scouts. Don't touch scouter_roster.
   const scoutRows = Array.from({ length: N_SCOUTS }, (_, i) => ({
+    id: crypto.randomUUID(),
     event_key: demoKey,
     display_name: `Demo Scout ${i + 1}`,
     auth_uid: crypto.randomUUID(),
   }));
-  const { data: insertedScouts, error: scoutErr } = await svc
-    .from("scout")
-    .insert(scoutRows)
-    .select("id, display_name");
-  if (scoutErr) return json({ error: `scout insert: ${scoutErr.message}` }, 500);
-  const scoutIds = (insertedScouts ?? [])
+  const scoutIds = [...scoutRows]
     .sort((a, b) => a.display_name.localeCompare(b.display_name))
-    .map((s) => s.id as string);
-  if (scoutIds.length === 0) {
-    return json({ error: "no demo scouts created" }, 500);
-  }
+    .map((s) => s.id);
+
+  // Shared two-person pit crews, balanced across the demo scouts. Pit reports
+  // remain team-level; either assigned member can edit/submit the same row.
+  const pitAssignmentRows = teams.flatMap((team, teamIndex) =>
+    [0, 1].map((memberIndex) => ({
+      event_key: demoKey,
+      team_number: team.team_number,
+      scout_id: scoutIds[(teamIndex * 2 + memberIndex) % scoutIds.length],
+      source: "auto",
+    }))
+  );
 
   // (6) Decide played-vs-upcoming. Always leave the last ~25% UNPLAYED so the
   // Next-Match prediction has upcoming matches — even when TBA has real results.
@@ -420,12 +391,6 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
     matchRows.push(base);
   }
 
-  // Insert matches in chunks.
-  for (let i = 0; i < matchRows.length; i += 200) {
-    const { error } = await svc.from("match").insert(matchRows.slice(i, i + 200));
-    if (error) return json({ error: `match insert: ${error.message}` }, 500);
-  }
-
   // (8) match_scouting_report — the core ask. For EACH PLAYED match × its 6
   // teams, build ONE report whose magnitude is grounded in the real result.
   const reportRows: Record<string, unknown>[] = [];
@@ -485,9 +450,15 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         }
       }
       const climbPts = climbSuccess ? CLIMB_TELEOP_POINTS[climbLevel] ?? 0 : 0;
+      const autoClimbLevel1 = !noShow && rng() < 0.1;
 
       // The remainder of the attributed points is FUEL.
-      let fuelTotal = Math.max(0, attributedPoints - climbPts);
+      let fuelTotal = demoFuelFromAttribution(
+        attributedPoints,
+        climbPts,
+        autoClimbLevel1,
+        noShow,
+      );
       if (noShow) {
         attributedPoints = 0;
         fuelTotal = 0;
@@ -516,22 +487,12 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       const vTeleInact = clampInt(teleopInactive, 0, 500);
       const vEndgame = clampInt(endgameFuel, 0, 500);
 
-      // fuel_points = auto + teleop_active + endgame (spec: excludes inactive).
-      const fuelPoints = vAuto + vTeleAct + vEndgame;
-      const fuelConfidence = Math.round((0.5 + rng() * 0.5) * 100) / 100; // 0.5..1.0
-
-      // fuel_by_shift: 4 teleop buckets summing ~ active+inactive.
-      const shiftTotal = vTeleAct + vTeleInact;
-      const sa = Math.round(shiftTotal * 0.3);
-      const sb = Math.round(shiftTotal * 0.3);
-      const sc = Math.round(shiftTotal * 0.25);
-      const sd = Math.max(0, shiftTotal - sa - sb - sc);
-      const fuelByShift = [sa, sb, sc, sd];
-
       const inactiveFirst = vTeleInact > 0 && rng() < 0.4;
 
       // Defense: lower-skill teams play more defense.
-      const defenseRating = noShow ? 0 : clampInt(rng() * (1.5 + (1 - s) * 2.5), 0, 3);
+      const defenseRating = noShow
+        ? 0
+        : clampInt(1 + rng() * (4 + (1 - s) * 5), 1, 10);
       const pins = defenseRating > 0 ? clampInt(rng() * 3, 0, 5) : 0;
 
       // ── auto_start_position {x,y} (0..1) + auto_path [{x,y}...] ──
@@ -547,20 +508,19 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         ];
       }
 
-      // ── A few fuel_bursts. window 'auto' → startMs absolute in auto time;
-      // teleop windows → startMs relative to teleop start (timeline adds AUTO_MS). ──
+      // Raw bursts are the only scoring source of truth. Their one-second
+      // durations make each rate equal its exact integer fuel contribution, so
+      // the canonical upsert RPC recomputes the intended aggregates.
       const r2 = (v: number) => Math.round(v * 100) / 100;
-      let bursts: Record<string, unknown>[] = [];
-      if (!noShow) {
-        bursts = [
-          { rate: r2(1.5 + rng()), startMs: 3000, endMs: 9000, window: "auto" },
-          { rate: r2(2.0 + rng()), startMs: SHIFT_BOUNDS.shift1.start, endMs: SHIFT_BOUNDS.shift1.end, window: "shift1" },
-          { rate: r2(2.0 + rng()), startMs: SHIFT_BOUNDS.shift2.start, endMs: SHIFT_BOUNDS.shift2.end, window: "shift2" },
-        ];
-        if (!died) {
-          bursts.push({ rate: r2(1.5 + rng()), startMs: SHIFT_BOUNDS.shift3.start, endMs: SHIFT_BOUNDS.shift3.end, window: "shift3" });
-        }
-      }
+      const bursts = noShow
+        ? []
+        : canonicalDemoFuelBursts(
+          vAuto,
+          vTeleAct,
+          vTeleInact,
+          vEndgame,
+          inactiveFirst,
+        );
 
       const intakeSources = defenseRating > 0 ? ["ground", "station"] : ["ground"];
       const maxFuelObserved = clampInt(fuelTotal * 0.25 * (0.5 + rng()), 0, 600);
@@ -613,6 +573,7 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
               : "Solid contributor.";
 
       reportRows.push({
+        id: crypto.randomUUID(),
         schema_version: SCHEMA_VERSION,
         app_version: "demo",
         device_id: "demo-device",
@@ -625,27 +586,20 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         inactive_first: inactiveFirst,
         inactive_first_source: inactiveFirst ? "derived" : null,
         fuel_bursts: bursts,
-        auto_fuel: vAuto,
-        teleop_fuel_active: vTeleAct,
-        teleop_fuel_inactive: vTeleInact,
-        endgame_fuel: vEndgame,
-        fuel_by_shift: fuelByShift,
-        fuel_points: fuelPoints,
-        fuel_estimate_confidence: fuelConfidence,
         climb_level: climbLevel,
         climb_attempted: climbAttempted,
         climb_success: climbSuccess,
         auto_start_position: startPos,
         auto_path: path,
         auto_left_starting_line: !noShow && rng() < 0.9,
-        auto_climb_level1: !noShow && rng() < 0.1,
+        auto_climb_level1: autoClimbLevel1,
         intake_sources: intakeSources,
         max_fuel_capacity_observed: maxFuelObserved,
         defense_rating: defenseRating,
-        // Subjective super-scout ratings (0–3): scale with team strength `s`,
+        // Subjective super-scout ratings (1–10): scale with team strength `s`,
         // jittered; 0 when the robot never showed.
-        driver_skill: noShow ? 0 : clampInt(1 + s * 2 + (rng() - 0.5), 0, 3),
-        agility: noShow ? 0 : clampInt(1 + s * 2 + (rng() - 0.5), 0, 3),
+        driver_skill: noShow ? 0 : clampInt(1 + s * 9 + (rng() - 0.5) * 2, 1, 10),
+        agility: noShow ? 0 : clampInt(1 + s * 9 + (rng() - 0.5) * 2, 1, 10),
         pins,
         fouls_minor: foulsMinor,
         fouls_major: foulsMajor,
@@ -661,17 +615,10 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         defense_intervals: defenseIntervals,
         defended_intervals: defendedIntervals,
         notes,
+        row_revision: 1,
         deleted: false,
       });
     }
-  }
-
-  // Batch report inserts (chunks of 200) to stay under payload limits.
-  for (let i = 0; i < reportRows.length; i += 200) {
-    const { error } = await svc
-      .from("match_scouting_report")
-      .insert(reportRows.slice(i, i + 200));
-    if (error) return json({ error: `report insert: ${error.message}` }, 500);
   }
 
   // (9) pit_scouting_report — one per team.
@@ -723,21 +670,39 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       deleted: false,
     };
   });
-  for (let i = 0; i < pitRows.length; i += 200) {
-    const { error } = await svc
-      .from("pit_scouting_report")
-      .insert(pitRows.slice(i, i + 200));
-    if (error) return json({ error: `pit insert: ${error.message}` }, 500);
+  const { data, error } = await svc.rpc("replace_demo_event_bundle", {
+    p_bundle: {
+      event: {
+        event_key: demoKey,
+        name: `Demo — ${ev.name} (simulated)`,
+        start_date: ev.start_date,
+        end_date: ev.end_date,
+        timezone: ev.timezone,
+        city: ev.city,
+        state_prov: ev.state_prov,
+        staged_fuel_per_match: 504,
+      },
+      teams: teams.map((team) => ({
+        team_number: team.team_number,
+        nickname: team.nickname,
+        city: team.city,
+        state_prov: team.state_prov,
+        rookie_year: team.rookie_year,
+      })),
+      matches: matchRows,
+      scouts: scoutRows,
+      pit_assignments: pitAssignmentRows,
+      reports: reportRows,
+      pit_reports: pitRows,
+    },
+  });
+  if (error) {
+    return json({ error: `atomic demo replacement: ${error.message}` }, 500);
   }
-
-  // (10) Counts.
   return json(
     {
-      demo_event_key: demoKey,
+      ...(data as Record<string, unknown>),
       source_event_key: srcKey,
-      team_count: teams.length,
-      match_count: matchRows.length,
-      report_count: reportRows.length,
     },
     200,
   );

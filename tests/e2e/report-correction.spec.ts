@@ -136,15 +136,14 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
   // 7. Server assertion once the queue drains: revision bumped, climb updated,
   //    exactly one row for that id (UPDATE path, not a duplicate insert).
   await page.goto('/scout');
-  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
-  const res = await admin
-    .from('match_scouting_report')
-    .select('row_revision, climb_level')
-    .eq('id', editId);
-  expect(res.error).toBeNull();
-  expect(res.data).toHaveLength(1);
-  expect(res.data![0].row_revision).toBe(2);
-  expect(res.data![0].climb_level).toBe(3);
+  await expect.poll(async () => {
+    const { data } = await admin
+      .from('match_scouting_report')
+      .select('row_revision, climb_level')
+      .eq('id', editId)
+      .maybeSingle();
+    return data;
+  }, { timeout: 30_000 }).toMatchObject({ row_revision: 2, climb_level: 3 });
 
   // Scenario B: idempotent resubmit — re-trigger sync without editing; revision
   // stays 2 and there's still exactly one active row.
@@ -158,7 +157,7 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
   expect(again.data![0].row_revision).toBe(2);
 });
 
-test('Scenario C: dead-letter rows are not editable', async ({ page }) => {
+test('Scenario C: dead-letter rows expose the edit recovery path', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
 
   await setActiveEvent(admin, E2E_EVENT_KEY);
@@ -233,7 +232,13 @@ test('Scenario C: dead-letter rows are not editable', async ({ page }) => {
 
   await page.getByTestId('nav-my-data').click();
   await expect(page.getByTestId('my-data-needs-sync-e2e-deadletter-1')).toBeVisible();
-  await expect(page.getByTestId('my-data-edit-e2e-deadletter-1')).toHaveCount(0);
+  await expect(page.getByTestId('my-data-edit-e2e-deadletter-1')).toBeVisible();
+  await page.getByTestId('my-data-edit-e2e-deadletter-1').click();
+  await expect(page.getByTestId('scout-manual-pick')).toBeVisible();
+  await expect(page.locator('#mp-match')).toHaveValue(E2E_MATCH_KEY);
+  await expect(page.locator('#mp-team')).toHaveValue(String(E2E_TEAM));
+  await expect(page.getByText(/failed to sync — fix the match\/team/i)).toBeVisible();
+  await expect(page.getByTestId('scout-start-capture')).toBeEnabled();
 });
 
 test('Scenario D: offline edit queues then drains', async ({ page }) => {
@@ -259,17 +264,18 @@ test('Scenario D: offline edit queues then drains', async ({ page }) => {
   await expect(page.getByTestId('review-editing-banner')).toBeVisible();
   await editClimbAndNotes(page, `offline-${Date.now()}`);
 
-  await page.goto('/scout');
+  await page.getByTestId('my-data-back').click();
   await expect(page.getByTestId('sync-indicator').getByLabel('offline')).toBeVisible();
   await expect(page.getByTestId('sync-queued')).toHaveText('1');
 
   // Back online: drains to ↑0 and the server shows revision 2.
   await page.context().setOffline(false);
-  await expect(page.getByTestId('sync-queued')).toHaveText('0', { timeout: 30_000 });
-  const res = await admin
-    .from('match_scouting_report')
-    .select('row_revision')
-    .eq('id', editId);
-  expect(res.data).toHaveLength(1);
-  expect(res.data![0].row_revision).toBe(2);
+  await expect.poll(async () => {
+    const { data } = await admin
+      .from('match_scouting_report')
+      .select('row_revision')
+      .eq('id', editId)
+      .maybeSingle();
+    return data?.row_revision ?? 0;
+  }, { timeout: 30_000 }).toBe(2);
 });

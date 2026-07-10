@@ -10,6 +10,7 @@ import {
 } from '@/db/localStore';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 import { syncOnce } from '../outbox';
+import { clearSyncCircuit } from '../retrySchedule';
 
 function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport {
   const bursts: FuelBurst[] = [{ startMs: 0, endMs: 500, rate: 2, window: 'shift1' }];
@@ -85,8 +86,13 @@ const EXPECTED_PAYLOAD_KEYS = [
   'notes', 'row_revision', 'deleted',
 ].sort();
 
+function successResult(status: 'applied' | 'idempotent' = 'applied') {
+  return { data: { status, current_revision: 1 }, error: null };
+}
+
 describe('syncOnce', () => {
   beforeEach(async () => {
+    clearSyncCircuit();
     await db.reports.clear();
   });
 
@@ -95,7 +101,7 @@ describe('syncOnce', () => {
     await saveReport(makeReport({ id: 'b', createdAt: '2026-06-23T00:00:01.000Z' }));
     await saveReport(makeReport({ id: 'c', createdAt: '2026-06-23T00:00:02.000Z' }));
 
-    const rpc = vi.fn().mockResolvedValue({ error: null });
+    const rpc = vi.fn().mockResolvedValue(successResult());
     const summary = await syncOnce(rpc);
 
     expect(summary).toEqual({ attempted: 3, synced: 3, retried: 0, deadLettered: 0 });
@@ -112,6 +118,35 @@ describe('syncOnce', () => {
     expect((await getReport('b'))?.syncState).toBe('synced');
     expect((await getReport('c'))?.syncState).toBe('synced');
   });
+
+  it('treats an idempotent server verdict as synced', async () => {
+    await saveReport(makeReport({ id: 'idempotent-status' }));
+    const summary = await syncOnce(
+      vi.fn().mockResolvedValue(successResult('idempotent')),
+    );
+    expect(summary).toEqual({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
+    expect((await getReport('idempotent-status'))?.syncState).toBe('synced');
+  });
+
+  it.each(['stale', 'conflict'] as const)(
+    'preserves local data and records a recoverable %s verdict',
+    async (status) => {
+      await saveReport(makeReport({ id: `server-${status}`, notes: 'keep this local edit' }));
+      const summary = await syncOnce(
+        vi.fn().mockResolvedValue({
+          data: { status, current_revision: 7 },
+          error: null,
+        }),
+      );
+
+      expect(summary).toEqual({ attempted: 1, synced: 0, retried: 0, deadLettered: 1 });
+      const report = await getReport(`server-${status}`);
+      expect(report?.syncState).toBe('error');
+      expect(report?.notes).toBe('keep this local edit');
+      expect(report?.lastSyncError).toMatch(new RegExp(`${status}|conflict`, 'i'));
+      expect(report?.lastSyncError).toContain('7');
+    },
+  );
 
   it('transient (5xx): returns the report to dirty, increments syncAttempts, no dead-letter', async () => {
     await saveReport(makeReport({ id: 't1', syncAttempts: 0 }));
@@ -176,7 +211,7 @@ describe('syncOnce', () => {
     expect(got?.lastSyncError).toBeTruthy();
   });
 
-  it('cap: a transient failure at SYNC_MAX_ATTEMPTS dead-letters (terminal by cap)', async () => {
+  it('keeps infrastructure failures queued even after the legacy attempt cap', async () => {
     await saveReport(makeReport({ id: 'cap1', syncAttempts: SYNC_MAX_ATTEMPTS }));
     const rpc = vi.fn().mockResolvedValue({
       error: { message: 'service unavailable', status: 503 },
@@ -184,14 +219,14 @@ describe('syncOnce', () => {
 
     const summary = await syncOnce(rpc);
 
-    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 0, deadLettered: 1 });
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
     const got = await getReport('cap1');
-    expect(got?.syncState).toBe('error');
+    expect(got?.syncState).toBe('dirty');
   });
 
   it('success resets syncAttempts so past blips never accumulate toward the cap', async () => {
     await saveReport(makeReport({ id: 'reset1', syncAttempts: SYNC_MAX_ATTEMPTS - 1 }));
-    const rpc = vi.fn().mockResolvedValue({ error: null });
+    const rpc = vi.fn().mockResolvedValue(successResult());
 
     await syncOnce(rpc);
 
@@ -208,7 +243,7 @@ describe('syncOnce', () => {
     await saveReport(makeReport({ id: 'race1', rowRevision: 1 }));
     const rpc = vi.fn().mockImplementation(async () => {
       await saveReport(makeReport({ id: 'race1', rowRevision: 2, syncState: 'dirty' }));
-      return { error: null };
+      return successResult();
     });
 
     await syncOnce(rpc);
@@ -234,7 +269,7 @@ describe('syncOnce', () => {
 
   it('idempotency: re-running after success is a no-op (empty queue)', async () => {
     await saveReport(makeReport({ id: 'idem' }));
-    const rpc = vi.fn().mockResolvedValue({ error: null });
+    const rpc = vi.fn().mockResolvedValue(successResult());
 
     await syncOnce(rpc);
     rpc.mockClear();
@@ -256,7 +291,7 @@ describe('syncOnce', () => {
     );
 
     // Before requeue, syncOnce ignores dead-letters entirely.
-    const noopRpc = vi.fn().mockResolvedValue({ error: null });
+    const noopRpc = vi.fn().mockResolvedValue(successResult());
     expect(await syncOnce(noopRpc)).toEqual({
       attempted: 0,
       synced: 0,
@@ -269,7 +304,7 @@ describe('syncOnce', () => {
     expect(await requeueAuthClassDeadLetters()).toBe(1);
 
     // Now (post-0012 the RPC accepts it) the drain succeeds.
-    const okRpc = vi.fn().mockResolvedValue({ error: null });
+    const okRpc = vi.fn().mockResolvedValue(successResult());
     const summary = await syncOnce(okRpc);
     expect(summary).toEqual({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
     expect((await getReport('recover1'))?.syncState).toBe('synced');
@@ -277,7 +312,7 @@ describe('syncOnce', () => {
 
   it('does not touch dead-lettered reports (getSyncQueue excludes error)', async () => {
     await saveReport(makeReport({ id: 'dead', syncState: 'error', lastSyncError: 'boom' }));
-    const rpc = vi.fn().mockResolvedValue({ error: null });
+    const rpc = vi.fn().mockResolvedValue(successResult());
 
     const summary = await syncOnce(rpc);
 

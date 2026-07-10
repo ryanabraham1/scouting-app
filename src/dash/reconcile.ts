@@ -31,8 +31,8 @@ import type {
 export const FUEL_MINOR_PTS = 3;
 /** At/above this fuel_points spread, fuel is a severe disagreement. */
 export const FUEL_SEVERE_PTS = 8;
-/** defense_rating spread (0..5 scale) at/above which defense is severe. */
-export const DEFENSE_SEVERE = 3;
+/** defense_rating spread (1–10 scale) at/above which defense is severe. */
+export const DEFENSE_SEVERE = 5;
 
 /**
  * Identity of a row for O(1) conflict lookup. The trailing `scout_id` keeps the
@@ -70,7 +70,7 @@ export function computeDivergences(reports: MsrRow[]): ConflictDivergences {
   const climb_level_spread =
     climbLevels.length >= 2 ? Math.max(...climbLevels) - Math.min(...climbLevels) : 0;
 
-  const defenses = num(reports.map((r) => r.defense_rating));
+  const defenses = num(reports.map((r) => r.defense_rating)).filter((rating) => rating > 0);
   const defense_spread = defenses.length >= 2 ? Math.max(...defenses) - Math.min(...defenses) : 0;
 
   // Boolean reliability flags: divergent iff scouts disagree on the flag.

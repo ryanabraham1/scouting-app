@@ -9,7 +9,7 @@ const SECRET = process.env.SUPABASE_SECRET_KEY!;
 const TABLES = [
   'event', 'event_secret', 'team', 'event_team', 'match', 'scout',
   'profile', 'assignment', 'match_scouting_report', 'pit_scouting_report',
-  'pit_report_history',
+  'pit_assignment', 'pit_report_history',
 ];
 
 describe('0001 schema', () => {
@@ -34,6 +34,14 @@ describe('0001 schema', () => {
     const { error } = await admin
       .from('match_scouting_report')
       .select('fuel_by_shift,fuel_bursts,row_revision,deleted')
+      .limit(1);
+    expect(error).toBeNull();
+  });
+
+  it('pit reports expose the ordered photo manifest and revision metadata', async () => {
+    const { error } = await admin
+      .from('pit_scouting_report')
+      .select('photos,photo_path,row_revision')
       .limit(1);
     expect(error).toBeNull();
   });

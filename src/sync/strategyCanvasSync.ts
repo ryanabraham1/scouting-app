@@ -7,7 +7,7 @@
 // there is no stale-clobber failure mode to guard beyond the usual retry logic.
 import { supabase } from '@/lib/supabase';
 import {
-  getStrategyCanvasSyncQueue,
+  getDueStrategyCanvasSyncQueue,
   markStrategyCanvasPending,
   markStrategyCanvasSynced,
   markStrategyCanvasDirtyRetry,
@@ -15,7 +15,11 @@ import {
 } from '@/db/localStore';
 import type { LocalStrategyCanvas } from '@/db/types';
 import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
-import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
+import {
+  isSyncCircuitOpen,
+  openSyncCircuit,
+  retryDelayMs,
+} from '@/sync/retrySchedule';
 
 export interface StrategyCanvasSyncSummary {
   attempted: number;
@@ -37,6 +41,15 @@ function errorMessage(err: unknown): string {
   return 'unknown sync error';
 }
 
+function errorCode(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string' && code) return code;
+    if (typeof code === 'number') return String(code);
+  }
+  return 'STRATEGY_CANVAS_SYNC_ERROR';
+}
+
 /** Build the snake_case wire shape the `upsert_strategy_canvas` RPC expects. */
 function canvasPayload(rec: LocalStrategyCanvas): Record<string, unknown> {
   const revision = Date.parse(rec.updatedAt) || Date.now();
@@ -53,13 +66,14 @@ function canvasPayload(rec: LocalStrategyCanvas): Record<string, unknown> {
 }
 
 export async function syncStrategyCanvasOnce(): Promise<StrategyCanvasSyncSummary> {
-  const queue = await getStrategyCanvasSyncQueue();
   const summary: StrategyCanvasSyncSummary = {
     attempted: 0,
     synced: 0,
     retried: 0,
     deadLettered: 0,
   };
+  if (isSyncCircuitOpen()) return summary;
+  const queue = await getDueStrategyCanvasSyncQueue();
 
   for (const rec of queue) {
     summary.attempted += 1;
@@ -91,19 +105,46 @@ export async function syncStrategyCanvasOnce(): Promise<StrategyCanvasSyncSummar
     // Pure network gap: requeue without burning an attempt, stop the drain
     // (the rest of the queue faces the same dead network). See outbox.ts.
     if (isNetworkFailure(failure)) {
-      await markStrategyCanvasDirtyRetry(rec.key, message, { countAttempt: false });
+      const nextSyncAt = Date.now() + retryDelayMs(failure, rec.syncAttempts ?? 0);
+      await markStrategyCanvasDirtyRetry(rec.key, message, {
+        countAttempt: false,
+        uploadedUpdatedAt: rec.updatedAt,
+        nextSyncAt,
+      });
+      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
       break;
     }
 
     const kind = classifySyncError(failure);
-    const attempts = rec.syncAttempts ?? 0;
-
-    if (kind === 'transient' && attempts < SYNC_MAX_ATTEMPTS) {
-      await markStrategyCanvasDirtyRetry(rec.key, message);
+    if (kind === 'transient') {
+      const nextSyncAt = Date.now() + retryDelayMs(failure, rec.syncAttempts ?? 0);
+      await markStrategyCanvasDirtyRetry(rec.key, message, {
+        uploadedUpdatedAt: rec.updatedAt,
+        nextSyncAt,
+      });
+      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
+      break;
     } else {
-      await markStrategyCanvasSyncError(rec.key, message, rec.updatedAt);
+      const code = errorCode(failure);
+      await markStrategyCanvasSyncError(
+        rec.key,
+        message,
+        rec.updatedAt,
+        code === 'STRATEGY_CANVAS_CONFLICT'
+          ? {
+              kind: 'conflict',
+              code: 'STRATEGY_CANVAS_CONFLICT',
+              detectedAt: new Date().toISOString(),
+              serverRevision: null,
+            }
+          : {
+              kind: 'terminal',
+              code,
+              detectedAt: new Date().toISOString(),
+            },
+      );
       summary.deadLettered += 1;
     }
   }

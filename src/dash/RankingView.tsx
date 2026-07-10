@@ -19,7 +19,11 @@ import {
   useTbaRankings,
 } from '@/dash/useEventData';
 import { rankSortValue, resolveRowEpa } from '@/dash/sorting';
-import { TeamCompare, MAX_COMPARE_TEAMS } from '@/dash/TeamCompare';
+import {
+  TeamCompare,
+  MAX_COMPARE_TEAMS,
+  TEAM_COMPARE_COLORS,
+} from '@/dash/TeamCompare';
 
 export interface RankingViewProps {
   eventKey: string;
@@ -113,11 +117,15 @@ interface Row {
 }
 
 function fmt(n: number, digits = 1): string {
-  return n.toFixed(digits);
+  return Number.isFinite(n) ? n.toFixed(digits) : EM_DASH;
 }
 
 function pct(rate: number): string {
-  return `${Math.round(rate * 100)}%`;
+  return Number.isFinite(rate) ? `${Math.round(rate * 100)}%` : EM_DASH;
+}
+
+function hasScouting(row: Row): boolean {
+  return row.agg.matchesScouted > 0;
 }
 
 /**
@@ -204,7 +212,12 @@ function sortValueMissing(row: Row, key: SortKey): boolean {
     case 'tbaRank':
       return row.tbaRank == null;
     case 'epa':
-      return row.epa == null;
+      return row.epa == null || !Number.isFinite(row.epa);
+    case 'scoutingExpectedPoints':
+    case 'climbSuccessRate':
+    case 'avgDefenseRating':
+    case 'reliability':
+      return !hasScouting(row);
     default:
       return false;
   }
@@ -247,26 +260,26 @@ const COMPARE_ROWS: CompareRow[] = [
   },
   {
     label: 'Exp. Pts',
-    get: (r) => fmt(r.agg.scoutingExpectedPoints),
-    value: (r) => r.agg.scoutingExpectedPoints,
+    get: (r) => (hasScouting(r) ? fmt(r.agg.scoutingExpectedPoints) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.scoutingExpectedPoints : null),
     better: 'higher',
   },
   {
     label: 'Climb %',
-    get: (r) => pct(r.agg.climbSuccessRate),
-    value: (r) => r.agg.climbSuccessRate,
+    get: (r) => (hasScouting(r) ? pct(r.agg.climbSuccessRate) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.climbSuccessRate : null),
     better: 'higher',
   },
   {
     label: 'Defense',
-    get: (r) => fmt(r.agg.avgDefenseRating),
-    value: (r) => r.agg.avgDefenseRating,
+    get: (r) => (hasScouting(r) ? fmt(r.agg.avgDefenseRating) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.avgDefenseRating : null),
     better: 'higher',
   },
   {
     label: 'Reliability',
-    get: (r) => pct(r.agg.reliability),
-    value: (r) => r.agg.reliability,
+    get: (r) => (hasScouting(r) ? pct(r.agg.reliability) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.reliability : null),
     better: 'higher',
   },
   {
@@ -290,20 +303,20 @@ const COMPARE_ROWS: CompareRow[] = [
   // --- Distribution (consistency) + recent-form trend ------------------------
   {
     label: 'Fuel σ',
-    get: (r) => fmt(r.agg.stdDevFuelPoints),
-    value: (r) => r.agg.stdDevFuelPoints,
+    get: (r) => (hasScouting(r) ? fmt(r.agg.stdDevFuelPoints) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.stdDevFuelPoints : null),
     better: 'lower',
   },
   {
     label: 'Climb σ',
-    get: (r) => fmt(r.agg.stdDevClimbPoints),
-    value: (r) => r.agg.stdDevClimbPoints,
+    get: (r) => (hasScouting(r) ? fmt(r.agg.stdDevClimbPoints) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.stdDevClimbPoints : null),
     better: 'lower',
   },
   {
     label: 'Defense σ',
-    get: (r) => fmt(r.agg.stdDevDefenseRating),
-    value: (r) => r.agg.stdDevDefenseRating,
+    get: (r) => (hasScouting(r) ? fmt(r.agg.stdDevDefenseRating) : EM_DASH),
+    value: (r) => (hasScouting(r) ? r.agg.stdDevDefenseRating : null),
     better: 'lower',
   },
   {
@@ -371,11 +384,20 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
         // use byte-identical EPA resolution. `epaInHouse` is still derived here
         // locally for the "est" suffix UI.
         const external = epaAvailable ? epaByTeam?.get(agg.teamNumber) ?? null : null;
-        const epaInHouse = external == null && epaFromScouting;
+        const epaInHouse = external == null && agg.matchesScouted > 0;
+        const resolvedEpa = resolveRowEpa({
+          agg,
+          epaByTeam,
+          epaAvailable,
+          epaFromScouting,
+        });
         return {
           agg,
-          epa: resolveRowEpa({ agg, epaByTeam, epaAvailable, epaFromScouting }),
-          epaInHouse,
+          epa:
+            resolvedEpa != null && Number.isFinite(resolvedEpa)
+              ? resolvedEpa
+              : null,
+          epaInHouse: epaInHouse && Number.isFinite(resolvedEpa),
           tbaRank: tbaRankByTeam.get(agg.teamNumber) ?? null,
         };
       }),
@@ -391,6 +413,11 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   const [hiddenColumns, setHiddenColumns] = useState<Set<ToggleableKey>>(loadHiddenColumns);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSelected([]);
+    setColumnsOpen(false);
+  }, [eventKey]);
 
   function isVisible(key: SortKey): boolean {
     return key === 'teamNumber' || !hiddenColumns.has(key as ToggleableKey);
@@ -614,19 +641,18 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
             >
               Statbotics offline — EPA column shows a local estimate computed from match results.
             </div>
-          ) : !epaAvailable ? (
+          ) : rows.some((row) => row.epaInHouse) ? (
             <div
               data-testid="dash-ranking-epa-banner"
               className="text-xs text-warning"
             >
-              Statbotics &amp; match-result EPA unavailable — EPA column shows our in-house
-              estimate from scouting data.
+              Teams without external EPA use our in-house estimate from scouting data.
             </div>
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="min-w-max w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="px-2 py-2 text-left font-medium text-muted-foreground">
@@ -639,14 +665,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                       key={col.key}
                       scope="col"
                       aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className={cn(
-                        'px-2 py-1 text-left font-medium text-muted-foreground',
-                        (col.key === 'epa' ||
-                          col.key === 'tbaRank' ||
-                          col.key === 'fuelSuppression' ||
-                          col.key === 'defenderEffectiveness') &&
-                          'hidden sm:table-cell',
-                      )}
+                      className="px-2 py-1 text-left font-medium text-muted-foreground"
                     >
                       <button
                         type="button"
@@ -740,35 +759,45 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         <td className="px-2 py-2 font-mono tabular-nums">{r.agg.matchesScouted}</td>
                       )}
                       {isVisible('scoutingExpectedPoints') && (
-                        <td className="px-2 py-2 font-mono tabular-nums">{fmt(r.agg.scoutingExpectedPoints)}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums">
+                          {hasScouting(r) ? fmt(r.agg.scoutingExpectedPoints) : EM_DASH}
+                        </td>
                       )}
                       {isVisible('climbSuccessRate') && (
                         <td
                           className={cn(
                             'px-2 py-2 font-mono tabular-nums',
-                            r.agg.climbSuccessRate > 0 ? 'text-success' : 'text-muted-foreground',
+                            hasScouting(r) && r.agg.climbSuccessRate > 0
+                              ? 'text-success'
+                              : 'text-muted-foreground',
                           )}
                         >
-                          {pct(r.agg.climbSuccessRate)}
+                          {hasScouting(r) ? pct(r.agg.climbSuccessRate) : EM_DASH}
                         </td>
                       )}
                       {isVisible('avgDefenseRating') && (
-                        <td className="px-2 py-2 font-mono tabular-nums text-brand">{fmt(r.agg.avgDefenseRating)}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-brand">
+                          {hasScouting(r) ? fmt(r.agg.avgDefenseRating) : EM_DASH}
+                        </td>
                       )}
                       {isVisible('reliability') && (
                         <td
                           className={cn(
                             'px-2 py-2 font-mono tabular-nums',
-                            r.agg.reliability < 0.7 ? 'text-warning' : 'text-success',
+                            !hasScouting(r)
+                              ? 'text-muted-foreground'
+                              : r.agg.reliability < 0.7
+                                ? 'text-warning'
+                                : 'text-success',
                           )}
                         >
-                          {pct(r.agg.reliability)}
+                          {hasScouting(r) ? pct(r.agg.reliability) : EM_DASH}
                         </td>
                       )}
                       {isVisible('fuelSuppression') && (
                         <td
                           data-testid={`def-supp-${t}`}
-                          className="hidden px-2 py-2 font-mono tabular-nums sm:table-cell"
+                          className="px-2 py-2 font-mono tabular-nums"
                         >
                           {r.agg.fuelSuppressionWhileDefended === null
                             ? EM_DASH
@@ -778,7 +807,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                       {isVisible('defenderEffectiveness') && (
                         <td
                           data-testid={`defender-${t}`}
-                          className="hidden px-2 py-2 font-mono tabular-nums sm:table-cell"
+                          className="px-2 py-2 font-mono tabular-nums"
                         >
                           {r.agg.defenderEffectiveness === null ||
                           r.agg.defenseSampleCount < DEF_EFF_MIN_SAMPLE
@@ -790,7 +819,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         <td
                           data-testid={`epa-${t}`}
                           className={cn(
-                            'hidden px-2 py-2 font-mono tabular-nums sm:table-cell',
+                            'px-2 py-2 font-mono tabular-nums',
                             r.epaInHouse && 'text-warning',
                           )}
                           title={r.epaInHouse ? 'In-house EPA estimated from scouting data' : undefined}
@@ -802,7 +831,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         </td>
                       )}
                       {isVisible('tbaRank') && (
-                        <td data-testid={`tba-${t}`} className="hidden px-2 py-2 font-mono tabular-nums sm:table-cell">
+                        <td data-testid={`tba-${t}`} className="px-2 py-2 font-mono tabular-nums">
                           {r.tbaRank === null ? EM_DASH : String(r.tbaRank)}
                         </td>
                       )}
@@ -815,32 +844,35 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
         </CardContent>
       </Card>
 
-      {selectedRows.length > 0 ? (
-        <Card data-testid="compare-panel" className="bg-card">
-          <CardHeader>
-            <CardTitle>Compare ({selectedRows.length})</CardTitle>
-          </CardHeader>
-          {/* Radar overlay across the key scouting+EPA metrics. Reuses the row's
-              agg + resolved EPA directly — no refetch. Shows its own empty state
-              until 2+ teams are selected. */}
-          <CardContent className="border-b border-border pb-4">
-            <TeamCompare
-              teams={selectedRows.map((r) => ({ agg: r.agg, epa: r.epa }))}
-            />
-          </CardContent>
+      <Card data-testid="compare-panel" className="bg-card">
+        <CardHeader>
+          <CardTitle>Compare ({selectedRows.length}/{MAX_COMPARE})</CardTitle>
+        </CardHeader>
+        {/* Unit-specific comparison charts reuse the resolved row data directly:
+            no refetch and no mixed-axis normalization. */}
+        <CardContent className={cn(selectedRows.length > 0 && 'border-b border-border')}>
+          <TeamCompare
+            teams={selectedRows.map((r) => ({ agg: r.agg, epa: r.epa }))}
+          />
+        </CardContent>
+        {selectedRows.length > 0 ? (
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
+                <caption className="sr-only">
+                  Text comparison of selected teams. Best values in each numeric row are emphasized.
+                </caption>
                 <thead>
                   <tr className="border-b border-border">
                     <th className="px-2 py-2 text-left font-medium text-muted-foreground">
                       Stat
                     </th>
-                    {selectedRows.map((r) => (
+                    {selectedRows.map((r, index) => (
                       <th
                         key={r.agg.teamNumber}
                         scope="col"
                         className="px-2 py-2 text-left font-medium"
+                        style={{ color: TEAM_COMPARE_COLORS[index] }}
                       >
                         {r.agg.teamNumber}
                       </th>
@@ -886,8 +918,8 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
               </table>
             </div>
           </CardContent>
-        </Card>
-      ) : null}
+        ) : null}
+      </Card>
     </div>
   );
 }

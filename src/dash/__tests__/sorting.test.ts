@@ -92,7 +92,7 @@ describe('resolveRowEpa', () => {
     ).toBe(60);
   });
 
-  it('returns null when external available but missing for the team and not falling back', () => {
+  it('falls back per team when the external source is missing that team', () => {
     expect(
       resolveRowEpa({
         agg: a,
@@ -100,7 +100,7 @@ describe('resolveRowEpa', () => {
         epaAvailable: true,
         epaFromScouting: false,
       }),
-    ).toBeNull();
+    ).toBe(21);
   });
 
   it('falls back to in-house scoutingExpectedPoints when no external source', () => {

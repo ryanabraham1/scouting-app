@@ -628,155 +628,162 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                       key={u.key}
                       data-testid={`scouter-item-${u.name}`}
                       className={cn(
-                        'flex flex-col gap-2 rounded-xl border p-2',
+                        'rounded-xl border',
                         isSel ? 'border-foreground/40 bg-accent' : 'border-border bg-muted/30',
                         u.hidden && 'opacity-70',
                       )}
                     >
-                      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-                        <button
-                          type="button"
-                          data-testid={`scouter-open-${u.name}`}
-                          onClick={() => setSelected(isSel ? null : u.key)}
-                          disabled={!eventKey}
-                          style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                          className="flex flex-1 items-center justify-between gap-2 rounded-lg px-2 py-1 text-left text-base hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent"
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="min-w-0 truncate font-semibold text-foreground">
-                              {u.name}
-                            </span>
-                            {u.hidden ? (
-                              <span
-                                data-testid={`scouter-hidden-badge-${u.name}`}
-                                className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs uppercase tracking-wide text-muted-foreground"
-                              >
-                                Hidden
+                      <div
+                        data-testid={`scouter-summary-${u.name}`}
+                        className="relative p-2"
+                      >
+                        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                          <button
+                            type="button"
+                            data-testid={`scouter-open-${u.name}`}
+                            onClick={() => setSelected(isSel ? null : u.key)}
+                            disabled={!eventKey}
+                            style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                            className="flex flex-1 items-center justify-between gap-2 rounded-lg px-2 py-1 text-left text-base hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="min-w-0 truncate font-semibold text-foreground">
+                                {u.name}
                               </span>
-                            ) : null}
-                          </span>
-                          {eventKey ? (
-                            <span className="flex shrink-0 items-center gap-2 tabular-nums">
-                              <span className={u.reportCount > 0 ? 'text-brand' : 'text-warning'}>
-                                {u.reportCount} report{u.reportCount === 1 ? '' : 's'}
-                              </span>
-                              {u.pitCount > 0 ? (
+                              {u.hidden ? (
                                 <span
-                                  data-testid={`scouter-pit-count-${u.name}`}
-                                  className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
-                                  title={`${u.pitCount} pit report${u.pitCount === 1 ? '' : 's'} authored`}
+                                  data-testid={`scouter-hidden-badge-${u.name}`}
+                                  className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs uppercase tracking-wide text-muted-foreground"
                                 >
-                                  {u.pitCount} pit
+                                  Hidden
                                 </span>
                               ) : null}
                             </span>
-                          ) : null}
-                        </button>
-
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            data-testid={`scouter-hide-${u.name}`}
-                            onClick={() => void onToggleHidden(u)}
-                            disabled={isBusy}
-                            aria-label={`${u.hidden ? 'Unhide' : 'Hide'} ${u.name}`}
-                            title={
-                              u.hidden
-                                ? 'Show in the scouter picker again'
-                                : 'Keep reports but hide from the scouter picker'
-                            }
-                            style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                            className="flex min-w-[3rem] items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
-                          >
-                            {u.hidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                            {eventKey ? (
+                              <span className="flex shrink-0 items-center gap-2 tabular-nums">
+                                <span className={u.reportCount > 0 ? 'text-brand' : 'text-warning'}>
+                                  {u.reportCount} report{u.reportCount === 1 ? '' : 's'}
+                                </span>
+                                {u.pitCount > 0 ? (
+                                  <span
+                                    data-testid={`scouter-pit-count-${u.name}`}
+                                    className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
+                                    title={`${u.pitCount} pit report${u.pitCount === 1 ? '' : 's'} authored`}
+                                  >
+                                    {u.pitCount} pit
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null}
                           </button>
 
-                          {isConfirming ? (
-                            <>
-                              <button
-                                type="button"
-                                data-testid={`scouter-remove-confirm-${u.name}`}
-                                onClick={() => void onDelete(u)}
-                                disabled={isBusy}
-                                style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                                className="rounded-xl border border-destructive bg-destructive/15 px-3 text-sm font-semibold text-destructive hover:bg-destructive/25 disabled:opacity-50"
-                              >
-                                {isBusy ? 'Deleting…' : 'Delete'}
-                              </button>
-                              <button
-                                type="button"
-                                data-testid={`scouter-remove-cancel-${u.name}`}
-                                onClick={() => setConfirmingKey(null)}
-                                disabled={isBusy}
-                                style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                                className="rounded-xl border border-border bg-muted/30 px-3 text-sm text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
-                              >
-                                Cancel
-                              </button>
-                            </>
-                          ) : (
+                          <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
-                              data-testid={`scouter-remove-${u.name}`}
-                              onClick={() => {
-                                setActionError(null);
-                                setConfirmingKey(u.key);
-                              }}
-                              aria-label={`Delete ${u.name}`}
+                              data-testid={`scouter-hide-${u.name}`}
+                              onClick={() => void onToggleHidden(u)}
+                              disabled={isBusy}
+                              aria-label={`${u.hidden ? 'Unhide' : 'Hide'} ${u.name}`}
+                              title={
+                                u.hidden
+                                  ? 'Show in the scouter picker again'
+                                  : 'Keep reports but hide from the scouter picker'
+                              }
                               style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                              className="flex min-w-[3rem] items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:border-destructive hover:bg-destructive/15 hover:text-destructive"
+                              className="flex min-w-[3rem] items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
                             >
-                              <Trash2 className="size-4" />
+                              {u.hidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                             </button>
-                          )}
+
+                            {isConfirming ? (
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid={`scouter-remove-confirm-${u.name}`}
+                                  onClick={() => void onDelete(u)}
+                                  disabled={isBusy}
+                                  style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                                  className="rounded-xl border border-destructive bg-destructive/15 px-3 text-sm font-semibold text-destructive hover:bg-destructive/25 disabled:opacity-50"
+                                >
+                                  {isBusy ? 'Deleting…' : 'Delete'}
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`scouter-remove-cancel-${u.name}`}
+                                  onClick={() => setConfirmingKey(null)}
+                                  disabled={isBusy}
+                                  style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                                  className="rounded-xl border border-border bg-muted/30 px-3 text-sm text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                data-testid={`scouter-remove-${u.name}`}
+                                onClick={() => {
+                                  setActionError(null);
+                                  setConfirmingKey(u.key);
+                                }}
+                                aria-label={`Delete ${u.name}`}
+                                style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                                className="flex min-w-[3rem] items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:border-destructive hover:bg-destructive/15 hover:text-destructive"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
+
+                        {eventKey && scouterStats ? (
+                          (() => {
+                            const maxLoad = scouterStats.maxLoad;
+                            const meanLoad = scouterStats.meanLoad;
+                            const loadPct = maxLoad > 0 ? (100 * u.reportCount) / maxLoad : 0;
+                            const overloaded = meanLoad > 0 && u.reportCount >= 1.5 * meanLoad;
+                            return (
+                              <div className="absolute inset-x-2 bottom-0 h-1.5 overflow-hidden rounded-full bg-muted/40">
+                                <div
+                                  data-testid={`scouter-load-bar-${u.name}`}
+                                  className={cn(
+                                    'h-full rounded-full',
+                                    u.reportCount === 0
+                                      ? 'bg-transparent'
+                                      : overloaded
+                                        ? 'bg-warning/60'
+                                        : 'bg-brand/50',
+                                  )}
+                                  style={{ width: `${loadPct}%` }}
+                                />
+                              </div>
+                            );
+                          })()
+                        ) : null}
                       </div>
 
-                      {eventKey && scouterStats ? (
-                        (() => {
-                          const maxLoad = scouterStats.maxLoad;
-                          const meanLoad = scouterStats.meanLoad;
-                          const loadPct = maxLoad > 0 ? (100 * u.reportCount) / maxLoad : 0;
-                          const overloaded = meanLoad > 0 && u.reportCount >= 1.5 * meanLoad;
-                          return (
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/40">
-                              <div
-                                data-testid={`scouter-load-bar-${u.name}`}
-                                className={cn(
-                                  'h-full rounded-full',
-                                  u.reportCount === 0
-                                    ? 'bg-transparent'
-                                    : overloaded
-                                      ? 'bg-warning/60'
-                                      : 'bg-brand/50',
-                                )}
-                                style={{ width: `${loadPct}%` }}
-                              />
-                            </div>
-                          );
-                        })()
-                      ) : null}
-
                       {isSel && eventKey ? (
-                        hasReports || u.reportCount > 0 ? (
-                          <ScouterProfile
-                            reports={selectedReports}
-                            accuracy={mergeAccuracy(
-                              u.scoutIds
-                                .map((id) => accuracyByScout.get(id))
-                                .filter((a): a is ScouterAccuracyAgg => a != null),
-                            )}
-                            pitTeams={u.pitTeams}
-                            onOpenReport={setOpenReport}
-                          />
-                        ) : (
-                          <p
-                            data-testid="scouter-empty"
-                            className="px-2 pb-1 text-sm text-muted-foreground"
-                          >
-                            This scouter has no reports at this event yet.
-                          </p>
-                        )
+                        <div
+                          data-testid={`scouter-details-${u.name}`}
+                          className="p-2"
+                        >
+                          {hasReports || u.reportCount > 0 ? (
+                            <ScouterProfile
+                              reports={selectedReports}
+                              accuracy={mergeAccuracy(
+                                u.scoutIds
+                                  .map((id) => accuracyByScout.get(id))
+                                  .filter((a): a is ScouterAccuracyAgg => a != null),
+                              )}
+                              pitTeams={u.pitTeams}
+                              onOpenReport={setOpenReport}
+                            />
+                          ) : (
+                            <p data-testid="scouter-empty" className="text-sm text-muted-foreground">
+                              This scouter has no reports at this event yet.
+                            </p>
+                          )}
+                        </div>
                       ) : null}
                     </li>
                   );

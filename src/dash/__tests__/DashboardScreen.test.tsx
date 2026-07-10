@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('@/dash/useActiveEvent', () => ({
-  useActiveEvent: () => ({ eventKey: '2026demo', loading: false }),
+  useActiveEvent: () => ({ eventKey: '2026demo', loading: false, authoritative: true }),
 }));
 
 // DashboardScreen drives the real-time engine via useEventLiveSync (react-query +
@@ -86,6 +86,20 @@ describe('DashboardScreen', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Match' }));
     expect(screen.getByTestId('view-match')).toBeInTheDocument();
+  });
+
+  it('persists tab changes in the URL and responds to history navigation', () => {
+    render(
+      <MemoryRouter>
+        <DashboardScreen />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Ranking' }));
+    expect(new URLSearchParams(window.location.search).get('tab')).toBe('ranking');
+
+    window.history.replaceState({}, '', '/dashboard?tab=team');
+    fireEvent.popState(window);
+    expect(screen.getByTestId('view-team')).toBeInTheDocument();
   });
 
   it('opens directly on Setup when ?tab=setup (the /admin alias)', () => {

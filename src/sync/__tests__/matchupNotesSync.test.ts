@@ -18,6 +18,7 @@ import {
 import type { LocalMatchupNote } from '@/db/types';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 import { syncMatchupNotesOnce } from '../matchupNotesSync';
+import { clearSyncCircuit } from '../retrySchedule';
 
 function makeNote(over: Partial<LocalMatchupNote> = {}): LocalMatchupNote {
   return {
@@ -37,12 +38,16 @@ function makeNote(over: Partial<LocalMatchupNote> = {}): LocalMatchupNote {
 
 describe('syncMatchupNotesOnce', () => {
   beforeEach(async () => {
+    clearSyncCircuit();
     await db.matchupNotes.clear();
     rpcMock.mockReset();
   });
 
   it('dirty note: calls upsert_matchup_note with normalized wire shape, marks synced', async () => {
-    rpcMock.mockResolvedValue({ error: null });
+    rpcMock.mockResolvedValue({
+      data: { status: 'applied', current_revision: Date.parse('2026-06-29T00:00:00.000Z') },
+      error: null,
+    });
     await saveMatchupNoteLocal(makeNote());
 
     const summary = await syncMatchupNotesOnce();
@@ -59,6 +64,32 @@ describe('syncMatchupNotesOnce', () => {
     });
     expect((await getMatchupSyncQueue()).length).toBe(0);
     expect((await db.matchupNotes.get('2026casnv:3256:254'))?.syncState).toBe('synced');
+  });
+
+  it('sends per-team rows through the same revision-guarded RPC namespace', async () => {
+    rpcMock.mockResolvedValue({
+      data: { status: 'applied', current_revision: Date.parse('2026-06-29T00:00:00.000Z') },
+      error: null,
+    });
+    await saveMatchupNoteLocal(makeNote({
+      key: '2026casnv:-1:1678',
+      ourTeam: -1,
+      oppTeam: 1678,
+      note: 'team-specific plan',
+    }));
+
+    await syncMatchupNotesOnce();
+
+    expect(rpcMock).toHaveBeenCalledWith('upsert_matchup_note', {
+      p: expect.objectContaining({
+        event_key: '2026casnv',
+        our_team: -1,
+        opp_team: 1678,
+        note: 'team-specific plan',
+        row_revision: Date.parse('2026-06-29T00:00:00.000Z'),
+      }),
+    });
+    expect((await db.matchupNotes.get('2026casnv:-1:1678'))?.syncState).toBe('synced');
   });
 
   it('transient error under cap: returns to dirty and bumps attempts', async () => {
@@ -96,18 +127,40 @@ describe('syncMatchupNotesOnce', () => {
     expect((await listMatchupDeadLetters()).length).toBe(1);
   });
 
-  it('transient at SYNC_MAX_ATTEMPTS: dead-letters', async () => {
+  it.each(['stale', 'conflict'] as const)(
+    '%s RPC result preserves the local note as a recoverable dead letter',
+    async (status) => {
+      rpcMock.mockResolvedValue({
+        data: { status, current_revision: Date.parse('2026-06-30T00:00:00.000Z') },
+        error: null,
+      });
+      await saveMatchupNoteLocal(makeNote());
+
+      const summary = await syncMatchupNotesOnce();
+
+      expect(summary).toEqual({ attempted: 1, synced: 0, retried: 0, deadLettered: 1 });
+      const saved = await db.matchupNotes.get('2026casnv:3256:254');
+      expect(saved?.syncState).toBe('error');
+      expect(saved?.note).toBe('deny feed lane');
+      expect(saved?.lastSyncError).toMatch(/preserved for review/i);
+    },
+  );
+
+  it('keeps infrastructure failures queued after the legacy attempt cap', async () => {
     rpcMock.mockResolvedValue({ error: { message: 'service unavailable', status: 503 } });
     await saveMatchupNoteLocal(makeNote({ syncAttempts: SYNC_MAX_ATTEMPTS }));
 
     const summary = await syncMatchupNotesOnce();
 
-    expect(summary.deadLettered).toBe(1);
-    expect((await db.matchupNotes.get('2026casnv:3256:254'))?.syncState).toBe('error');
+    expect(summary).toMatchObject({ retried: 1, deadLettered: 0 });
+    expect((await db.matchupNotes.get('2026casnv:3256:254'))?.syncState).toBe('dirty');
   });
 
   it('idempotent: re-running after success is a no-op (note no longer queued)', async () => {
-    rpcMock.mockResolvedValue({ error: null });
+    rpcMock.mockResolvedValue({
+      data: { status: 'applied', current_revision: Date.parse('2026-06-29T00:00:00.000Z') },
+      error: null,
+    });
     await saveMatchupNoteLocal(makeNote());
     await syncMatchupNotesOnce();
     rpcMock.mockClear();

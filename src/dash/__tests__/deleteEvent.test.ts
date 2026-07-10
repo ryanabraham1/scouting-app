@@ -41,7 +41,10 @@ describe('deleteEvent', () => {
     const setQueryData = vi.fn();
     await deleteEvent('2026casnv', { setQueryData } as never);
     expect(store.active).toBeNull();
-    expect(setQueryData).toHaveBeenCalledWith(['active-event'], null);
+    expect(setQueryData).toHaveBeenCalledWith(
+      ['active-event', 'server-authority-v2'],
+      null,
+    );
   });
 
   it('leaves the active pointer alone when deleting a different event', async () => {

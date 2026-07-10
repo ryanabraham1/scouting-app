@@ -152,14 +152,15 @@ test('Scenario C — offline shows last-synced, not a crash', async ({ page, con
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 25_000 });
   await expect(page.getByTestId('scout-heartbeat')).toBeVisible({ timeout: 10_000 });
 
-  // 2. Go offline and reload (the tab resets to the default Pit Display on reload).
+  // 2. Go offline and navigate away/back inside the already-loaded app. Vite's
+  // dev server does not serve the production service worker, so a hard offline
+  // reload would only test Chromium's ERR_INTERNET_DISCONNECTED page.
   await context.setOffline(true);
-  await page.reload();
-
-  // 3. The resilient invariant: navigating to Scouters still renders the tile from
-  //    the persisted cache and there is NO RouteError.
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('tab', { name: 'Setup' }).click();
   await page.getByRole('tab', { name: 'Scouters' }).click();
+
+  // 3. The resilient invariant: Scouters still renders the warmed data and there
+  //    is no route-level crash while network requests fail.
   await expect(page.getByTestId('scout-heartbeat')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('route-error')).toHaveCount(0);
 

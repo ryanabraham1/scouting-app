@@ -10,6 +10,11 @@ export interface AssignScout {
   unavailableMatchKeys?: string[];
 }
 
+export interface AssignTeam {
+  teamNumber: number;
+  nickname: string | null;
+}
+
 export interface AssignOptions {
   ownTeam: number;
   breakEveryN: number;
@@ -36,4 +41,34 @@ export interface Assignment {
   allianceColor: AllianceColor;
   station: 1 | 2 | 3;
   targetTeamNumber: number;
+}
+
+export interface PitAssignment {
+  teamNumber: number;
+  scoutId: string;
+  source: 'manual' | 'auto';
+}
+
+export type AssignmentBatchKind = 'match' | 'pit';
+
+export interface AssignmentBatchState {
+  status: 'authoritative';
+  revision: number;
+  count: number;
+}
+
+export interface AssignmentPublishResult {
+  status: 'applied' | 'idempotent' | 'conflict';
+  revision: number;
+  count: number;
+}
+
+export interface MatchAssignmentSnapshot {
+  state: AssignmentBatchState;
+  assignments: Assignment[];
+}
+
+export interface PitAssignmentSnapshot {
+  state: AssignmentBatchState;
+  assignments: PitAssignment[];
 }

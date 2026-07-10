@@ -17,7 +17,7 @@ const SECRET = process.env.SUPABASE_SECRET_KEY as string;
 
 const EVENT = '2026casnv';
 const MATCH = `${EVENT}_qm1`; // qm1 exists on the seeded live event
-const TEAM = 9999; // sentinel team, cleaned up in afterAll
+const TEAM = 9998; // sentinel team, distinct from global E2E_TEAM (9999)
 const STATION = 2; // Blue 2
 
 const admin: SupabaseClient = createClient(URL, SECRET, {
@@ -33,6 +33,9 @@ const scoutIds: string[] = [];
  */
 function reportRow(scoutId: string, overrides: Record<string, unknown>): Record<string, unknown> {
   return {
+    schema_version: 3,
+    app_version: 'e2e-reconciliation',
+    device_id: 'e2e-reconciliation',
     event_key: EVENT,
     match_key: MATCH,
     target_team_number: TEAM,
@@ -125,13 +128,15 @@ test('multi-scout conflict surfaces in MatchView, ReportDetail, and TeamView', a
   await expect(chip).toBeVisible({ timeout: 15_000 });
   await expect(chip.getByTestId('conflict-marker')).toHaveAttribute('data-severity', 'severe');
 
-  // Both member tiles visible via the disambiguated ids (the old undisambiguated
-  // id would resolve to 2 elements and throw under strict mode).
-  await expect(page.getByTestId(`match-report-${TEAM}-${STATION}-0`)).toBeVisible();
-  await expect(page.getByTestId(`match-report-${TEAM}-${STATION}-1`)).toBeVisible();
+  // Both member tiles are present. Their trailing index is match-wide, so do not
+  // hardcode it when another deterministic fixture also reports on this match.
+  const memberTiles = page.locator(`[data-testid^="match-report-${TEAM}-${STATION}-"]`);
+  await expect(memberTiles).toHaveCount(2);
+  await expect(memberTiles.nth(0)).toBeVisible();
+  await expect(memberTiles.nth(1)).toBeVisible();
 
   // --- 2. ReportDetail conflict banner + sibling swap ----------------------
-  await page.getByTestId(`match-report-${TEAM}-${STATION}-0`).click();
+  await memberTiles.nth(0).click();
   const banner = page.getByTestId('report-conflict');
   await expect(banner).toBeVisible({ timeout: 15_000 });
 
@@ -147,6 +152,8 @@ test('multi-scout conflict surfaces in MatchView, ReportDetail, and TeamView', a
   await expect(page.getByTestId('report-flag-no-show')).not.toHaveAttribute('data-on', firstNoShow ?? '');
 
   // --- 3. TeamView conflict marker + filter --------------------------------
+  await page.getByTestId('match-report-sheet-backdrop').click({ position: { x: 1, y: 1 } });
+  await expect(page.getByTestId('match-report-sheet-overlay')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Team' }).click();
   await expect(page.getByTestId('dash-team')).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('team-select').selectOption(String(TEAM));

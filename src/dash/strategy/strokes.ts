@@ -89,6 +89,18 @@ export const FIELD_H = 1584;
 export const FIELD_ASPECT = FIELD_W / FIELD_H;
 
 let idCounter = 0;
+let lastLocalGeneration = 0;
+
+/**
+ * Monotonic client generation for last-writer-wins fields. Date.now() alone can
+ * repeat under fast input or a frozen/system-adjusted clock and lose a local
+ * robot move or stroke ordering during merge.
+ */
+export function nextCanvasGeneration(): number {
+  lastLocalGeneration = Math.max(Date.now(), lastLocalGeneration + 1);
+  return lastLocalGeneration;
+}
+
 /** Unique-enough stroke id: time + random + a per-session counter. */
 export function newStrokeId(): string {
   idCounter += 1;
@@ -181,8 +193,11 @@ export type WhiteboardAction =
 
 /** Re-issue strokes under fresh ids/seq so tombstoned ids stay dead. */
 function reissue(strokes: Stroke[]): Stroke[] {
-  const now = Date.now();
-  return strokes.map((s, i) => ({ ...s, id: newStrokeId(), seq: now + i }));
+  return strokes.map((s) => ({
+    ...s,
+    id: newStrokeId(),
+    seq: nextCanvasGeneration(),
+  }));
 }
 
 export function whiteboardReducer(

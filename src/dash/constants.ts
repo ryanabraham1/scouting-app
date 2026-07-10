@@ -140,8 +140,9 @@ export const MIN_EPA_MATCHES = 2;
 export const TYPICAL_OPP_TELEOP_FUEL = 40;
 
 /**
- * Points a maxed-out (3/3) defense_rating maps to when the precise co-occurrence
- * signal (`defenderEffectiveness`) is unavailable. A 1.5/3 rating ≈ half this.
+ * Points a maxed-out (10/10) defense_rating maps to when the precise
+ * co-occurrence signal (`defenderEffectiveness`) is unavailable. A 5/10 rating
+ * maps to half this.
  * Contextless ordinal fallback. FLAGGED.
  */
 export const DEFENSE_RATING_MAX_PTS = 20;

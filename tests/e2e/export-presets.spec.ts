@@ -53,9 +53,11 @@ test('lead exports the alliance-selection presets from the picklist', async ({ p
   await page.getByTestId('pick-add').click();
   await expect(page.getByTestId('pick-row-254')).toBeVisible();
 
-  // The three preset buttons render.
-  await expect(page.getByTestId('pick-export-alliance-csv')).toBeVisible();
+  // Print is the primary action; file formats live in the Export menu.
   await expect(page.getByTestId('pick-export-alliance-print')).toBeVisible();
+  await expect(page.getByTestId('pick-export-menu-trigger')).toBeVisible();
+  await page.getByTestId('pick-export-menu-trigger').click();
+  await expect(page.getByTestId('pick-export-alliance-csv')).toBeVisible();
   await expect(page.getByTestId('pick-export-tool-csv')).toBeVisible();
 
   // Alliance Sheet CSV download.
@@ -64,6 +66,7 @@ test('lead exports the alliance-selection presets from the picklist', async ({ p
   expect((await dl1).suggestedFilename()).toBe('alliance-sheet-2026casnv.csv');
 
   // Picklist Tool CSV download.
+  await page.getByTestId('pick-export-menu-trigger').click();
   const dl2 = page.waitForEvent('download');
   await page.getByTestId('pick-export-tool-csv').click();
   expect((await dl2).suggestedFilename()).toBe('picklist-tool-2026casnv.csv');

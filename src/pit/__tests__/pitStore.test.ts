@@ -14,6 +14,10 @@ vi.mock('@/lib/supabase', () => ({
 import {
   savePitDraft,
   getPitDraft,
+  listPitDraftsForEvent,
+  listPitQuarantine,
+  deletePitQuarantine,
+  pitDb,
   submitPit,
   type PitReport,
 } from '../pitStore';
@@ -41,6 +45,7 @@ function makeReport(over: Partial<PitReport> = {}): PitReport {
     robotWidthIn: 28,
     robotHeightIn: 24,
     trenchCapable: true,
+    photos: [],
     photoPath: '2026casj/254/a.jpg',
     notes: 'fast',
     scoutId: 'scout-1',
@@ -49,6 +54,12 @@ function makeReport(over: Partial<PitReport> = {}): PitReport {
 }
 
 describe('pit draft', () => {
+  beforeEach(async () => {
+    await pitDb.pitDrafts.clear();
+    await pitDb.pitQuarantine.clear();
+    await pitDb.pitPhotoCleanup.clear();
+  });
+
   it('saves and reads back a draft by event+team', async () => {
     const r = makeReport();
     await savePitDraft(r.eventKey, r.teamNumber, r);
@@ -61,6 +72,26 @@ describe('pit draft', () => {
   it('returns undefined for a missing draft', async () => {
     const got = await getPitDraft('2026casj', 9999);
     expect(got).toBeUndefined();
+  });
+
+  it('quarantines malformed persisted rows for export/delete recovery', async () => {
+    await pitDb.pitDrafts.put({
+      draftKey: '2026casj:254',
+      eventKey: '2026casj',
+      teamNumber: 254,
+      updatedAt: '2026-07-10T12:00:00.000Z',
+      data: { ...makeReport(), batteryCount: Number.POSITIVE_INFINITY },
+    });
+
+    expect(await listPitDraftsForEvent('2026casj')).toEqual([]);
+    const quarantined = await listPitQuarantine('2026casj');
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0].reason).toMatch(/batteryCount/i);
+    expect(quarantined[0].raw).toBeTruthy();
+    expect(await pitDb.pitDrafts.count()).toBe(0);
+
+    await deletePitQuarantine(quarantined[0].id);
+    expect(await pitDb.pitQuarantine.count()).toBe(0);
   });
 });
 
@@ -93,6 +124,14 @@ describe('submitPit', () => {
       ],
       match_strategy: ['score', 'cycle'],
       robot_dimensions: { lengthIn: 30, widthIn: 28, heightIn: 24, trenchCapable: true },
+      photos: [{
+        id: 'legacy',
+        path: '2026casj/254/a.jpg',
+        order: 0,
+        mimeType: null,
+        width: null,
+        height: null,
+      }],
       photo_path: '2026casj/254/a.jpg',
       notes: 'fast',
       author_scout_id: 'scout-1',

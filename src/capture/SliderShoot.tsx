@@ -166,6 +166,32 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
     onShootEnd(finalRate);
   }, [onShootEnd, onShootRate]);
 
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      let next: number | null = null;
+      const current = rateRef.current;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = current + 1;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = current - 1;
+      if (e.key === 'PageUp') next = current + 5;
+      if (e.key === 'PageDown') next = current - 5;
+      if (e.key === 'Home') next = 0;
+      if (e.key === 'End') next = max;
+      if (next === null) return;
+      e.preventDefault();
+      if (!activeRef.current) {
+        activeRef.current = true;
+        setActive(true);
+        onShootStart();
+      }
+      const clamped = Math.max(0, Math.min(max, next));
+      rateRef.current = clamped;
+      setRate(clamped);
+      onShootRate?.(clamped);
+    },
+    [disabled, max, onShootRate, onShootStart],
+  );
+
   // Commit an in-flight hold if the control unmounts mid-gesture (screen swap
   // to the GO interstitial / review) — otherwise onShootEnd never fires and the
   // integrated balls are silently dropped while the session's hold refs keep
@@ -195,6 +221,11 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
       aria-valuemax={max}
       aria-valuenow={rate}
       aria-orientation="horizontal"
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : 0}
+      onKeyDown={onKeyDown}
+      onKeyUp={end}
+      onBlur={end}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={end}

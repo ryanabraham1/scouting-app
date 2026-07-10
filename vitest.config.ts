@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  plugins: [react(), VitePWA({ registerType: 'autoUpdate' })],
+  plugins: [react(), VitePWA({ registerType: 'prompt' })],
   test: {
     globals: true,
     environment: './vitest-env-jsdom-compat.ts',
     setupFiles: ['./vitest.setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/db/**/*.test.ts', 'tests/functions/**/*.test.ts'],
+    // Safe default: remote DB/function suites require the explicit
+    // vitest.integration.config.ts guard.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['tests/e2e/**', 'node_modules/**'],
   },
 });

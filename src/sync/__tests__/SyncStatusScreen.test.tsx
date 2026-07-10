@@ -1,11 +1,12 @@
+import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-// --- mock useSession (lead is staff) ---
-const useSessionMock = vi.fn();
-vi.mock('@/auth/useSession', () => ({
-  useSession: () => useSessionMock(),
+// --- mock the globally active event resolver ---
+const useActiveEventMock = vi.fn();
+vi.mock('@/dash/useActiveEvent', () => ({
+  useActiveEvent: () => useActiveEventMock(),
 }));
 
 // --- mock the supabase client; fetchCoverage queries `assignment` +
@@ -14,33 +15,42 @@ const from = vi.fn();
 vi.mock('@/lib/supabase', () => ({ supabase: { from: (...a: unknown[]) => from(...a) } }));
 
 import SyncStatusScreen from '@/sync/SyncStatusScreen';
+import { db, saveMatchupNoteLocal } from '@/db/localStore';
 
 type Row = Record<string, unknown>;
 
 // Build a query-chain mock: .select(...).eq(...) resolves to { data, error }.
 function tableMock(data: Row[]) {
-  return {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockResolvedValue({ data, error: null }),
+  const chain = {
+    select: vi.fn(() => chain),
+    eq: vi.fn(() => chain),
+    maybeSingle: vi.fn(async () => ({ data: data[0] ?? null, error: null })),
+    then: (
+      resolve: (value: { data: Row[]; error: null }) => unknown,
+      reject?: (reason: unknown) => unknown,
+    ) => Promise.resolve({ data, error: null }).then(resolve, reject),
   };
+  return chain;
 }
 
-function wireTables(assignments: Row[], reports: Row[]) {
+function wireTables(assignments: Row[], reports: Row[], notes: Row[] = []) {
   from.mockImplementation((t: string) => {
     if (t === 'assignment') return tableMock(assignments);
     if (t === 'match_scouting_report') return tableMock(reports);
+    if (t === 'matchup_note') return tableMock(notes);
     return tableMock([]);
   });
 }
 
-beforeEach(() => {
-  useSessionMock.mockReset();
+beforeEach(async () => {
+  await db.matchupNotes.clear();
+  await db.strategyCanvas.clear();
+  useActiveEventMock.mockReset();
   from.mockReset();
-  useSessionMock.mockReturnValue({
-    scout: { id: 'lead-1', event_key: '2026demo' },
-    session: {},
-    role: 'lead',
+  useActiveEventMock.mockReturnValue({
+    eventKey: '2026demo',
     loading: false,
+    authoritative: true,
   });
   wireTables([], []);
 });
@@ -56,7 +66,11 @@ describe('SyncStatusScreen', () => {
   });
 
   it('shows a no-active-event empty state', async () => {
-    useSessionMock.mockReturnValue({ scout: null, session: {}, role: 'lead', loading: false });
+    useActiveEventMock.mockReturnValue({
+      eventKey: null,
+      loading: false,
+      authoritative: true,
+    });
     render(
       <MemoryRouter>
         <SyncStatusScreen />
@@ -124,5 +138,51 @@ describe('SyncStatusScreen', () => {
     // the missing assigned target is surfaced
     expect(row).toHaveTextContent(/missing/i);
     expect(row).toHaveTextContent('1678');
+  });
+
+  it('inspects and explicitly chooses between local/server conflict versions', async () => {
+    await saveMatchupNoteLocal({
+      key: '2026demo:-1:254',
+      eventKey: '2026demo',
+      ourTeam: -1,
+      oppTeam: 254,
+      note: 'Local plan',
+      updatedAt: '2026-07-10T12:00:00.000Z',
+      authorScoutId: null,
+      syncState: 'error',
+      syncAttempts: 0,
+      lastSyncError: 'changed on another device',
+      recoveryIssue: {
+        kind: 'conflict',
+        code: 'MATCHUP_NOTE_CONFLICT',
+        detectedAt: '2026-07-10T12:01:00.000Z',
+        serverRevision: 2,
+      },
+    });
+    wireTables([], [], [{
+      event_key: '2026demo',
+      our_team: -1,
+      opp_team: 254,
+      note: 'Server plan',
+      row_revision: 2,
+      updated_at: '2026-07-10T12:01:00.000Z',
+      author_scout_id: null,
+      deleted: false,
+    }]);
+    render(
+      <MemoryRouter>
+        <SyncStatusScreen />
+      </MemoryRouter>,
+    );
+
+    const recovery = await screen.findByTestId('local-recovery-deadletter');
+    expect(recovery).toHaveTextContent(/not being shown as the shared version/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect' }));
+    const inspector = await screen.findByTestId('local-recovery-inspector');
+    expect(inspector).toHaveTextContent('Local plan');
+    await waitFor(() => expect(inspector).toHaveTextContent('Server plan'));
+    expect(screen.getByRole('button', { name: /use server/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /use local/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /merge/i })).toBeEnabled();
   });
 });

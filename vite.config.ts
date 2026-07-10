@@ -8,11 +8,17 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Data-entry screens explicitly defer activation; autoUpdate bypasses
+      // onNeedRefresh and can reload a capture in progress.
+      registerType: 'prompt',
       injectRegister: null,
       manifest: false,
       includeAssets: ['manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'],
       workbox: {
+        // Workbox's terser render hook exits early under the current Node toolchain.
+        // Development mode emits the same production caching behavior without
+        // minifying the small generated worker.
+        mode: 'development',
         // woff2: the self-hosted mono telemetry font must be PREcached, or an
         // installed-then-offline device silently falls back to system mono
         // (the /assets/ runtime rule only caches it after a first online render).
@@ -20,6 +26,17 @@ export default defineConfig({
         navigateFallback: '/index.html',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
+          {
+            // The globally active event is server authority while online. Never
+            // let Workbox's 4-second NetworkFirst timeout answer this one query
+            // from a stale response cache; the app already owns an explicit
+            // localStorage fallback for genuine offline starts.
+            urlPattern: ({ url }) =>
+              url.hostname.endsWith('.supabase.co') &&
+              url.pathname.endsWith('/rest/v1/event') &&
+              url.searchParams.get('is_active') === 'eq.true',
+            handler: 'NetworkOnly',
+          },
           {
             // Same-origin static assets (notably the ~2.4 MB field image used by
             // every capture/review/auto screen). These are also precached via
@@ -31,7 +48,7 @@ export default defineConfig({
               sameOrigin && url.pathname.startsWith('/assets/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'static-assets',
+              cacheName: 'static-assets-v2',
               expiration: {
                 maxEntries: 32,
                 maxAgeSeconds: 60 * 60 * 24 * 60,
@@ -48,23 +65,13 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
-            // Supabase data reads: PostgREST + edge functions. Try network,
-            // fall back to cache when offline. (NetworkFirst caches GET only.)
+            // Dexie/TanStack own the app's explicit offline data model. A
+            // Workbox-cached API 200 looks fresh to those layers and can
+            // overwrite newer local data, so never response-cache API reads.
             urlPattern: ({ url }) =>
               url.hostname.endsWith('.supabase.co') &&
               (url.pathname.startsWith('/rest/v1/') || url.pathname.startsWith('/functions/v1/')),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-data',
-              networkTimeoutSeconds: 4,
-              expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 60 * 60 * 24 * 14,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
+            handler: 'NetworkOnly',
           },
           {
             // Supabase storage (pit photos). ignoreSearch: signed URLs embed a
@@ -76,7 +83,7 @@ export default defineConfig({
               url.hostname.endsWith('.supabase.co') && url.pathname.startsWith('/storage/v1/'),
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'supabase-storage',
+              cacheName: 'supabase-storage-v2',
               matchOptions: { ignoreSearch: true },
               expiration: {
                 maxEntries: 100,
@@ -94,7 +101,7 @@ export default defineConfig({
               !url.hostname.endsWith('.supabase.co'),
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'external-images',
+              cacheName: 'external-images-v2',
               expiration: {
                 maxEntries: 60,
                 maxAgeSeconds: 60 * 60 * 24 * 30,

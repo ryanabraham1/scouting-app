@@ -10,6 +10,20 @@ type MigrationStep = (record: AnyReport) => AnyReport;
 
 const migrations: Record<number, MigrationStep> = {
   // 0: (record) => ({ ...record, /* v0 -> v1 field changes */ }),
+  1: (record) => {
+    const ordinalToTenPoint = (value: unknown): unknown => {
+      if (value === 1) return 3;
+      if (value === 2) return 7;
+      if (value === 3) return 10;
+      return value;
+    };
+    return {
+      ...record,
+      defense_rating: ordinalToTenPoint(record.defense_rating),
+      driver_skill: ordinalToTenPoint(record.driver_skill),
+      agility: ordinalToTenPoint(record.agility),
+    };
+  },
 };
 
 export function migrateUp(record: AnyReport): AnyReport {

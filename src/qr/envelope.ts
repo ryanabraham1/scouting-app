@@ -34,6 +34,13 @@ export interface QrFrame {
   d: string; // base64 of this symbol's XORed bytes
 }
 
+export const MAX_QR_PAYLOAD_BYTES = 2 * 1024 * 1024;
+export const MAX_QR_REPORTS = 1_000;
+export const MAX_QR_BLOCKS = 4_096;
+export const MAX_QR_BLOCK_BYTES = 2_048;
+export const MAX_QR_SESSION_ID_LENGTH = 128;
+const MAX_QR_FRAME_SEED = 10_000_000;
+
 // --- CRC32 (standard polynomial 0xEDB88320) --------------------------------
 
 const CRC_TABLE: Uint32Array = (() => {
@@ -84,12 +91,30 @@ function base64ToBytes(b64: string): Uint8Array {
 
 /** reports[] → UTF-8 JSON bytes (the bytes the fountain encodes). */
 export function reportsToBytes(reports: unknown[]): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(reports));
+  if (reports.length > MAX_QR_REPORTS) {
+    throw new Error(`QR transfer exceeds the ${MAX_QR_REPORTS}-report limit.`);
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(reports));
+  if (bytes.byteLength > MAX_QR_PAYLOAD_BYTES) {
+    throw new Error('QR transfer payload is too large.');
+  }
+  return bytes;
 }
 
 /** Inverse of reportsToBytes: decoded payload bytes → reports[]. */
 export function bytesToReports(bytes: Uint8Array): unknown[] {
-  return JSON.parse(new TextDecoder().decode(bytes)) as unknown[];
+  if (bytes.byteLength > MAX_QR_PAYLOAD_BYTES) {
+    throw new Error('QR transfer payload is too large.');
+  }
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+  if (!Array.isArray(parsed)) throw new Error('QR transfer payload must be a report array.');
+  if (parsed.length > MAX_QR_REPORTS) {
+    throw new Error(`QR transfer exceeds the ${MAX_QR_REPORTS}-report limit.`);
+  }
+  if (parsed.some((report) => !report || typeof report !== 'object' || Array.isArray(report))) {
+    throw new Error('QR transfer contains an invalid report.');
+  }
+  return parsed;
 }
 
 // --- Seeded PRNG + Robust-Soliton degree distribution ----------------------
@@ -191,11 +216,21 @@ export class FountainEncoder {
     compressed: boolean,
     blockSize: number = FOUNTAIN_BLOCK_BYTES,
   ) {
+    if (payload.byteLength > MAX_QR_PAYLOAD_BYTES) {
+      throw new Error('QR transfer payload is too large.');
+    }
+    if (!Number.isInteger(blockSize) || blockSize < 1 || blockSize > MAX_QR_BLOCK_BYTES) {
+      throw new Error('QR transfer block size is invalid.');
+    }
+    if (!sid || sid.length > MAX_QR_SESSION_ID_LENGTH) {
+      throw new Error('QR transfer session id is invalid.');
+    }
     this.l = payload.length;
     this.b = blockSize;
     this.z = compressed ? 1 : 0;
     this.p = crc32hexBytes(payload);
     this.k = Math.max(1, Math.ceil(payload.length / blockSize));
+    if (this.k > MAX_QR_BLOCKS) throw new Error('QR transfer has too many blocks.');
     this.blocks = [];
     for (let i = 0; i < this.k; i += 1) {
       const block = new Uint8Array(blockSize); // zero-padded tail block
@@ -239,16 +274,42 @@ export function parseFrame(s: string): QrFrame | null {
   if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return null;
   const f = obj as Record<string, unknown>;
   if (f.v !== QR_ENVELOPE_VERSION) return null;
-  if (typeof f.s !== 'string') return null;
-  if (typeof f.t !== 'number' || !Number.isInteger(f.t) || f.t < 0) return null;
-  if (typeof f.k !== 'number' || !Number.isInteger(f.k) || f.k < 1) return null;
-  if (typeof f.l !== 'number' || !Number.isInteger(f.l) || f.l < 0) return null;
-  if (typeof f.b !== 'number' || !Number.isInteger(f.b) || f.b < 1) return null;
+  if (typeof f.s !== 'string' || !f.s || f.s.length > MAX_QR_SESSION_ID_LENGTH) return null;
+  if (
+    typeof f.t !== 'number' ||
+    !Number.isInteger(f.t) ||
+    f.t < 0 ||
+    f.t > MAX_QR_FRAME_SEED
+  ) return null;
+  if (
+    typeof f.k !== 'number' ||
+    !Number.isInteger(f.k) ||
+    f.k < 1 ||
+    f.k > MAX_QR_BLOCKS
+  ) return null;
+  if (
+    typeof f.l !== 'number' ||
+    !Number.isInteger(f.l) ||
+    f.l < 0 ||
+    f.l > MAX_QR_PAYLOAD_BYTES
+  ) return null;
+  if (
+    typeof f.b !== 'number' ||
+    !Number.isInteger(f.b) ||
+    f.b < 1 ||
+    f.b > MAX_QR_BLOCK_BYTES
+  ) return null;
+  if (f.l > f.k * f.b || f.k !== Math.max(1, Math.ceil(f.l / f.b))) return null;
   if (f.z !== 0 && f.z !== 1) return null;
-  if (typeof f.p !== 'string') return null;
-  if (typeof f.h !== 'string') return null;
+  if (typeof f.p !== 'string' || !/^[0-9a-f]{8}$/.test(f.p)) return null;
+  if (typeof f.h !== 'string' || !/^[0-9a-f]{8}$/.test(f.h)) return null;
   if (typeof f.d !== 'string') return null;
   if (crc32hex(f.d) !== f.h) return null;
+  try {
+    if (base64ToBytes(f.d).length !== f.b) return null;
+  } catch {
+    return null;
+  }
   return {
     v: QR_ENVELOPE_VERSION,
     s: f.s,
@@ -310,6 +371,7 @@ export class FountainDecoder {
       return;
     }
     if (this.seenSeeds.has(f.t)) return; // duplicate scan of the same symbol
+    if (this.k !== null && this.seenSeeds.size >= this.k * 8 + 256) return;
     this.seenSeeds.add(f.t);
 
     const data = base64ToBytes(f.d);

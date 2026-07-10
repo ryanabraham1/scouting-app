@@ -54,6 +54,27 @@ vi.mock('@zxing/browser', () => ({
 const postIngest = vi.fn();
 vi.mock('@/qr/ingestClient', () => ({ postIngest: (...a: unknown[]) => postIngest(...a) }));
 
+const stageCompletedQrTransfer = vi.fn(async (value: {
+  sessionId: string;
+  compressed: boolean;
+  payload: Uint8Array;
+}) => ({
+  ...value,
+  version: 1 as const,
+  completedAt: Date.now(),
+}));
+const loadStagedQrTransfer = vi.fn(async (): Promise<unknown> => null);
+const clearStagedQrTransfer = vi.fn(async () => undefined);
+vi.mock('@/qr/receiveStaging', () => ({
+  stageCompletedQrTransfer: (...args: unknown[]) => stageCompletedQrTransfer(...args as [{
+    sessionId: string;
+    compressed: boolean;
+    payload: Uint8Array;
+  }]),
+  loadStagedQrTransfer: () => loadStagedQrTransfer(),
+  clearStagedQrTransfer: () => clearStagedQrTransfer(),
+}));
+
 // Identity compression: the decoded bytes equal the raw JSON, so this test
 // asserts the wire shape, not gzip (which has its own round-trip test).
 vi.mock('@/qr/compress', () => ({
@@ -102,6 +123,9 @@ beforeEach(() => {
   decodeFromVideoDevice.mockClear();
   stop.mockClear();
   postIngest.mockReset();
+  stageCompletedQrTransfer.mockClear();
+  loadStagedQrTransfer.mockReset().mockResolvedValue(null);
+  clearStagedQrTransfer.mockReset().mockResolvedValue(undefined);
   saveReport.mockReset();
   captured = null;
   state.rejectMode = false;
@@ -123,6 +147,26 @@ afterEach(() => {
 });
 
 describe('QrReceiveScreen', () => {
+  it('resumes a completed staged transfer before starting the camera', async () => {
+    loadStagedQrTransfer.mockResolvedValue({
+      version: 1,
+      sessionId: 'staged-sid',
+      compressed: false,
+      payload: reportsToBytes(sourceReports),
+      completedAt: Date.now(),
+    });
+    render(
+      <MemoryRouter>
+        <QrReceiveScreen />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('qr-receive-done');
+    expect(postIngest).toHaveBeenCalledWith(sourceReports);
+    expect(decodeFromVideoDevice).not.toHaveBeenCalled();
+    expect(clearStagedQrTransfer).toHaveBeenCalled();
+  });
+
   it('advances progress as frames arrive, then ingests on completion', async () => {
     render(
       <MemoryRouter>
@@ -167,6 +211,11 @@ describe('QrReceiveScreen', () => {
 
     // postIngest called with the reconstructed SNAKE_CASE reports.
     expect(postIngest).toHaveBeenCalledTimes(1);
+    expect(stageCompletedQrTransfer).toHaveBeenCalledTimes(1);
+    expect(stageCompletedQrTransfer.mock.invocationCallOrder[0]).toBeLessThan(
+      postIngest.mock.invocationCallOrder[0],
+    );
+    expect(clearStagedQrTransfer).toHaveBeenCalledTimes(1);
     expect(postIngest).toHaveBeenCalledWith(sourceReports);
     const posted = postIngest.mock.calls[0][0] as Record<string, unknown>[];
     expect(posted[0]).toHaveProperty('event_key', '2026casnv');

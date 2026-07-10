@@ -1,5 +1,6 @@
 // src/scoring/constants.ts
-export const SCHEMA_VERSION = 1;
+// v2 distinguishes literal 1–10 qualitative ratings from v1's 1–3 ordinals.
+export const SCHEMA_VERSION = 2;
 
 export const SCORING = {
   FUEL_POINTS: 1,

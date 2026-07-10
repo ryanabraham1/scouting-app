@@ -148,7 +148,10 @@ export interface DraftRow {
   /** Best-available EPA (Statbotics → local → in-house), null when unknown. */
   epa: number | null;
   expectedPoints: number;
-  climbSuccessRate: number;
+  /** Best auto-points value: real scouting component, else gated EPA estimate. */
+  autoPoints: number | null;
+  /** Provenance for autoPoints; `none` means the value is unavailable. */
+  autoSource: 'scouting' | 'epa' | 'none';
   matchesScouted: number;
   /** picklist "do not pick" flag (best-remaining skips these). */
   dnp: boolean;

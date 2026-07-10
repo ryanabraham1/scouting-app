@@ -123,6 +123,30 @@ describe('ScoutersTab (unified)', () => {
     expect((await screen.findByTestId('scouter-item-Bob')).textContent).toContain('0 reports');
   });
 
+  it('keeps the load bar inside the balanced summary and preserves touch targets', async () => {
+    renderTab();
+    const item = await screen.findByTestId('scouter-item-Alice');
+    const summary = within(item).getByTestId('scouter-summary-Alice');
+    const loadBar = within(item).getByTestId('scouter-load-bar-Alice');
+
+    expect(summary).toContainElement(loadBar.parentElement);
+    expect(summary.className).toContain('relative');
+    expect(summary.className).toContain('p-2');
+
+    for (const control of [
+      within(item).getByTestId('scouter-open-Alice'),
+      within(item).getByTestId('scouter-hide-Alice'),
+      within(item).getByTestId('scouter-remove-Alice'),
+    ]) {
+      expect(Number.parseFloat(control.style.minHeight)).toBeGreaterThanOrEqual(44);
+    }
+
+    fireEvent.click(within(item).getByTestId('scouter-open-Alice'));
+    const details = within(item).getByTestId('scouter-details-Alice');
+    expect(details).not.toContainElement(loadBar);
+    expect(details).toContainElement(within(item).getByTestId('scouter-profile'));
+  });
+
   it('shows per-scouter pit report counts (list) and teams (profile)', async () => {
     useEventPitsMock.mockReturnValue(
       querySuccess(

@@ -8,9 +8,11 @@
 // now), so every request must hit upstream fresh. A stale cache would freeze the
 // "On Field" / "Queuing" tiles mid-event. Responses are sent with no-store.
 import { corsHeaders } from "../_shared/cors.ts";
+import { readTextResponse } from "../_shared/readJsonBody.ts";
 import { isSafeProxyPath } from "../_shared/validatePath.ts";
 
 const NEXUS_BASE = "https://frc.nexus/api/v1";
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 // No-store on every response: this is live data; nothing here may be cached by
 // the browser, a CDN, or React Query's HTTP layer.
@@ -64,6 +66,7 @@ Deno.serve(async (req) => {
   try {
     upstream = await fetch(`${NEXUS_BASE}${path}`, {
       headers: { Accept: "application/json", "Nexus-Api-Key": apiKey },
+      signal: AbortSignal.timeout(10_000),
     });
   } catch (_err) {
     return unavailable();
@@ -75,7 +78,12 @@ Deno.serve(async (req) => {
     return unavailable();
   }
 
-  const body = await upstream.text();
+  let body: string;
+  try {
+    body = await readTextResponse(upstream, MAX_RESPONSE_BYTES);
+  } catch {
+    return unavailable();
+  }
   return new Response(body, {
     status: 200,
     headers: {

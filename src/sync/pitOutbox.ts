@@ -5,18 +5,24 @@
 // upserts the row into `pit_scouting_report`. Re-running is safe — the upsert is
 // keyed on (event_key, team_number), so a re-run is a no-op-equivalent overwrite.
 import {
-  getPitSyncQueue,
+  getDuePitSyncQueue,
   markPitPending,
   markPitSynced,
   markPitDirtyRetry,
   markPitSyncError,
   setPitUploadedPhoto,
+  queuePitPhotoCleanup,
   upsertPitRow,
   type LocalPitReport,
 } from '@/pit/pitStore';
-import { uploadPitPhoto } from '@/pit/photoUpload';
+import { cleanupPitPhotoTombstones, uploadPitPhoto } from '@/pit/photoUpload';
 import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
-import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
+import { queryClient } from '@/lib/queryPersist';
+import {
+  isSyncCircuitOpen,
+  openSyncCircuit,
+  retryDelayMs,
+} from '@/sync/retrySchedule';
 
 export interface PitSyncSummary {
   attempted: number;
@@ -39,32 +45,60 @@ function errorMessage(err: unknown): string {
 }
 
 async function uploadAndUpsert(rec: LocalPitReport): Promise<unknown> {
-  // Upload a deferred photo first; on success carry the new storage path onto
-  // the report so the row references it. A throw here (network) is classified
-  // like any other transient/terminal failure by the caller.
-  let report = rec.data;
-  if (rec.photoBlob) {
-    const path = await uploadPitPhoto(rec.eventKey, rec.teamNumber, rec.photoBlob);
-    report = { ...report, photoPath: path };
-    rec.photoBlob = null;
-    // Persist the uploaded path immediately so a transient upsert retry reuses
-    // it instead of re-uploading (which would orphan this object in Storage).
-    // Guarded by updatedAt so a mid-flight re-submit's NEW blob isn't destroyed.
-    await setPitUploadedPhoto(rec.draftKey, path, rec.updatedAt);
+  let photos = [...rec.data.photos].sort((a, b) => a.order - b.order);
+  const blobs = { ...(rec.photoBlobs ?? {}) };
+  for (const photo of photos) {
+    const blob = blobs[photo.id];
+    if (!blob || photo.path) continue;
+    const path = await uploadPitPhoto(rec.eventKey, rec.teamNumber, photo.id, blob);
+    photos = photos.map((item) => item.id === photo.id ? { ...item, path } : item);
+    delete blobs[photo.id];
+    const recorded = await setPitUploadedPhoto(rec.draftKey, photo.id, path, rec.updatedAt);
+    if (!recorded) {
+      // The report changed or was removed while Storage was uploading. This
+      // object was never attached to the current local row, so tombstone it
+      // immediately; the cleanup worker still verifies local/server references
+      // before deleting.
+      await queuePitPhotoCleanup(path, rec.eventKey, rec.teamNumber);
+      return Object.assign(
+        new Error('Pit report changed while its photo was uploading; the orphan was queued for cleanup.'),
+        { code: 'PIT_PHOTO_UPLOAD_RACE' },
+      );
+    }
   }
-  // Revision = this report's local updatedAt epoch-ms, so a STALE queued report
-  // (older edit) can never overwrite a newer one already on the server (0031).
-  const revision = Date.parse(rec.updatedAt) || Date.now();
-  const { error } = await upsertPitRow(report, revision);
+  const report = {
+    ...rec.data,
+    photos,
+    photoPath: photos[0]?.path ?? null,
+  };
+  const revision = (rec.rowRevision ?? Date.parse(rec.updatedAt)) || Date.now();
+  const { data, error } = await upsertPitRow(report, revision, rec.baseRevision ?? null);
   if (error) return error;
-  // Stash the resolved path back so markPitSynced records it.
+  if (data?.status === 'conflict' || data?.status === 'stale') {
+    const currentRevision =
+      data.current_revision == null ? '' : ` Server revision: ${data.current_revision}.`;
+    return Object.assign(
+      new Error(
+        `This pit report changed on another device.${currentRevision} Local report preserved for recovery.`,
+      ),
+      { code: 'PIT_EDIT_CONFLICT' },
+    );
+  }
+  if (data?.status !== 'applied' && data?.status !== 'idempotent') {
+    return Object.assign(
+      new Error('Pit report server returned an invalid sync status. Local report preserved.'),
+      { code: 'PIT_SYNC_CONTRACT' },
+    );
+  }
   rec.data = report;
+  rec.photoBlobs = blobs;
   return null;
 }
 
 export async function syncPitOnce(): Promise<PitSyncSummary> {
-  const queue = await getPitSyncQueue();
   const summary: PitSyncSummary = { attempted: 0, synced: 0, retried: 0, deadLettered: 0 };
+  if (isSyncCircuitOpen()) return summary;
+  const queue = await getDuePitSyncQueue();
 
   for (const rec of queue) {
     summary.attempted += 1;
@@ -84,7 +118,10 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
     }
 
     if (!failed) {
-      await markPitSynced(rec.draftKey, rec.data.photoPath, rec.updatedAt);
+      await markPitSynced(rec.draftKey, rec.updatedAt);
+      void queryClient.invalidateQueries({ queryKey: ['team-pit', rec.eventKey, rec.teamNumber] });
+      void queryClient.invalidateQueries({ queryKey: ['event-pits', rec.eventKey] });
+      void queryClient.invalidateQueries({ queryKey: ['team-photo', rec.eventKey, rec.teamNumber] });
       summary.synced += 1;
       continue;
     }
@@ -94,22 +131,35 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
     // Pure network gap: requeue without burning an attempt, stop the drain
     // (the rest of the queue faces the same dead network). See outbox.ts.
     if (isNetworkFailure(failure)) {
-      await markPitDirtyRetry(rec.draftKey, message, { countAttempt: false });
+      const nextSyncAt = Date.now() + retryDelayMs(failure, rec.syncAttempts ?? 0);
+      await markPitDirtyRetry(rec.draftKey, message, {
+        countAttempt: false,
+        uploadedUpdatedAt: rec.updatedAt,
+        nextSyncAt,
+      });
+      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
       break;
     }
 
     const kind = classifySyncError(failure);
-    const attempts = rec.syncAttempts ?? 0;
-
-    if (kind === 'transient' && attempts < SYNC_MAX_ATTEMPTS) {
-      await markPitDirtyRetry(rec.draftKey, message);
+    if (kind === 'transient') {
+      const nextSyncAt = Date.now() + retryDelayMs(failure, rec.syncAttempts ?? 0);
+      await markPitDirtyRetry(rec.draftKey, message, {
+        uploadedUpdatedAt: rec.updatedAt,
+        nextSyncAt,
+      });
+      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
+      break;
     } else {
       await markPitSyncError(rec.draftKey, message, rec.updatedAt);
       summary.deadLettered += 1;
     }
   }
 
+  // Best-effort orphan cleanup. A failed remove remains a durable tombstone and
+  // never changes the report sync result.
+  await cleanupPitPhotoTombstones().catch(() => undefined);
   return summary;
 }

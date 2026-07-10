@@ -99,6 +99,72 @@ describe('computeAggregates — round-half-up boundary (.5 always up, not banker
   });
 });
 
+describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => {
+  it('pins the audited decimal counterexample after nano-rate quantization', () => {
+    const agg = computeAggregates({
+      schemaVersion: 1,
+      inactiveFirst: false,
+      climbLevel: 0,
+      autoClimbLevel1: false,
+      fuelBursts: [{
+        startMs: 0,
+        endMs: 102,
+        rate: 14.705882352941176,
+        window: 'auto',
+      }],
+    });
+
+    // floor(rate * 1e9 + .5) = 14_705_882_353 nano-balls/s.
+    // 14_705_882_353 * 102 / 1e12 = 1.500000000006 -> 2.
+    expect(agg.autoFuel).toBe(2);
+  });
+
+  it('rounds the nano-rate boundary before integrating the window', () => {
+    const below = computeAggregates({
+      schemaVersion: 1,
+      inactiveFirst: false,
+      climbLevel: 0,
+      autoClimbLevel1: false,
+      fuelBursts: [{
+        startMs: 0,
+        endMs: 1000,
+        rate: 0.49999999949,
+        window: 'auto',
+      }],
+    });
+    const atBoundary = computeAggregates({
+      schemaVersion: 1,
+      inactiveFirst: false,
+      climbLevel: 0,
+      autoClimbLevel1: false,
+      fuelBursts: [{
+        startMs: 0,
+        endMs: 1000,
+        rate: 0.4999999995,
+        window: 'auto',
+      }],
+    });
+
+    expect(below.autoFuel).toBe(0);
+    expect(atBoundary.autoFuel).toBe(1);
+  });
+
+  it('accumulates fixed-point burst numerators and rounds once per window', () => {
+    const agg = computeAggregates({
+      schemaVersion: 1,
+      inactiveFirst: false,
+      climbLevel: 0,
+      autoClimbLevel1: false,
+      fuelBursts: [
+        { startMs: 0, endMs: 1000, rate: 0.24999999975, window: 'auto' },
+        { startMs: 1000, endMs: 2000, rate: 0.24999999975, window: 'auto' },
+      ],
+    });
+
+    expect(agg.autoFuel).toBe(1);
+  });
+});
+
 describe('computeAggregates — inactiveFirst:false inverts active/inactive shift attribution', () => {
   // Same 8 bursts as the inactiveFirst:true golden above, but inactiveFirst=false.
   // With inactiveFirst:false: odd shifts (shift1,shift3) are ACTIVE; even (shift2,shift4) INACTIVE.

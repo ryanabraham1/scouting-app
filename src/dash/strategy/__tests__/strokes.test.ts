@@ -2,13 +2,14 @@
 // The whiteboard's pure model: doc merge (the client mirror of the
 // upsert_strategy_canvas RPC), tombstone invariants, undo/redo reissue rules,
 // eraser hit-testing, and wire parsing.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   mergeCanvasDocs,
   mergeRobots,
   whiteboardReducer,
   INITIAL_WHITEBOARD,
   newStrokeId,
+  nextCanvasGeneration,
   strokeHitTest,
   erasedIdsAt,
   parseCanvasDoc,
@@ -230,6 +231,13 @@ describe('doc helpers', () => {
   it('newStrokeId is unique across rapid calls', () => {
     const ids = new Set(Array.from({ length: 200 }, () => newStrokeId()));
     expect(ids.size).toBe(200);
+  });
+
+  it('issues strictly increasing generations when the clock is frozen', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1234);
+    const values = Array.from({ length: 5 }, () => nextCanvasGeneration());
+    expect(values.every((value, index) => index === 0 || value > values[index - 1])).toBe(true);
+    clock.mockRestore();
   });
 
   it('docOf projects reducer state to the persisted doc shape', () => {

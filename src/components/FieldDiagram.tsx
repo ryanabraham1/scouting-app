@@ -171,12 +171,36 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (mode !== 'pick-start' || !onStartChange) return;
+    const step = e.shiftKey ? 0.1 : 0.02;
+    const current = startPosition ?? { x: 0.5, y: 0.5 };
+    let next: FieldPoint | null = null;
+    if (e.key === 'ArrowLeft') next = { ...current, x: clamp01(current.x - step) };
+    if (e.key === 'ArrowRight') next = { ...current, x: clamp01(current.x + step) };
+    if (e.key === 'ArrowUp') next = { ...current, y: clamp01(current.y - step) };
+    if (e.key === 'ArrowDown') next = { ...current, y: clamp01(current.y + step) };
+    if (e.key === 'Home') next = { x: 0.5, y: 0.5 };
+    if (!next) return;
+    e.preventDefault();
+    onStartChange(next);
+  };
+
   return (
     <div
       ref={containerRef}
       data-testid={testid}
       data-mode={mode}
       data-rotated={rotated ? 'true' : 'false'}
+      role={mode === 'pick-start' ? 'application' : undefined}
+      aria-label={mode === 'pick-start' ? 'Robot starting position on field' : undefined}
+      aria-description={
+        mode === 'pick-start'
+          ? 'Use arrow keys to move the robot. Hold Shift for larger steps. Home centers it.'
+          : undefined
+      }
+      tabIndex={mode === 'pick-start' ? 0 : undefined}
+      onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

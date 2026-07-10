@@ -10,11 +10,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { useSession } from '@/auth/useSession';
+import { useActiveEvent } from '@/dash/useActiveEvent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BackLink } from '@/components/ui/BackLink';
 import { Button } from '@/components/ui/button';
 import { getSyncQueue, listDeadLetters, requeueReport, deleteReport } from '@/db/localStore';
+import {
+  getMatchupSyncQueue,
+  getStrategyCanvasSyncQueue,
+} from '@/db/localStore';
 import {
   getPitSyncQueue,
   listPitDeadLetters,
@@ -22,6 +26,16 @@ import {
   deletePitReport,
 } from '@/pit/pitStore';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
+import {
+  discardLocalRecovery,
+  listLocalRecoveryRecords,
+  loadRecoveryVersions,
+  resolveLocalRecovery,
+  retryLocalRecovery,
+  type LocalRecoveryRecord,
+  type RecoveryResolution,
+  type RecoveryVersions,
+} from '@/sync/localRecovery';
 
 interface LocalDeadLetter {
   id: string;
@@ -52,18 +66,26 @@ function isDeletedEventError(error: string | null): boolean {
 function LocalOutbox(): JSX.Element {
   const [queued, setQueued] = useState(0);
   const [dead, setDead] = useState<LocalDeadLetter[]>([]);
+  const [collaborativeDead, setCollaborativeDead] = useState<LocalRecoveryRecord[]>([]);
+  const [inspecting, setInspecting] = useState<string | null>(null);
+  const [versions, setVersions] = useState<RecoveryVersions | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [retrying, setRetrying] = useState(false);
   // Key (`${kind}:${id}`) of the dead-letter whose discard is armed for confirm.
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [mq, pq, md, pd] = await Promise.all([
+    const [mq, pq, nq, cq, md, pd, collaborative] = await Promise.all([
       getSyncQueue(),
       getPitSyncQueue(),
+      getMatchupSyncQueue(),
+      getStrategyCanvasSyncQueue(),
       listDeadLetters(),
       listPitDeadLetters(),
+      listLocalRecoveryRecords(),
     ]);
-    setQueued(mq.length + pq.length);
+    setQueued(mq.length + pq.length + nq.length + cq.length);
     setDead([
       ...md.map((r) => ({
         id: r.id,
@@ -78,6 +100,7 @@ function LocalOutbox(): JSX.Element {
         kind: 'pit' as const,
       })),
     ]);
+    setCollaborativeDead(collaborative);
   }, []);
 
   useEffect(() => {
@@ -91,13 +114,55 @@ function LocalOutbox(): JSX.Element {
         if (d.kind === 'match') await requeueReport(d.id);
         else await requeuePitReport(d.id);
       }
+      for (const record of collaborativeDead) await retryLocalRecovery(record);
       // Nudge the sync engine (useSync listens for this) to drain immediately.
       window.dispatchEvent(new Event('scout-sync-changed'));
       await refresh();
     } finally {
       setRetrying(false);
     }
-  }, [dead, refresh]);
+  }, [collaborativeDead, dead, refresh]);
+
+  const inspectRecovery = useCallback(async (record: LocalRecoveryRecord) => {
+    const key = `${record.kind}:${record.key}`;
+    if (inspecting === key) {
+      setInspecting(null);
+      setVersions(null);
+      setRecoveryError(null);
+      return;
+    }
+    setInspecting(key);
+    setVersions(null);
+    setRecoveryError(null);
+    try {
+      setVersions(await loadRecoveryVersions(record));
+    } catch (error) {
+      setRecoveryError(
+        error instanceof Error
+          ? `Local copy is safe, but the server version could not be loaded: ${error.message}`
+          : 'Local copy is safe, but the server version could not be loaded.',
+      );
+    }
+  }, [inspecting]);
+
+  const resolveRecovery = useCallback(async (
+    record: LocalRecoveryRecord,
+    resolution: RecoveryResolution,
+  ) => {
+    if (!versions) return;
+    setRecoveryBusy(true);
+    setRecoveryError(null);
+    try {
+      await resolveLocalRecovery(record, versions, resolution);
+      setInspecting(null);
+      setVersions(null);
+      await refresh();
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : 'Recovery failed.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }, [refresh, versions]);
 
   const discard = useCallback(
     async (d: LocalDeadLetter) => {
@@ -118,9 +183,9 @@ function LocalOutbox(): JSX.Element {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p data-testid="local-outbox-queued" className="text-sm text-muted-foreground">
-          {queued} queued to upload · {dead.length} failed
+          {queued} queued to upload · {dead.length + collaborativeDead.length} failed
         </p>
-        {dead.length > 0 ? (
+        {dead.length + collaborativeDead.length > 0 ? (
           <>
             <ul className="flex flex-col gap-2">
               {dead.map((d) => {
@@ -141,10 +206,14 @@ function LocalOutbox(): JSX.Element {
                             match report is to CORRECT the bad match/team and
                             re-save — but that's pointless when the whole EVENT is
                             gone, so hide Fix in that case and lead with Discard. */}
-                        {d.kind === 'match' && !deletedEvent ? (
+                        {!deletedEvent ? (
                           <Link
                             data-testid="local-outbox-fix"
-                            to={`/scout?edit=${d.id}`}
+                            to={
+                              d.kind === 'match'
+                                ? `/scout?edit=${d.id}`
+                                : `/scout?mode=pit&pitTeam=${encodeURIComponent(d.id.split(':').at(-1) ?? '')}`
+                            }
                             className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
                           >
                             Fix &amp; re-save
@@ -207,6 +276,145 @@ function LocalOutbox(): JSX.Element {
                 );
               })}
             </ul>
+            {collaborativeDead.length > 0 ? (
+              <ul className="flex flex-col gap-2">
+                {collaborativeDead.map((record) => {
+                  const key = `${record.kind}:${record.key}`;
+                  const open = inspecting === key;
+                  const issue = record.local.recoveryIssue;
+                  return (
+                    <li
+                      key={key}
+                      data-testid="local-recovery-deadletter"
+                      className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-semibold">
+                            {record.kind === 'matchup-note'
+                              ? `Strategy note · Team ${record.local.oppTeam}`
+                              : `Strategy canvas · ${formatMatchKeyRaw(record.local.matchKey)} · ${record.local.phase ?? 'auto'}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {issue?.kind === 'conflict'
+                              ? 'Conflict — the local copy is not being shown as the shared version.'
+                              : 'Upload failed — the local copy is held for recovery.'}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void inspectRecovery(record)}
+                          >
+                            {open ? 'Close' : 'Inspect'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void retryLocalRecovery(record).then(refresh)}
+                          >
+                            Retry
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive"
+                            onClick={() => void discardLocalRecovery(record).then(refresh)}
+                          >
+                            Discard
+                          </Button>
+                        </div>
+                      </div>
+                      {record.local.lastSyncError ? (
+                        <p className="mt-2 text-xs text-destructive [overflow-wrap:anywhere]">
+                          {record.local.lastSyncError}
+                        </p>
+                      ) : null}
+                      {open ? (
+                        <div
+                          data-testid="local-recovery-inspector"
+                          className="mt-3 flex flex-col gap-3 border-t border-warning/30 pt-3"
+                        >
+                          {record.kind === 'matchup-note' ? (
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <p className="mb-1 text-xs font-semibold">Local recovery copy</p>
+                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-background/70 p-2 text-xs">
+                                  {record.local.note || '(empty)'}
+                                </pre>
+                              </div>
+                              <div>
+                                <p className="mb-1 text-xs font-semibold">Server version</p>
+                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-background/70 p-2 text-xs">
+                                  {versions?.kind === 'matchup-note'
+                                    ? versions.server ?? '(none)'
+                                    : 'Loading…'}
+                                </pre>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid gap-2 text-xs sm:grid-cols-2">
+                              <p className="rounded-md bg-background/70 p-2">
+                                Local recovery copy: {record.local.strokes.length} strokes,{' '}
+                                {record.local.deletedIds.length} erasures.
+                              </p>
+                              <p className="rounded-md bg-background/70 p-2">
+                                Server version:{' '}
+                                {versions?.kind === 'strategy-canvas'
+                                  ? versions.server
+                                    ? `${versions.server.strokes.length} strokes, ${versions.server.deletedIds.length} erasures`
+                                    : 'none'
+                                  : 'Loading…'}
+                              </p>
+                            </div>
+                          )}
+                          {recoveryError ? (
+                            <p role="alert" className="text-xs text-destructive">
+                              {recoveryError}
+                            </p>
+                          ) : null}
+                          {versions ? (
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={recoveryBusy || versions.server == null}
+                                onClick={() => void resolveRecovery(record, 'server')}
+                              >
+                                Use server
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={recoveryBusy}
+                                onClick={() => void resolveRecovery(record, 'local')}
+                              >
+                                Use local &amp; retry
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={recoveryBusy || versions.server == null}
+                                onClick={() => void resolveRecovery(record, 'merge')}
+                              >
+                                Merge &amp; retry
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
             <Button
               data-testid="local-outbox-retry"
               variant="outline"
@@ -320,8 +528,7 @@ export function computeCoverage(data: CoverageData): MatchCoverage[] {
 }
 
 export default function SyncStatusScreen(): JSX.Element {
-  const { scout } = useSession();
-  const eventKey = (scout as { event_key?: string } | null)?.event_key ?? null;
+  const { eventKey } = useActiveEvent();
   const [data, setData] = useState<CoverageData | null>(null);
 
   useEffect(() => {

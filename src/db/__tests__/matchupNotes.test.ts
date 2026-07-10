@@ -45,6 +45,27 @@ describe('matchup-note queue helpers', () => {
     expect((await listMatchupNotesForEvent('2026other'))).toHaveLength(0);
   });
 
+  it('keeps per-team notes distinct within one event', async () => {
+    await saveMatchupNoteLocal(makeNote({
+      key: '2026casnv:-1:111',
+      ourTeam: -1,
+      oppTeam: 111,
+      note: 'partner plan',
+    }));
+    await saveMatchupNoteLocal(makeNote({
+      key: '2026casnv:-1:333',
+      ourTeam: -1,
+      oppTeam: 333,
+      note: 'opponent plan',
+    }));
+
+    const notes = await listMatchupNotesForEvent('2026casnv');
+    expect(notes.map((note) => [note.oppTeam, note.note])).toEqual([
+      [111, 'partner plan'],
+      [333, 'opponent plan'],
+    ]);
+  });
+
   it('getMatchupSyncQueue returns only dirty/pending, excluding synced + error', async () => {
     await saveMatchupNoteLocal(makeNote({ key: 'e:1:2', note: 'a' }));
     await saveMatchupNoteLocal(makeNote({ key: 'e:3:4', note: 'b' }));

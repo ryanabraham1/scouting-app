@@ -50,6 +50,7 @@ beforeAll(async () => {
   admin = createClient(URL, SECRET, { auth: { persistSession: false } });
   await admin.from('event').upsert({ event_key: EVENT, name: 'SS16', is_active: false });
   await admin.from('team').upsert({ team_number: TEAM, nickname: 'SS16' });
+  await admin.from('event_team').upsert({ event_key: EVENT, team_number: TEAM });
   await admin
     .from('match')
     .upsert({ match_key: MATCH, event_key: EVENT, comp_level: 'qm', match_number: 1 });
@@ -57,8 +58,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await admin.from('match_scouting_report').delete().eq('event_key', EVENT);
+  await admin.from('pit_assignment').delete().eq('event_key', EVENT);
   await admin.from('scout').delete().eq('event_key', EVENT);
   await admin.from('match').delete().eq('match_key', MATCH);
+  await admin.from('event_team').delete().eq('event_key', EVENT);
   await admin.from('team').delete().eq('team_number', TEAM);
   await admin.from('event').delete().eq('event_key', EVENT);
 });
@@ -66,8 +69,13 @@ afterAll(async () => {
 it('select_scouter consolidates duplicates that scouted the SAME match without violating idx_msr_match_scout_active', async () => {
   // Two duplicate rows, each with an ACTIVE report for the SAME match — the exact
   // shape that crashed the re-point before 0016.
-  await seedDuplicateScoutWithReport(MATCH);
-  await seedDuplicateScoutWithReport(MATCH);
+  const firstScoutId = await seedDuplicateScoutWithReport(MATCH);
+  const secondScoutId = await seedDuplicateScoutWithReport(MATCH);
+  const { error: pitAssignmentError } = await admin.from('pit_assignment').insert([
+    { event_key: EVENT, team_number: TEAM, scout_id: firstScoutId, source: 'manual' },
+    { event_key: EVENT, team_number: TEAM, scout_id: secondScoutId, source: 'manual' },
+  ]);
+  expect(pitAssignmentError, pitAssignmentError?.message).toBeNull();
 
   const device = createClient(URL, ANON, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -101,6 +109,17 @@ it('select_scouter consolidates duplicates that scouted the SAME match without v
     .ilike('display_name', NAME);
   expect(scouts!.length).toBe(1);
   expect(scouts![0].id).toBe(deviceScoutId);
+
+  // Duplicate identity rows assigned to the same shared crew collapse to one
+  // canonical membership before the duplicate scout row is deleted.
+  const { data: pitAssignments, error: pitError } = await admin
+    .from('pit_assignment')
+    .select('team_number,scout_id')
+    .eq('event_key', EVENT);
+  expect(pitError, pitError?.message).toBeNull();
+  expect(pitAssignments).toEqual([
+    { team_number: TEAM, scout_id: deviceScoutId },
+  ]);
 
   await device.auth.signOut();
 });

@@ -103,6 +103,25 @@ describe('getReport round-trip (case 1)', () => {
   it('returns undefined for a missing id', async () => {
     expect(await getReport('nope')).toBeUndefined();
   });
+
+  it('migrates schema-v1 ordinal ratings before an edit can stamp schema v2', async () => {
+    await saveReport(
+      makeSavedReport({
+        id: 'legacy-ratings',
+        schemaVersion: 1,
+        defenseRating: 1,
+        driverSkill: 2,
+        agility: 3,
+      }),
+    );
+
+    const got = await getReport('legacy-ratings');
+    expect(got).toMatchObject({
+      defenseRating: 3,
+      driverSkill: 7,
+      agility: 10,
+    });
+  });
 });
 
 describe('edit mode reconstitutes state (case 2)', () => {

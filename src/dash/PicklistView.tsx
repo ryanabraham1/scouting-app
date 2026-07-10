@@ -10,7 +10,7 @@
 // exportDash. Dark theme, shadcn primitives, 44px min touch targets.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import { ChevronDown, GripVertical, Printer } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -33,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import {
   getPicklist,
+  getCachedPicklist,
   savePicklist,
   entryList,
   type PicklistEntry,
@@ -54,6 +55,8 @@ import PicklistSeedDialog from '@/dash/PicklistSeedDialog';
 
 export interface PicklistViewProps {
   eventKey: string;
+  /** Fail closed while the active event is not server-authoritative. */
+  readOnly?: boolean;
   /** Open a team on the dashboard's Team tab (same deep-link as Ranking/Draft). */
   onSelectTeam?: (teamNumber: number) => void;
 }
@@ -103,6 +106,7 @@ interface PickRowProps {
   onUpdateField: (teamNumber: number, field: 'tier' | 'note', value: string) => void;
   onSendToOtherList: (teamNumber: number) => void;
   onSelectTeam?: (teamNumber: number) => void;
+  editable: boolean;
 }
 
 /**
@@ -122,11 +126,12 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
     onUpdateField,
     onSendToOtherList,
     onSelectTeam,
+    editable,
   } = props;
   // The list this row would MOVE TO (it renders only inside its current list).
   const moveTarget = entryList(e) === 'first' ? '2nd' : '1st';
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: e.teamNumber });
+    useSortable({ id: e.teamNumber, disabled: !editable });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
@@ -145,6 +150,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           ref={setActivatorNodeRef}
           {...attributes}
           {...listeners}
+          disabled={!editable}
           data-testid={`pick-drag-${e.teamNumber}`}
           aria-label={`Drag team ${e.teamNumber} to reorder`}
           className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -184,7 +190,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
             size="icon"
             data-testid={`pick-up-${e.teamNumber}`}
             onClick={() => onMove(i, -1)}
-            disabled={i === 0}
+            disabled={!editable || i === 0}
             aria-label={`Move team ${e.teamNumber} up`}
             className="h-11 w-11"
           >
@@ -196,7 +202,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
             size="icon"
             data-testid={`pick-down-${e.teamNumber}`}
             onClick={() => onMove(i, 1)}
-            disabled={i === total - 1}
+            disabled={!editable || i === total - 1}
             aria-label={`Move team ${e.teamNumber} down`}
             className="h-11 w-11"
           >
@@ -209,6 +215,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           size="icon"
           data-testid={`pick-remove-${e.teamNumber}`}
           onClick={() => onRemove(e.teamNumber)}
+          disabled={!editable}
           aria-label={`Remove team ${e.teamNumber}`}
           className="h-11 w-11 shrink-0 sm:order-last"
         >
@@ -221,6 +228,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         data-testid={`pick-note-${e.teamNumber}`}
         value={e.note ?? ''}
         onChange={(ev) => onUpdateField(e.teamNumber, 'note', ev.target.value)}
+        disabled={!editable}
         placeholder="Note"
         aria-label={`Note for team ${e.teamNumber}`}
         className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
@@ -242,6 +250,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           type="button"
           data-testid={`pick-move-list-${e.teamNumber}`}
           onClick={() => onSendToOtherList(e.teamNumber)}
+          disabled={!editable}
           aria-label={`Move team ${e.teamNumber} to the ${moveTarget} pick list`}
           title={
             alsoOnOtherList
@@ -263,10 +272,13 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
 }
 
 export default function PicklistView(props: PicklistViewProps): JSX.Element {
-  const { eventKey, onSelectTeam } = props;
+  const { eventKey, onSelectTeam, readOnly = false } = props;
 
   const [entries, setEntries] = useState<PicklistEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadedEventKey, setLoadedEventKey] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [usingCachedFallback, setUsingCachedFallback] = useState(false);
   // Which of the two picklists (1st pick / 2nd pick) is being viewed/edited.
   const [activeList, setActiveList] = useState<PicklistId>('first');
   const [addValue, setAddValue] = useState('');
@@ -275,12 +287,21 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   // after any edit. `idle` until the first change lands.
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [seedOpen, setSeedOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const exportTriggerRef = useRef<HTMLButtonElement>(null);
   // JSON of the last-persisted (or freshly-loaded) entries, so the autosave
   // effect skips the post-load run and no-op re-saves.
   const lastSavedRef = useRef<string | null>(null);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const generationRef = useRef(0);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const editable = !readOnly && !loadError && loadedEventKey === eventKey;
 
   // dnd-kit sensors: pointer drag with a small activation distance (so taps on
   // the row's inputs/buttons still register), plus keyboard reordering for a11y.
@@ -365,26 +386,42 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
 
   // Load the picklist on mount / event change.
   useEffect(() => {
-    let cancelled = false;
+    const generation = ++generationRef.current;
     setLoading(true);
+    setLoadedEventKey(null);
+    setLoadError(null);
+    setUsingCachedFallback(false);
+    setSaveError(null);
+    setSaveStatus('idle');
+    setEntries([]);
     getPicklist(eventKey)
       .then((loaded) => {
-        if (cancelled) return;
+        if (generationRef.current !== generation) return;
         setEntries(loaded);
         // Baseline for autosave: the freshly-loaded list must NOT trigger a save.
         lastSavedRef.current = JSON.stringify(loaded);
+        setLoadedEventKey(eventKey);
         setSaveStatus('idle');
       })
-      .catch(() => {
-        if (cancelled) return;
-        setEntries([]);
-        lastSavedRef.current = JSON.stringify([]);
+      .catch((error: unknown) => {
+        if (generationRef.current !== generation) return;
+        const cached = getCachedPicklist(eventKey);
+        const fallback = cached ?? [];
+        setEntries(fallback);
+        lastSavedRef.current = JSON.stringify(fallback);
+        setLoadedEventKey(eventKey);
+        setUsingCachedFallback(cached != null);
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'Could not verify the picklist with the server.',
+        );
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (generationRef.current === generation) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      if (generationRef.current === generation) generationRef.current += 1;
     };
   }, [eventKey]);
 
@@ -392,29 +429,82 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   // snapshot. No manual Save button — edits land on their own. Skips while
   // loading and skips no-op re-saves (json === last saved).
   useEffect(() => {
-    if (loading) return;
+    if (loading || !editable) return;
     const json = JSON.stringify(entries);
     if (json === lastSavedRef.current) return;
+    const generation = generationRef.current;
+    const saveEventKey = eventKey;
+    const snapshot = entries.map((entry) => ({ ...entry }));
     const timer = setTimeout(() => {
+      if (generationRef.current !== generation || loadedEventKey !== saveEventKey) return;
       setSaveStatus('saving');
       setSaveError(null);
-      savePicklist(eventKey, entries)
-        .then(() => {
+      const attempt = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (generationRef.current !== generation || loadedEventKey !== saveEventKey) {
+            return false;
+          }
+          await savePicklist(saveEventKey, snapshot);
+          return true;
+        });
+      saveChainRef.current = attempt.then(
+        () => undefined,
+        () => undefined,
+      );
+      attempt
+        .then((saved) => {
+          if (
+            !saved ||
+            generationRef.current !== generation ||
+            loadedEventKey !== saveEventKey
+          ) {
+            return;
+          }
           lastSavedRef.current = json;
-          setSaveStatus('saved');
+          setSaveStatus(JSON.stringify(entriesRef.current) === json ? 'saved' : 'saving');
         })
         .catch((err: unknown) => {
+          if (generationRef.current !== generation || loadedEventKey !== saveEventKey) return;
           setSaveError(err instanceof Error ? err.message : 'Failed to save picklist.');
           setSaveStatus('error');
         });
     }, 500);
     return () => clearTimeout(timer);
-  }, [entries, eventKey, loading]);
+  }, [entries, eventKey, loading, loadedEventKey, editable, retryNonce]);
+
+  // Keep the compact export menu fully usable without a pointer. Opening moves
+  // focus into the menu; Escape returns it to the trigger; outside click closes.
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    exportMenuRef.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+      ?.focus();
+    const onPointer = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setExportMenuOpen(false);
+        exportTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [exportMenuOpen]);
 
   // Edit entry point — autosave reacts to the resulting state change. Persists
   // in canonical order (1st list, 2nd list, then DNP markers) so call sites can
   // hand over any interleaving; relative order within each list is what counts.
   function mutate(next: PicklistEntry[]): void {
+    if (!editable) return;
     const live = next.filter((e) => !(e.dnp ?? false));
     setEntries([
       ...live.filter((e) => entryList(e) === 'first'),
@@ -512,6 +602,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
    * removes that marker entirely (so it never lingers as a phantom pick).
    */
   function toggleDnp(teamNumber: number): void {
+    if (!editable) return;
     setEntries((prev) => {
       const own = prev.filter((e) => e.teamNumber === teamNumber);
       if (own.some((e) => e.dnp ?? false)) {
@@ -551,6 +642,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
    * (nor DNP-flagged), preserving the seeded order. Lands dirty like an edit.
    */
   function handleSeed(seeded: PicklistEntry[], mode: 'replace' | 'append'): void {
+    if (!editable) return;
     const stamped = seeded.map((e) => ({ ...e, tierType: activeList }));
     if (mode === 'replace') {
       const seededTeams = new Set(stamped.map((e) => e.teamNumber));
@@ -626,6 +718,26 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     void runPreset((rows) => openPrintWindow(allianceSheetToHtml(rows, eventKey, epaSource)));
   }
 
+  function runMenuAction(action: () => void): void {
+    setExportMenuOpen(false);
+    action();
+  }
+
+  function onExportMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'),
+    );
+    if (items.length === 0) return;
+    event.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = 0;
+    if (event.key === 'End') next = items.length - 1;
+    else if (event.key === 'ArrowUp') next = current <= 0 ? items.length - 1 : current - 1;
+    else if (event.key === 'ArrowDown') next = current === items.length - 1 ? 0 : current + 1;
+    items[next]?.focus();
+  }
+
   // --- render ---------------------------------------------------------------
   if (loading) {
     return (
@@ -646,7 +758,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
       <Card className="bg-card">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>Picklist</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {/* Autosave status — the list persists itself; no Save button. */}
             {saveStatus === 'saving' ? (
               <span data-testid="pick-saving" className="text-xs text-muted-foreground">
@@ -658,8 +770,19 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               </span>
             ) : null}
             {saveError ? (
-              <span data-testid="pick-save-error" className="text-xs text-destructive">
-                {saveError}
+              <span className="inline-flex items-center gap-2">
+                <span data-testid="pick-save-error" className="text-xs text-destructive">
+                  {saveError}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  data-testid="pick-save-retry"
+                  onClick={() => setRetryNonce((value) => value + 1)}
+                >
+                  Retry
+                </Button>
               </span>
             ) : null}
             {exportError ? (
@@ -672,59 +795,96 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               variant="outline"
               data-testid="pick-seed-open"
               onClick={() => setSeedOpen(true)}
+              disabled={!editable}
               className={TOUCH}
             >
               Seed
             </Button>
             <Button
               type="button"
-              variant="outline"
-              data-testid="pick-export-json"
-              onClick={onExportJson}
+              variant="brand"
+              data-testid="pick-export-alliance-print"
+              onClick={onExportAlliancePrint}
+              disabled={exporting || entries.length === 0}
               className={TOUCH}
             >
-              Export JSON
+              <Printer aria-hidden="true" />
+              {exporting ? 'Preparing…' : 'Print alliance sheet'}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="pick-export-csv"
-              onClick={onExportCsv}
-              className={TOUCH}
-            >
-              Export CSV
-            </Button>
-            <div data-testid="pick-export-presets" className="flex flex-wrap items-center gap-2">
+            <div ref={exportMenuRef} data-testid="pick-export-presets" className="relative">
               <Button
+                ref={exportTriggerRef}
                 type="button"
                 variant="outline"
-                data-testid="pick-export-alliance-csv"
-                onClick={onExportAllianceCsv}
-                disabled={exporting || entries.length === 0}
+                data-testid="pick-export-menu-trigger"
+                aria-haspopup="menu"
+                aria-expanded={exportMenuOpen}
+                aria-controls="pick-export-menu"
+                onClick={() => setExportMenuOpen((open) => !open)}
+                onKeyDown={(event) => {
+                  if (!exportMenuOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                    event.preventDefault();
+                    setExportMenuOpen(true);
+                  }
+                }}
                 className={TOUCH}
               >
-                {exporting ? 'Working…' : 'Alliance Sheet (CSV)'}
+                Export
+                <ChevronDown aria-hidden="true" />
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                data-testid="pick-export-alliance-print"
-                onClick={onExportAlliancePrint}
-                disabled={exporting || entries.length === 0}
-                className={TOUCH}
-              >
-                {exporting ? 'Working…' : 'Alliance Sheet (Print)'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                data-testid="pick-export-tool-csv"
-                onClick={onExportToolCsv}
-                disabled={exporting || entries.length === 0}
-                className={TOUCH}
-              >
-                {exporting ? 'Working…' : 'Picklist Tool (CSV)'}
-              </Button>
+              {exportMenuOpen ? (
+                <div
+                  id="pick-export-menu"
+                  data-testid="pick-export-menu"
+                  role="menu"
+                  aria-label="Export picklist"
+                  onKeyDown={onExportMenuKeyDown}
+                  className="absolute right-0 z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1.5 shadow-xl"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="pick-export-alliance-csv"
+                    onClick={() => runMenuAction(onExportAllianceCsv)}
+                    disabled={exporting || entries.length === 0}
+                    className="flex min-h-[44px] w-full flex-col items-start justify-center rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    <span className="font-medium text-foreground">Alliance sheet spreadsheet</span>
+                    <span className="text-xs text-muted-foreground">Readable CSV with scouting metrics</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="pick-export-csv"
+                    onClick={() => runMenuAction(onExportCsv)}
+                    className="flex min-h-[44px] w-full flex-col items-start justify-center rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="font-medium text-foreground">Basic picklist spreadsheet</span>
+                    <span className="text-xs text-muted-foreground">Ordered teams, tiers, and notes as CSV</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="pick-export-tool-csv"
+                    onClick={() => runMenuAction(onExportToolCsv)}
+                    disabled={exporting || entries.length === 0}
+                    className="flex min-h-[44px] w-full flex-col items-start justify-center rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    <span className="font-medium text-foreground">Picklist tool import</span>
+                    <span className="text-xs text-muted-foreground">Machine-friendly CSV for other tools</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="pick-export-json"
+                    onClick={() => runMenuAction(onExportJson)}
+                    className="flex min-h-[44px] w-full flex-col items-start justify-center rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="font-medium text-foreground">Picklist backup</span>
+                    <span className="text-xs text-muted-foreground">Complete picklist data as JSON</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </CardHeader>
@@ -736,6 +896,19 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
             {epaSource === 'local'
               ? 'Statbotics offline — exported EPA shows a local estimate computed from match results.'
               : 'Statbotics & match-result EPA unavailable — exported EPA shows our in-house estimate from scouting data.'}
+          </div>
+        ) : null}
+        {loadError || readOnly ? (
+          <div
+            data-testid="pick-readonly-warning"
+            role="alert"
+            className="mx-6 mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
+          >
+            {readOnly
+              ? 'Picklist editing is paused until the active event is verified with the server.'
+              : usingCachedFallback
+                ? `Showing the last verified copy for ${eventKey}. Editing is disabled because the latest load failed.`
+                : `The picklist for ${eventKey} could not be loaded. Editing is disabled to prevent overwriting server data.`}
           </div>
         ) : null}
         <CardContent className="space-y-3">
@@ -760,6 +933,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                   type="button"
                   role="tab"
                   aria-selected={activeList === id}
+                  tabIndex={activeList === id ? 0 : -1}
                   data-testid={`pick-list-${id}`}
                   onClick={() => setActiveList(id)}
                   className={cn(
@@ -781,6 +955,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               inputMode="numeric"
               data-testid="pick-add-input"
               value={addValue}
+              disabled={!editable}
               onChange={(e) => {
                 setAddValue(e.target.value);
                 if (addError) setAddError(null);
@@ -795,7 +970,13 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               aria-label="Team number to add"
               className="h-11 max-w-[8rem]"
             />
-            <Button type="button" data-testid="pick-add" onClick={addTeam} className={TOUCH}>
+            <Button
+              type="button"
+              data-testid="pick-add"
+              onClick={addTeam}
+              disabled={!editable}
+              className={TOUCH}
+            >
               Add
             </Button>
             {/* Live identity preview for a valid, not-yet-added event team. */}
@@ -839,6 +1020,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                       onUpdateField={updateField}
                       onSendToOtherList={sendToOtherList}
                       onSelectTeam={onSelectTeam}
+                      editable={editable}
                     />
                   ))}
                 </ul>
@@ -858,11 +1040,12 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
         onAdd={addTeamNumber}
         dnpTeams={dnpTeams}
         onToggleDnp={toggleDnp}
+        readOnly={!editable}
         onSelectTeam={onSelectTeam}
       />
 
       <PicklistSeedDialog
-        open={seedOpen}
+        open={seedOpen && editable}
         aggs={aggs}
         epaByTeam={epaByTeam}
         epaAvailable={epaAvailable}

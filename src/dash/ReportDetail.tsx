@@ -22,6 +22,7 @@ import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { foulReasonLabel } from '@/scoring/fouls';
 import ConflictMarker from '@/components/ConflictMarker';
 import type { MsrRow, MultiScoutGroup } from '@/dash/types';
+import { QUALITATIVE_RATING_MAX } from '@/ratings';
 
 export interface ReportDetailProps {
   report: MsrRow;
@@ -44,9 +45,9 @@ function fmt(n: number, digits = 1): string {
   return n.toFixed(digits);
 }
 
-/** A 0–3 subjective rating as "2/3"; "—" when not rated (0 / null / legacy). */
+/** A 1–10 subjective rating; "—" when not rated (0 / null / legacy). */
 function ratingText(v: number | null | undefined): string {
-  return v != null && v > 0 ? `${v}/3` : '—';
+  return v != null && v > 0 ? `${v}/${QUALITATIVE_RATING_MAX}` : '—';
 }
 
 function pct(n: number | null | undefined): string {
@@ -178,11 +179,23 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
             label="Confidence"
             value={pct(r.fuel_estimate_confidence)}
             tone={
-              r.fuel_estimate_confidence != null && r.fuel_estimate_confidence < 0.7
-                ? 'warning'
-                : 'success'
+              r.fuel_estimate_confidence == null
+                ? 'default'
+                : r.fuel_estimate_confidence < 0.7
+                  ? 'warning'
+                  : 'success'
             }
           />
+          <StatTile
+            label="Fuel shifts"
+            value={
+              Array.isArray(r.fuel_by_shift) && r.fuel_by_shift.length > 0
+                ? r.fuel_by_shift.map((value) => fmt(value)).join(' · ')
+                : '—'
+            }
+          />
+          <StatTile label="Fuel bursts" value={r.fuel_bursts?.length ?? 0} />
+          <StatTile label="Feeding bursts" value={r.feeding_bursts?.length ?? 0} />
         </div>
       </section>
 
@@ -201,6 +214,16 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
             value={yesNo(r.climb_success)}
             tone={r.climb_success ? 'success' : 'default'}
           />
+          <StatTile
+            label="Left starting line"
+            value={yesNo(r.auto_left_starting_line)}
+            tone={r.auto_left_starting_line ? 'success' : 'default'}
+          />
+          <StatTile
+            label="Auto L1 climb"
+            value={yesNo(r.auto_climb_level1)}
+            tone={r.auto_climb_level1 ? 'success' : 'default'}
+          />
         </div>
       </section>
 
@@ -212,6 +235,24 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
           <StatTile label="Driver skill" value={ratingText(r.driver_skill)} />
           <StatTile label="Agility" value={ratingText(r.agility)} />
           <StatTile label="Pins" value={r.pins} />
+          <StatTile
+            label="Defense time"
+            value={
+              r.defense_duration_ms != null && Number.isFinite(r.defense_duration_ms)
+                ? `${fmt(r.defense_duration_ms / 1000)}s`
+                : '—'
+            }
+          />
+          <StatTile
+            label="Time defended"
+            value={
+              r.defended_duration_ms != null && Number.isFinite(r.defended_duration_ms)
+                ? `${fmt(r.defended_duration_ms / 1000)}s`
+                : '—'
+            }
+          />
+          <StatTile label="Defense intervals" value={r.defense_intervals?.length ?? 0} />
+          <StatTile label="Defended intervals" value={r.defended_intervals?.length ?? 0} />
         </div>
       </section>
 
@@ -224,6 +265,8 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
           <FlagPill label="Tipped" on={r.tipped} />
           <FlagPill label="Dropped fuel" on={r.dropped_fuel} />
           <FlagPill label="Fed corral" on={r.fed_corral} />
+          <StatTile label="Minor fouls" value={r.fouls_minor ?? 0} />
+          <StatTile label="Major fouls" value={r.fouls_major ?? 0} />
         </div>
         {r.foul_reasons && r.foul_reasons.length > 0 && (
           <div data-testid="report-foul-reasons" className="flex flex-wrap gap-1.5">

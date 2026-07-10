@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { signedPitPhotoUrl } from '@/pit/photoUpload';
 import { tbaGetOptional, isUnavailable } from '@/dash/proxies';
+import type { PitPhoto } from '@/pit/pitStore';
 
 // Normalized pit report for dashboard consumption. The DB folds capability list
 // and intake sources into one jsonb `capabilities` column of the shape
@@ -25,9 +26,11 @@ export interface TeamPit {
   robotWidthIn: number | null;
   robotHeightIn: number | null;
   trenchCapable: boolean;
+  photos?: PitPhoto[];
   photoPath: string | null;
   notes: string | null;
   authorScoutId: string | null;
+  rowRevision?: number;
 }
 
 // Pull the battery sub-object out of the `batteries` jsonb column, tolerating a
@@ -103,6 +106,31 @@ export function rowToTeamPit(row: Record<string, unknown>): TeamPit {
   const { capabilities, intakeSources } = normalizeCapabilities(data.capabilities);
   const batteries = normalizeBatteries(data.batteries);
   const dims = normalizeDimensions(data.robot_dimensions);
+  const photos: PitPhoto[] = Array.isArray(data.photos)
+    ? data.photos
+        .map((raw: unknown, index: number) => {
+          const photo = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+          return {
+            id: typeof photo.id === 'string' ? photo.id : `legacy-${index}`,
+            path: typeof photo.path === 'string' ? photo.path : null,
+            order: typeof photo.order === 'number' ? photo.order : index,
+            mimeType: typeof photo.mimeType === 'string' ? photo.mimeType : null,
+            width: typeof photo.width === 'number' ? photo.width : null,
+            height: typeof photo.height === 'number' ? photo.height : null,
+          };
+        })
+        .sort((a: PitPhoto, b: PitPhoto) => a.order - b.order)
+    : [];
+  if (photos.length === 0 && typeof data.photo_path === 'string' && data.photo_path) {
+    photos.push({
+      id: 'legacy',
+      path: data.photo_path,
+      order: 0,
+      mimeType: null,
+      width: null,
+      height: null,
+    });
+  }
   return {
     eventKey: data.event_key,
     teamNumber: data.team_number,
@@ -122,9 +150,11 @@ export function rowToTeamPit(row: Record<string, unknown>): TeamPit {
     robotWidthIn: dims.widthIn,
     robotHeightIn: dims.heightIn,
     trenchCapable: dims.trenchCapable,
-    photoPath: data.photo_path ?? null,
+    photos,
+    photoPath: photos[0]?.path ?? data.photo_path ?? null,
     notes: data.notes ?? null,
     authorScoutId: data.author_scout_id ?? null,
+    rowRevision: Number(data.row_revision) || 1,
   };
 }
 
@@ -228,6 +258,7 @@ export type TeamPhotoSource = 'pit' | 'tba' | null;
 
 export interface TeamPhoto {
   url: string | null;
+  urls: string[];
   source: TeamPhotoSource;
 }
 
@@ -242,26 +273,37 @@ export function useTeamPhoto(
   eventKey: string | null | undefined,
   teamNumber: number | null | undefined,
   pitPhotoPath: string | null | undefined,
+  pitPhotoPaths?: Array<string | null | undefined>,
 ) {
   return useQuery<TeamPhoto>({
-    queryKey: ['team-photo', eventKey, teamNumber, pitPhotoPath ?? null],
+    queryKey: [
+      'team-photo',
+      eventKey,
+      teamNumber,
+      (pitPhotoPaths?.filter(Boolean) ?? [pitPhotoPath ?? null]).join('|'),
+    ],
     enabled: !!eventKey && teamNumber != null,
     staleTime: 5 * 60_000,
     queryFn: async () => {
       // 1) Scouted pit photo → signed URL.
-      if (pitPhotoPath) {
-        const url = await signedPitPhotoUrl(pitPhotoPath).catch(() => null);
-        if (url) return { url, source: 'pit' };
+      const paths = (pitPhotoPaths?.filter((path): path is string => Boolean(path)) ??
+        (pitPhotoPath ? [pitPhotoPath] : []));
+      if (paths.length) {
+        const signed = await Promise.all(paths.map((path) => signedPitPhotoUrl(path).catch(() => null)));
+        const urls = signed.filter((url): url is string => Boolean(url));
+        if (urls.length) return { url: urls[0], urls, source: 'pit' };
       }
       // 2) Fall back to TBA team media for the season. Optional: never throws.
       const year = seasonYearFromEventKey(eventKey as string);
       const path = `/team/frc${teamNumber}/media/${year}`;
       const body = await tbaGetOptional<TbaMedia[]>(path);
       if (isUnavailable(body) || !Array.isArray(body)) {
-        return { url: null, source: null };
+        return { url: null, urls: [], source: null };
       }
       const url = pickTbaImageUrl(body);
-      return url ? { url, source: 'tba' } : { url: null, source: null };
+      return url
+        ? { url, urls: [url], source: 'tba' }
+        : { url: null, urls: [], source: null };
     },
   });
 }

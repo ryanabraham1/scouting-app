@@ -14,17 +14,20 @@ vi.mock('@/lib/supabase', () => ({
 const uploadPitPhoto = vi.fn();
 vi.mock('@/pit/photoUpload', () => ({
   uploadPitPhoto: (...a: unknown[]) => uploadPitPhoto(...a),
+  cleanupPitPhotoTombstones: vi.fn(async () => 0),
 }));
 
 import {
   pitDb,
   enqueuePitReport,
+  deletePitReport,
   getPitSyncQueue,
   listPitDeadLetters,
   type PitReport,
 } from '@/pit/pitStore';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 import { syncPitOnce } from '../pitOutbox';
+import { clearSyncCircuit } from '../retrySchedule';
 
 function makeReport(over: Partial<PitReport> = {}): PitReport {
   return {
@@ -46,6 +49,7 @@ function makeReport(over: Partial<PitReport> = {}): PitReport {
     robotWidthIn: null,
     robotHeightIn: null,
     trenchCapable: false,
+    photos: [],
     photoPath: null,
     notes: 'fast',
     scoutId: 'scout-1',
@@ -59,28 +63,45 @@ async function getRec(draftKey: string) {
 
 describe('syncPitOnce', () => {
   beforeEach(async () => {
+    clearSyncCircuit();
     await pitDb.pitReports.clear();
     await pitDb.pitDrafts.clear();
+    await pitDb.pitPhotoCleanup.clear();
     upsertMock.mockReset();
     uploadPitPhoto.mockReset();
   });
 
   it('all-success: upserts each queued report and marks them synced', async () => {
-    upsertMock.mockResolvedValue({ error: null });
+    upsertMock.mockResolvedValue({ data: { status: 'applied' }, error: null });
     await enqueuePitReport(makeReport({ teamNumber: 254 }));
     await enqueuePitReport(makeReport({ teamNumber: 1678 }));
 
     const summary = await syncPitOnce();
-
     expect(summary).toEqual({ attempted: 2, synced: 2, retried: 0, deadLettered: 0 });
     expect(upsertMock).toHaveBeenCalledTimes(2);
     expect((await getPitSyncQueue()).length).toBe(0);
     expect((await getRec('2026casj:254'))?.syncState).toBe('synced');
   });
 
+  it('treats an idempotent pit upsert verdict as synced', async () => {
+    upsertMock.mockResolvedValue({
+      data: { status: 'idempotent', current_revision: 1 },
+      error: null,
+    });
+    await enqueuePitReport(makeReport());
+
+    expect(await syncPitOnce()).toEqual({
+      attempted: 1,
+      synced: 1,
+      retried: 0,
+      deadLettered: 0,
+    });
+    expect((await getRec('2026casj:254'))?.syncState).toBe('synced');
+  });
+
   it('uploads a pending photo first, then records the returned path on the row', async () => {
     uploadPitPhoto.mockResolvedValue('2026casj/254/uploaded.jpg');
-    upsertMock.mockResolvedValue({ error: null });
+    upsertMock.mockResolvedValue({ data: { status: 'applied' }, error: null });
     const blob = new Blob(['x'], { type: 'image/jpeg' });
     await enqueuePitReport(makeReport({ photoPath: null }), blob);
 
@@ -141,19 +162,80 @@ describe('syncPitOnce', () => {
     expect((await listPitDeadLetters()).length).toBe(1);
   });
 
-  it('cap: a transient at SYNC_MAX_ATTEMPTS dead-letters', async () => {
+  it('preserves a concurrent edit as a fixable conflict dead-letter', async () => {
+    upsertMock.mockResolvedValue({
+      data: { status: 'conflict', current_revision: 200 },
+      error: null,
+    });
+    await enqueuePitReport(makeReport(), {}, 100);
+
+    const summary = await syncPitOnce();
+
+    expect(summary.deadLettered).toBe(1);
+    const record = await getRec('2026casj:254');
+    expect(record?.syncState).toBe('error');
+    expect(record?.lastSyncError).toMatch(/changed on another device/i);
+  });
+
+  it('preserves a stale pit upload and records the authoritative revision', async () => {
+    upsertMock.mockResolvedValue({
+      data: { status: 'stale', current_revision: 201 },
+      error: null,
+    });
+    await enqueuePitReport(makeReport({ notes: 'keep this local pit edit' }), {}, 100);
+
+    const summary = await syncPitOnce();
+    expect(summary).toMatchObject({ synced: 0, deadLettered: 1 });
+    const record = await getRec('2026casj:254');
+    expect(record?.syncState).toBe('error');
+    expect(record?.data.notes).toBe('keep this local pit edit');
+    expect(record?.lastSyncError).toContain('201');
+  });
+
+  it('tombstones uploaded paths when a conflicted local copy is discarded', async () => {
+    upsertMock.mockResolvedValue({
+      data: { status: 'conflict', current_revision: 200 },
+      error: null,
+    });
+    const path = '2026casj/254/conflicted.jpg';
+    await enqueuePitReport(
+      makeReport({
+        photos: [{
+          id: 'conflicted',
+          path,
+          order: 0,
+          mimeType: 'image/jpeg',
+          width: 100,
+          height: 80,
+        }],
+        photoPath: path,
+      }),
+      {},
+      100,
+    );
+    await syncPitOnce();
+    expect((await getRec('2026casj:254'))?.syncState).toBe('error');
+
+    await deletePitReport('2026casj:254');
+    expect(await pitDb.pitPhotoCleanup.get(path)).toMatchObject({
+      path,
+      attempts: 0,
+    });
+  });
+
+  it('keeps infrastructure failures queued after the legacy attempt cap', async () => {
     upsertMock.mockResolvedValue({ error: { message: 'service unavailable', status: 503 } });
     await enqueuePitReport(makeReport());
     await pitDb.pitReports.update('2026casj:254', { syncAttempts: SYNC_MAX_ATTEMPTS });
 
     const summary = await syncPitOnce();
 
-    expect(summary.deadLettered).toBe(1);
-    expect((await getRec('2026casj:254'))?.syncState).toBe('error');
+    expect(summary).toMatchObject({ retried: 1, deadLettered: 0 });
+    expect((await getRec('2026casj:254'))?.syncState).toBe('dirty');
   });
 
   it('idempotency: re-running after success is a no-op', async () => {
-    upsertMock.mockResolvedValue({ error: null });
+    upsertMock.mockResolvedValue({ data: { status: 'applied' }, error: null });
     await enqueuePitReport(makeReport());
     await syncPitOnce();
     upsertMock.mockClear();

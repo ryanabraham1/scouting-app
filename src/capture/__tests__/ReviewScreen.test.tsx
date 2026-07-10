@@ -90,6 +90,76 @@ describe('ReviewScreen', () => {
     expect(screen.getByTestId('review-climb')).toBeTruthy();
   });
 
+  it('captures and persists granular 1–10 qualitative ratings', async () => {
+    const onSaved = vi.fn();
+    render(<Host onSaved={onSaved} initInactiveFirst={false} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-next'));
+    });
+
+    const defenseRating = screen.getByLabelText('Defense quality') as HTMLInputElement;
+    expect(defenseRating).toBe(screen.getByTestId('review-defense-rating'));
+    expect(defenseRating.type).toBe('range');
+    expect(defenseRating.min).toBe('0');
+    expect(defenseRating.max).toBe('10');
+    expect(defenseRating.step).toBe('1');
+    expect(defenseRating.value).toBe('0');
+    expect(defenseRating.getAttribute('aria-valuetext')).toBe('Not rated');
+    expect(screen.getByTestId('review-defense-rating-value').textContent).toBe('Not rated');
+
+    await act(async () => {
+      fireEvent.change(defenseRating, { target: { value: '8' } });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('review-driver-skill'), {
+        target: { value: '10' },
+      });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('review-agility'), {
+        target: { value: '7' },
+      });
+    });
+
+    expect((screen.getByTestId('review-driver-skill') as HTMLInputElement).value).toBe('10');
+    expect(screen.getByTestId('review-driver-skill').getAttribute('aria-valuetext')).toBe(
+      '10 out of 10',
+    );
+    expect(screen.getByTestId('review-driver-skill-value').textContent).toBe('10 / 10');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-driver-skill-clear'));
+    });
+    expect((screen.getByTestId('review-driver-skill') as HTMLInputElement).value).toBe('0');
+    expect(screen.getByTestId('review-driver-skill').getAttribute('aria-valuetext')).toBe(
+      'Not rated',
+    );
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('review-driver-skill'), {
+        target: { value: '10' },
+      });
+    });
+
+    for (let i = 0; i < 3; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('review-next'));
+      });
+    }
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-save'));
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    const reports = await listReports();
+    expect(reports[0]).toMatchObject({
+      defenseRating: 8,
+      driverSkill: 10,
+      agility: 7,
+    });
+  });
+
   it('renders the kept flags but not the Fed corral flag on the Fouls & flags step', async () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);

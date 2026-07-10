@@ -28,6 +28,27 @@ export function IconTabs<T extends string>({
   ariaLabel,
   className,
 }: IconTabsProps<T>): JSX.Element {
+  const buttonRefs = React.useRef(new Map<T, HTMLButtonElement>());
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, current: T): void {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
+    const enabled = tabs.filter((tab) => !tab.disabled);
+    if (enabled.length === 0) return;
+    event.preventDefault();
+    const index = enabled.findIndex((tab) => tab.value === current);
+    const backwards = event.key === 'ArrowLeft' || event.key === 'ArrowUp';
+    const next =
+      event.key === 'Home'
+        ? enabled[0]
+        : event.key === 'End'
+          ? enabled[enabled.length - 1]
+          : enabled[(index + (backwards ? -1 : 1) + enabled.length) % enabled.length];
+    onChange(next.value);
+    buttonRefs.current.get(next.value)?.focus();
+  }
+
   return (
     <div
       role="tablist"
@@ -45,8 +66,14 @@ export function IconTabs<T extends string>({
             type="button"
             role="tab"
             aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
             disabled={tab.disabled}
             onClick={() => onChange(tab.value)}
+            onKeyDown={(event) => onKeyDown(event, tab.value)}
+            ref={(node) => {
+              if (node) buttonRefs.current.set(tab.value, node);
+              else buttonRefs.current.delete(tab.value);
+            }}
             className={cn(
               'relative flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-1.5 text-xs font-semibold transition-colors landscape:flex-1 landscape:basis-24 [&_svg]:size-5',
               // Active tab wears the brand accent (E3) — a cyan-tinted surface,

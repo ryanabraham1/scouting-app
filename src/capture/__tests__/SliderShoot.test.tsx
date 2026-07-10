@@ -88,6 +88,30 @@ describe('SliderShoot gesture', () => {
     expect(onShootRate).toHaveBeenCalled();
     expect(order[0]).toBe('start');
   });
+
+  it('supports keyboard rate adjustment and commits on key release', () => {
+    const onShootStart = vi.fn();
+    const onShootRate = vi.fn();
+    const onShootEnd = vi.fn();
+    render(
+      <SliderShoot
+        data-testid="ss"
+        onShootStart={onShootStart}
+        onShootRate={onShootRate}
+        onShootEnd={onShootEnd}
+      />,
+    );
+    const el = screen.getByTestId('ss');
+
+    fireEvent.keyDown(el, { key: 'ArrowRight' });
+    fireEvent.keyDown(el, { key: 'PageUp' });
+    expect(el.getAttribute('data-rate')).toBe('6');
+    expect(onShootStart).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyUp(el, { key: 'PageUp' });
+    expect(onShootEnd).toHaveBeenCalledWith(6);
+    expect(el.getAttribute('data-rate')).toBe('0');
+  });
 });
 
 describe('SliderShoot tone variant', () => {

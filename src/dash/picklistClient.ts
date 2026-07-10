@@ -24,6 +24,46 @@ export interface PicklistEntry {
   tierType?: PicklistId | null;
 }
 
+const PICKLIST_CACHE_PREFIX = 'picklist-cache:v1:';
+
+function picklistCacheKey(eventKey: string): string {
+  return `${PICKLIST_CACHE_PREFIX}${eventKey}`;
+}
+
+/** Last known-good event-scoped snapshot for read-only failed-load fallback. */
+export function getCachedPicklist(eventKey: string): PicklistEntry[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(picklistCacheKey(eventKey)) ?? 'null');
+    if (!Array.isArray(parsed)) return null;
+    return parsed
+      .filter(
+        (entry): entry is PicklistEntry =>
+          !!entry &&
+          typeof entry === 'object' &&
+          Number.isInteger((entry as PicklistEntry).teamNumber) &&
+          (entry as PicklistEntry).teamNumber > 0,
+      )
+      .map((entry) => ({
+        ...entry,
+        dnp: entry.dnp ?? false,
+        tierType: entry.tierType ?? null,
+      }));
+  } catch {
+    return null;
+  }
+}
+
+/** Cache only snapshots confirmed by a successful server read/write. */
+export function cachePicklist(eventKey: string, entries: PicklistEntry[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(picklistCacheKey(eventKey), JSON.stringify(entries));
+  } catch {
+    /* storage unavailable — remote persistence remains authoritative */
+  }
+}
+
 /** Resolve an entry's list membership (legacy null/absent → the 1st-pick list). */
 export function entryList(e: PicklistEntry): PicklistId {
   return e.tierType === 'second' ? 'second' : 'first';
@@ -47,7 +87,13 @@ export async function getPicklist(eventKey: string): Promise<PicklistEntry[]> {
   // Normalize on read so callers always see booleans/null — legacy rows written
   // by older builds lack `dnp`/`tierType` (defensive forward/backward compat).
   const entries = (data?.entries as PicklistEntry[] | undefined) ?? [];
-  return entries.map((e) => ({ ...e, dnp: e.dnp ?? false, tierType: e.tierType ?? null }));
+  const normalized = entries.map((e) => ({
+    ...e,
+    dnp: e.dnp ?? false,
+    tierType: e.tierType ?? null,
+  }));
+  cachePicklist(eventKey, normalized);
+  return normalized;
 }
 
 /**
@@ -63,4 +109,5 @@ export async function savePicklist(eventKey: string, entries: PicklistEntry[]): 
   if (error) {
     throw error;
   }
+  cachePicklist(eventKey, entries);
 }

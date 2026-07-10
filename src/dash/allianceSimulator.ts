@@ -53,8 +53,8 @@ export interface AllianceSimulation {
 // --- role classification thresholds (exported for the unit test) -------------
 export const FUEL_STRONG = 30; // meanFuelPoints >= 30 → strong fuel scorer
 export const FUEL_PARTIAL = 10; // >= 10 → partial
-export const DEFENSE_STRONG = 2.5; // avgDefenseRating (0..3) >= 2.5 → strong defender
-export const DEFENSE_PARTIAL = 1.5; // >= 1.5 → partial (matches aggregate.ts STRONG_DEFENSE)
+export const DEFENSE_STRONG = 8; // avgDefenseRating (1–10) >= 8 → strong defender
+export const DEFENSE_PARTIAL = 5; // >= 5 → partial (matches aggregate.ts STRONG_DEFENSE)
 export const CLIMB_RATE_CONFIRM = 0.5; // climbSuccessRate >= 0.5 confirms a pit-claimed climb
 export const CLIMB_L23_POINTS = 18; // meanClimbPoints >= 18 implies a habitual L2/L3 climb
 /** auto fuel scored to confirm a pit-claimed auto routine as strong. */

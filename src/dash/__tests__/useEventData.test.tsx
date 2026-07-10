@@ -50,10 +50,13 @@ import {
   useEventMatches,
   useEventTeams,
   useEventScouts,
+  useEventAssignments,
+  useEventPitAssignments,
   useTbaRankings,
   useEventEpa,
   useNexusEventStatus,
   useTeamSeasonStats,
+  mergeMatchupNotes,
 } from '../useEventData';
 // The season-wide EPA fallback fetches per-event matches + per-team events
 // through this SHARED query client (queryClient.fetchQuery), so they cache /
@@ -96,6 +99,78 @@ describe('useEventData', () => {
     expect(fromMock).toHaveBeenCalledWith('match_scouting_report');
   });
 
+  it('keeps assignment query failures as errors while online instead of caching []', async () => {
+    tableResults.assignment = {
+      data: null,
+      error: { message: 'temporary PostgREST failure' },
+    };
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    const { result } = renderHook(() => useEventAssignments('2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('keeps an unsynced team-note edit authoritative over the server row', () => {
+    const key = '2026casnv:-1:254';
+    const merged = mergeMatchupNotes(
+      [{
+        event_key: '2026casnv',
+        our_team: -1,
+        opp_team: 254,
+        note: 'server',
+        row_revision: 200,
+        updated_at: '2026-01-01T00:00:00Z',
+        author_scout_id: null,
+        deleted: false,
+      }],
+      [{
+        key,
+        eventKey: '2026casnv',
+        ourTeam: -1,
+        oppTeam: 254,
+        note: 'offline edit',
+        updatedAt: '1970-01-01T00:00:00.100Z',
+        authorScoutId: null,
+        syncState: 'dirty',
+        syncAttempts: 0,
+        lastSyncError: null,
+      }],
+    );
+    expect(merged.get(key)).toBe('offline edit');
+  });
+
+  it('does not let an old synced Dexie row hide a newer cross-device server edit', () => {
+    const key = '2026casnv:-1:254';
+    const merged = mergeMatchupNotes(
+      [{
+        event_key: '2026casnv',
+        our_team: -1,
+        opp_team: 254,
+        note: 'new from partner device',
+        row_revision: 300,
+        updated_at: '2026-01-01T00:00:00Z',
+        author_scout_id: null,
+        deleted: false,
+      }],
+      [{
+        key,
+        eventKey: '2026casnv',
+        ourTeam: -1,
+        oppTeam: 254,
+        note: 'old local',
+        updatedAt: '1970-01-01T00:00:00.200Z',
+        authorScoutId: null,
+        syncState: 'synced',
+        syncAttempts: 0,
+        lastSyncError: null,
+      }],
+    );
+    expect(merged.get(key)).toBe('new from partner device');
+  });
+
   it('useEventMatches resolves rows from match', async () => {
     tableResults['match'] = {
       data: [{ match_key: 'qm1', event_key: '2026casnv' }],
@@ -133,6 +208,74 @@ describe('useEventData', () => {
     expect(fromMock).toHaveBeenCalledWith('scout');
   });
 
+  it('keeps match and pit assignment queries isolated across A→B→A', async () => {
+    tableResults['assignment'] = {
+      data: [{
+        event_key: '2026a',
+        match_key: '2026a_qm1',
+        scout_id: 'a-scout',
+        alliance_color: 'red',
+        station: 1,
+        target_team_number: 101,
+      }],
+      error: null,
+    };
+    tableResults['pit_assignment'] = {
+      data: [{
+        event_key: '2026a',
+        team_number: 101,
+        scout_id: 'a-scout',
+        source: 'manual',
+      }],
+      error: null,
+    };
+    const hook = renderHook(
+      ({ eventKey }: { eventKey: string }) => ({
+        match: useEventAssignments(eventKey),
+        pit: useEventPitAssignments(eventKey),
+      }),
+      { initialProps: { eventKey: '2026a' }, wrapper: wrapper() },
+    );
+    await waitFor(() => expect(hook.result.current.match.isSuccess).toBe(true));
+    await waitFor(() => expect(hook.result.current.pit.isSuccess).toBe(true));
+    expect(hook.result.current.match.data?.[0]?.event_key).toBe('2026a');
+    expect(hook.result.current.pit.data?.[0]?.event_key).toBe('2026a');
+
+    tableResults['assignment'] = {
+      data: [{
+        event_key: '2026b',
+        match_key: '2026b_qm1',
+        scout_id: 'b-scout',
+        alliance_color: 'blue',
+        station: 2,
+        target_team_number: 202,
+      }],
+      error: null,
+    };
+    tableResults['pit_assignment'] = {
+      data: [{
+        event_key: '2026b',
+        team_number: 202,
+        scout_id: 'b-scout',
+        source: 'auto',
+      }],
+      error: null,
+    };
+    hook.rerender({ eventKey: '2026b' });
+    await waitFor(() =>
+      expect(hook.result.current.match.data?.[0]?.event_key).toBe('2026b'),
+    );
+    await waitFor(() =>
+      expect(hook.result.current.pit.data?.[0]?.event_key).toBe('2026b'),
+    );
+
+    hook.rerender({ eventKey: '2026a' });
+    await waitFor(() =>
+      expect(hook.result.current.match.data?.[0]?.event_key).toBe('2026a'),
+    );
+    expect(hook.result.current.pit.data?.[0]?.event_key).toBe('2026a');
+  });
+
   it('useTbaRankings calls tbaGet with the rankings path', async () => {
     tbaGetMock.mockResolvedValue({ rankings: [] });
     const { result } = renderHook(() => useTbaRankings('2026casnv'), { wrapper: wrapper() });
@@ -167,6 +310,22 @@ describe('useEventData', () => {
     expect(result.current.data?.epaByTeam.get(254)).toBe(50);
     // 1678 came back unavailable → null in the map.
     expect(result.current.data?.epaByTeam.get(1678)).toBeNull();
+  });
+
+  it('isolates one team EPA failure without discarding successful teammates', async () => {
+    statboticsGetMock.mockImplementation(async (path: string) => {
+      if (path.includes('/254/')) return { epa: { total_points: { mean: 50 } } };
+      throw new Error('team-specific proxy failure');
+    });
+
+    const { result } = renderHook(() => useEventEpa([254, 1678], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.epaByTeam.get(254)).toBe(50);
+    expect(result.current.data?.epaByTeam.get(1678)).toBeNull();
+    expect(result.current.data?.available).toBe(true);
   });
 
   it('useEventEpa source is none with no matches when Statbotics is down for every team', async () => {

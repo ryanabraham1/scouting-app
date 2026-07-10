@@ -19,8 +19,25 @@ export default function QrSendScreen() {
   const [encoder, setEncoder] = useState<FountainEncoder | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
   const [seq, setSeq] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
+  const [paused, setPaused] = useState(reducedMotion);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (event: MediaQueryListEvent) => {
+      setReducedMotion(event.matches);
+      if (event.matches) setPaused(true);
+    };
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
 
   // Build the fountain encoder once from the backlog. The wire payload is the
   // SAME snake_case object the online outbox sends (toUpsertPayload) — NOT the
@@ -130,6 +147,12 @@ export default function QrSendScreen() {
                 · {encoder.k} block{encoder.k === 1 ? '' : 's'} to receive
               </span>
             </span>
+            {reducedMotion && paused ? (
+              <span className="max-w-xs text-center text-sm text-muted-foreground">
+                Animation is paused for your reduced-motion preference. Resume when the receiver
+                is ready.
+              </span>
+            ) : null}
           </div>
 
           <Button

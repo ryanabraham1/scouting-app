@@ -18,7 +18,7 @@ let myUid = '';
 
 beforeAll(async () => {
   admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  await admin.from('event').upsert({ event_key: EVENT, name: 'C3', is_active: true });
+  await admin.from('event').upsert({ event_key: EVENT, name: 'C3', is_active: false });
   await admin.from('event_secret').upsert({ event_key: EVENT, join_code: 'SECRET99' });
   await admin.from('team').upsert({ team_number: TEAM, nickname: 'C3' });
   await admin.from('match').upsert({ match_key: MATCH, event_key: EVENT, comp_level: 'qm', match_number: 1 });

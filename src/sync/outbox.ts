@@ -6,7 +6,7 @@
 // safe (no duplicates). See phase3-contracts.md §1/§3/§4/§8/§9.
 import { supabase } from '@/lib/supabase';
 import {
-  getSyncQueue,
+  getDueSyncQueue,
   markPending,
   markSynced,
   markDirtyRetry,
@@ -14,7 +14,11 @@ import {
 } from '@/db/localStore';
 import { toUpsertPayload } from '@/sync/mapReport';
 import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
-import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
+import {
+  isSyncCircuitOpen,
+  openSyncCircuit,
+  retryDelayMs,
+} from '@/sync/retrySchedule';
 
 export interface SyncSummary {
   attempted: number;
@@ -33,10 +37,33 @@ export interface SyncSummary {
 type RpcFn = (
   fn: string,
   args: { p: Record<string, unknown> },
-) => Promise<{ error: unknown } | { error: null }>;
+) => Promise<{ data?: unknown; error: unknown }>;
 
 const defaultRpc: RpcFn = (fn, args) =>
-  supabase.rpc(fn, args) as unknown as Promise<{ error: unknown } | { error: null }>;
+  supabase.rpc(fn, args) as unknown as Promise<{ data?: unknown; error: unknown }>;
+
+interface MatchUpsertResult {
+  status: 'applied' | 'idempotent' | 'stale' | 'conflict';
+  current_revision: number;
+}
+
+function matchUpsertResult(value: unknown): MatchUpsertResult | null {
+  if (!value || typeof value !== 'object') return null;
+  const result = value as Partial<MatchUpsertResult>;
+  if (
+    !['applied', 'idempotent', 'stale', 'conflict'].includes(result.status ?? '') ||
+    !Number.isSafeInteger(result.current_revision) ||
+    (result.current_revision ?? 0) < 1
+  ) {
+    return null;
+  }
+  return result as MatchUpsertResult;
+}
+
+function conflictMessage(result: MatchUpsertResult): string {
+  const label = result.status === 'stale' ? 'stale' : 'conflicted';
+  return `Match report upload ${label} with server revision ${result.current_revision}. Local report preserved for recovery.`;
+}
 
 function errorMessage(err: unknown): string {
   if (err == null) return 'unknown sync error';
@@ -57,12 +84,13 @@ function errorMessage(err: unknown): string {
  *   - call upsert_match_report; supabase returns `{ error }` for DB errors and
  *     throws for network failures — both routed through `classifySyncError`.
  *   - success                                  → markSynced
- *   - transient AND syncAttempts < cap         → markDirtyRetry (back to queue)
- *   - terminal OR attempts >= cap              → markSyncError (dead-letter)
+ *   - transient                                → markDirtyRetry and stop this drain
+ *   - terminal                                 → markSyncError (dead-letter)
  */
 export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
-  const queue = await getSyncQueue();
   const summary: SyncSummary = { attempted: 0, synced: 0, retried: 0, deadLettered: 0 };
+  if (isSyncCircuitOpen()) return summary;
+  const queue = await getDueSyncQueue();
 
   for (const report of queue) {
     summary.attempted += 1;
@@ -70,20 +98,39 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
 
     let failure: unknown;
     let failed = false;
+    let verdict: MatchUpsertResult | null = null;
     try {
       const result = await rpc('upsert_match_report', { p: toUpsertPayload(report) });
       if (result && result.error != null) {
         failed = true;
         failure = result.error;
+      } else {
+        verdict = matchUpsertResult(result?.data);
+        if (!verdict) {
+          failed = true;
+          failure = Object.assign(
+            new Error('Match report server returned an invalid sync status. Local report preserved.'),
+            { code: 'MATCH_SYNC_CONTRACT' },
+          );
+        }
       }
     } catch (thrown) {
       failed = true;
       failure = thrown;
     }
 
-    if (!failed) {
+    if (!failed && verdict && ['applied', 'idempotent'].includes(verdict.status)) {
       await markSynced(report.id, report.rowRevision ?? 1);
       summary.synced += 1;
+      continue;
+    }
+    if (!failed && verdict && ['stale', 'conflict'].includes(verdict.status)) {
+      await markSyncError(
+        report.id,
+        conflictMessage(verdict),
+        report.rowRevision ?? 1,
+      );
+      summary.deadLettered += 1;
       continue;
     }
 
@@ -94,19 +141,30 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
     // attempt toward the dead-letter cap, and stop the drain: every report
     // behind this one would hit the same dead network.
     if (isNetworkFailure(failure)) {
-      await markDirtyRetry(report.id, message, { countAttempt: false });
+      const nextSyncAt = Date.now() + retryDelayMs(failure, report.syncAttempts ?? 0);
+      await markDirtyRetry(report.id, message, {
+        countAttempt: false,
+        uploadedRevision: report.rowRevision ?? 1,
+        nextSyncAt,
+      });
+      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
       break;
     }
 
     const kind = classifySyncError(failure);
-    const attempts = report.syncAttempts ?? 0;
-
-    if (kind === 'transient' && attempts < SYNC_MAX_ATTEMPTS) {
-      await markDirtyRetry(report.id, message);
+    if (kind === 'transient') {
+      const nextSyncAt = Date.now() + retryDelayMs(failure, report.syncAttempts ?? 0);
+      await markDirtyRetry(report.id, message, {
+        uploadedRevision: report.rowRevision ?? 1,
+        nextSyncAt,
+      });
+      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
+      // A shared 429/5xx outage applies to the queue, not this payload. Stop
+      // after one probe so a server incident cannot burn every row.
+      break;
     } else {
-      // terminal, or a persistent transient that has hit the attempt cap.
       await markSyncError(report.id, message, report.rowRevision ?? 1);
       summary.deadLettered += 1;
     }
