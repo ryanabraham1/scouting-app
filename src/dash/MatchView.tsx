@@ -19,7 +19,6 @@ import {
   Crosshair,
   Trophy,
   CheckCircle2,
-  ChevronDown,
   PanelLeftClose,
   PanelLeft,
   Scale,
@@ -238,8 +237,7 @@ function MatchDetail(props: {
       <CardHeader className="space-y-2">
         <CardTitle className="text-foreground">Reports on this match ({reports.length})</CardTitle>
         {/* Scouting-status heartbeat, folded in atop the report tiles: the slim
-            summary pill (stations + synced + last-report), the dense reported
-            row, and the collapsed "N not reported" roster toggle. */}
+            summary pill (stations + synced + last-report) and reported rows. */}
         <ScoutingStatusSummary
           reports={reports}
           coverage={coverage}
@@ -544,10 +542,8 @@ function statusTone(covered: number, total: number): string {
 
 /**
  * Scouting-status SUMMARY (dashboard-heartbeat, compact): a coverage rail plus
- * a responsive status roster. Server rows are definitively "synced"; roster
- * members without one remain "not reported" because another device's pending /
- * failed outbox state is not observable here. Pure / prop-driven; `nowMs` ticks
- * via the parent so relative stamps stay fresh.
+ * the synced report roster. Pure / prop-driven; `nowMs` ticks via the parent so
+ * relative stamps stay fresh.
  */
 function ScoutingStatusSummary(props: {
   reports: MsrRow[];
@@ -556,7 +552,6 @@ function ScoutingStatusSummary(props: {
   nowMs: number;
 }): JSX.Element {
   const { reports, coverage, scoutName, nowMs } = props;
-  const [showMissing, setShowMissing] = useState(false);
   const rel = relativeTime(coverage.lastReportAt, nowMs);
   const reported = reports.slice().sort(
     (a, b) =>
@@ -584,7 +579,6 @@ function ScoutingStatusSummary(props: {
   const stations = Math.min(coverage.stationsCovered, COVERAGE_STATION_CAP);
   const full = stations >= COVERAGE_STATION_CAP;
   const tone = statusTone(stations, COVERAGE_STATION_CAP);
-  const missing = coverage.missingScouts;
   const statusGridClass = 'grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-2';
 
   // Coverage bar fill + tone: success when every station is covered, warning
@@ -633,7 +627,7 @@ function ScoutingStatusSummary(props: {
         </div>
       </div>
 
-      {/* Synced server reports use the same scan pattern as missing scouts. */}
+      {/* Synced server reports use a responsive scan-friendly grid. */}
       {reported.length > 0 ? (
         <section aria-labelledby="match-scout-synced-heading" className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
@@ -694,70 +688,6 @@ function ScoutingStatusSummary(props: {
         </section>
       ) : null}
 
-      {/* Missing roster stays collapsible, but expands into a width-filling grid. */}
-      {missing.length > 0 ? (
-        <section className="flex flex-col gap-2">
-          <button
-            type="button"
-            data-testid="match-scout-missing-toggle"
-            aria-expanded={showMissing}
-            aria-controls="match-scout-missing-panel"
-            onClick={() => setShowMissing((v) => !v)}
-            className="flex w-full items-center justify-between gap-3 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2 text-left text-muted-foreground hover:bg-warning/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span className="inline-flex min-w-0 items-center gap-2">
-              <span aria-hidden className="size-2 rounded-full bg-warning" />
-              <span className="eyebrow text-warning">
-                {missing.length} not reported
-              </span>
-            </span>
-            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium">
-              {showMissing ? 'Hide' : 'Show'}
-              <ChevronDown
-                aria-hidden
-                className={cn(
-                  'size-3.5 motion-safe:transition-transform',
-                  showMissing && 'rotate-180',
-                )}
-              />
-            </span>
-          </button>
-          {showMissing ? (
-            <div id="match-scout-missing-panel" className="flex flex-col gap-2">
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                No synced report has reached the dashboard. Uploads still pending or failed on a
-                scout device remain here until sync succeeds.
-              </p>
-              <ul data-testid="match-scout-missing-list" className={statusGridClass}>
-                {missing.map((s) => {
-                  const name = s.display_name ?? '(unnamed)';
-                  return (
-                    <li
-                      key={s.id}
-                      data-testid={`match-scout-missing-${s.id}`}
-                      aria-label={`${name}: no synced report received`}
-                      className="flex min-h-12 min-w-0 items-center gap-2.5 rounded-lg border border-border bg-muted/20 px-3 py-2"
-                    >
-                      <span
-                        aria-hidden
-                        className="size-2 shrink-0 rounded-full border border-warning/70"
-                      />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate text-sm font-medium text-foreground" title={name}>
-                          {name}
-                        </span>
-                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          No synced report
-                        </span>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 type TableResult = { data: unknown[] | null; error: { message: string } | null };
 const tableResults: Record<string, TableResult> = {};
+const selectCalls: Array<{ table: string; columns: string }> = [];
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -20,7 +21,12 @@ vi.mock('@/lib/supabase', () => ({
           reject?: (reason: unknown) => unknown,
         ) => Promise.resolve(result()).then(resolve, reject),
       };
-      return { select: () => query };
+      return {
+        select: (columns: string) => {
+          selectCalls.push({ table, columns });
+          return query;
+        },
+      };
     },
   },
 }));
@@ -75,7 +81,18 @@ describe('preloadEventData — event-scoped assignment caches', () => {
     await db.cachedRoster.clear();
     await db.preloadMeta.clear();
     for (const k of Object.keys(tableResults)) delete tableResults[k];
+    selectCalls.length = 0;
     rosterRows = [];
+  });
+
+  it('selects the event-scoped scout relation for pit assignments', async () => {
+    await preloadEventData({ eventKey: '2026event', scoutId: 'scout1' });
+
+    expect(selectCalls).toContainEqual({
+      table: 'pit_assignment',
+      columns:
+        'event_key,team_number,scout_id,source,scout:scout!pit_assignment_event_scout_fkey(display_name)',
+    });
   });
 
   it('treats an empty event response as authoritative without clearing another event', async () => {

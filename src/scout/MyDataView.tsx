@@ -1,25 +1,32 @@
-// src/scout/MyDataView.tsx — per-scouter "My Data" list.
-// Shows the matches scouted by THIS device's selected scouter (useSession().scout?.id),
-// newest first, with the key per-match detail. Reads local reports from the offline
-// store; an empty state covers a fresh device or a device with no captures yet.
+// src/scout/MyDataView.tsx — active-event "My Data" for the selected scouter.
+// Reads this device's local reports, matching by normalized scouter name so a
+// reconciled scout-row id does not hide that scouter's earlier captures.
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { useSession } from "@/auth/useSession";
 import { matchLabelFromKey } from "@/capture/UpcomingMatches";
+import { useActiveEvent } from "@/dash/useActiveEvent";
 import { listReports } from "@/db/localStore";
 import type { LocalMatchReport } from "@/db/types";
+import {
+  normalizeScouterName,
+  reportMatchesScoutScope,
+} from "@/scout/reportScope";
 
 function fmtSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
 export default function MyDataView(): JSX.Element {
-  const { scout } = useSession();
+  const { scout, loading: sessionLoading } = useSession();
+  const { eventKey: activeEvent, loading: activeEventLoading } = useActiveEvent();
   const navigate = useNavigate();
-  const scoutId = scout?.id ?? "";
   const [reports, setReports] = useState<LocalMatchReport[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const hasCurrentScoutName =
+    scout?.event_key === activeEvent &&
+    Boolean(normalizeScouterName(scout.display_name));
 
   // After a correction, ScoutHome routes here with ?updated=1. Show a transient
   // confirmation banner, then strip the param so a reload doesn't re-show it.
@@ -46,20 +53,46 @@ export default function MyDataView(): JSX.Element {
   }, [showUpdated]);
 
   useEffect(() => {
+    setReports([]);
+    setLoaded(false);
+    if (sessionLoading || activeEventLoading) return;
+    if (
+      !activeEvent ||
+      !scout ||
+      scout.event_key !== activeEvent ||
+      !normalizeScouterName(scout.display_name)
+    ) {
+      setLoaded(true);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
       const all = await listReports();
       if (cancelled) return;
-      const mine = all
-        .filter((r) => r.scoutId === scoutId)
+      const scoped = all
+        .filter((report) =>
+          reportMatchesScoutScope(report, {
+            eventKey: activeEvent,
+            scoutId: scout.id,
+            scoutName: scout.display_name,
+          }),
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      setReports(mine);
+      setReports(scoped);
       setLoaded(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [scoutId]);
+  }, [
+    activeEvent,
+    activeEventLoading,
+    scout?.display_name,
+    scout?.event_key,
+    scout?.id,
+    sessionLoading,
+  ]);
 
   return (
     <div
@@ -96,7 +129,11 @@ export default function MyDataView(): JSX.Element {
 
         {loaded && reports.length === 0 && (
           <p data-testid="my-data-empty" className="text-muted-foreground">
-            No matches scouted yet on this device.
+            {!activeEvent
+              ? "No active event selected."
+              : !hasCurrentScoutName
+                ? "Select your name on Scout to view your data."
+                : "No matches scouted yet for this event."}
           </p>
         )}
 

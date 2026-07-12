@@ -189,13 +189,29 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
           <StatTile
             label="Fuel shifts"
             value={
-              Array.isArray(r.fuel_by_shift) && r.fuel_by_shift.length > 0
-                ? r.fuel_by_shift.map((value) => fmt(value)).join(' · ')
-                : '—'
+              Array.isArray(r.fuel_by_shift) && r.fuel_by_shift.length > 0 ? (
+                <span className="flex flex-wrap gap-1.5">
+                  {r.fuel_by_shift.map((value, i) => (
+                    <span
+                      key={i}
+                      className="rounded-md border border-border bg-muted/40 px-2 py-0.5 text-base leading-tight"
+                    >
+                      {fmt(value)}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                '—'
+              )
             }
           />
           <StatTile label="Fuel bursts" value={r.fuel_bursts?.length ?? 0} />
           <StatTile label="Feeding bursts" value={r.feeding_bursts?.length ?? 0} />
+          <StatTile
+            label="Fed corral"
+            value={yesNo(r.fed_corral)}
+            tone={r.fed_corral ? 'success' : 'default'}
+          />
         </div>
       </section>
 
@@ -264,7 +280,6 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
           <FlagPill label="Died" on={r.died} tone="destructive" />
           <FlagPill label="Tipped" on={r.tipped} />
           <FlagPill label="Dropped fuel" on={r.dropped_fuel} />
-          <FlagPill label="Fed corral" on={r.fed_corral} />
           <StatTile label="Minor fouls" value={r.fouls_minor ?? 0} />
           <StatTile label="Major fouls" value={r.fouls_major ?? 0} />
         </div>

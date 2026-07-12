@@ -346,7 +346,7 @@ describe('ScoutHome', () => {
     expect(screen.queryByText(/qm9:scout-1:111/)).toBeNull();
   });
 
-  it('does not offer a draft whose stored target belongs to another event', async () => {
+  it('keeps a different-event draft stored without showing a bottom notice', async () => {
     await saveDraft('2026old_qm7:scout-1:222', {
       target: {
         eventKey: '2026old',
@@ -359,10 +359,10 @@ describe('ScoutHome', () => {
       },
     });
     renderHome();
-    expect(await screen.findByTestId('scout-other-event-drafts')).toHaveTextContent(
-      /another event/i,
-    );
+    await screen.findByTestId('scout-upcoming-matches');
     expect(screen.queryByTestId('scout-resume-2026old_qm7:scout-1:222')).toBeNull();
+    expect(screen.queryByTestId('scout-other-event-drafts')).toBeNull();
+    expect(await db.drafts.get('2026old_qm7:scout-1:222')).toBeTruthy();
   });
 });
 

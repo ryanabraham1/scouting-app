@@ -55,6 +55,7 @@ import {
 } from '@/db/preloadClient';
 import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
 import { cn } from '@/lib/utils';
+import { reportMatchesScoutScope } from '@/scout/reportScope';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -291,7 +292,6 @@ export default function ScoutHome() {
   // poll once this mounted page has server-confirmed the current canonical row.
   const confirmedIdentity = useRef<string | null>(null);
   const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
-  const [foreignDraftCount, setForeignDraftCount] = useState(0);
   const [reports, setReports] = useState<LocalMatchReport[]>([]);
   const [active, setActive] = useState<CaptureTarget | null>(null);
   // Loaded revision of the report being corrected (drives the Review edit banner).
@@ -329,10 +329,13 @@ export default function ScoutHome() {
       return draftScout === scoutId && (!draftEvent || draftEvent === scope);
     });
     setDrafts(currentDrafts);
-    setForeignDraftCount(allDrafts.length - currentDrafts.length);
     setReports(
-      allReports.filter(
-        (report) => report.scoutId === scoutId && (!scope || report.eventKey === scope),
+      allReports.filter((report) =>
+        reportMatchesScoutScope(report, {
+          eventKey: scope,
+          scoutId,
+          scoutName: effective?.display_name ?? '',
+        }),
       ),
     );
   };
@@ -349,7 +352,6 @@ export default function ScoutHome() {
     setAssignments([]);
     setDrafts([]);
     setReports([]);
-    setForeignDraftCount(0);
     if (!scoutId) return;
     const ev = effective?.event_key || activeEvent || '';
     let cancelled = false;
@@ -515,14 +517,21 @@ export default function ScoutHome() {
         { replace: true },
       );
       if (!r) return; // not found: fall through
-      if (r.scoutId !== scoutId) {
-        setManualWarning('That report belongs to another scout on this device.');
-        return;
-      }
-      if (r.eventKey !== (activeEvent || effective.event_key)) {
+      const currentEvent = activeEvent || effective.event_key;
+      if (r.eventKey !== currentEvent) {
         setManualWarning(
           `That report belongs to ${r.eventKey}. Switch the active event or open My Data to recover it safely.`,
         );
+        return;
+      }
+      if (
+        !reportMatchesScoutScope(r, {
+          eventKey: currentEvent,
+          scoutId,
+          scoutName: effective.display_name,
+        })
+      ) {
+        setManualWarning('That report belongs to another scout on this device.');
         return;
       }
       setEditingRev(r.rowRevision ?? 1);
@@ -543,8 +552,10 @@ export default function ScoutHome() {
       setActive({
         eventKey: r.eventKey,
         matchKey: r.matchKey,
-        scoutId: r.scoutId,
-        scoutName: r.scoutName,
+        // Use the currently selected canonical identity when correcting a report
+        // whose original scout row id was later reconciled.
+        scoutId,
+        scoutName: effective.display_name,
         targetTeamNumber: r.targetTeamNumber,
         allianceColor: r.allianceColor,
         station: r.station,
@@ -1041,12 +1052,6 @@ export default function ScoutHome() {
                   ))}
                 </ul>
               </section>
-            ) : null}
-            {foreignDraftCount > 0 ? (
-              <p data-testid="scout-other-event-drafts" className="text-sm text-muted-foreground">
-                {foreignDraftCount} draft{foreignDraftCount === 1 ? '' : 's'} from another event
-                or scout remain safely stored. <Link to="/my-data" className="text-brand underline">Open My Data</Link>
-              </p>
             ) : null}
           </>
         )}

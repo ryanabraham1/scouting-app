@@ -187,21 +187,24 @@ describe('CaptureScreen', () => {
   });
 });
 
-describe('CaptureScreen undo action row', () => {
-  it('hides Undo until an action is available, then names and reverses the latest action', () => {
+describe('CaptureScreen top undo control', () => {
+  it('shows a compact top icon when available and reverses the latest action', () => {
     render(<Host />);
     submitPlacement();
 
     expect(screen.queryByTestId('capture-undo')).toBeNull();
+    expect(screen.getByTestId('capture-to-review').className).toContain('w-full');
 
     fireEvent.click(screen.getByTestId('capture-foul'));
     const undoFoul = screen.getByTestId('capture-undo');
-    expect(undoFoul.textContent).toMatch(/undo foul/i);
+    expect(undoFoul.closest('header')).toBeTruthy();
+    expect(undoFoul.textContent).toBe('');
+    expect(undoFoul.className).toContain('size-11');
     expect(undoFoul.getAttribute('aria-label')).toBe('Undo last action: foul');
+    expect(undoFoul.getAttribute('title')).toBe('Undo foul');
 
     fireEvent.click(screen.getByTestId('capture-left-line'));
     const undoLeftLine = screen.getByTestId('capture-undo');
-    expect(undoLeftLine.textContent).toMatch(/undo left line/i);
     expect(undoLeftLine.getAttribute('aria-label')).toBe(
       'Undo last action: left line',
     );
@@ -209,7 +212,9 @@ describe('CaptureScreen undo action row', () => {
 
     fireEvent.click(undoLeftLine);
     expect(capturedSession?.autoLeftStartingLine).toBe(false);
-    expect(screen.getByTestId('capture-undo').textContent).toMatch(/undo foul/i);
+    expect(screen.getByTestId('capture-undo').getAttribute('aria-label')).toBe(
+      'Undo last action: foul',
+    );
 
     fireEvent.click(screen.getByTestId('capture-undo'));
     expect(screen.getByTestId('capture-foul').textContent).toContain('(0)');

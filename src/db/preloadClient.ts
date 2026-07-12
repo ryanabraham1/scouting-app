@@ -143,7 +143,9 @@ export async function preloadEventData(opts: {
     try {
       const res = await supabase
         .from('pit_assignment')
-        .select('event_key,team_number,scout_id,source,scout:scout(display_name)')
+        .select(
+          'event_key,team_number,scout_id,source,scout:scout!pit_assignment_event_scout_fkey(display_name)',
+        )
         .eq('event_key', eventKey);
       if (res.error) throw new Error(res.error.message);
       const raw = (res.data as unknown as Array<{

@@ -691,8 +691,10 @@ export function CaptureScreen(props: {
 
   return (
     <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
-      {/* Top bar stays glanceable: match state · countdown · optional exit. */}
-      <header className="flex shrink-0 items-center justify-between gap-1.5">
+      {/* Keep navigation/correction in the top chrome so the bottom remains a
+          single, unambiguous forward action. Equal side columns keep the clock
+          centered when Undo appears or disappears. */}
+      <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
         <span
           data-testid="capture-window"
           className="min-w-0 truncate text-xs uppercase tracking-wide text-muted-foreground"
@@ -705,26 +707,45 @@ export function CaptureScreen(props: {
         >
           <Timer className="size-5 max-[380px]:hidden" /> {mmss(remaining)}
         </span>
-        {props.onExit && (
-          <Button
-            data-testid="capture-exit"
-            variant="outline"
-            size="icon"
-            className="size-11 shrink-0"
-            aria-label="Exit capture"
-            onClick={() => {
-              // The draft is resumable — commit open timers/holds into it
-              // before leaving so they aren't silently dropped.
-              commitDefense();
-              commitDefended();
-              s.holdEnd();
-              s.feedHoldEnd();
-              props.onExit?.();
-            }}
-          >
-            <X className="size-5" />
-          </Button>
-        )}
+        <div className="flex min-w-0 items-center justify-end gap-1.5">
+          {events.canUndo && latestUndoLabel && (
+            <Button
+              data-testid="capture-undo"
+              variant="outline"
+              size="icon"
+              className="size-11 shrink-0 border-warning/50 bg-warning/5 text-warning hover:bg-warning/10"
+              aria-label={`Undo last action: ${latestUndoLabel}`}
+              title={`Undo ${latestUndoLabel}`}
+              onClick={() => {
+                events.undoLast();
+                props.onAction?.('undo');
+                buzz();
+              }}
+            >
+              <Undo2 className="size-5" />
+            </Button>
+          )}
+          {props.onExit && (
+            <Button
+              data-testid="capture-exit"
+              variant="outline"
+              size="icon"
+              className="size-11 shrink-0"
+              aria-label="Exit capture"
+              onClick={() => {
+                // The draft is resumable — commit open timers/holds into it
+                // before leaving so they aren't silently dropped.
+                commitDefense();
+                commitDefended();
+                s.holdEnd();
+                s.feedHoldEnd();
+                props.onExit?.();
+              }}
+            >
+              <X className="size-5" />
+            </Button>
+          )}
+        </div>
       </header>
 
       {/* Body fills the remaining height; the defense + slider regions flex to
@@ -914,49 +935,27 @@ export function CaptureScreen(props: {
           )}
         </div>
 
-        {/* Persistent bottom action row: correction sits beside the forward
-            action it balances. Undo only occupies space when there is something
-            real to reverse, and names that action before the scout commits. */}
-        <div className="flex shrink-0 gap-2">
-          {events.canUndo && latestUndoLabel && (
-            <Button
-              data-testid="capture-undo"
-              variant="outline"
-              size="big"
-              className="h-11 min-w-0 flex-[1.15] justify-start gap-1.5 rounded-2xl border-warning/50 bg-warning/5 px-3 text-base hover:bg-warning/10 [&_svg]:size-5"
-              aria-label={`Undo last action: ${latestUndoLabel}`}
-              title={`Undo ${latestUndoLabel}`}
-              onClick={() => {
-                events.undoLast();
-                props.onAction?.('undo');
-                buzz();
-              }}
-            >
-              <Undo2 />
-              <span className="min-w-0 truncate">Undo {latestUndoLabel}</span>
-            </Button>
-          )}
-          <Button
-            data-testid="capture-to-review"
-            variant="secondary"
-            size="big"
-            className="h-11 min-w-0 flex-1 rounded-2xl px-3 text-base"
-            onClick={() => {
-              // CaptureScreen unmounts on the stage switch. Commit anything still
-              // open — a slide-LOCKED defense/defended timer (the lock exists
-              // precisely so no finger is on it at match end) and any in-flight
-              // slider hold — or that data silently vanishes from the report.
-              commitDefense();
-              commitDefended();
-              s.holdEnd();
-              s.feedHoldEnd();
-              props.onAction?.('to_review');
-              props.onToReview();
-            }}
-          >
-            To Review
-          </Button>
-        </div>
+        {/* One full-width forward action anchors the bottom of the live screen. */}
+        <Button
+          data-testid="capture-to-review"
+          variant="secondary"
+          size="big"
+          className="h-11 w-full shrink-0 rounded-2xl px-3 text-base"
+          onClick={() => {
+            // CaptureScreen unmounts on the stage switch. Commit anything still
+            // open — a slide-LOCKED defense/defended timer (the lock exists
+            // precisely so no finger is on it at match end) and any in-flight
+            // slider hold — or that data silently vanishes from the report.
+            commitDefense();
+            commitDefended();
+            s.holdEnd();
+            s.feedHoldEnd();
+            props.onAction?.('to_review');
+            props.onToReview();
+          }}
+        >
+          To Review
+        </Button>
       </div>
     </div>
   );

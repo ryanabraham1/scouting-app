@@ -71,6 +71,8 @@ describe('ReportDetail', () => {
     expect(text).toContain('Fuel points');
     // confidence 0.3 -> 30%
     expect(text).toContain('30%');
+    // Fed corral is a fuel-delivery action, grouped with fuel (not a foul).
+    expect(text).toContain('Fed corral');
   });
 
   it('shows climb, defense, pins', () => {
@@ -87,7 +89,6 @@ describe('ReportDetail', () => {
   it('renders every flag as a pill with the right on/off state', () => {
     const { getByTestId } = render(<ReportDetail report={row({})} />);
     expect(getByTestId('report-flag-tipped').getAttribute('data-on')).toBe('true');
-    expect(getByTestId('report-flag-fed-corral').getAttribute('data-on')).toBe('true');
     expect(getByTestId('report-flag-no-show').getAttribute('data-on')).toBe('false');
     expect(getByTestId('report-flag-died').getAttribute('data-on')).toBe('false');
     expect(getByTestId('report-flag-dropped-fuel').getAttribute('data-on')).toBe('false');

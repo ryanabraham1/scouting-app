@@ -171,7 +171,8 @@ test('Scenario C: dead-letter rows expose the edit recovery path', async ({ page
     const { saveReport } = (await import(/* @vite-ignore */ localStoreUrl)) as {
       saveReport: (r: Record<string, unknown>) => Promise<void>;
     };
-    // MyDataView filters by the cached scout row's id, so seed under that id.
+    // My Data scopes by active event + normalized scout name. Keep the current
+    // id too so this fixture also matches the legacy no-name fallback shape.
     const scoutRaw = localStorage.getItem('cached_scout_row');
     const scoutId = scoutRaw ? (JSON.parse(scoutRaw).id ?? 'unknown') : 'unknown';
     await saveReport({

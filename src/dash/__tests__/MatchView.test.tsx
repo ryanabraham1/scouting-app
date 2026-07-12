@@ -309,7 +309,7 @@ describe('MatchView', () => {
     expect(tileB.className).toContain('border-l-destructive');
   });
 
-  it('folds the scouting-status summary + reported rows into the reports card', () => {
+  it('folds the scouting-status summary + synced rows into the reports card', () => {
     // Roster: Ada (s1) + Bo (s2). qm1 has a report from s1 only and one
     // unattributed (null) -> s2 is missing.
     useEventScoutsMock.mockReturnValue(
@@ -336,39 +336,27 @@ describe('MatchView', () => {
     expect(getByTestId('match-scout-reported-unassigned').textContent).toMatch(
       /Synced, unassigned/,
     );
-    // The bulky "not reported" list is collapsed behind a toggle by default…
-    expect(queryByTestId('match-scout-missing-s2')).toBeNull();
-    expect(getByTestId('match-scout-missing-toggle').textContent).toMatch(/not reported/);
-    // …and expands on click to reveal the missing scout row.
-    fireEvent.click(getByTestId('match-scout-missing-toggle'));
-    expect(getByTestId('match-scout-missing-s2')).toBeTruthy();
-    expect(getByTestId('match-scout-missing-s2').getAttribute('aria-label')).toMatch(
-      /no synced report received/,
-    );
-    expect(card.textContent).toMatch(/pending or failed/i);
+    // Event-roster members who were not assigned to this match are not presented
+    // as missing reports.
+    expect(queryByTestId('match-scout-missing-toggle')).toBeNull();
+    expect(card.textContent).not.toMatch(/not reported/i);
   });
 
-  it('lays a large missing roster out in a responsive status grid', () => {
+  it('does not turn a large event roster into missing reports for one match', () => {
     const largeRoster: ScoutRow[] = Array.from({ length: 12 }, (_, i) => ({
       id: `scout-${i + 1}`,
       display_name: i === 11 ? 'Scout With A Deliberately Long Name' : `Scout ${i + 1}`,
       event_key: '2026casnv',
     }));
     useEventScoutsMock.mockReturnValue(querySuccess(largeRoster));
-    const { getByTestId } = renderView('2026casnv');
+    const { getByTestId, queryByTestId, queryByText } = renderView('2026casnv');
 
-    // qm2 has no reports, so every roster member should appear after expansion.
+    // qm2 has no reports, but the roster is event-wide and says nothing about
+    // which six station assignments were expected for this match.
     fireEvent.click(getByTestId('match-item-2026casnv_qm2'));
-    fireEvent.click(getByTestId('match-scout-missing-toggle'));
-
-    const list = getByTestId('match-scout-missing-list');
-    expect(list.className).toContain(
-      'grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]',
-    );
-    expect(within(list).getAllByRole('listitem')).toHaveLength(12);
-    expect(getByTestId('match-scout-missing-scout-12').textContent).toContain(
-      'Scout With A Deliberately Long Name',
-    );
+    expect(queryByTestId('match-scout-missing-toggle')).toBeNull();
+    expect(queryByText(/12 not reported/i)).toBeNull();
+    expect(getByTestId('match-empty')).toBeTruthy();
   });
 
   it('orders the detail pane: results → video → timelines → combined reports+status', () => {
