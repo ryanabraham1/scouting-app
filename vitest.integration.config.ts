@@ -8,7 +8,7 @@ assertDedicatedRemoteTestProject();
 export default defineConfig({
   test: {
     globals: true,
-    environment: './vitest-env-jsdom-compat.ts',
+    environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['tests/db/**/*.test.ts', 'tests/functions/**/*.test.ts'],
     exclude: [

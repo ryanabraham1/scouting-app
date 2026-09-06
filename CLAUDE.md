@@ -40,8 +40,8 @@ needed); it excludes `tests/e2e/**`. `vitest.integration.config.ts` covers the r
 `tests/db/**/*.test.ts` and `tests/functions/**/*.test.ts` (excluding the pure contract test),
 runs with `fileParallelism: false`, and calls `assertDedicatedRemoteTestProject()` at load so
 it refuses to run against a non-dedicated project — these tests can mutate the configured
-Supabase project. Both Vitest configs use the custom jsdom compat shim
-(`vitest-env-jsdom-compat.ts`) and `vitest.setup.ts`, and `@` aliases `src/`.
+Supabase project. Both Vitest configs use the built-in jsdom environment plus
+`vitest.setup.ts`, and `@` aliases `src/`.
 
 **Playwright e2e hits a real remote Supabase**, so it runs single-worker (`workers: 1`):
 the live specs share one DB and mutate the global `event.is_active` singleton — parallel

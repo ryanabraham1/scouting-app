@@ -9,14 +9,7 @@ import {
   type RouteObject,
 } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
-import DashboardScreen from '../dash/DashboardScreen';
 import HomeScreen from '../home/HomeScreen';
-import ScoutHome from '../capture/ScoutHome';
-import MyDataView from '../scout/MyDataView';
-import QrSendScreen from '../qr/QrSendScreen';
-import QrReceiveScreen from '../qr/QrReceiveScreen';
-import SyncStatusScreen from '../sync/SyncStatusScreen';
-import ScoutTutorial from '../tutorial/ScoutTutorial';
 import { applyRouteTheme } from './routeTheme';
 
 /**
@@ -58,19 +51,52 @@ function RouteError(): JSX.Element {
   );
 }
 
+function RouteLoading(): JSX.Element {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-screen items-center justify-center bg-background px-safe py-safe text-sm font-medium text-muted-foreground"
+    >
+      Loading scouting tools…
+    </div>
+  );
+}
+
 const rawRoutes: RouteObject[] = [
   { path: '/', element: <HomeScreen /> },
-  { path: '/scout', element: <ScoutHome /> },
+  {
+    path: '/scout',
+    lazy: async () => ({ Component: (await import('../capture/ScoutHome')).default }),
+  },
   // Standalone, app-native practice sandbox. It intentionally has no identity or
   // event gate so a brand-new/offline device can learn without touching real data.
-  { path: '/scout/tutorial', element: <ScoutTutorial /> },
-  { path: '/my-data', element: <MyDataView /> },
+  {
+    path: '/scout/tutorial',
+    lazy: async () => ({ Component: (await import('../tutorial/ScoutTutorial')).default }),
+  },
+  {
+    path: '/my-data',
+    lazy: async () => ({ Component: (await import('../scout/MyDataView')).default }),
+  },
   // Pit scouting folds into the Scout Home Match/Pit toggle.
   { path: '/pit', element: <Navigate to="/scout?mode=pit" replace /> },
-  { path: '/qr/send', element: <QrSendScreen /> },
-  { path: '/qr/receive', element: <QrReceiveScreen /> },
-  { path: '/dashboard', element: <DashboardScreen /> },
-  { path: '/sync', element: <SyncStatusScreen /> },
+  {
+    path: '/qr/send',
+    lazy: async () => ({ Component: (await import('../qr/QrSendScreen')).default }),
+  },
+  {
+    path: '/qr/receive',
+    lazy: async () => ({ Component: (await import('../qr/QrReceiveScreen')).default }),
+  },
+  {
+    path: '/dashboard',
+    lazy: async () => ({ Component: (await import('../dash/DashboardScreen')).default }),
+  },
+  {
+    path: '/sync',
+    lazy: async () => ({ Component: (await import('../sync/SyncStatusScreen')).default }),
+  },
   // Legacy admin entry point folds into the dashboard Setup tab.
   { path: '/admin', element: <Navigate to="/dashboard?tab=setup" replace /> },
   { path: '*', element: <Navigate to="/" replace /> },
@@ -81,6 +107,7 @@ const rawRoutes: RouteObject[] = [
 export const routes: RouteObject[] = rawRoutes.map((r) => ({
   ...r,
   errorElement: <RouteError />,
+  hydrateFallbackElement: <RouteLoading />,
 }));
 
 export const router = createBrowserRouter(routes);

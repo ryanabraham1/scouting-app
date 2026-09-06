@@ -1,5 +1,5 @@
 // src/dash/__tests__/exportDash.test.ts
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import type { TeamAgg } from '@/dash/aggregate';
 import type { PicklistEntry } from '@/dash/picklistClient';
 import { teamAggToCsv, picklistToCsv, downloadText } from '@/dash/exportDash';
@@ -108,9 +108,9 @@ describe('picklistToCsv', () => {
 });
 
 describe('downloadText', () => {
-  let createObjectURL: ReturnType<typeof vi.fn>;
-  let revokeObjectURL: ReturnType<typeof vi.fn>;
-  let clickSpy: ReturnType<typeof vi.fn>;
+  let createObjectURL: Mock<(object: Blob | MediaSource) => string>;
+  let revokeObjectURL: Mock<(url: string) => void>;
+  let clickSpy: Mock<() => void>;
   let originalCreate: typeof URL.createObjectURL;
   let originalRevoke: typeof URL.revokeObjectURL;
 

@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [react(), VitePWA({ registerType: 'prompt' })],
   test: {
     globals: true,
-    environment: './vitest-env-jsdom-compat.ts',
+    // React Router 7 no longer needs the AbortSignal compatibility wrapper that
+    // older data routers required under Node's undici implementation.
+    environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     // Safe default: remote DB/function suites require the explicit
     // vitest.integration.config.ts guard.

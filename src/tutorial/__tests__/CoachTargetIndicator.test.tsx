@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   CoachTargetIndicator,
@@ -16,7 +16,7 @@ let targetRect = {
   y: 100,
   toJSON: () => ({}),
 };
-let disconnectResizeObserver: ReturnType<typeof vi.fn>;
+let disconnectResizeObserver: Mock<() => void>;
 
 function Harness(props: {
   selector: string;
