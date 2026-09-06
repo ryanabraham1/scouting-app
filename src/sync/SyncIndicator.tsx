@@ -82,16 +82,16 @@ export function SyncIndicator({
               className={cn('inline-flex shrink-0 items-center gap-0.5 font-mono tabular-nums', queued > 0 && 'text-warning')}
             >
               <ArrowUpFromLine className="size-3.5" />
-              {queued}
+              {queued}<span className="ml-1 font-sans">to send</span>
             </span>
-            <span
+            {(deadLetters > 0 || !compact) && <span
               data-testid="sync-deadletters"
               className={cn('inline-flex shrink-0 items-center gap-0.5 font-mono tabular-nums', deadLetters > 0 && 'text-destructive')}
               title="Failed (dead-letter)"
             >
               <AlertTriangle className="size-3.5" />
-              {deadLetters}
-            </span>
+              {deadLetters}<span className="ml-1 font-sans">failed</span>
+            </span>}
             {lastSyncedAt != null ? (
               <span data-testid="sync-last" title="Last successful sync" className="min-w-0 truncate text-muted-foreground">
                 · synced {relativeTime(new Date(lastSyncedAt).toISOString(), Date.now())}
@@ -104,7 +104,7 @@ export function SyncIndicator({
             to={detailsHref}
             data-testid="sync-details-link"
             aria-label="View sync status"
-            className="flex min-w-0 items-center gap-x-2 rounded-md underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-h-11 min-w-0 items-center gap-x-2 rounded-md underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {statusInner}
           </Link>
@@ -121,7 +121,7 @@ export function SyncIndicator({
           variant={compact ? 'ghost' : 'secondary'}
           aria-label="Sync now"
           title="Sync now"
-          className={compact ? 'size-10 min-h-0 p-0' : 'h-9 min-h-[44px] px-3'}
+          className={compact ? 'size-11 min-h-0 p-0' : 'h-9 min-h-[44px] px-3'}
           disabled={syncing || !online}
           onClick={() => syncNow()}
         >

@@ -320,86 +320,6 @@ export default function SetupTab(): JSX.Element {
         </summary>
 
         <div className="flex flex-col gap-4 border-t border-border p-3">
-      {/* Demo mode — a one-tap simulated event so the whole dashboard (rankings,
-          picklist, next-match prediction, team profiles, scouter performance) can
-          be explored without a live event. Tinted brand/energy so it reads as a
-          special mode. */}
-      <div
-        data-testid="setup-demo"
-        className="flex flex-col gap-3 rounded-lg border border-brand/40 bg-brand/5 p-3"
-      >
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-brand" />
-          <span className="text-sm font-medium">Demo mode</span>
-          <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
-            Demo
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Explore the full dashboard on a simulated copy of a real event — no live
-          event needed.
-        </p>
-
-        {demoPresent ? (
-          <>
-            <p
-              data-testid="setup-demo-status"
-              className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-brand"
-            >
-              <CheckCircle2 className="size-4" />
-              {demoActive
-                ? 'Demo mode is on — the dashboard is showing simulated data.'
-                : 'Demo event is loaded. Make it active to explore it.'}
-            </p>
-            {confirmingDemoRemove ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  data-testid="setup-demo-disable"
-                  variant="outline"
-                  className="h-11 border-destructive bg-destructive/15 px-3 text-destructive hover:bg-destructive/25"
-                  disabled={demoBusy}
-                  onClick={() => void handleDisableDemo()}
-                >
-                  {demoBusy ? 'Removing…' : 'Remove demo event'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="h-11 px-3"
-                  disabled={demoBusy}
-                  onClick={() => setConfirmingDemoRemove(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button
-                data-testid="setup-demo-disable-arm"
-                variant="outline"
-                className="h-11 self-start px-3 text-muted-foreground hover:border-destructive hover:bg-destructive/15 hover:text-destructive"
-                disabled={demoBusy}
-                onClick={() => {
-                  setError(null);
-                  setConfirmingDemoRemove(true);
-                }}
-              >
-                {demoActive ? 'Exit demo mode' : 'Remove demo event'}
-              </Button>
-            )}
-          </>
-        ) : (
-          <Button
-            data-testid="setup-demo-enable"
-            variant="default"
-            className="h-11 self-start px-4"
-            disabled={demoBusy}
-            onClick={() => void handleEnableDemo()}
-          >
-            <Sparkles className="size-4" />
-            {demoBusy ? 'Setting up demo…' : 'Enable demo mode'}
-          </Button>
-        )}
-      </div>
-
       {/* Events — switch the active event among already-imported ones (no
           re-import), delete one you no longer need, or import a new one. Combines
           the old "Switch event" + "Event Setup" blocks into a single section. */}
@@ -554,6 +474,89 @@ export default function SetupTab(): JSX.Element {
             {baseTeam}
           </span>
         </div>
+      </div>
+
+      {/* Demo mode is deliberately last and visually quiet: useful for training,
+          but secondary to configuring the real event and base team above. */}
+      <div
+        data-testid="setup-demo"
+        className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/10 p-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2">
+            <Sparkles className="size-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Demo mode</span>
+            {demoActive ? (
+              <span className="rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                Active
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Load simulated event data for training or exploring the dashboard.
+          </p>
+          {demoPresent ? (
+            <p
+              data-testid="setup-demo-status"
+              className={demoActive ? 'text-xs font-medium text-brand' : 'text-xs text-muted-foreground'}
+            >
+              {demoActive
+                ? 'The dashboard is currently showing simulated data.'
+                : 'Demo data is loaded but not active.'}
+            </p>
+          ) : null}
+        </div>
+
+        {demoPresent ? (
+          confirmingDemoRemove ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button
+                data-testid="setup-demo-disable"
+                variant="outline"
+                size="sm"
+                className="border-destructive/60 text-destructive hover:bg-destructive/15"
+                disabled={demoBusy}
+                onClick={() => void handleDisableDemo()}
+              >
+                {demoBusy ? 'Removing…' : 'Remove demo data'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={demoBusy}
+                onClick={() => setConfirmingDemoRemove(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              data-testid="setup-demo-disable-arm"
+              variant="ghost"
+              size="sm"
+              className="shrink-0 self-start text-muted-foreground hover:text-destructive sm:self-center"
+              disabled={demoBusy}
+              onClick={() => {
+                setError(null);
+                setConfirmingDemoRemove(true);
+              }}
+            >
+              {demoActive ? 'Exit demo' : 'Remove demo data'}
+            </Button>
+          )
+        ) : (
+          <Button
+            data-testid="setup-demo-enable"
+            variant="outline"
+            size="sm"
+            className="shrink-0 self-start text-muted-foreground sm:self-center"
+            disabled={demoBusy}
+            onClick={() => void handleEnableDemo()}
+          >
+            <Sparkles className="size-4" />
+            {demoBusy ? 'Loading demo…' : 'Load demo data'}
+          </Button>
+        )}
       </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

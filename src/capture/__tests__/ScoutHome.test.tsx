@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -185,6 +185,7 @@ function renderHome(route = '/scout') {
 }
 
 beforeEach(async () => {
+  cleanup();
   await db.reports.clear();
   await db.drafts.clear();
   await db.cachedMatches.clear();
@@ -223,6 +224,10 @@ beforeEach(async () => {
   });
 });
 
+afterEach(() => {
+  cleanup();
+});
+
 describe('ScoutHome', () => {
   it('renders assignments and unsynced count', async () => {
     renderHome();
@@ -230,6 +235,7 @@ describe('ScoutHome', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('scout-assignment').length).toBe(1);
     });
+    expect((await screen.findByLabelText('Open menu')).querySelector('svg')).toBeTruthy();
   });
 
   it('preserves cached assignments when live rows miss an unconfirmed stale identity', async () => {
@@ -487,16 +493,14 @@ describe('ScoutHome logout', () => {
     renderHome();
     const logout = await screen.findByTestId('scout-logout');
     // The control should be a labeled button (text), not just an icon.
-    expect(logout.textContent).toMatch(/log out|switch/i);
+    expect(logout.textContent).toMatch(/change scouter/i);
   });
 
   it('forgets the scouter and shows the name picker in place on logout', async () => {
     renderHome();
     const logout = await screen.findByTestId('scout-logout');
     fireEvent.click(logout);
-    // A confirm step may appear; if so, click the confirming control.
-    const confirm = screen.queryByTestId('scout-logout-confirm');
-    if (confirm) fireEvent.click(confirm);
+    expect(screen.queryByTestId('scout-logout-confirm')).toBeNull();
     // forgetScouterName must have been called so reload doesn't auto-skip picker.
     await waitFor(() => {
       expect(forgetScouterName).toHaveBeenCalled();

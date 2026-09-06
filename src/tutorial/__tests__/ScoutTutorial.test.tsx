@@ -177,7 +177,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
       'false',
     );
     expect(screen.getByTestId('capture-go')).toHaveAccessibleName(
-      'GO to Teleop',
+      'Start teleop',
     );
   });
 
@@ -225,7 +225,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
       'data-target-selector',
       '[data-testid="review-climb"]',
     );
-    fireEvent.click(screen.getByTestId('review-next'));
+    for (let i = 0; i < 3; i += 1) skipOptional();
     await waitFor(() =>
       expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
         'data-target-selector',
@@ -288,7 +288,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
   it('completes match and pit independently and returns to the hub', async () => {
     renderTutorial();
     await openReview();
-    for (let page = 0; page < 4; page += 1) {
+    for (let page = 0; page < 2; page += 1) {
       fireEvent.click(screen.getByTestId('review-next'));
     }
     await act(async () => {
@@ -334,7 +334,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
   });
 
   it('defines the complete production-control coverage map with exact step counts', () => {
-    expect(MATCH_STEP_COUNT).toBe(42);
+    expect(MATCH_STEP_COUNT).toBe(40);
     expect(PIT_STEP_COUNT).toBe(29);
 
     const matchTargets = MATCH_COACH_STEPS.map((step) => step.target);

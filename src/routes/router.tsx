@@ -17,6 +17,7 @@ import QrSendScreen from '../qr/QrSendScreen';
 import QrReceiveScreen from '../qr/QrReceiveScreen';
 import SyncStatusScreen from '../sync/SyncStatusScreen';
 import ScoutTutorial from '../tutorial/ScoutTutorial';
+import { applyRouteTheme } from './routeTheme';
 
 /**
  * Catch-all for a render/loader error on any route. Without an errorElement,
@@ -83,6 +84,12 @@ export const routes: RouteObject[] = rawRoutes.map((r) => ({
 }));
 
 export const router = createBrowserRouter(routes);
+
+// The lead dashboard keeps its original dark console theme, while scout-facing
+// screens use the light palette. Subscribe so client-side navigation updates the
+// document class and browser/PWA chrome without a reload.
+applyRouteTheme(router.state.location.pathname);
+router.subscribe((state) => applyRouteTheme(state.location.pathname));
 
 export function AppRouter(): JSX.Element {
   return <RouterProvider router={router} />;

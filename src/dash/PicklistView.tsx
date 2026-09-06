@@ -756,9 +756,9 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   return (
     <div data-testid="dash-picklist" className="space-y-4 text-foreground">
       <Card className="bg-card">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+        <CardHeader className="flex flex-col items-stretch gap-3 space-y-0 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 sm:p-6">
           <CardTitle>Picklist</CardTitle>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
             {/* Autosave status — the list persists itself; no Save button. */}
             {saveStatus === 'saving' ? (
               <span data-testid="pick-saving" className="text-xs text-muted-foreground">
@@ -806,12 +806,16 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               data-testid="pick-export-alliance-print"
               onClick={onExportAlliancePrint}
               disabled={exporting || entries.length === 0}
-              className={TOUCH}
+              className={`${TOUCH} col-span-2 row-start-2 w-full sm:col-span-1 sm:row-auto sm:w-auto`}
             >
               <Printer aria-hidden="true" />
               {exporting ? 'Preparing…' : 'Print alliance sheet'}
             </Button>
-            <div ref={exportMenuRef} data-testid="pick-export-presets" className="relative">
+            <div
+              ref={exportMenuRef}
+              data-testid="pick-export-presets"
+              className="relative w-full sm:w-auto"
+            >
               <Button
                 ref={exportTriggerRef}
                 type="button"
@@ -827,7 +831,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                     setExportMenuOpen(true);
                   }
                 }}
-                className={TOUCH}
+                className={`${TOUCH} w-full sm:w-auto`}
               >
                 Export
                 <ChevronDown aria-hidden="true" />

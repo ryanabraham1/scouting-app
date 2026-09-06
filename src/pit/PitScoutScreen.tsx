@@ -733,16 +733,16 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
           <StepIcon className="size-5 shrink-0" />
           {STEPS[step].title}
         </p>
-        <div className="flex gap-1.5">
-          {STEPS.map((s, i) => (
-            <span
-              key={s.title}
-              className={`h-2 flex-1 rounded-full transition-colors ${
-                i < step ? 'bg-success' : i === step ? 'bg-brand' : 'bg-border'
-              }`}
-            />
-          ))}
-        </div>
+        <label className="flex items-center gap-3 text-sm text-muted-foreground">
+          Section
+          <select aria-label="Pit section" value={step} className="h-12 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-base text-foreground"
+            onChange={(e) => {
+              const destination = Number(e.target.value);
+              setStep(destination);
+            }}>
+            {STEPS.map((item, i) => <option key={item.title} value={i}>{i + 1}. {item.title}</option>)}
+          </select>
+        </label>
       </div>
 
       {/* Step 1 — Drivetrain & mechanisms */}
@@ -918,7 +918,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="pit-battery-count" className="text-sm text-muted-foreground">
-                  # of batteries
+                  Batteries
                 </Label>
                 <Input
                   id="pit-battery-count"
@@ -943,7 +943,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="pit-charger-count" className="text-sm text-muted-foreground">
-                  # of chargers
+                  Chargers
                 </Label>
                 <Input
                   id="pit-charger-count"
@@ -966,6 +966,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                   }}
                 />
               </div>
+              {report.batteryCount !== 0 && <>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="pit-battery-brand" className="text-sm text-muted-foreground">
                   Brand
@@ -998,6 +999,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                   }}
                 />
               </div>
+              </>}
             </div>
           </Group>
         </div>
@@ -1009,7 +1011,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pit-length" className="text-sm text-muted-foreground">
-                Length (in)
+                Length (inches)
               </Label>
               <Input
                 id="pit-length"
@@ -1034,7 +1036,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pit-width" className="text-sm text-muted-foreground">
-                Width (in)
+                Width (inches)
               </Label>
               <Input
                 id="pit-width"
@@ -1059,7 +1061,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="pit-height" className="text-sm text-muted-foreground">
-                Height (in)
+                Height (inches)
               </Label>
               <Input
                 id="pit-height"

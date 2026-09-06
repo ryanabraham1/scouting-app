@@ -25,6 +25,7 @@ export function MatchPlanner({ eventKey, matches, scouts, teams }: MatchPlannerP
     <div className="flex flex-col gap-3">
       <SegmentedToggle
         size="default"
+        className="grid grid-cols-2 sm:inline-flex [&>button:last-child]:col-span-2 sm:[&>button:last-child]:col-span-1"
         ariaLabel="Match planning view"
         value={view}
         onChange={setView}

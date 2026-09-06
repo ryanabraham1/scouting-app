@@ -30,9 +30,7 @@ const CLIMB_LEVELS: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3];
 const INTAKE = ['neutral', 'depot', 'human_feed'];
 
 const STEPS = [
-  { title: 'Climb', icon: Mountain },
-  { title: 'Defense & handling', icon: Shield },
-  { title: 'Fouls & flags', icon: Flag },
+  { title: 'Climb & robot performance', icon: Mountain },
   { title: 'Auto', icon: Route },
   { title: 'Review & save', icon: ClipboardCheck },
 ] as const;
@@ -106,7 +104,9 @@ export function ReviewScreen(props: {
   const s = props.session;
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const step = s.reviewStep;
+  // Retain the persisted five-page indices so existing drafts stay compatible.
+  const step = s.reviewStep <= 2 ? 0 : s.reviewStep === 3 ? 1 : 2;
+  const storedSteps = [0, 3, 4] as const;
   const isPortrait = useIsPortrait();
 
   // Step 4 auto: offer the routines this team has already been scouted running so a
@@ -115,7 +115,7 @@ export function ReviewScreen(props: {
   // picker, `draw` keeps the trace-it-yourself field.
   const loadedAutoHistory = useTeamAutoHistory(s.eventKey, s.targetTeamNumber, {
     excludeMatchKey: s.matchKey,
-    enabled: step >= 3 && props.autoHistory === undefined,
+    enabled: step >= 1 && props.autoHistory === undefined,
   });
   const priorAutos = (props.autoHistory ?? loadedAutoHistory).autos;
   const hasPriorAutos = priorAutos.length > 0;
@@ -167,10 +167,10 @@ export function ReviewScreen(props: {
 
   const isFirst = step === 0;
   const isLast = step === TOTAL_STEPS - 1;
-  const goBack = () => s.setReviewStep(Math.max(0, step - 1));
+  const goBack = () => s.setReviewStep(storedSteps[Math.max(0, step - 1)]);
   const goNext = () => {
     props.onAction?.('next');
-    s.setReviewStep(Math.min(TOTAL_STEPS - 1, step + 1));
+    s.setReviewStep(storedSteps[Math.min(TOTAL_STEPS - 1, step + 1)]);
   };
 
   const StepIcon = STEPS[step].icon;
@@ -221,6 +221,7 @@ export function ReviewScreen(props: {
             )}
           </div>
         </div>
+        <p className="text-sm text-muted-foreground">Team {s.targetTeamNumber}</p>
         <p className="text-base font-semibold text-brand landscape:text-lg">{STEP_TITLES[step]}</p>
         <div className="flex gap-1.5">
           {STEP_TITLES.map((title, i) => (
@@ -299,7 +300,7 @@ export function ReviewScreen(props: {
         )}
 
         {/* Step 2: Defense & handling */}
-        {step === 1 && (
+        {step === 0 && (
           <section className="flex flex-col gap-3 landscape:gap-4">
             <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
@@ -335,6 +336,7 @@ export function ReviewScreen(props: {
                 })}
               </div>
             </div>
+            <details className="rounded-2xl border border-border p-3"><summary className="min-h-12 cursor-pointer content-center font-semibold">Correct timers & add handling details</summary>
             <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <div className="grid grid-cols-2 gap-2 landscape:grid-cols-4 landscape:gap-3">
                 <label className={labelClass}>
@@ -398,6 +400,7 @@ export function ReviewScreen(props: {
             {/* Subjective super-scout ratings (0 = not rated). Advisory only — they
                 never feed the scored fuel/climb points, just the dashboard's
                 qualitative read of a robot. */}
+            </details>
             <div
               data-testid="review-ratings"
               className="rounded-2xl border border-border bg-card p-3 landscape:p-4"
@@ -442,7 +445,7 @@ export function ReviewScreen(props: {
         {/* Step 3: Fouls & flags */}
         {step === 2 && (
           <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:gap-4">
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+<details open={s.foulsMinor > 0 || s.foulsMajor > 0 || undefined} className="rounded-2xl border border-border p-3"><summary className="min-h-12 cursor-pointer content-center font-semibold">Fouls & reasons</summary>            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <Flag className="size-5 text-warning" />
                 Fouls
@@ -506,6 +509,7 @@ export function ReviewScreen(props: {
                 </div>
               </div>
             </div>
+</details>
             <div
               data-testid="review-flags"
               className="rounded-2xl border border-border bg-card p-3 landscape:p-4"
@@ -545,7 +549,7 @@ export function ReviewScreen(props: {
             team has already been scouted running (re-framed onto this match's
             alliance), or DRAW it by finger. The start position (captured pre-match
             on the placement step) renders as the orange marker on the draw field. */}
-        {step === 3 && (
+        {step === 1 && (
           <section className="flex flex-col gap-3">
             <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <p className="mb-3 flex items-center gap-2 text-base font-semibold">
@@ -622,7 +626,7 @@ export function ReviewScreen(props: {
         )}
 
         {/* Step 5: Review & save */}
-        {step === 4 && (
+        {step === 2 && (
           <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:items-start landscape:gap-4">
             <div
               data-testid="review-summary"
@@ -664,17 +668,6 @@ export function ReviewScreen(props: {
                 />
               </label>
 
-              <Button
-                data-testid="review-save"
-                variant="success"
-                size="xl"
-                className="w-full"
-                disabled={saving}
-                onClick={() => void onSave()}
-              >
-                <Save />
-                {saving ? 'SAVING…' : 'SAVE'}
-              </Button>
               {saveError ? (
                 <p role="alert" className="text-sm text-destructive">
                   {saveError}
@@ -698,6 +691,18 @@ export function ReviewScreen(props: {
           <ArrowLeft />
           Back
         </Button>
+        {isLast && (              <Button
+                data-testid="review-save"
+                variant="success"
+                size="xl"
+                className="min-w-0 flex-1 px-3"
+                disabled={saving}
+                onClick={() => void onSave()}
+              >
+                <Save />
+                {saving ? 'Saving…' : 'Save report'}
+              </Button>
+)}
         {!isLast && (
           <Button
             data-testid="review-next"

@@ -7,6 +7,24 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      // Scout-facing routes use the light palette. Apply it before first paint
+      // so the offline/auth bootstrap cannot flash the dashboard's dark theme.
+      (() => {
+        const path = window.location.pathname;
+        const isScoutRoute =
+          path === '/scout' || path.startsWith('/scout/') ||
+          path === '/pit' || path === '/my-data' ||
+          path === '/qr' || path.startsWith('/qr/') ||
+          path === '/sync';
+
+        if (isScoutRoute) {
+          document.documentElement.classList.remove('dark');
+          document.querySelector('meta[name="theme-color"]').content = '#ffffff';
+          document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = 'default';
+        }
+      })();
+    </script>
     <meta name="apple-mobile-web-app-title" content="3256 Scout" />
     <link rel="icon" type="image/png" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />

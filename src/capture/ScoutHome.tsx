@@ -15,6 +15,7 @@ import {
   Crosshair,
   CheckCircle2,
   GraduationCap,
+  Menu,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
@@ -264,7 +265,7 @@ export default function ScoutHome() {
   // from a DURABLE flag so logging out survives reloads/remounts — otherwise the
   // old profile resurrected from cache and the user got "stuck in a profile".
   const [loggedOut, setLoggedOut] = useState<boolean>(() => isScouterLoggedOut());
-  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [savedNotice, setSavedNotice] = useState(false);
   // The server-owned global selection always wins online; local storage is used
   // by the shared resolver only as an offline fallback.
   const { eventKey: activeEvent, loading: activeEventLoading } = useActiveEvent();
@@ -418,9 +419,8 @@ export default function ScoutHome() {
         // when it contains this identity, or when the entire event is empty.
         // In the unresolved-mismatch case retain the old-id cache until a later
         // focus/interval/realtime refresh can reconcile it.
-        if (identityConfirmed || currentIdentityHasRows || eventIsAuthoritativelyEmpty) {
-          await replaceCachedAssignmentsForEvent(ev, eventRows);
-        }
+        const shouldApplySnapshot =
+          identityConfirmed || currentIdentityHasRows || eventIsAuthoritativelyEmpty;
         if (cancelled) return;
 
         if (canonical && canonical.id !== scoutId) {
@@ -428,8 +428,12 @@ export default function ScoutHome() {
           // causes the event-scoped effect to restart under the canonical id.
           setPicked(canonical);
         }
-        if (identityConfirmed || currentIdentityHasRows || eventIsAuthoritativelyEmpty) {
+        // Apply the visible list before persisting the cache. This keeps the UI
+        // from showing a stale assignment during the small async cache-write
+        // window, especially when a lead has cleared the whole event.
+        if (shouldApplySnapshot) {
           setAssignments(liveForScout as AssignmentRow[]);
+          await replaceCachedAssignmentsForEvent(ev, eventRows);
         }
       } catch {
         /* offline / network failure: keep the cached assignments set above */
@@ -613,7 +617,7 @@ export default function ScoutHome() {
           <div className="flex items-center rounded-xl border border-border bg-card/40 py-1 pl-3 pr-1.5">
             <SyncIndicator className="min-w-0 flex-1 flex-nowrap" detailsHref="/sync" compact />
           </div>
-          <InstallPrompt />
+
           {activeEventLoading ? (
             <p data-testid="scout-event-loading" className="text-muted-foreground">
               Checking the active event…
@@ -628,7 +632,6 @@ export default function ScoutHome() {
               onPicked={(s) => {
                 setPicked(s);
                 setLoggedOut(false);
-                setConfirmLogout(false);
               }}
             />
           )}
@@ -657,7 +660,7 @@ export default function ScoutHome() {
         target={active}
         startStage={isEdit ? 'review' : 'live'}
         editingRevision={isEdit ? editingRev : undefined}
-        onDone={isEdit ? leaveEdit : leaveFresh}
+        onDone={isEdit ? leaveEdit : () => { setSavedNotice(true); leaveFresh(); }}
         onExit={isEdit ? () => {
           setActive(null);
           setEditingRev(undefined);
@@ -772,7 +775,6 @@ export default function ScoutHome() {
     markScouterLoggedOut();
     clearCachedScout();
     setPicked(null);
-    setConfirmLogout(false);
     setLoggedOut(true);
   };
 
@@ -782,7 +784,7 @@ export default function ScoutHome() {
       className="flex min-h-dvh flex-col bg-background text-foreground"
     >
       {/* Sticky app bar: identity + icon nav stay put while the match list
-          scrolls, like a native app shell. Home/My Data/Log out collapse to
+          scrolls, like a native app shell. Home/My Data/Change scouter collapse to
           icon-only buttons on phones (labels return ≥ sm) so the top never
           staircases into a wrapping mess. */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
@@ -798,7 +800,14 @@ export default function ScoutHome() {
               </h1>
             </div>
           </div>
-          <nav className="flex shrink-0 items-center gap-1.5">
+          <details className="relative shrink-0">
+            <summary
+              aria-label="Open menu"
+              className="flex size-12 cursor-pointer list-none items-center justify-center rounded-xl border border-border transition-colors hover:bg-accent [&::-webkit-details-marker]:hidden"
+            >
+              <Menu aria-hidden="true" className="size-6" />
+            </summary>
+          <nav aria-label="Scout navigation" className="absolute right-0 top-full z-30 mt-2 flex w-56 flex-col items-stretch gap-2 rounded-xl border border-border bg-background p-3 shadow-xl">
             <Link
               key="home"
               data-testid="nav-home"
@@ -807,7 +816,7 @@ export default function ScoutHome() {
               className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
             >
               <Home className="size-5 shrink-0" />
-              <span className="hidden sm:inline">Home</span>
+              <span >Home</span>
             </Link>
             <Link
               key="my-data"
@@ -817,51 +826,26 @@ export default function ScoutHome() {
               className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
             >
               <BarChart3 className="size-5 shrink-0" />
-              <span className="hidden sm:inline">My Data</span>
+              <span >My Data</span>
             </Link>
             <Button
               data-testid="scout-logout"
               variant="outline"
-              aria-label={`Log out ${effective.display_name || ''}`.trim()}
+              aria-label={`Change scouter ${effective.display_name || ''}`.trim()}
               className="min-h-[44px] min-w-[44px] rounded-xl px-3"
-              onClick={() => setConfirmLogout(true)}
+              onClick={logOut}
             >
               <LogOut className="size-5 shrink-0" />
-              <span className="hidden sm:inline">Log out</span>
+              <span >Change scouter</span>
             </Button>
           </nav>
+          </details>
         </div>
 
-        {/* Two-step logout confirm: a full-width destructive bar so it can't be
-            fat-fingered, naming who's being logged out. */}
-        {confirmLogout ? (
-          <div className="mt-3 flex flex-col gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-medium">
-              Log out{effective.display_name ? ` ${effective.display_name}` : ''}?
-            </span>
-            <div className="flex gap-2">
-              <Button
-                data-testid="scout-logout-confirm"
-                variant="destructive"
-                className="min-h-[44px] flex-1 sm:flex-none"
-                onClick={logOut}
-              >
-                Log out
-              </Button>
-              <Button
-                data-testid="scout-logout-cancel"
-                variant="ghost"
-                className="min-h-[44px] flex-1 sm:flex-none"
-                onClick={() => setConfirmLogout(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : null}
       </header>
 
-      <main className="flex flex-1 flex-col gap-5 px-safe pb-safe pt-4">
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 px-safe pb-safe pt-4">
+        {savedNotice && <p role="status" className="rounded-xl bg-success/10 p-3 text-sm text-success">Saved on this device. You can start your next match.</p>}
         {/* Status strip: ONE thin line — sync state (tap for details) on the
             left, offline-cache + sync actions as icon buttons on the right. The
             match list is the star of this screen; passive status doesn't get to
@@ -876,7 +860,7 @@ export default function ScoutHome() {
           />
         </div>
 
-        <InstallPrompt />
+
 
         <SegmentedToggle<ScoutMode>
           ariaLabel="Scouting mode"
@@ -908,14 +892,54 @@ export default function ScoutHome() {
               completedKeys={completedKeys}
             />
 
-            <section
+            {/* Only surfaced when there IS something to resume — an always-on
+                "No drafts." row was dead space on every visit. */}
+            {drafts.length > 0 ? (
+              <section>
+                <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
+                  <History className="size-5 shrink-0 text-warning" /> Resume drafts
+                </h2>
+                <ul className="flex flex-col gap-2">
+                  {drafts.map((d) => (
+                    <li key={d.draftKey}>
+                      <Button
+                        data-testid={`scout-resume-${d.draftKey}`}
+                        variant="outline"
+                        className="min-h-[52px] w-full justify-start gap-2 rounded-xl border-warning/40 text-sm text-warning"
+                        onClick={() => {
+                          const stored = (d.state as { target?: CaptureTarget } | null)?.target;
+                          if (stored) {
+                            setActive(stored);
+                            return;
+                          }
+                          const [dMatch, dScout, dTeam] = d.draftKey.split(':');
+                          setActive({
+                            eventKey,
+                            matchKey: dMatch,
+                            scoutId: dScout || scoutId,
+                            scoutName: effective.display_name,
+                            targetTeamNumber: Number(dTeam),
+                            allianceColor: alliance,
+                            station,
+                          });
+                        }}
+                      >
+                        {draftTitle(d)}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            <details
               data-testid="scout-manual-pick"
               className="rounded-2xl border border-border bg-card p-4"
             >
-              <div className="mb-1 flex items-center gap-2">
-                <Crosshair className="size-5 shrink-0 text-brand" />
-                <h2 className="text-lg font-semibold">Manual pick</h2>
-              </div>
+              <summary className="min-h-12 cursor-pointer content-center text-base font-semibold">
+                <Crosshair className="mr-2 inline size-5 text-brand" />
+                Scout another match
+              </summary>
               <p className="mb-3 text-sm text-muted-foreground">
                 Not on your schedule? Enter the match and team — alliance and
                 station are looked up from the match schedule.
@@ -1010,57 +1034,21 @@ export default function ScoutHome() {
                 disabled={!matchKey || !team || !scoutId}
                 onClick={startManual}
               >
-                Start capture
+                Start scouting
               </Button>
-            </section>
+            </details>
 
-            {/* Only surfaced when there IS something to resume — an always-on
-                "No drafts." row was dead space on every visit. */}
-            {drafts.length > 0 ? (
-              <section>
-                <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
-                  <History className="size-5 shrink-0 text-warning" /> Resume drafts
-                </h2>
-                <ul className="flex flex-col gap-2">
-                  {drafts.map((d) => (
-                    <li key={d.draftKey}>
-                      <Button
-                        data-testid={`scout-resume-${d.draftKey}`}
-                        variant="outline"
-                        className="min-h-[52px] w-full justify-start gap-2 rounded-xl border-warning/40 text-sm text-warning"
-                        onClick={() => {
-                          const stored = (d.state as { target?: CaptureTarget } | null)?.target;
-                          if (stored) {
-                            setActive(stored);
-                            return;
-                          }
-                          const [dMatch, dScout, dTeam] = d.draftKey.split(':');
-                          setActive({
-                            eventKey,
-                            matchKey: dMatch,
-                            scoutId: dScout || scoutId,
-                            scoutName: effective.display_name,
-                            targetTeamNumber: Number(dTeam),
-                            allianceColor: alliance,
-                            station,
-                          });
-                        }}
-                      >
-                        {draftTitle(d)}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+
           </>
         )}
 
         {/* Transfer & backup toolbox: QR hand-off + file export grouped in one
             labeled zone at the end of the flow, instead of QR links floating at
             the top and a lone export button at the bottom. */}
-        <section className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
-          <h2 className="eyebrow">No wifi? Move your data</h2>
+        <details className="mt-auto rounded-2xl border border-border p-4">
+          <summary className="min-h-12 cursor-pointer content-center font-semibold">Transfer & backup</summary>
+          <InstallPrompt />
+          <p className="mb-3 text-sm text-muted-foreground">No wifi? Send saved reports to another device using QR.</p>
           <div className="grid grid-cols-2 gap-2">
             <Link
               data-testid="nav-qr-send"
@@ -1084,7 +1072,7 @@ export default function ScoutHome() {
           >
             <FileDown className="size-4 shrink-0" /> Export unsynced
           </Button>
-        </section>
+        </details>
       </main>
     </div>
   );

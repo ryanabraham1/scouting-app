@@ -65,7 +65,7 @@ function Host(props: { onSaved: (id: string) => void }) {
 }
 
 async function goToAutoStep() {
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < 1; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await act(async () => {
       fireEvent.click(screen.getByTestId('review-next'));

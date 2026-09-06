@@ -100,6 +100,12 @@ export function useCoachTarget(
       setBox(null);
       return;
     }
+    // Reveal optional form groups before pointing the learner at their control.
+    let ancestor = target.parentElement;
+    while (ancestor) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+      ancestor = ancestor.parentElement;
+    }
     let animationFrame = 0;
     const measure = (): void => {
       cancelAnimationFrame(animationFrame);

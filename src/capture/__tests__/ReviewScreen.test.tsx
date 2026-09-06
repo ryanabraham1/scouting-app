@@ -38,7 +38,7 @@ beforeEach(async () => {
 // `goToFinalStep` clicks Next until the SAVE step is reached.
 async function goToFinalStep() {
   // 4 Next clicks: step 1 -> 2 -> 3 -> 4 -> 5.
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 2; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await act(async () => {
       fireEvent.click(screen.getByTestId('review-next'));
@@ -80,7 +80,7 @@ describe('ReviewScreen', () => {
       fireEvent.click(screen.getByTestId('review-next'));
     });
     // Step 2 shows defense fields, not climb.
-    expect(screen.getByTestId('review-defense-seconds')).toBeTruthy();
+    expect(screen.getByTestId('review-field-path')).toBeTruthy();
     expect(screen.queryByTestId('review-climb')).toBeNull();
 
     await act(async () => {
@@ -94,9 +94,7 @@ describe('ReviewScreen', () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('review-next'));
-    });
+
 
     const defenseRating = screen.getByLabelText('Defense quality') as HTMLInputElement;
     expect(defenseRating).toBe(screen.getByTestId('review-defense-rating'));
@@ -141,7 +139,7 @@ describe('ReviewScreen', () => {
       });
     });
 
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       await act(async () => {
         fireEvent.click(screen.getByTestId('review-next'));
@@ -203,13 +201,6 @@ describe('ReviewScreen', () => {
       fireEvent.click(screen.getByTestId('review-foul-reason-opponent_contact'));
     });
 
-    // Finish (2 more Next clicks) and save.
-    for (let i = 0; i < 2; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('review-next'));
-      });
-    }
     await act(async () => {
       fireEvent.click(screen.getByTestId('review-save'));
     });
@@ -224,7 +215,7 @@ describe('ReviewScreen', () => {
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);
 
     // Advance to the Auto step (step 4 = 3 Next clicks).
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 1; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       await act(async () => {
         fireEvent.click(screen.getByTestId('review-next'));

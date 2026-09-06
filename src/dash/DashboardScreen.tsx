@@ -144,14 +144,16 @@ export default function DashboardScreen(): JSX.Element {
   return (
     <div
       data-testid="dashboard"
-      className="flex min-h-screen flex-col gap-4 bg-background px-safe py-safe text-foreground"
+      className="flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4"
     >
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <BackLink to="/" label="Home" icon="home" />
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <h1 className="truncate text-xl font-bold sm:text-2xl">Dashboard</h1>
         </div>
-        <span className="font-mono text-sm text-muted-foreground">{eventKey ?? '—'}</span>
+        <span className="max-w-[7rem] shrink-0 truncate font-mono text-xs text-muted-foreground sm:max-w-none sm:text-sm">
+          {eventKey ?? '—'}
+        </span>
       </header>
 
       <IconTabs<Tab>
@@ -194,7 +196,7 @@ export default function DashboardScreen(): JSX.Element {
             No active event. Set one in the Setup tab.
           </p>
         ) : (
-          <section className="flex-1">
+          <section className="min-w-0 flex-1">
             {tab === 'next' && <NextMatchView eventKey={eventKey} />}
             {tab === 'strategy' && <StrategyView eventKey={eventKey} />}
             {tab === 'team' && (

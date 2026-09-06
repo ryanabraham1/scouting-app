@@ -112,22 +112,6 @@ function sortEnriched(a: EnrichedAssignment, b: EnrichedAssignment): number {
   return af.num - bf.num;
 }
 
-function TeamChip(props: { team: number | null; color: 'red' | 'blue'; highlight: boolean }) {
-  if (props.team == null) return <span className="text-muted-foreground">—</span>;
-  return (
-    <span
-      data-testid={props.highlight ? 'scout-upcoming-target' : undefined}
-      className={cn(
-        'rounded px-1.5 py-0.5 font-mono text-xs',
-        props.color === 'red' ? 'bg-red-500/15 text-red-300' : 'bg-blue-500/15 text-blue-300',
-        props.highlight && 'ring-2 ring-yellow-400 font-bold',
-      )}
-    >
-      {props.team}
-    </span>
-  );
-}
-
 export interface UpcomingMatchesProps {
   eventKey: string;
   /** The scout's assignments — the matches they actually have to scout. */
@@ -265,6 +249,7 @@ export function UpcomingMatches({
     (e) =>
       !done.has(assignmentKey(e.assignment)) && e.match != null && !isUpcoming(e.match),
   );
+  const [expanded, setExpanded] = useState(false);
   const shown = view === 'done' ? doneList : view === 'missed' ? missedList : todoList;
   const hasAny = todoList.length > 0 || doneList.length > 0 || missedList.length > 0;
 
@@ -284,11 +269,19 @@ export function UpcomingMatches({
           <OnDeckAlert result={onDeck} onStart={onStart} />
         </div>
       ) : null}
+      {view === 'todo' && todoList[0] && !onDeck ? (
+        <div className="mb-4 rounded-2xl border border-brand/40 bg-card p-4">
+          <p className="text-sm font-medium text-muted-foreground">Your next match · {matchLabelFromKey(todoList[0].assignment.match_key)}</p>
+          <h2 className="mt-2 text-3xl font-bold">Team {todoList[0].assignment.target_team_number}</h2>
+          <p className="mt-1 text-base capitalize">{todoList[0].assignment.alliance_color} alliance · Station {todoList[0].assignment.station}</p>
+          <Button className="mt-4 w-full" variant="brand" size="big" onClick={() => onStart(todoList[0].assignment)}>Start scouting</Button>
+        </div>
+      ) : null}
       {/* Title on its own line, filter tabs full-width below — side-by-side the
           three counted tabs wrapped into a ragged second line on phones. */}
       <div className="mb-3 flex flex-col gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <CalendarClock className="size-5 text-brand" /> Your matches to scout
+          <CalendarClock className="size-5 text-brand" /> Your schedule
         </h2>
         {hasAny ? (
           <SegmentedToggle<'todo' | 'done' | 'missed'>
@@ -316,7 +309,7 @@ export function UpcomingMatches({
         <p className="text-sm text-muted-foreground">Loading matches…</p>
       ) : !hasAny ? (
         <p className="text-sm text-muted-foreground">
-          No matches assigned to you. Use Manual pick below if you need to scout one.
+          No matches assigned to you. Open “Scout another match” below if you need to scout one.
         </p>
       ) : shown.length === 0 ? (
         <p
@@ -336,7 +329,7 @@ export function UpcomingMatches({
         </p>
       ) : (
         <ul className="flex flex-col gap-2 landscape:grid landscape:grid-cols-2">
-          {shown.map(({ assignment: a, match: m }) => {
+          {(expanded || view !== 'todo' ? shown : shown.slice(0, 3)).map(({ assignment: a }) => {
             const isDone = view === 'done';
             const isMissed = view === 'missed';
             // Live (queuing/on-field) affordance only matters for the upcoming feed.
@@ -400,31 +393,6 @@ export function UpcomingMatches({
                     </span>
                   </span>
                 </div>
-                {m ? (
-                  <div className="flex items-center gap-2">
-                    <div className="flex flex-1 flex-wrap gap-1">
-                      {[m.red1, m.red2, m.red3].map((t, i) => (
-                        <TeamChip
-                          key={`r${i}`}
-                          team={t}
-                          color="red"
-                          highlight={t != null && t === a.target_team_number}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-xs text-muted-foreground">vs</span>
-                    <div className="flex flex-1 flex-wrap justify-end gap-1">
-                      {[m.blue1, m.blue2, m.blue3].map((t, i) => (
-                        <TeamChip
-                          key={`b${i}`}
-                          team={t}
-                          color="blue"
-                          highlight={t != null && t === a.target_team_number}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
                 {isDone ? (
                   <span className="text-xs font-medium text-success">
                     Tap to review or re-scout
@@ -435,6 +403,11 @@ export function UpcomingMatches({
             );
           })}
         </ul>
+      )}
+      {view === 'todo' && shown.length > 3 && (
+        <Button variant="ghost" className="mt-2 min-h-12 w-full" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show fewer matches' : `Show all ${shown.length} matches`}
+        </Button>
       )}
     </section>
   );

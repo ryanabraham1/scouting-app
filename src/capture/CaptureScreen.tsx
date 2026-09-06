@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, Plane, MoveUpRight, Lock, ChevronRight, MapPin, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, Plane, MoveUpRight, MapPin, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import {
@@ -101,201 +101,19 @@ export type CaptureObservedAction =
   | 'reanchored'
   | 'to_review';
 
-// Distance the pointer must travel RIGHT (from its press X) to latch a lock.
-export const LOCK_SLIDE_PX = 64;
-
-/**
- * Pure lock decision: did the pointer slide RIGHT from its press X by at least
- * `threshold` px? Exported + pure so the gesture math is unit-testable without a
- * real pointer (jsdom synthetic PointerEvents don't carry clientX).
- */
-export function shouldLock(
-  startX: number,
-  clientX: number,
-  threshold: number = LOCK_SLIDE_PX,
-): boolean {
-  if (!Number.isFinite(startX) || !Number.isFinite(clientX)) return false;
-  return clientX - startX >= threshold;
-}
-
-/**
- * Whole-button HOLD-SLIDE-LOCK control. The entire button is the control:
- *  - press & hold        → activate + start timing
- *  - slide right ≥ thresh → latch locked (stays active after release)
- *  - release (not locked) → commit interval (deactivate)
- *  - tap while locked     → commit interval (deactivate)
- *
- * `active` / `locked` are owned by the parent (so the underlying session interval
- * recording is unchanged); this component only translates the pointer gesture
- * into begin/commit/lock calls.
- */
-// The two timers get distinct color identities so they never look alike, while
-// keeping the original hold→slide→lock vibe: hold on one hue, and a subtle
-// translucent wash of the LOCK hue grows from the left as you slide, previewing
-// where the lock lands. Playing defense = green → amber (calm, mirrors the old
-// green→warm feel); getting defended = indigo → red (its own hue, red = "under
-// threat"). No bright edge / glow — the fill stays understated.
-type DefenseTone = 'defense' | 'defended';
-const DEFENSE_TONE: Record<DefenseTone, { active: string; locked: string; slide: string }> = {
-  defense: {
-    active: 'bg-emerald-600 text-white hover:bg-emerald-600',
-    locked: 'bg-amber-500 text-neutral-900 hover:bg-amber-500',
-    slide: 'bg-amber-400/40',
-  },
-  defended: {
-    active: 'bg-indigo-600 text-white hover:bg-indigo-600',
-    locked: 'bg-rose-500 text-white hover:bg-rose-500',
-    slide: 'bg-rose-400/40',
-  },
-};
-
-function HoldSlideLockButton(props: {
-  testid: string;
-  label: string;
-  icon: JSX.Element;
-  tone: DefenseTone;
-  active: boolean;
-  locked: boolean;
-  timerText: string;
-  /** begin the interval (no-op if already running) */
-  onBegin: () => void;
-  /** commit + deactivate the interval */
-  onCommit: () => void;
-  /** latch locked-on */
-  onLock: () => void;
+/** Tap toggles the interval; native click also supports keyboard activation. */
+function DefenseTimerButton(props: {
+  testid: string; label: string; icon: JSX.Element; tone: 'defense' | 'defended';
+  active: boolean; timerText: string; onBegin: () => void; onCommit: () => void;
 }): JSX.Element {
-  const { testid, label, icon, tone, active, locked, timerText, onBegin, onCommit, onLock } = props;
-  const toneCls = DEFENSE_TONE[tone];
-  // startX must survive re-renders (onBegin flips parent state → this re-renders;
-  // a useState start would reset to its initial value and the dx math would zero
-  // out). A ref is the correct home for the gesture's anchor X.
-  const startXRef = useRef<number | null>(null);
-  // Did THIS gesture cross the lock threshold? Checked BEFORE the `locked` branch
-  // in onPointerEnd so a gesture that just latched lock stays active on release
-  // (the previous code hit `if (locked) onCommit()` first and tore it down).
-  const slidLockedRef = useRef(false);
-  // Was the control already locked when this gesture STARTED? Captured on
-  // pointerdown so the release decision doesn't depend on the (possibly stale or
-  // mid-gesture-mutated) `locked` prop closure.
-  const wasLockedAtDownRef = useRef(false);
-  const pointerIdRef = useRef<number | null>(null);
-  const [slideProgress, setSlideProgress] = useState(0); // 0..1 toward lock
-
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      // setPointerCapture keeps pointermove flowing even after the finger slides
-      // off the button edge; without it the move events stop and lock never
-      // latches. It throws for inactive/synthetic pointer ids, so guard it.
-      try {
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-      } catch {
-        /* ignore — proceed without pointer capture */
-      }
-      pointerIdRef.current = e.pointerId;
-      startXRef.current = Number.isFinite(e.clientX) ? e.clientX : 0;
-      slidLockedRef.current = false;
-      wasLockedAtDownRef.current = locked;
-      if (locked) {
-        // Tap while locked → commit on release; nothing to begin on down.
-        return;
-      }
-      onBegin();
-    },
-    [locked, onBegin],
-  );
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      // Ignore moves when no gesture is down or the control was already locked at
-      // press (those gestures are "tap to unlock", not slide).
-      if (startXRef.current === null || wasLockedAtDownRef.current) return;
-      const dx =
-        (Number.isFinite(e.clientX) ? e.clientX : startXRef.current) - startXRef.current;
-      setSlideProgress(Math.max(0, Math.min(1, dx / LOCK_SLIDE_PX)));
-      if (!slidLockedRef.current && shouldLock(startXRef.current, e.clientX)) {
-        slidLockedRef.current = true;
-        onLock();
-      }
-    },
-    [onLock],
-  );
-
-  const onPointerEnd = useCallback(() => {
-    const wasDown = startXRef.current !== null;
-    startXRef.current = null;
-    pointerIdRef.current = null;
-    setSlideProgress(0);
-    if (!wasDown) return;
-    // ORDER MATTERS: a gesture that latched lock THIS time must keep running —
-    // check it before the already-locked (tap-to-unlock) branch.
-    if (slidLockedRef.current) {
-      slidLockedRef.current = false;
-      return; // just latched locked this gesture; stay active with no held finger
-    }
-    if (wasLockedAtDownRef.current) {
-      // Tap while already locked → commit + deactivate.
-      onCommit();
-      return;
-    }
-    onCommit(); // plain hold-release → commit interval
-  }, [onCommit]);
-
   return (
-    <Button
-      data-testid={testid}
-      data-active={active ? 'true' : 'false'}
-      data-locked={locked ? 'true' : 'false'}
-      aria-pressed={active}
-      variant={active ? 'default' : 'secondary'}
-      size="xl"
-      className={`relative h-full w-full touch-none select-none flex-col gap-0.5 overflow-hidden rounded-2xl px-2 text-base ${
-        locked ? toneCls.locked : active ? toneCls.active : ''
-      }`}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerEnd}
-      onPointerCancel={onPointerEnd}
-      onLostPointerCapture={onPointerEnd}
-      onKeyDown={(event) => {
-        if ((event.key !== ' ' && event.key !== 'Enter') || event.repeat) return;
-        event.preventDefault();
-        wasLockedAtDownRef.current = locked;
-        startXRef.current = 0;
-        if (!locked) onBegin();
-      }}
-      onKeyUp={(event) => {
-        if (event.key !== ' ' && event.key !== 'Enter') return;
-        event.preventDefault();
-        onPointerEnd();
-      }}
-    >
-      {/* slide-to-lock progress track (only while holding, unlocked) */}
-      {active && !locked && (
-        <div
-          data-testid={`${testid}-slide`}
-          className={`pointer-events-none absolute inset-y-0 left-0 ${toneCls.slide}`}
-          style={{ width: `${slideProgress * 100}%` }}
-        />
-      )}
-      <span className="relative z-10 flex flex-wrap items-center justify-center gap-1.5 text-center text-sm font-semibold leading-tight sm:text-base">
-        {locked ? <Lock className="size-5 shrink-0" /> : icon} {label}
-      </span>
-      <span data-testid={`${testid}-timer`} className="relative z-10 text-base tabular-nums">
-        {timerText}
-      </span>
-      <span className="relative z-10 flex items-center gap-1 text-sm font-medium">
-        {locked ? (
-          <>
-            <Lock className="size-4" /> LOCKED · tap to stop
-          </>
-        ) : active ? (
-          <>
-            slide to lock <ChevronRight className="size-4" />
-          </>
-        ) : (
-          'hold'
-        )}
-      </span>
+    <Button data-testid={props.testid} data-active={String(props.active)}
+      aria-pressed={props.active} size="xl" variant="secondary"
+      className={`h-full min-h-24 w-full touch-manipulation flex-col gap-1 rounded-2xl px-2 text-base ${props.active ? (props.tone === 'defense' ? 'bg-emerald-600 text-white hover:bg-emerald-600' : 'bg-indigo-600 text-white hover:bg-indigo-600') : ''}`}
+      onClick={props.active ? props.onCommit : props.onBegin}>
+      <span className="flex items-center gap-1 text-sm">{props.icon} {props.label}</span>
+      <span data-testid={`${props.testid}-timer`} className="font-mono text-xl tabular-nums">{props.timerText}</span>
+      <span className="text-sm">{props.active ? 'Running · Tap to stop' : 'Tap to start'}</span>
     </Button>
   );
 }
@@ -335,8 +153,6 @@ export function CaptureScreen(props: {
   // light interval tick below.
   const defenseStartRef = useRef<number | null>(null);
   const defendedStartRef = useRef<number | null>(null);
-  const [defenseLocked, setDefenseLocked] = useState(false);
-  const [defendedLocked, setDefendedLocked] = useState(false);
   const [defenseActive, setDefenseActive] = useState(false);
   const [defendedActive, setDefendedActive] = useState(false);
   const [, setTick] = useState(0);
@@ -383,7 +199,6 @@ export function CaptureScreen(props: {
   // Commit the in-progress interval and clear active + locked state.
   const commitDefense = () => {
     const start = defenseStartRef.current;
-    setDefenseLocked(false);
     if (start === null) {
       setDefenseActive(false);
       return;
@@ -397,13 +212,6 @@ export function CaptureScreen(props: {
     props.onAction?.('defense_stopped');
     buzz(20);
   };
-  // Latch locked-on (interval already begun on press).
-  const lockDefense = () => {
-    setDefenseLocked(true);
-    props.onAction?.('defense_locked');
-    buzz(20);
-  };
-
   // ---- Defended (getting defended) ----
   const beginDefended = () => {
     if (defendedStartRef.current !== null) return;
@@ -415,7 +223,6 @@ export function CaptureScreen(props: {
   };
   const commitDefended = () => {
     const start = defendedStartRef.current;
-    setDefendedLocked(false);
     if (start === null) {
       setDefendedActive(false);
       return;
@@ -429,12 +236,6 @@ export function CaptureScreen(props: {
     props.onAction?.('defended_stopped');
     buzz(20);
   };
-  const lockDefended = () => {
-    setDefendedLocked(true);
-    props.onAction?.('defended_locked');
-    buzz(20);
-  };
-
   // Live displayed durations: committed total (owned by the session) + the
   // in-progress interval measured from the LOCAL start ref.
   const liveDefenseMs =
@@ -588,8 +389,8 @@ export function CaptureScreen(props: {
         data-testid="capture-go-interstitial"
         className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-6 text-foreground"
       >
-        <p className="text-xl font-semibold">Was your HUB inactive first?</p>
-        <div className="flex w-full max-w-lg gap-4">
+        <p className="text-xl font-semibold">Which hub state came first?</p>
+        <div className="flex w-full max-w-lg flex-col gap-4">
           <Button
             data-testid="capture-inactive-yes"
             size="big"
@@ -691,6 +492,10 @@ export function CaptureScreen(props: {
 
   return (
     <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
+      <div className="flex shrink-0 items-center justify-between gap-2 text-sm">
+        <strong>Team {s.targetTeamNumber}</strong>
+        <span className={s.allianceColor === 'red' ? 'text-red-300' : 'text-blue-300'}>{s.allianceColor === 'red' ? 'Red' : 'Blue'} · Station {s.station}</span>
+      </div>
       {/* Keep navigation/correction in the top chrome so the bottom remains a
           single, unambiguous forward action. Equal side columns keep the clock
           centered when Undo appears or disappears. */}
@@ -713,7 +518,7 @@ export function CaptureScreen(props: {
               data-testid="capture-undo"
               variant="outline"
               size="icon"
-              className="size-11 shrink-0 border-warning/50 bg-warning/5 text-warning hover:bg-warning/10"
+              className="h-11 w-auto shrink-0 px-2 border-warning/50 bg-warning/5 text-warning hover:bg-warning/10"
               aria-label={`Undo last action: ${latestUndoLabel}`}
               title={`Undo ${latestUndoLabel}`}
               onClick={() => {
@@ -722,7 +527,7 @@ export function CaptureScreen(props: {
                 buzz();
               }}
             >
-              <Undo2 className="size-5" />
+              <Undo2 className="size-5" /> Undo
             </Button>
           )}
           {props.onExit && (
@@ -765,12 +570,10 @@ export function CaptureScreen(props: {
               {fuelCount}
             </span>
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span className="truncate text-sm text-muted-foreground">
                 fuel scored
               </span>
-              <span className="text-[11px] text-muted-foreground tabular-nums">
-                <span className="font-semibold text-success">{s.committedFuelCount}</span> banked
-              </span>
+
             </div>
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-brand/30 bg-brand/10 px-3 py-1.5">
@@ -781,12 +584,10 @@ export function CaptureScreen(props: {
               {s.liveFeedingCount}
             </span>
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span className="truncate text-sm text-muted-foreground">
                 fed
               </span>
-              <span className="text-[11px] text-muted-foreground tabular-nums">
-                <span className="font-semibold text-success">{s.committedFeedingCount}</span> banked
-              </span>
+
             </div>
           </div>
         </div>
@@ -794,7 +595,7 @@ export function CaptureScreen(props: {
         {/* Phase-scoped primary action */}
         {phase === 'idle' && (
           <Button data-testid="capture-start" size="xl" className="h-12 shrink-0 rounded-2xl text-xl" onClick={() => { s.clock.startAuto(); props.onAction?.('match_started'); buzz(25); }}>
-            <Play /> START
+            <Play /> Start match
           </Button>
         )}
         {(phase === 'auto' || phase === 'pause') && (
@@ -809,8 +610,8 @@ export function CaptureScreen(props: {
             }`}
             aria-label={
               autoEndedAwaitingGo
-                ? 'GO to Teleop — Auto ended'
-                : 'GO to Teleop'
+                ? 'Start teleop — Auto ended'
+                : 'Start teleop'
             }
             onClick={() => {
               // Commit any in-flight slider hold NOW: the interstitial swap
@@ -824,7 +625,7 @@ export function CaptureScreen(props: {
             }}
           >
             <FastForward />
-            {autoEndedAwaitingGo ? 'GO · TELEOP READY' : 'GO (Teleop)'}
+            {autoEndedAwaitingGo ? 'Start teleop · Ready' : 'Start teleop'}
           </Button>
         )}
         {phase === 'teleop' && (
@@ -836,31 +637,27 @@ export function CaptureScreen(props: {
         {/* Defense / Getting-defended: whole-button HOLD-SLIDE-LOCK pair */}
         <div className="flex min-h-[88px] flex-1 items-stretch gap-2">
           <div className="min-w-0 flex-1">
-            <HoldSlideLockButton
+            <DefenseTimerButton
               testid="capture-defense"
               label="Playing defense"
               icon={<Shield className="size-5" />}
               tone="defense"
               active={defenseActive}
-              locked={defenseLocked}
               timerText={secs(liveDefenseMs)}
               onBegin={beginDefense}
               onCommit={commitDefense}
-              onLock={lockDefense}
             />
           </div>
           <div className="min-w-0 flex-1">
-            <HoldSlideLockButton
+            <DefenseTimerButton
               testid="capture-defended"
               label="Getting defended"
               icon={<ShieldAlert className="size-5" />}
               tone="defended"
               active={defendedActive}
-              locked={defendedLocked}
               timerText={secs(liveDefendedMs)}
               onBegin={beginDefended}
               onCommit={commitDefended}
-              onLock={lockDefended}
             />
           </div>
         </div>

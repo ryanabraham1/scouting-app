@@ -5,10 +5,9 @@ import {
   screen,
   fireEvent,
   waitFor,
-  createEvent,
   cleanup,
 } from '@testing-library/react';
-import { CaptureScreen, shouldLock, LOCK_SLIDE_PX } from '@/capture/CaptureScreen';
+import { CaptureScreen } from '@/capture/CaptureScreen';
 import {
   flushCaptureSessionWritesForTests,
   useCaptureSession,
@@ -87,18 +86,7 @@ function submitPlacement() {
 
 // jsdom's synthetic PointerEvents DROP clientX (even when passed to fireEvent),
 // which is exactly why the slide-to-lock gesture could never be DOM-tested before.
-// Construct a native pointer event and force a clientX getter so the React
-// handler actually receives coordinates — this lets us drive a real slide.
-function pointerEventWithX(
-  el: Element,
-  type: 'pointerDown' | 'pointerMove' | 'pointerUp',
-  clientX: number,
-  pointerId = 1,
-) {
-  const ev = createEvent[type](el, { pointerId });
-  Object.defineProperty(ev, 'clientX', { get: () => clientX });
-  fireEvent(el, ev);
-}
+
 
 // Reach the live in-match teleop screen with all controls visible.
 function enterLiveMatch() {
@@ -198,8 +186,8 @@ describe('CaptureScreen top undo control', () => {
     fireEvent.click(screen.getByTestId('capture-foul'));
     const undoFoul = screen.getByTestId('capture-undo');
     expect(undoFoul.closest('header')).toBeTruthy();
-    expect(undoFoul.textContent).toBe('');
-    expect(undoFoul.className).toContain('size-11');
+    expect(undoFoul.textContent).toContain('Undo');
+    expect(undoFoul.className).toContain('h-11');
     expect(undoFoul.getAttribute('aria-label')).toBe('Undo last action: foul');
     expect(undoFoul.getAttribute('title')).toBe('Undo foul');
 
@@ -288,8 +276,8 @@ describe('CaptureScreen Teleop-ready signal', () => {
     expect(go.getAttribute('data-auto-ended')).toBe('false');
     expect(go.className).toContain('bg-energy');
     expect(go.className).not.toContain('bg-success');
-    expect(go.textContent).toMatch(/GO \(Teleop\)/i);
-    expect(go.getAttribute('aria-label')).toBe('GO to Teleop');
+    expect(go.textContent).toMatch(/Start teleop/i);
+    expect(go.getAttribute('aria-label')).toBe('Start teleop');
 
     rerender(<TimedHost nowMs={AUTO_MS} />);
     await waitFor(() => {
@@ -298,8 +286,8 @@ describe('CaptureScreen Teleop-ready signal', () => {
     go = screen.getByTestId('capture-go');
     expect(go.getAttribute('data-auto-ended')).toBe('true');
     expect(go.className).toContain('bg-success');
-    expect(go.textContent).toMatch(/Teleop ready/i);
-    expect(go.getAttribute('aria-label')).toBe('GO to Teleop — Auto ended');
+    expect(go.textContent).toMatch(/Start teleop/i);
+    expect(go.getAttribute('aria-label')).toBe('Start teleop — Auto ended');
 
     rerender(<TimedHost nowMs={AUTO_MS + 1} />);
     go = screen.getByTestId('capture-go');
@@ -314,78 +302,24 @@ describe('CaptureScreen Teleop-ready signal', () => {
   });
 });
 
-describe('CaptureScreen defense hold-slide-lock', () => {
-  it('plain hold→release activates while held and commits (deactivates) on release', async () => {
+describe('CaptureScreen defense tap timers', () => {
+  it.each(['capture-defense', 'capture-defended'])('toggles %s with two taps and supports undo', async (testid) => {
     render(<Host />);
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
     fireEvent.click(screen.getByTestId('capture-inactive-no'));
-    const btn = await screen.findByTestId('capture-defense');
-    // Press & hold → active.
-    pointerEventWithX(btn, 'pointerDown', 10);
-    await waitFor(() => {
-      expect(btn.getAttribute('data-active')).toBe('true');
-      expect(btn.getAttribute('data-locked')).toBe('false');
-    });
-    // Release without sliding → commit + deactivate, not locked.
-    pointerEventWithX(btn, 'pointerUp', 10);
-    // JSDOM does not consistently model pointer-capture release under full-suite
-    // load; browsers deliver lostpointercapture as the release fallback.
-    fireEvent.lostPointerCapture(btn, { pointerId: 1 });
-    await waitFor(() => {
-      expect(btn.getAttribute('data-active')).toBe('false');
-      expect(btn.getAttribute('data-locked')).toBe('false');
-    });
-  });
-
-  it('slide-right past the threshold LATCHES locked and STAYS active after release', async () => {
-    render(<Host />);
-    enterLiveMatch();
-    const btn = await screen.findByTestId('capture-defense');
-
-    // Press at x=10 → active, not locked.
-    pointerEventWithX(btn, 'pointerDown', 10);
-    await waitFor(() => {
-      expect(btn.getAttribute('data-active')).toBe('true');
-      expect(btn.getAttribute('data-locked')).toBe('false');
-    });
-
-    // Slide right by exactly the lock threshold → latches locked.
-    pointerEventWithX(btn, 'pointerMove', 10 + LOCK_SLIDE_PX);
-    await waitFor(() => {
-      expect(btn.getAttribute('data-locked')).toBe('true');
-    });
-
-    // Release while locked-this-gesture → must STAY active (the bug was that it
-    // tore down on release because the locked branch ran before the latch check).
-    pointerEventWithX(btn, 'pointerUp', 10 + LOCK_SLIDE_PX);
-    await waitFor(() => {
-      expect(btn.getAttribute('data-active')).toBe('true');
-      expect(btn.getAttribute('data-locked')).toBe('true');
-    });
-
-    // Tapping again while locked commits + deactivates.
-    pointerEventWithX(btn, 'pointerDown', 10);
-    pointerEventWithX(btn, 'pointerUp', 10);
-    await waitFor(() => {
-      expect(btn.getAttribute('data-active')).toBe('false');
-      expect(btn.getAttribute('data-locked')).toBe('false');
-    });
-  });
-
-  it('does NOT lock on a tiny slide below the threshold (plain hold)', async () => {
-    render(<Host />);
-    enterLiveMatch();
-    const btn = await screen.findByTestId('capture-defense');
-    pointerEventWithX(btn, 'pointerDown', 10);
-    pointerEventWithX(btn, 'pointerMove', 10 + LOCK_SLIDE_PX - 1);
-    expect(btn.getAttribute('data-locked')).toBe('false');
-    pointerEventWithX(btn, 'pointerUp', 10 + LOCK_SLIDE_PX - 1);
-    await waitFor(() => {
-      expect(btn.getAttribute('data-active')).toBe('false');
-      expect(btn.getAttribute('data-locked')).toBe('false');
-    });
+    const button = screen.getByTestId(testid);
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(button).toHaveTextContent('Running · Tap to stop');
+    fireEvent.pointerUp(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('capture-undo')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('capture-undo'));
+    expect(screen.queryByTestId('capture-undo')).not.toBeInTheDocument();
   });
 });
 
@@ -416,24 +350,6 @@ describe('CaptureScreen feeding slider', () => {
       // spring back to 0
       expect(feeding.getAttribute('data-rate')).toBe('0');
     });
-  });
-});
-
-describe('shouldLock (slide-right-to-lock threshold)', () => {
-  it('does NOT lock until the pointer slides right past the threshold', () => {
-    expect(shouldLock(10, 10)).toBe(false);
-    expect(shouldLock(10, 10 + LOCK_SLIDE_PX - 1)).toBe(false);
-  });
-  it('locks once the pointer slides right by at least the threshold', () => {
-    expect(shouldLock(10, 10 + LOCK_SLIDE_PX)).toBe(true);
-    expect(shouldLock(10, 10 + LOCK_SLIDE_PX + 50)).toBe(true);
-  });
-  it('does NOT lock when sliding left', () => {
-    expect(shouldLock(200, 10)).toBe(false);
-  });
-  it('is safe with non-finite coords (jsdom synthetic events)', () => {
-    expect(shouldLock(10, NaN)).toBe(false);
-    expect(shouldLock(NaN, 200)).toBe(false);
   });
 });
 
