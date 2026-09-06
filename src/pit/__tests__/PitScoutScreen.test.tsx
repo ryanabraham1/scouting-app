@@ -247,6 +247,28 @@ describe('PitScoutScreen', () => {
     expect(fetchPitReportForEdit).not.toHaveBeenCalled();
   });
 
+  it('uses the newer local CAS base when a persisted draft base is stale', async () => {
+    const data = {
+      eventKey: '2026casj', teamNumber: 254, drivetrain: 'swerve',
+      mechanisms: [], capabilities: [], intakeSources: [], notes: 'draft work',
+      photos: [], photoPath: null, scoutId: 'scout-1',
+    };
+    getPitDraft.mockResolvedValue({
+      draftKey: '2026casj:254', eventKey: '2026casj', teamNumber: 254,
+      updatedAt: 'now', data, photoBlobs: {}, baseRevision: 100,
+    });
+    getPitReport.mockResolvedValue({
+      draftKey: '2026casj:254', eventKey: '2026casj', teamNumber: 254,
+      data, photoBlobs: {}, syncState: 'dirty', syncAttempts: 0,
+      lastSyncError: null, baseRevision: 200, rowRevision: 201,
+      createdAt: 'now', updatedAt: 'now',
+    });
+    await renderReady();
+    fireEvent.click(screen.getByTestId('pit-submit'));
+    await waitFor(() => expect(enqueuePitReport).toHaveBeenCalled());
+    expect(enqueuePitReport.mock.calls.at(-1)?.[2]).toBe(200);
+  });
+
   it('loads the server after a conflict and recovers local content onto its revision', async () => {
     getPitReport.mockResolvedValue({
       draftKey: '2026casj:254',

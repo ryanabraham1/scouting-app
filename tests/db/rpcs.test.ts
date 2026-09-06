@@ -1,62 +1,75 @@
+// tests/db/rpcs.test.ts
+//
+// Live RPC behavior against the deployed backend. Fixtures are seeded through
+// the legitimate, currently-granted paths (see ./seedHelpers): a throwaway event
+// via the `promote_event_import` definer RPC and an event-member scout via the
+// anon `select_scouter` RPC. Direct `service_role` table seeding and the
+// `join_event` join-code RPC are intentionally no longer client-callable, so
+// those stale assertions have been replaced with the real `select_scouter`
+// membership path the app uses.
 import { it, expect, beforeAll, afterAll } from 'vitest';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { config } from 'dotenv';
-config({ path: '.env.local' });
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  adminClient,
+  joinAsScout,
+  seedEvent,
+  dropEvent,
+  uniqueEventKey,
+} from './seedHelpers';
 
-const URL = process.env.VITE_SUPABASE_URL!;
-const SECRET = process.env.SUPABASE_SECRET_KEY!;
-const ANON = process.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
-
-const EVENT = 'TESTC4evt';
+const EVENT = uniqueEventKey('rpc');
 const TEAM = 999004;
-const MATCH = 'TESTC4evt_qm1';
-const MATCH2 = 'TESTC4evt_qm2'; // used by forge-guard tests to avoid match+scout unique constraint
-const CODE = 'JOINC4';
+const MATCH = `${EVENT}_qm1`;
+const MATCH2 = `${EVENT}_qm2`; // avoids the (match_key, scout_id) active-report unique index
+const NAME = 'C4 scout';
+
 let admin: SupabaseClient;
-let anon: SupabaseClient;
+let device: SupabaseClient; // anon, event member
 let myUid = '';
 let myScoutId = '';
 
 beforeAll(async () => {
-  admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  await admin.from('event').upsert({ event_key: EVENT, name: 'C4', is_active: false });
-  await admin.from('event_secret').upsert({ event_key: EVENT, join_code: CODE });
-  await admin.from('team').upsert({ team_number: TEAM, nickname: 'C4' });
-  await admin.from('match').upsert({ match_key: MATCH, event_key: EVENT, comp_level: 'qm', match_number: 1 });
-  await admin.from('match').upsert({ match_key: MATCH2, event_key: EVENT, comp_level: 'qm', match_number: 2 });
-  anon = createClient(URL, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-});
+  admin = adminClient();
+  // MATCH puts TEAM at red1; MATCH2 puts TEAM at blue2 (the seats the tests use).
+  await seedEvent(admin, {
+    eventKey: EVENT,
+    name: 'C4',
+    teams: [{ team_number: TEAM, nickname: 'C4' }],
+    matches: [
+      { match_key: MATCH, match_number: 1, red1: TEAM },
+      { match_key: MATCH2, match_number: 2, blue2: TEAM },
+    ],
+  });
+
+  const member = await joinAsScout(EVENT, NAME);
+  device = member.client;
+  myUid = member.uid;
+  myScoutId = member.scoutId;
+}, 90_000);
 
 afterAll(async () => {
-  await admin.from('match_scouting_report').delete().eq('event_key', EVENT);
-  await admin.from('scout').delete().eq('event_key', EVENT);
-  await admin.from('match').delete().eq('match_key', MATCH2);
-  await admin.from('match').delete().eq('match_key', MATCH);
-  await admin.from('team').delete().eq('team_number', TEAM);
-  await admin.from('event_secret').delete().eq('event_key', EVENT);
-  await admin.from('event').delete().eq('event_key', EVENT);
+  await dropEvent(admin, EVENT);
+  await device?.auth.signOut();
 });
 
-it('anon sign-in + join_event creates a scout row', async () => {
-  const { data: signin, error: sErr } = await anon.auth.signInAnonymously();
-  expect(sErr, sErr?.message).toBeNull();
-  myUid = signin!.user!.id;
-  const { data, error } = await anon.rpc('join_event', { p_code: CODE, p_display_name: 'C4 scout' });
+it('select_scouter provisions an event-member scout row bound to the caller uid', async () => {
+  expect(myScoutId, 'select_scouter must return a scout id').toBeTruthy();
+  const { data, error } = await device.rpc('select_scouter', {
+    p_event_key: EVENT,
+    p_name: NAME,
+  });
   expect(error, error?.message).toBeNull();
-  expect(data?.event_key).toBe(EVENT);
-  expect(data?.auth_uid).toBe(myUid);
-  myScoutId = data!.id;
-});
-
-it('join_event is idempotent for same uid+event', async () => {
-  const { data, error } = await anon.rpc('join_event', { p_code: CODE, p_display_name: 'C4 scout' });
-  expect(error).toBeNull();
   expect(data?.id).toBe(myScoutId);
+  expect(data?.auth_uid).toBe(myUid);
 });
 
-it('join_event rejects a wrong code', async () => {
-  const { error } = await anon.rpc('join_event', { p_code: 'WRONG', p_display_name: 'x' });
-  expect(error).not.toBeNull();
+it('select_scouter is idempotent for the same uid + name', async () => {
+  const { data, error } = await device.rpc('select_scouter', {
+    p_event_key: EVENT,
+    p_name: NAME,
+  });
+  expect(error, error?.message).toBeNull();
+  expect(data?.id).toBe(myScoutId);
 });
 
 it('upsert_match_report is revision-guarded and triggers recompute', async () => {
@@ -68,27 +81,27 @@ it('upsert_match_report is revision-guarded and triggers recompute', async () =>
     fuel_bursts: [{ startMs: 0, endMs: 20000, rate: 1.0, window: 'auto' }],
   };
   // initial insert at revision 5
-  let res = await anon.rpc('upsert_match_report', { p: base });
+  let res = await device.rpc('upsert_match_report', { p: base });
   expect(res.error, res.error?.message).toBeNull();
-  let row = await admin.from('match_scouting_report')
+  let row = await device.from('match_scouting_report')
     .select('row_revision,auto_fuel,fuel_points').eq('id', reportId).single();
   expect(row.data!.auto_fuel).toBe(20);   // recompute ran
   expect(row.data!.fuel_points).toBe(20);
 
   // stale write at revision 3 must be IGNORED
-  res = await anon.rpc('upsert_match_report', {
+  res = await device.rpc('upsert_match_report', {
     p: { ...base, row_revision: 3, fuel_bursts: [{ startMs: 0, endMs: 10000, rate: 5, window: 'auto' }] },
   });
   expect(res.error).toBeNull();
-  row = await admin.from('match_scouting_report').select('auto_fuel').eq('id', reportId).single();
+  row = await device.from('match_scouting_report').select('auto_fuel').eq('id', reportId).single();
   expect(row.data!.auto_fuel).toBe(20);    // unchanged — stale rejected
 
   // newer write at revision 9 wins
-  res = await anon.rpc('upsert_match_report', {
+  res = await device.rpc('upsert_match_report', {
     p: { ...base, row_revision: 9, fuel_bursts: [{ startMs: 0, endMs: 10000, rate: 4, window: 'auto' }] },
   });
   expect(res.error).toBeNull();
-  row = await admin.from('match_scouting_report').select('auto_fuel,row_revision').eq('id', reportId).single();
+  row = await device.from('match_scouting_report').select('auto_fuel,row_revision').eq('id', reportId).single();
   expect(row.data!.auto_fuel).toBe(40);    // 10s*4 = 40
   expect(row.data!.row_revision).toBe(9);
 });
@@ -108,7 +121,7 @@ it('upsert_match_report SUCCEEDS for scout owned by caller (forge guard - self)'
     row_revision: 1,
     fuel_bursts: [{ startMs: 0, endMs: 5000, rate: 1.0, window: 'auto' }],
   };
-  const { error } = await anon.rpc('upsert_match_report', { p: selfReport });
+  const { error } = await device.rpc('upsert_match_report', { p: selfReport });
   expect(error, `own report should succeed: ${error?.message}`).toBeNull();
 });
 
@@ -136,10 +149,10 @@ it('upsert_match_report RE-RESOLVES a non-existent scout_id to the caller (BUG-1
     row_revision: 1,
     fuel_bursts: [],
   };
-  const { error } = await anon.rpc('upsert_match_report', { p: forgedReport });
+  const { error } = await device.rpc('upsert_match_report', { p: forgedReport });
   expect(error, `re-resolved report should succeed: ${error?.message}`).toBeNull();
   // Attributed to the caller's OWN scout row, not the forged id — and never lost.
-  const row = await admin
+  const row = await device
     .from('match_scouting_report')
     .select('scout_id')
     .eq('id', reportId)

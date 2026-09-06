@@ -1,0 +1,23 @@
+-- Drop the strategy_canvas -> match composite foreign key for good.
+--
+-- 20260722191615 re-added strategy_event_match_fkey (with ON DELETE CASCADE) in
+-- an attempt to fix delete_event. That was the wrong fix: the composite FK is
+-- fundamentally incompatible with schedule-less "manual lineup" boards, which
+-- use match_key = '__manual__' (see MANUAL_MATCH_KEY in
+-- src/dash/strategy/strategyCanvasClient.ts). There is NO row in match for
+-- '__manual__', so:
+--   * every '__manual__' board upsert through upsert_strategy_canvas violates
+--     the FK (the RPC raises 23503), so schedule-less whiteboards silently fail
+--     to cloud-sync; and
+--   * even with ON DELETE CASCADE, keeping this FK re-introduces the exact
+--     regression 0043 deliberately removed.
+--
+-- Restore the 0043 design: strategy_canvas carries NO match foreign key. Its
+-- rows are still cleaned up on event deletion by the ON DELETE CASCADE
+-- event_key FK from 0042 — which is what delete_event relies on when it reaches
+-- `delete from event`. Just drop the offending constraint; do NOT re-add a
+-- match FK (it is incompatible with '__manual__' boards).
+--
+-- Idempotent / re-apply safe (drop constraint if exists).
+alter table public.strategy_canvas
+  drop constraint if exists strategy_event_match_fkey;

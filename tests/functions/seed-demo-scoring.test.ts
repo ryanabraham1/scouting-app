@@ -16,6 +16,7 @@ describe('seed-demo canonical report generation', () => {
         fuelBursts: bursts,
         climbLevel: 0,
         autoClimbLevel1: false,
+        noShow: false,
       });
 
       expect(result).toMatchObject({

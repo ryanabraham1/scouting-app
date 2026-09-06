@@ -8,13 +8,17 @@
 // A significant now-vs-before drop (cutoffs in redFlags.evaluateEpaDrop) means
 // the team's on-field output is falling — worth a flag next to died/tipped/etc.
 //
-// All TBA fetches ride the shared cached fan-out (fetchSeasonMatchRows →
-// per-event/per-team React Query cache entries, persisted to IndexedDB), so
-// this adds no new endpoints and degrades to "no flags" on any TBA outage.
+// All TBA fetches ride the shared cached team-season fan-out used by the EPA and
+// record tiles, so this adds no new endpoints after those load and degrades to
+// "no flags" on any TBA outage.
 
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { computeLocalEpa } from '@/dash/localEpa';
-import { fetchSeasonMatchRows, EPA_STALE_TIME } from '@/dash/seasonEpa';
+import {
+  fetchSeasonMatchRows,
+  EPA_STALE_TIME,
+  SEASON_EPA_CLOSURE_VERSION,
+} from '@/dash/seasonEpa';
 import { queryClient } from '@/lib/queryPersist';
 import { EPA_RECENCY_BOOST } from '@/dash/constants';
 import { evaluateEpaDrop, type RedFlag } from '@/dash/strategy/redFlags';
@@ -50,7 +54,14 @@ export async function epaTrendForTeam(
   year: string,
 ): Promise<RedFlag | null> {
   return queryClient.fetchQuery({
-    queryKey: ['epa', 'trend', team, year, EPA_RECENCY_BOOST],
+    queryKey: [
+      'epa',
+      'trend',
+      SEASON_EPA_CLOSURE_VERSION,
+      team,
+      year,
+      EPA_RECENCY_BOOST,
+    ],
     staleTime: EPA_STALE_TIME,
     retry: false,
     queryFn: async (): Promise<RedFlag | null> => {
@@ -91,7 +102,13 @@ export function useTeamEpaTrends(
   const sortedTeams = [...teamNumbers].sort((a, b) => a - b);
   const year = eventKey ? eventKey.slice(0, 4) : '';
   return useQuery({
-    queryKey: ['epa', 'trend-flags', eventKey, sortedTeams.join(',')],
+    queryKey: [
+      'epa',
+      'trend-flags',
+      SEASON_EPA_CLOSURE_VERSION,
+      eventKey,
+      sortedTeams.join(','),
+    ],
     enabled: !!eventKey && sortedTeams.length > 0,
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<Map<number, RedFlag>> => {

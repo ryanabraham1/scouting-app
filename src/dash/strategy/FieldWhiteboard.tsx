@@ -11,7 +11,10 @@
 //
 // Perf contract (this view re-renders every Nexus poll tick): the IN-PROGRESS
 // stroke and an in-flight robot drag never touch React state — they live in
-// refs and a rAF loop writes straight onto the SVG nodes. Committed state lives
+// refs and a rAF loop writes straight onto overlay nodes. The live stroke is
+// drawn incrementally on a canvas so each frame only pays for NEW points;
+// re-tessellating the whole growing stroke here makes the ink trail the pen on
+// tablets. Committed state lives
 // in the whiteboard reducer; saves debounce into the Dexie outbox
 // (offline-first) and drain via strategyCanvasSync.
 //
@@ -48,7 +51,7 @@ import {
   type WhiteboardPhase,
   type RobotPos,
 } from '@/dash/strategy/strokes';
-import { strokeToPathD, livePathD } from '@/dash/strategy/strokePath';
+import { strokeToPathD } from '@/dash/strategy/strokePath';
 import { saveStrategyCanvas } from '@/dash/strategy/strategyCanvasClient';
 
 /** One robot square seed: OUR alliance team + its stable color + default spot. */
@@ -132,9 +135,13 @@ export default function FieldWhiteboard({
   }, [online]);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const livePathRef = useRef<SVGPathElement>(null);
+  const liveCanvasRef = useRef<HTMLCanvasElement>(null);
   // In-progress stroke, OUTSIDE React state (see perf contract above).
   const livePointsRef = useRef<[number, number, number][] | null>(null);
+  // Number of points already painted into the live canvas. This is the key to
+  // keeping pointer latency constant as a stroke grows: a frame never redraws
+  // the prefix it has already rendered.
+  const renderedLivePointsRef = useRef(0);
   const activePointerRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   // Ids collected by the current eraser drag (committed as ONE undoable op).
@@ -232,13 +239,74 @@ export default function FieldWhiteboard({
     return [clamp01(x), clamp01(y)];
   }, []);
 
+  const renderLiveStroke = useCallback(() => {
+    const canvas = liveCanvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    // Cap backing-store density: 2x is already retina-sharp and avoids making
+    // an iPad paint a needlessly huge full-field overlay.
+    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const width = Math.max(1, Math.round(rect.width * scale));
+    const height = Math.max(1, Math.round(rect.height * scale));
+    let needsFullRedraw = false;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      needsFullRedraw = true;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+
+    const points = livePointsRef.current;
+    if (!points || points.length === 0) {
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      renderedLivePointsRef.current = 0;
+      return;
+    }
+
+    if (needsFullRedraw) renderedLivePointsRef.current = 0;
+    let start = renderedLivePointsRef.current;
+    if (start >= points.length) return;
+
+    const baseWidth = Math.max(1, toolRef.current.size * rect.height);
+    ctx.strokeStyle = toolRef.current.color;
+    ctx.fillStyle = toolRef.current.color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (start === 0) {
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      const [x, y, pressure] = points[0];
+      const pointWidth = baseWidth * (0.65 + 0.7 * pressure);
+      ctx.beginPath();
+      ctx.arc(x * rect.width, y * rect.height, pointWidth / 2, 0, Math.PI * 2);
+      ctx.fill();
+      start = 1;
+    }
+
+    // Paint only the new tail. Segment-level widths preserve Pencil pressure;
+    // mouse/touch points all use the stable 0.5 fallback.
+    for (let i = start; i < points.length; i += 1) {
+      const previous = points[i - 1];
+      const current = points[i];
+      ctx.lineWidth = baseWidth * (0.65 + 0.35 * (previous[2] + current[2]));
+      ctx.beginPath();
+      ctx.moveTo(previous[0] * rect.width, previous[1] * rect.height);
+      ctx.lineTo(current[0] * rect.width, current[1] * rect.height);
+      ctx.stroke();
+    }
+    renderedLivePointsRef.current = points.length;
+  }, []);
+
   const renderLive = useCallback(() => {
     rafRef.current = null;
-    const pts = livePointsRef.current;
-    const node = livePathRef.current;
-    if (node) {
-      node.setAttribute('d', pts && pts.length > 0 ? livePathD(pts, toolRef.current.size) : '');
-    }
+    renderLiveStroke();
     const drag = robotDragRef.current;
     if (drag) {
       const g = robotNodeRef.current.get(drag.key);
@@ -246,7 +314,7 @@ export default function FieldWhiteboard({
         g.setAttribute('transform', `translate(${drag.x * FIELD_W}, ${drag.y * FIELD_H})`);
       }
     }
-  }, []);
+  }, [renderLiveStroke]);
 
   const scheduleLive = useCallback(() => {
     if (rafRef.current == null) rafRef.current = requestAnimationFrame(renderLive);
@@ -301,6 +369,10 @@ export default function FieldWhiteboard({
       const [x, y] = toNormalized(e.clientX, e.clientY);
       if (toolRef.current.tool === 'pen') {
         const pressure = e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5;
+        // A pointer-up clear and the next pointer-down can land before the same
+        // animation frame. Explicitly start a fresh incremental cursor so a
+        // rapid second stroke never inherits the first stroke's point count.
+        renderedLivePointsRef.current = 0;
         livePointsRef.current = [[x, y, pressure]];
         scheduleLive();
       } else {
@@ -650,8 +722,6 @@ export default function FieldWhiteboard({
               <path key={p.id} d={p.d} fill={p.color} data-testid={`wb-stroke-${p.id}`} />
             ),
           )}
-          {/* Live (in-progress) stroke — mutated directly via rAF, never React. */}
-          <path ref={livePathRef} fill={color} data-testid="wb-live-stroke" />
           {/* Robot start squares (AUTO board only) — the same square-with-white-
               border language as FieldDiagram's pick-start marker, one color per
               team. The color KEY below stays on every board. */}
@@ -697,6 +767,21 @@ export default function FieldWhiteboard({
             );
           })}
         </svg>
+        {/* The live stroke is incremental canvas ink. It sits above the SVG
+            while the pointer is down, then clears as the committed SVG stroke
+            takes over. Keeping it outside React avoids render/poll jitter. */}
+        <canvas
+          ref={liveCanvasRef}
+          data-testid="wb-live-stroke"
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+          }}
+        />
       </div>
 
       {/* Color key: which color is which of OUR alliance robots — visible on

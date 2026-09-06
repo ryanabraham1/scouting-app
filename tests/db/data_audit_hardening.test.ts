@@ -1,70 +1,68 @@
+// tests/db/data_audit_hardening.test.ts
+//
+// The `explicit_browser_data_api_grants` migration reduced `service_role` to a
+// narrow allowlist (SELECT on event/event_secret, SELECT+INSERT+UPDATE on
+// match), so the classic direct `admin.from(...).insert()` fixture seeding no
+// longer works. The event/team/match fixture is now created through the
+// `promote_event_import` definer RPC (never activated), scout rows through the
+// anon `select_scouter` RPC, and everything is torn down through `delete_event`
+// (see ./seedHelpers). Verification reads that previously used `service_role`
+// (pit_scouting_report, pit_assignment, strategy_canvas, match_scouting_report)
+// now use the anon client, since those tables are browser-readable (grant +
+// open read policy) but carry no `service_role` grant. `service_role` retains
+// SELECT on `event`, so is_active authority reads stay on `admin`.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { config } from 'dotenv';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  adminClient,
+  anonClient,
+  provisionScouts,
+  seedEvent,
+  dropEvent,
+  uniqueEventKey,
+} from './seedHelpers';
 
-config({ path: '.env.local' });
-
-const URL = process.env.VITE_SUPABASE_URL!;
-const SECRET = process.env.SUPABASE_SECRET_KEY!;
-const PUBLISHABLE = process.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
-const RID = Math.random().toString(36).slice(2, 9);
-const EVENT = `hardening_${RID}`;
+const EVENT = uniqueEventKey('hard');
 const MATCH = `${EVENT}_qm1`;
 const TEAMS = [9701, 9702, 9703];
 
 let admin: SupabaseClient;
 let publicClient: SupabaseClient;
+let memberClient: SupabaseClient;
 let scoutA = '';
 let scoutB = '';
 
 beforeAll(async () => {
-  expect(URL).toBeTruthy();
-  expect(SECRET).toBeTruthy();
-  expect(PUBLISHABLE).toBeTruthy();
-  admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  publicClient = createClient(URL, PUBLISHABLE, { auth: { persistSession: false } });
+  admin = adminClient();
+  publicClient = anonClient();
 
-  const event = await admin.from('event').insert({
-    event_key: EVENT,
+  await seedEvent(admin, {
+    eventKey: EVENT,
     name: 'Data audit hardening test',
-    is_active: false,
+    teams: TEAMS.map((team_number) => ({
+      team_number,
+      nickname: `Hardening ${team_number}`,
+    })),
+    matches: [
+      {
+        match_key: MATCH,
+        match_number: 1,
+        red1: TEAMS[0],
+        red2: TEAMS[1],
+        blue1: TEAMS[2],
+      },
+    ],
   });
-  if (event.error) throw event.error;
-  const teams = await admin.from('team').upsert(
-    TEAMS.map((team_number) => ({ team_number, nickname: `Hardening ${team_number}` })),
-    { onConflict: 'team_number' },
-  );
-  if (teams.error) throw teams.error;
-  const joins = await admin.from('event_team').insert(
-    TEAMS.map((team_number) => ({ event_key: EVENT, team_number })),
-  );
-  if (joins.error) throw joins.error;
-  const match = await admin.from('match').insert({
-    match_key: MATCH,
-    event_key: EVENT,
-    comp_level: 'qm',
-    match_number: 1,
-    red1: TEAMS[0],
-    red2: TEAMS[1],
-    blue1: TEAMS[2],
-  });
-  if (match.error) throw match.error;
-  const scouts = await admin
-    .from('scout')
-    .insert([
-      { event_key: EVENT, display_name: `Hardening A ${RID}`, auth_uid: crypto.randomUUID() },
-      { event_key: EVENT, display_name: `Hardening B ${RID}`, auth_uid: crypto.randomUUID() },
-    ])
-    .select('id');
-  if (scouts.error) throw scouts.error;
-  [scoutA, scoutB] = scouts.data.map((row) => row.id);
-});
+
+  const provisioned = await provisionScouts(EVENT, ['Hardening A', 'Hardening B']);
+  memberClient = provisioned.client;
+  scoutA = provisioned.scouts['Hardening A'];
+  scoutB = provisioned.scouts['Hardening B'];
+}, 90_000);
 
 afterAll(async () => {
-  if (!admin) return;
-  await admin.from('matchup_note_history').delete().eq('event_key', EVENT);
-  await admin.from('pit_report_history').delete().eq('event_key', EVENT);
-  await admin.from('event').delete().eq('event_key', EVENT);
+  if (admin) await dropEvent(admin, EVENT);
+  await memberClient?.auth.signOut();
 });
 
 describe('active-event authority', () => {
@@ -97,29 +95,42 @@ describe('active-event authority', () => {
     expect(direct.error).not.toBeNull();
   });
 
-  it('enforces the single-active partial unique index and restores authority', async () => {
-    const original = await admin
+  // REFRAMED: the original test forced a `23505` unique-index violation by
+  // directly setting a SECOND event `is_active = true` as `service_role`, then
+  // toggled the global active-event singleton back. Both moves are no longer
+  // valid: the least-privilege grants revoked direct UPDATE on `event` from
+  // every Data API role (anon AND service_role), and this shared-project harness
+  // must never toggle the live `is_active` singleton. So the single-active
+  // invariant is no longer reachable through any granted client path — the only
+  // granted mutator is the `set_active_event` RPC, which moves the singleton
+  // atomically and can never transiently create two active rows. The
+  // `event_single_active_idx` partial unique index remains in the schema as the
+  // server-side guard for that RPC's internal two-statement update. What we can
+  // still assert is the reachable contract: NO Data API role can flip
+  // `is_active` directly, so a client can never create a second active event.
+  it('makes is_active unwritable directly by every Data API role (single-active is RPC-only)', async () => {
+    const anonDirect = await publicClient
       .from('event')
-      .select('event_key')
-      .eq('is_active', true)
-      .maybeSingle();
-    expect(original.error).toBeNull();
-    if (!original.data) return;
+      .update({ is_active: true })
+      .eq('event_key', EVENT);
+    expect(anonDirect.error, 'anon must not write is_active directly').not.toBeNull();
 
-    try {
-      const selected = await admin.rpc('set_active_event', { p_event_key: EVENT });
-      expect(selected.error).toBeNull();
-      const second = await admin
-        .from('event')
-        .update({ is_active: true })
-        .eq('event_key', original.data.event_key);
-      expect(second.error?.code).toBe('23505');
-    } finally {
-      const restored = await admin.rpc('set_active_event', {
-        p_event_key: original.data.event_key,
-      });
-      expect(restored.error).toBeNull();
-    }
+    // service_role keeps SELECT on event but no UPDATE grant, so even the
+    // backend role cannot manufacture a second active row via the table API.
+    const serviceDirect = await admin
+      .from('event')
+      .update({ is_active: true })
+      .eq('event_key', EVENT);
+    expect(serviceDirect.error, 'service_role must not write is_active directly').not.toBeNull();
+
+    // The event is still readable (open dashboard RLS) and was never activated.
+    const still = await admin
+      .from('event')
+      .select('is_active')
+      .eq('event_key', EVENT)
+      .single();
+    expect(still.error).toBeNull();
+    expect(still.data?.is_active).toBe(false);
   });
 });
 
@@ -147,7 +158,7 @@ describe('rolling pit clients and first-write races', () => {
       },
     });
     expect(legacyUpdate.error).toBeNull();
-    const preserved = await admin
+    const preserved = await publicClient
       .from('pit_scouting_report')
       .select('photos,photo_path')
       .eq('event_key', EVENT)
@@ -166,7 +177,7 @@ describe('rolling pit clients and first-write races', () => {
       },
     });
     expect(clear.error).toBeNull();
-    const cleared = await admin
+    const cleared = await publicClient
       .from('pit_scouting_report')
       .select('photos,photo_path')
       .eq('event_key', EVENT)
@@ -186,7 +197,7 @@ describe('rolling pit clients and first-write races', () => {
     ]);
     expect(a.error).toBeNull();
     expect(b.error).toBeNull();
-    const row = await admin
+    const row = await publicClient
       .from('pit_scouting_report')
       .select('notes,row_revision')
       .eq('event_key', EVENT)
@@ -200,15 +211,17 @@ describe('rolling pit clients and first-write races', () => {
       publicClient.rpc('set_pit_assignments', {
         p_event_key: EVENT,
         p_assignments: [{ team_number: TEAMS[0], scout_id: scoutA, source: 'manual' }],
+        p_base_revision: null,
       }),
       publicClient.rpc('set_pit_assignments', {
         p_event_key: EVENT,
         p_assignments: [{ team_number: TEAMS[1], scout_id: scoutB, source: 'manual' }],
+        p_base_revision: null,
       }),
     ]);
     expect(a.error).toBeNull();
     expect(b.error).toBeNull();
-    const rows = await admin
+    const rows = await publicClient
       .from('pit_assignment')
       .select('team_number,scout_id')
       .eq('event_key', EVENT);
@@ -258,7 +271,7 @@ describe('strategy and rating compatibility', () => {
     ]);
     expect(a.error).toBeNull();
     expect(b.error).toBeNull();
-    const canvas = await admin
+    const canvas = await publicClient
       .from('strategy_canvas')
       .select('strokes')
       .eq('event_key', EVENT)
@@ -306,7 +319,7 @@ describe('strategy and rating compatibility', () => {
       },
     });
     expect(modern.error).toBeNull();
-    const rows = await admin
+    const rows = await publicClient
       .from('match_scouting_report')
       .select('id,defense_rating,driver_skill,agility')
       .in('id', [oldId, newId]);

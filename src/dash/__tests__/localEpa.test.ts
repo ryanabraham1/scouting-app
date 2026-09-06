@@ -232,6 +232,43 @@ describe('tbaMatchesToRows', () => {
     expect(row.winner).toBe('red');
   });
 
+  it('uses no-foul scores for EPA while retaining different official scores', () => {
+    const withFouls = (redScore: number, redFouls: number, blueScore: number, blueFouls: number) =>
+      tbaMatch({
+        alliances: {
+          red: { team_keys: ['frc1', 'frc2', 'frc3'], score: redScore },
+          blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: blueScore },
+        },
+        score_breakdown: {
+          red: { foulPoints: redFouls, adjustPoints: 0 },
+          blue: { foulPoints: blueFouls, adjustPoints: 0 },
+        },
+      });
+
+    // Both matches represent the same 80-60 robot output. Only awarded foul
+    // points (and therefore the displayed official scores) differ.
+    const [lowerFouls] = tbaMatchesToRows([withFouls(90, 10, 65, 5)]);
+    const [higherFouls] = tbaMatchesToRows([withFouls(120, 40, 85, 25)]);
+
+    expect(lowerFouls.actual_red_score).toBe(90);
+    expect(higherFouls.actual_red_score).toBe(120);
+    expect(computeLocalEpa([lowerFouls])).toEqual(computeLocalEpa([higherFouls]));
+  });
+
+  it('falls back to official scores when score_breakdown is missing or malformed', () => {
+    const [missing] = tbaMatchesToRows([tbaMatch({})]);
+    const [malformed] = tbaMatchesToRows([
+      tbaMatch({
+        score_breakdown: {
+          red: { foulPoints: 'ten' },
+          blue: { foulPoints: Number.NaN },
+        },
+      }),
+    ]);
+
+    expect(computeLocalEpa([missing])).toEqual(computeLocalEpa([malformed]));
+  });
+
   it('treats unplayed matches (score -1) as null so the EPA model skips them', () => {
     const [row] = tbaMatchesToRows([
       tbaMatch({

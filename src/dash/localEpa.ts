@@ -1,6 +1,6 @@
 // src/dash/localEpa.ts
-// A point-unit "overall EPA" computed from played match results (actual scores +
-// alliance rosters). Used as a fallback when Statbotics is offline so the
+// A point-unit "overall EPA" computed from played match results (no-foul scores
+// + alliance rosters). Used as a fallback when Statbotics is offline so the
 // next-match prediction and Total-EPA tile still have a baseline.
 //
 // This ports the SCALAR (overall, index-0) recurrence from the live Statbotics
@@ -31,12 +31,47 @@
 
 import type { MatchRow } from '@/dash/useEventData';
 
+/**
+ * TBA-backed rows retain the official score for display/result consumers while
+ * carrying Statbotics' no-foul score separately for the local EPA recurrence.
+ * The fields are optional so persisted/schedule-only MatchRows remain compatible.
+ */
+export interface LocalEpaMatchRow extends MatchRow {
+  local_epa_red_score?: number;
+  local_epa_blue_score?: number;
+}
+
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
 
 function finiteOrNull(x: unknown): number | null {
   return typeof x === 'number' && Number.isFinite(x) ? x : null;
+}
+
+/** Missing point fields mean zero (as in Statbotics); malformed fields reject the breakdown. */
+function optionalPointField(obj: Record<string, unknown>, key: string): number | null {
+  const value = obj[key];
+  return value == null ? 0 : finiteOrNull(value);
+}
+
+/**
+ * Statbotics' modern-game scoring input is the official alliance score less
+ * foul and adjustment points awarded to that alliance. A missing/malformed
+ * breakdown returns null so callers can preserve the legacy official-score
+ * fallback rather than contaminating the model with NaN.
+ */
+function noFoulScore(
+  scoreBreakdown: unknown,
+  alliance: 'red' | 'blue',
+  officialScore: number,
+): number | null {
+  if (!isObject(scoreBreakdown) || !isObject(scoreBreakdown[alliance])) return null;
+  const allianceBreakdown = scoreBreakdown[alliance];
+  const foulPoints = optionalPointField(allianceBreakdown, 'foulPoints');
+  const adjustPoints = optionalPointField(allianceBreakdown, 'adjustPoints');
+  if (foulPoints == null || adjustPoints == null) return null;
+  return officialScore - foulPoints - adjustPoints;
 }
 
 /** "frc254" → 254; anything malformed → null. */
@@ -73,7 +108,7 @@ const COMP_LEVEL_ORDER: Record<string, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f
  * reports an alliance `score` of -1 before results) keep null actual scores so
  * the model ignores them. Defensive: skips malformed entries, never throws.
  */
-export function tbaMatchesToRows(json: unknown): MatchRow[] {
+export function tbaMatchesToRows(json: unknown): LocalEpaMatchRow[] {
   if (!Array.isArray(json)) return [];
   const parsed: Array<{ row: MatchRow; t: number; cl: number; n: number }> = [];
 
@@ -89,6 +124,8 @@ export function tbaMatchesToRows(json: unknown): MatchRow[] {
     const blueScore = finiteOrNull(blue.score);
     const played =
       redScore != null && blueScore != null && redScore >= 0 && blueScore >= 0;
+    const redEpaScore = played ? noFoulScore(m.score_breakdown, 'red', redScore) : null;
+    const blueEpaScore = played ? noFoulScore(m.score_breakdown, 'blue', blueScore) : null;
 
     const compLevel = typeof m.comp_level === 'string' ? m.comp_level : 'qm';
     const matchNumber = finiteOrNull(m.match_number) ?? 0;
@@ -112,6 +149,8 @@ export function tbaMatchesToRows(json: unknown): MatchRow[] {
         blue3: teamKeyToNum(blueKeys[2]),
         actual_red_score: played ? redScore : null,
         actual_blue_score: played ? blueScore : null,
+        ...(redEpaScore != null ? { local_epa_red_score: redEpaScore } : {}),
+        ...(blueEpaScore != null ? { local_epa_blue_score: blueEpaScore } : {}),
         winner: played && winner ? winner : null,
         result_synced_at: null,
       },
@@ -155,6 +194,14 @@ function blueOf(m: MatchRow): Array<number | null> {
 
 function isPlayed(m: MatchRow): boolean {
   return m.actual_red_score != null && m.actual_blue_score != null;
+}
+
+function scoreForLocalEpa(m: MatchRow, alliance: 'red' | 'blue'): number {
+  const local = m as LocalEpaMatchRow;
+  const noFoul =
+    alliance === 'red' ? local.local_epa_red_score : local.local_epa_blue_score;
+  const official = alliance === 'red' ? m.actual_red_score : m.actual_blue_score;
+  return finiteOrNull(noFoul) ?? (official as number);
 }
 
 /** Options for {@link computeLocalEpa}. */
@@ -201,7 +248,7 @@ export function computeLocalEpa(
   // Statbotics' year-wide score stats).
   const allianceScores: number[] = [];
   for (const m of played) {
-    allianceScores.push(m.actual_red_score as number, m.actual_blue_score as number);
+    allianceScores.push(scoreForLocalEpa(m, 'red'), scoreForLocalEpa(m, 'blue'));
   }
   const yearMean = allianceScores.reduce((s, x) => s + x, 0) / allianceScores.length;
   const yearVar =
@@ -222,8 +269,8 @@ export function computeLocalEpa(
     const blues = blueOf(m).filter((t): t is number => t != null);
     for (const t of [...reds, ...blues]) ensure(t);
 
-    const redScore = m.actual_red_score as number;
-    const blueScore = m.actual_blue_score as number;
+    const redScore = scoreForLocalEpa(m, 'red');
+    const blueScore = scoreForLocalEpa(m, 'blue');
     const elim = m.comp_level !== 'qm';
     const weight = elim ? ELIM_WEIGHT : 1;
     // Recent matches count more (centered tilt; 1 when recencyBoost is 0).
@@ -268,8 +315,8 @@ export function computeLocalEpa(
 // Tier 2 — real TBA score_breakdown extraction (component-epa-estimation §3B/§4).
 //
 // DARK behind a flag, DEFAULT OFF, and scoped to SINGLE-EVENT raw JSON only
-// (`fetchEventMatchesCached(eventKey)` objects DO carry `score_breakdown`;
-// MatchRow drops it, so the season recurrence can never use this). The exact
+// (raw TBA match objects DO carry `score_breakdown`; MatchRow drops it, so the
+// season recurrence can never use this). The exact
 // 2026 REBUILT `score_breakdown` field names are UNCONFIRMED in live data, so
 // `parseRebuiltBreakdown` is defensive: every key access is finite-guarded and
 // any missing/renamed key makes the whole parse return `null` → callers silently

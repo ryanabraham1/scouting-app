@@ -84,6 +84,11 @@ export interface PitPhotoCleanup {
 // `eventKey:teamNumber` draftKey — one report per team per event.
 export type PitSyncState = 'dirty' | 'pending' | 'synced' | 'error';
 
+export interface PitPredecessorAttempt {
+  rowRevision: number;
+  baseRevision: number | null;
+}
+
 export interface LocalPitReport {
   draftKey: string;
   eventKey: string;
@@ -92,6 +97,8 @@ export interface LocalPitReport {
   photoBlobs?: PitPhotoBlobs;
   baseRevision?: number | null;
   rowRevision?: number;
+  /** Claimed revisions whose acknowledgement may safely advance a replacement's CAS base. */
+  predecessorAttempts?: PitPredecessorAttempt[];
   // Legacy v2 field, migrated to photoBlobs on read.
   photoBlob?: Blob | null;
   syncState: PitSyncState;
@@ -306,8 +313,9 @@ export async function savePitDraft(
   const problem = persistedReportProblem(data);
   if (problem) throw new Error(problem);
   const normalized = normalizePhotos(data, photoBlobs instanceof Blob ? photoBlobs : null);
+  const draftKey = pitDraftKey(eventKey, teamNumber);
   const draft: PitDraft = {
-    draftKey: pitDraftKey(eventKey, teamNumber),
+    draftKey,
     eventKey,
     teamNumber,
     updatedAt: new Date().toISOString(),
@@ -315,8 +323,14 @@ export async function savePitDraft(
     photoBlobs: normalizeBlobInput(photoBlobs),
     baseRevision: baseRevision ?? null,
   };
-  await pitDb.transaction('rw', pitDb.pitDrafts, pitDb.pitPhotoCleanup, async () => {
+  await pitDb.transaction('rw', pitDb.pitDrafts, pitDb.pitReports, pitDb.pitPhotoCleanup, async () => {
     const previous = await pitDb.pitDrafts.get(draft.draftKey);
+    const local = await pitDb.pitReports.get(draftKey);
+    draft.baseRevision = maxPitBase(
+      draft.baseRevision,
+      previous?.baseRevision,
+      knownPitBase(local),
+    );
     if (previous && !persistedReportProblem(previous.data)) {
       await queueRemovedPaths(previous.data, normalized);
     }
@@ -577,48 +591,90 @@ export async function enqueuePitReport(
   const problem = persistedReportProblem(report);
   if (problem) throw new Error(problem);
   const draftKey = pitDraftKey(report.eventKey, report.teamNumber);
-  const now = new Date().toISOString();
-  const existing = await pitDb.pitReports.get(draftKey);
-  const effectiveBase =
-    baseRevision !== undefined
-      ? baseRevision
-      : existing?.syncState === 'synced'
-        ? existing.rowRevision ?? null
-        : existing?.baseRevision ?? null;
-  const rowRevision = Math.max(Date.now(), (effectiveBase ?? 0) + 1);
-  const record: LocalPitReport = {
-    draftKey,
-    eventKey: report.eventKey,
-    teamNumber: report.teamNumber,
-    data: normalizePhotos(report, photoBlobs instanceof Blob ? photoBlobs : null),
-    photoBlobs: normalizeBlobInput(photoBlobs),
-    baseRevision: effectiveBase,
-    rowRevision,
-    syncState: 'dirty',
-    syncAttempts: 0,
-    lastSyncError: null,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  };
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
   await pitDb.transaction(
     'rw',
     pitDb.pitReports,
     pitDb.pitDrafts,
     pitDb.pitPhotoCleanup,
     async () => {
-    const draft = await pitDb.pitDrafts.get(draftKey);
-    const priorData =
-      existing && !persistedReportProblem(existing.data)
-        ? existing.data
-        : draft && !persistedReportProblem(draft.data)
-          ? draft.data
-          : undefined;
-    await queueRemovedPaths(priorData, record.data);
-    await pitDb.pitReports.put(record);
-    await pitDb.pitDrafts.delete(draftKey);
+      const existing = await pitDb.pitReports.get(draftKey);
+      const effectiveBase = maxPitBase(
+        baseRevision,
+        knownPitBase(existing),
+      );
+      // rowRevision is the local submission fence as well as the server stale-
+      // write revision. Always advance it beyond the current local row, even
+      // when two submissions share the same Date.now() value.
+      const rowRevision = Math.max(
+        nowMs,
+        pitRecordRevision(existing) + 1,
+        (effectiveBase ?? 0) + 1,
+      );
+      const record: LocalPitReport = {
+        draftKey,
+        eventKey: report.eventKey,
+        teamNumber: report.teamNumber,
+        data: normalizePhotos(report, photoBlobs instanceof Blob ? photoBlobs : null),
+        photoBlobs: normalizeBlobInput(photoBlobs),
+        baseRevision: effectiveBase,
+        rowRevision,
+        predecessorAttempts: normalizePredecessorAttempts(existing?.predecessorAttempts),
+        syncState: 'dirty',
+        syncAttempts: 0,
+        lastSyncError: null,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      const draft = await pitDb.pitDrafts.get(draftKey);
+      const priorData =
+        existing && !persistedReportProblem(existing.data)
+          ? existing.data
+          : draft && !persistedReportProblem(draft.data)
+            ? draft.data
+            : undefined;
+      await queueRemovedPaths(priorData, record.data);
+      await pitDb.pitReports.put(record);
+      await pitDb.pitDrafts.delete(draftKey);
     },
   );
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('pit-local-changed'));
+}
+
+function pitRecordRevision(
+  record?: Pick<LocalPitReport, 'rowRevision' | 'updatedAt'>,
+): number {
+  if (!record) return 0;
+  return (record.rowRevision ?? Date.parse(record.updatedAt)) || 1;
+}
+
+function maxPitBase(...values: Array<number | null | undefined>): number | null {
+  const valid = values.filter(
+    (value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+  );
+  return valid.length > 0 ? Math.max(...valid) : null;
+}
+
+function knownPitBase(record?: LocalPitReport): number | null {
+  return maxPitBase(
+    record?.baseRevision,
+    record?.syncState === 'synced' ? pitRecordRevision(record) : null,
+  );
+}
+
+function normalizePredecessorAttempts(
+  attempts?: PitPredecessorAttempt[],
+): PitPredecessorAttempt[] {
+  const unique = new Map<number, PitPredecessorAttempt>();
+  for (const attempt of attempts ?? []) {
+    if (!Number.isSafeInteger(attempt?.rowRevision) || attempt.rowRevision <= 0) continue;
+    unique.set(attempt.rowRevision, {
+      rowRevision: attempt.rowRevision,
+      baseRevision: maxPitBase(attempt.baseRevision),
+    });
+  }
+  return [...unique.values()].slice(-16);
 }
 
 function withPitDefaults(r: LocalPitReport): LocalPitReport {
@@ -627,7 +683,8 @@ function withPitDefaults(r: LocalPitReport): LocalPitReport {
     data: normalizePhotos(r.data, r.photoBlob),
     photoBlobs: normalizeBlobInput(r.photoBlobs, r.photoBlob),
     baseRevision: r.baseRevision ?? null,
-    rowRevision: (r.rowRevision ?? Date.parse(r.updatedAt)) || 1,
+    rowRevision: pitRecordRevision(r),
+    predecessorAttempts: normalizePredecessorAttempts(r.predecessorAttempts),
     syncAttempts: r.syncAttempts ?? 0,
     lastSyncError: r.lastSyncError ?? null,
     nextSyncAt: r.nextSyncAt ?? null,
@@ -690,84 +747,257 @@ export async function listPitDeadLetters(): Promise<LocalPitReport[]> {
   return all.filter((r) => r.syncState === 'error').map(withPitDefaults);
 }
 
-export async function markPitPending(draftKey: string): Promise<void> {
-  await pitDb.pitReports.update(draftKey, { syncState: 'pending', nextSyncAt: null });
+export async function markPitPending(
+  draftKey: string,
+  expectedRevision?: number,
+): Promise<boolean> {
+  const updated = await pitDb.pitReports
+    .where('draftKey')
+    .equals(draftKey)
+    .and(
+      (record) =>
+        expectedRevision == null || pitRecordRevision(record) === expectedRevision,
+    )
+    .modify((record) => {
+      record.syncState = 'pending';
+      record.nextSyncAt = null;
+      record.predecessorAttempts = normalizePredecessorAttempts([
+        ...(record.predecessorAttempts ?? []),
+        {
+          rowRevision: pitRecordRevision(record),
+          baseRevision: record.baseRevision ?? null,
+        },
+      ]);
+    });
+  return updated === 1;
 }
 
 // Record a freshly-uploaded photo path and drop the pending blob. Called right
 // after the Storage upload succeeds so a later transient upsert retry does not
 // re-upload the photo (which would orphan the first object). When
-// `uploadedUpdatedAt` is given the write applies ONLY if the report wasn't
+// `expectedRevision` is given the write applies ONLY if the report wasn't
 // re-submitted mid-upload — a re-submit may carry a NEW photo blob, which this
 // must not destroy.
 export async function setPitUploadedPhoto(
   draftKey: string,
   photoId: string,
   photoPath: string,
-  uploadedUpdatedAt?: string,
+  expectedRevision?: number,
 ): Promise<boolean> {
-  const existing = await pitDb.pitReports.get(draftKey);
-  if (!existing) return false;
-  if (uploadedUpdatedAt != null && existing.updatedAt !== uploadedUpdatedAt) return false;
-  const report = withPitDefaults(existing);
-  const photos = report.data.photos.map((photo) =>
-    photo.id === photoId ? { ...photo, path: photoPath } : photo,
-  );
-  const photoBlobs = { ...(report.photoBlobs ?? {}) };
-  delete photoBlobs[photoId];
-  await pitDb.pitReports.update(draftKey, {
-    photoBlob: null,
-    photoBlobs,
-    data: {
-      ...report.data,
-      photos,
-      photoPath: photos.sort((a, b) => a.order - b.order)[0]?.path ?? null,
-    },
-  });
-  return true;
-}
-
-// Success: record the (now-uploaded) photo path and drop the pending blob. The
-// `uploadedUpdatedAt` guard mirrors markSynced for match reports: if the report
-// was re-submitted while this upload was in flight (updatedAt rewritten,
-// re-dirtied, possibly a new photo blob), the stale upload's success must not
-// mark it synced or clobber the new submission's data/blob.
-export async function markPitSynced(
-  draftKey: string,
-  uploadedUpdatedAt?: string,
-): Promise<void> {
-  await pitDb.pitReports
+  const updated = await pitDb.pitReports
     .where('draftKey')
     .equals(draftKey)
     .and(
       (record) =>
-        uploadedUpdatedAt == null || record.updatedAt === uploadedUpdatedAt,
+        (expectedRevision == null || pitRecordRevision(record) === expectedRevision) &&
+        normalizePhotos(record.data, record.photoBlob).photos.some(
+          (photo) => photo.id === photoId,
+        ),
+    )
+    .modify((record) => {
+      const report = withPitDefaults(record);
+      const photos = report.data.photos.map((photo) =>
+        photo.id === photoId ? { ...photo, path: photoPath } : photo,
+      );
+      const photoBlobs = { ...(report.photoBlobs ?? {}) };
+      delete photoBlobs[photoId];
+      record.photoBlob = null;
+      record.photoBlobs = photoBlobs;
+      record.data = {
+        ...report.data,
+        photos,
+        photoPath: [...photos].sort((a, b) => a.order - b.order)[0]?.path ?? null,
+      };
+    });
+  return updated === 1;
+}
+
+// Success: record the (now-uploaded) photo path and drop the pending blob. The
+// `expectedRevision` guard ensures that if the report was re-submitted while
+// this upload was in flight, the stale upload's success must not
+// mark it synced or clobber the new submission's data/blob.
+export async function markPitSynced(
+  draftKey: string,
+  expectedRevision?: number,
+): Promise<boolean> {
+  const updated = await pitDb.pitReports
+    .where('draftKey')
+    .equals(draftKey)
+    .and(
+      (record) =>
+        expectedRevision == null || pitRecordRevision(record) === expectedRevision,
     )
     .modify((record) => {
       record.syncState = 'synced';
       record.syncAttempts = 0;
       record.photoBlob = null;
       record.photoBlobs = {};
-      record.baseRevision =
-        (record.rowRevision ?? Date.parse(record.updatedAt)) || 1;
+      record.baseRevision = pitRecordRevision(record);
+      record.predecessorAttempts = [];
       record.lastSyncError = null;
       record.nextSyncAt = null;
     });
+  return updated === 1;
+}
+
+export type PitSyncCompletion = 'synced' | 'rebased' | 'unchanged';
+
+/**
+ * Commit a successful server acknowledgement without stranding a re-submit.
+ *
+ * If the exact uploaded revision is still current, mark it synced normally. If
+ * a newer local submission replaced it while the RPC was in flight, advance
+ * only that row's server base, and only when it still points at the uploaded
+ * predecessor's old base. The single Dexie modify transaction makes the guard
+ * and transition atomic with respect to another enqueue/edit.
+ */
+export async function completePitSync(
+  draftKey: string,
+  uploadedRevision: number,
+  predecessorBase: number | null,
+  acknowledgedRevision: number,
+): Promise<PitSyncCompletion> {
+  let completion: PitSyncCompletion = 'unchanged';
+  await pitDb.transaction('rw', pitDb.pitReports, pitDb.pitDrafts, async () => {
+    const record = await pitDb.pitReports.get(draftKey);
+    if (!record) return;
+    const currentRevision = pitRecordRevision(record);
+    const attempts = normalizePredecessorAttempts(record.predecessorAttempts);
+    const exactPredecessor = attempts.some(
+      (attempt) =>
+        attempt.rowRevision === uploadedRevision &&
+        attempt.baseRevision === predecessorBase,
+    );
+    if (currentRevision !== uploadedRevision && !exactPredecessor) return;
+
+    if (currentRevision === uploadedRevision) {
+      record.syncState = 'synced';
+      record.syncAttempts = 0;
+      record.photoBlob = null;
+      record.photoBlobs = {};
+      record.baseRevision = acknowledgedRevision;
+      record.predecessorAttempts = [];
+      record.lastSyncError = null;
+      record.nextSyncAt = null;
+      completion = 'synced';
+    } else {
+      record.baseRevision = maxPitBase(record.baseRevision, acknowledgedRevision);
+      record.predecessorAttempts = attempts;
+      completion = 'rebased';
+    }
+    await pitDb.pitReports.put(record);
+
+    const draft = await pitDb.pitDrafts.get(draftKey);
+    if (draft && (draft.baseRevision ?? null) === predecessorBase) {
+      draft.baseRevision = maxPitBase(draft.baseRevision, acknowledgedRevision);
+      await pitDb.pitDrafts.put(draft);
+    }
+  });
+  return completion;
+}
+
+/**
+ * A stale/conflict response is retryable only when the server landed an exact
+ * predecessor attempt recorded before this row replaced it.
+ */
+export async function rebasePitAfterPredecessorConflict(
+  draftKey: string,
+  attemptedRevision: number,
+  attemptedBase: number | null,
+  serverRevision: number,
+): Promise<boolean> {
+  let rebased = false;
+  await pitDb.transaction('rw', pitDb.pitReports, pitDb.pitDrafts, async () => {
+    const record = await pitDb.pitReports.get(draftKey);
+    if (!record) return;
+    const currentRevision = pitRecordRevision(record);
+    const attempts = normalizePredecessorAttempts(record.predecessorAttempts);
+    const attemptedIndex = attempts.findIndex(
+      (attempt) =>
+        attempt.rowRevision === attemptedRevision && attempt.baseRevision === attemptedBase,
+    );
+    if (attemptedIndex < 0) return;
+
+    // A conflict/stale verdict proves this attempted payload did not land. Do
+    // not retain it as predecessor evidence that a later local edit could use
+    // to turn the same revision collision into an automatic overwrite.
+    record.predecessorAttempts = attempts.filter((_, index) => index !== attemptedIndex);
+
+    const predecessor = attempts[attemptedIndex - 1];
+    const currentBase = record.baseRevision ?? null;
+    const exactChain =
+      serverRevision < attemptedRevision &&
+      predecessor?.rowRevision === serverRevision &&
+      predecessor.baseRevision === attemptedBase &&
+      (currentBase === attemptedBase || currentBase === serverRevision);
+    if (!exactChain) {
+      await pitDb.pitReports.put(record);
+      return;
+    }
+
+    record.baseRevision = serverRevision;
+    if (currentRevision === attemptedRevision) {
+      record.syncState = 'dirty';
+      record.lastSyncError = null;
+      record.nextSyncAt = null;
+    }
+    await pitDb.pitReports.put(record);
+    const draft = await pitDb.pitDrafts.get(draftKey);
+    if (draft && (draft.baseRevision ?? null) === attemptedBase) {
+      draft.baseRevision = serverRevision;
+      await pitDb.pitDrafts.put(draft);
+    }
+    rebased = true;
+  });
+  return rebased;
+}
+
+/**
+ * Remove one definitively failed upload attempt from the predecessor ledger.
+ *
+ * A replacement submission carries this ledger forward while an older upload
+ * is in flight. The failed upload's completion therefore has to prune by the
+ * exact revision/base pair even when a newer row now occupies the draft key.
+ * This transaction deliberately changes only predecessorAttempts: newer report
+ * content, CAS base, photos, and sync state remain untouched.
+ */
+export async function discardPitPredecessorAttempt(
+  draftKey: string,
+  attemptedRevision: number,
+  attemptedBase: number | null,
+): Promise<boolean> {
+  let discarded = false;
+  await pitDb.transaction('rw', pitDb.pitReports, async () => {
+    const record = await pitDb.pitReports.get(draftKey);
+    if (!record) return;
+    const attempts = normalizePredecessorAttempts(record.predecessorAttempts);
+    const retained = attempts.filter(
+      (attempt) => !(
+        attempt.rowRevision === attemptedRevision &&
+        attempt.baseRevision === attemptedBase
+      ),
+    );
+    if (retained.length === attempts.length) return;
+    record.predecessorAttempts = retained;
+    await pitDb.pitReports.put(record);
+    discarded = true;
+  });
+  return discarded;
 }
 
 export async function markPitDirtyRetry(
   draftKey: string,
   message: string,
-  opts?: { countAttempt?: boolean; uploadedUpdatedAt?: string; nextSyncAt?: number },
-): Promise<void> {
+  opts?: { countAttempt?: boolean; expectedRevision?: number; nextSyncAt?: number },
+): Promise<boolean> {
   const bump = opts?.countAttempt === false ? 0 : 1;
-  await pitDb.pitReports
+  const updated = await pitDb.pitReports
     .where('draftKey')
     .equals(draftKey)
     .and(
       (record) =>
-        opts?.uploadedUpdatedAt == null ||
-        record.updatedAt === opts.uploadedUpdatedAt,
+        opts?.expectedRevision == null ||
+        pitRecordRevision(record) === opts.expectedRevision,
     )
     .modify((record) => {
       record.syncState = 'dirty';
@@ -775,26 +1005,28 @@ export async function markPitDirtyRetry(
       record.lastSyncError = message;
       record.nextSyncAt = opts?.nextSyncAt ?? null;
     });
+  return updated === 1;
 }
 
 export async function markPitSyncError(
   draftKey: string,
   message: string,
-  uploadedUpdatedAt?: string,
-): Promise<void> {
+  expectedRevision?: number,
+): Promise<boolean> {
   // A stale upload's terminal verdict must not dead-letter a newer re-submit.
-  await pitDb.pitReports
+  const updated = await pitDb.pitReports
     .where('draftKey')
     .equals(draftKey)
     .and(
       (record) =>
-        uploadedUpdatedAt == null || record.updatedAt === uploadedUpdatedAt,
+        expectedRevision == null || pitRecordRevision(record) === expectedRevision,
     )
     .modify({
       syncState: 'error',
       lastSyncError: message,
       nextSyncAt: null,
     });
+  return updated === 1;
 }
 
 // Reset a pit dead-letter to 'dirty' for a manual retry.

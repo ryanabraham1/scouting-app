@@ -93,6 +93,7 @@ describe('useCaptureSession.save', () => {
       fuelBursts: result.current.bursts,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
     });
     expect(r.fuelPoints).toBe(expected.fuelPoints);
     expect(r.fuelByShift).toEqual(expected.fuelByShift);

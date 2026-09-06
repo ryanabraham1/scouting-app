@@ -1,6 +1,7 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for coding agents working in this repository. (The parallel `CLAUDE.md` covers the
+same ground; keep the two in sync when either drifts.)
 
 ## What this is
 
@@ -14,9 +15,9 @@ network — local-first storage, persisted caches, and QR device-to-device trans
 This app is the 2026 REBUILT instantiation of a game-agnostic scouting engine. To adapt it
 to a future year's game (drop in `<YEAR>GameManual.pdf`), follow **`docs/game-migration/`**
 — a phased playbook: extract manual → write game-reference → fill the slot Decision Sheet →
-implement from the change catalog → verify/deploy. Start at `docs/game-migration/README.md`.
-The one hard invariant: scoring logic is duplicated across the client (`src/scoring/`), the
-`upsert_match_report` RPC, and `seed-demo` (see its shared
+implement from the change catalog → verify/deploy. Start at `docs/game-migration/README.md`
+(phases `01`–`05`). The one hard invariant: scoring logic is duplicated across the client
+(`src/scoring/`), the `upsert_match_report` RPC, and `seed-demo` (see its shared
 `supabase/functions/_shared/demoScoring.ts`), and they must stay byte-equivalent
 (see `docs/game-migration/04-scoring-sync-contract.md`).
 
@@ -26,7 +27,7 @@ The one hard invariant: scoring logic is duplicated across the client (`src/scor
 npm run dev              # Vite dev server at http://localhost:5173
 npm run build            # tsc -b && vite build
 npm test                 # Local Vitest unit/contract tests (vitest run); test:watch for watch mode
-npm run test:integration # Remote Supabase DB + Edge Function tests (vitest.integration.config.ts)
+npm run test:integration # Remote Supabase DB + Edge Function tests (vitest --config vitest.integration.config.ts)
 npm run test:e2e         # Playwright e2e (boots dev server on :5173 automatically)
 npm run typecheck        # tsc --noEmit -p tsconfig.json
 ```
@@ -40,8 +41,9 @@ needed); it excludes `tests/e2e/**`. `vitest.integration.config.ts` covers the r
 `tests/db/**/*.test.ts` and `tests/functions/**/*.test.ts` (excluding the pure contract test),
 runs with `fileParallelism: false`, and calls `assertDedicatedRemoteTestProject()` at load so
 it refuses to run against a non-dedicated project — these tests can mutate the configured
-Supabase project. Both Vitest configs use the custom jsdom compat shim
-(`vitest-env-jsdom-compat.ts`) and `vitest.setup.ts`, and `@` aliases `src/`.
+Supabase project. E2e under `tests/e2e/**` runs only through Playwright. Both Vitest configs
+use the custom jsdom compat shim `vitest-env-jsdom-compat.ts` and `vitest.setup.ts`, and `@`
+aliases `src/`.
 
 **Playwright e2e hits a real remote Supabase**, so it runs single-worker (`workers: 1`):
 the live specs share one DB and mutate the global `event.is_active` singleton — parallel
@@ -66,14 +68,14 @@ is the current convention for new migrations. Webhook/live-data setup is documen
 
 ## Environment
 
-`VITE_*` vars ship to the browser and are safe (RLS protects them): `VITE_SUPABASE_URL`,
-`VITE_SUPABASE_PUBLISHABLE_KEY` (anon/publishable key the client ships with). Anything without
-the `VITE_` prefix is server-only and must never reach the browser: `SUPABASE_SECRET_KEY` / the
-deployed functions' `SUPABASE_SERVICE_ROLE_KEY` bypass RLS (Edge Functions and migrations only);
-`TBA_API_KEY` feeds the `tba-proxy` and TBA import/sync functions; `TBA_WEBHOOK_SECRET` and
-`NEXUS_WEBHOOK_TOKEN` authenticate the inbound webhooks; `SUPABASE_ACCESS_TOKEN` /
-`SUPABASE_DB_PASSWORD` authenticate the Supabase CLI. See `.env.example`; copy to `.env.local`
-(gitignored — never commit real keys).
+`VITE_*` vars ship to the browser and are safe (RLS protects them):
+`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (anon/publishable key the client ships
+with). Anything without the `VITE_` prefix is server-only and must never reach the browser:
+`SUPABASE_SECRET_KEY` / the deployed functions' `SUPABASE_SERVICE_ROLE_KEY` bypass RLS (Edge
+Functions and migrations only); `TBA_API_KEY` is used by the `tba-proxy` and TBA import/sync
+functions; `TBA_WEBHOOK_SECRET` and `NEXUS_WEBHOOK_TOKEN` authenticate the inbound webhooks;
+`SUPABASE_ACCESS_TOKEN` / `SUPABASE_DB_PASSWORD` authenticate the Supabase CLI. See
+`.env.example`; copy to `.env.local` (gitignored — never commit real keys).
 
 ## Authorization model (intentional)
 
@@ -101,7 +103,7 @@ Setup tab.
 currently on schema version 5+). Reports and drafts persist immediately with a `syncState`
 (`dirty`/`pending`/`synced`/error). It also holds the v2 "preload cache" (`cachedMatches`,
 `cachedAssignments`, `cachedPitAssignments`, `cachedRoster`, `cachedTeams`, `preloadMeta`) that
-pre-downloads event data so scout screens work with zero wifi (`db/preloadClient.ts`), plus
+pre-downloads event data so scout screens work with zero wifi (see `db/preloadClient.ts`), plus
 outbox tables for `matchupNotes` (team strategy notes) and `strategyCanvas` (per-match
 whiteboard docs). Pit reports live in a **separate** Dexie DB `pit-scouting-db`
 (`src/pit/pitStore.ts`); the cross-tab sync lease uses a third DB (`scouting-sync-coordination`).

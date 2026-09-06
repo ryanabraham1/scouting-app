@@ -368,8 +368,11 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
       const preserveLocal =
         Boolean(draft) || local?.syncState === 'dirty' || local?.syncState === 'pending';
       let loadedReport = preserveLocal ? (draft?.data ?? local?.data) : undefined;
+      const localBase = local?.syncState === 'synced'
+        ? Math.max(local.baseRevision ?? 0, local.rowRevision ?? 0) || null
+        : local?.baseRevision ?? null;
       let loadedRevision = preserveLocal
-        ? (draft?.baseRevision ?? local?.baseRevision ?? null)
+        ? Math.max(draft?.baseRevision ?? 0, localBase ?? 0) || null
         : null;
       let blobs = preserveLocal ? (draft?.photoBlobs ?? local?.photoBlobs ?? {}) : {};
 

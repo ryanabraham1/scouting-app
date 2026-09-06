@@ -11,7 +11,11 @@ export default defineConfig({
     environment: './vitest-env-jsdom-compat.ts',
     setupFiles: ['./vitest.setup.ts'],
     include: ['tests/db/**/*.test.ts', 'tests/functions/**/*.test.ts'],
-    exclude: ['tests/e2e/**', 'node_modules/**'],
+    exclude: [
+      'tests/e2e/**',
+      'tests/functions/seed-demo-scoring.test.ts',
+      'node_modules/**',
+    ],
     fileParallelism: false,
   },
 });

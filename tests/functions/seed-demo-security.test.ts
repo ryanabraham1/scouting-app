@@ -1,13 +1,31 @@
+// tests/functions/seed-demo-security.test.ts
+//
+// The `explicit_browser_data_api_grants` migration revoked `service_role`'s
+// broad table privileges, so the marker event can no longer be seeded with a
+// direct `admin.from('event').insert()`. It is now created through the
+// `promote_event_import` definer RPC (never activated) and torn down through
+// `delete_event`, exactly like the rest of the DB harness (see ../db/seedHelpers).
+// The marker name is still read back with `service_role`, which retains SELECT
+// on `event`.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { config } from 'dotenv';
+import {
+  adminClient,
+  anonClient,
+  signInAnon,
+  seedEvent,
+  dropEvent,
+  uniqueEventKey,
+  URL,
+  SECRET,
+  ANON as PUBLISHABLE,
+} from '../db/seedHelpers';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 config({ path: '.env.local' });
 
-const URL = process.env.VITE_SUPABASE_URL!;
-const SECRET = process.env.SUPABASE_SECRET_KEY!;
-const PUBLISHABLE = process.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
-const EVENT = `seed_guard_${Math.random().toString(36).slice(2, 9)}`;
+const EVENT = uniqueEventKey('seedguard');
+const MARKER_NAME = 'Seed guard marker';
 
 let admin: SupabaseClient;
 let accessToken = '';
@@ -16,26 +34,23 @@ beforeAll(async () => {
   expect(URL).toBeTruthy();
   expect(SECRET).toBeTruthy();
   expect(PUBLISHABLE).toBeTruthy();
-  admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  const marker = await admin.from('event').insert({
-    event_key: EVENT,
-    name: 'Seed guard marker',
-    is_active: false,
+  admin = adminClient();
+  await seedEvent(admin, {
+    eventKey: EVENT,
+    name: MARKER_NAME,
+    teams: [{ team_number: 9990 }],
+    matches: [],
   });
-  if (marker.error) throw marker.error;
 
-  const authClient = createClient(URL, PUBLISHABLE, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const signedIn = await authClient.auth.signInAnonymously();
-  if (signedIn.error || !signedIn.data.session) {
-    throw signedIn.error ?? new Error('anonymous session missing');
-  }
-  accessToken = signedIn.data.session.access_token;
-});
+  const authClient = anonClient();
+  await signInAnon(authClient);
+  const { data } = await authClient.auth.getSession();
+  if (!data.session) throw new Error('anonymous session missing');
+  accessToken = data.session.access_token;
+}, 90_000);
 
 afterAll(async () => {
-  if (admin) await admin.from('event').delete().eq('event_key', EVENT);
+  if (admin) await dropEvent(admin, EVENT);
 });
 
 describe('seed-demo event-key guard', () => {

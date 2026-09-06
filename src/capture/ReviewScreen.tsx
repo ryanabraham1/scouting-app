@@ -133,6 +133,7 @@ export function ReviewScreen(props: {
     fuelBursts: s.bursts,
     climbLevel: s.climbLevel,
     autoClimbLevel1: s.autoClimbLevel1,
+    noShow: s.noShow,
   });
 
   const toggleIntake = (src: string) => {

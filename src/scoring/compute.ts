@@ -38,6 +38,20 @@ function roundWindow(numerator: bigint): number {
 }
 
 export function computeAggregates(input: MatchReportInputs): MatchReportAggregates {
+  // The server skips burst integration for no-shows, but keeps the raw bursts as
+  // evidence. Mirror that before inspecting any burst so preview/local storage
+  // cannot briefly disagree with the post-sync server aggregates.
+  if (input.noShow) {
+    return {
+      autoFuel: 0,
+      teleopFuelActive: 0,
+      teleopFuelInactive: 0,
+      endgameFuel: 0,
+      fuelByShift: [0, 0, 0, 0],
+      fuelPoints: 0,
+    };
+  }
+
   // Accumulate nano-balls/second × milliseconds as exact integers per window.
   const numeratorByWindow: Record<MatchWindow, bigint> = {
     auto: 0n,

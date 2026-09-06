@@ -20,6 +20,7 @@ describe('scoring public API surface', () => {
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [{ startMs: 0, endMs: 10000, rate: 1, window: 'auto' }], // 10
     });
     expect(agg.autoFuel).toBe(10);

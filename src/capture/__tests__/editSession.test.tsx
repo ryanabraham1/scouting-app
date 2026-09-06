@@ -165,6 +165,37 @@ describe('revision bump on save (cases 3 + 4)', () => {
   });
 });
 
+describe('no-show scoring parity on save', () => {
+  it('persists zero aggregates while preserving raw bursts for the server', async () => {
+    await saveReport(makeSavedReport({ noShow: true }));
+    const { result } = renderHook(() =>
+      useCaptureSession({ ...target, editingReportId: 'report-edit-1' }),
+    );
+    await waitFor(() => expect(result.current.noShow).toBe(true));
+    await waitFor(() => expect(result.current.bursts).toEqual(TWO_BURSTS));
+
+    await act(async () => {
+      await result.current.save();
+    });
+
+    const saved = (await getReport('report-edit-1'))!;
+    expect(saved).toMatchObject({
+      noShow: true,
+      autoFuel: 0,
+      teleopFuelActive: 0,
+      teleopFuelInactive: 0,
+      endgameFuel: 0,
+      fuelByShift: [0, 0, 0, 0],
+      fuelPoints: 0,
+    });
+    expect(saved.fuelBursts).toEqual(TWO_BURSTS);
+
+    const payload = toUpsertPayload(saved);
+    expect(payload.no_show).toBe(true);
+    expect(payload.fuel_bursts).toEqual(TWO_BURSTS);
+  });
+});
+
 describe('no draft leakage (case 5)', () => {
   it('leaves a pre-existing fresh draft for the same key untouched after an edit save', async () => {
     // A separate in-progress NEW draft for the same matchKey:scoutId:team key.

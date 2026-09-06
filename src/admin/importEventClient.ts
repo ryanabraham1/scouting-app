@@ -24,6 +24,7 @@ export async function importEvent(eventKey: string): Promise<ImportEventResult> 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        apikey: env.SUPABASE_PUBLISHABLE_KEY,
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ event_key: eventKey }),

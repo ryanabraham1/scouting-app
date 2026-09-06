@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // --- supabase mock: a chainable query builder that resolves to {data,error} ---
@@ -58,10 +58,15 @@ import {
   useTeamSeasonStats,
   mergeMatchupNotes,
 } from '../useEventData';
-// The season-wide EPA fallback fetches per-event matches + per-team events
-// through this SHARED query client (queryClient.fetchQuery), so they cache /
+// The season-wide EPA fallback fetches per-team season matches through this
+// SHARED query client (queryClient.fetchQuery), so they cache /
 // dedupe across hooks. Clear it between tests to keep them isolated.
 import { queryClient as sharedQueryClient } from '@/lib/queryPersist';
+import { computeLocalEpa, tbaMatchesToRows } from '@/dash/localEpa';
+import { EPA_RECENCY_BOOST } from '@/dash/constants';
+import {
+  fetchSeasonMatchRows,
+} from '@/dash/seasonEpa';
 
 import { useActiveEvent } from '../useActiveEvent';
 
@@ -72,6 +77,28 @@ function wrapper() {
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
+}
+
+function expireSharedSeasonQueries(): void {
+  for (const query of sharedQueryClient.getQueryCache().findAll()) {
+    if (query.state.data === undefined) continue;
+    sharedQueryClient.setQueryData(query.queryKey, query.state.data, { updatedAt: 1 });
+  }
+}
+
+function localEpaMatch() {
+  return {
+    key: '2026casnv_qm1',
+    event_key: '2026casnv',
+    comp_level: 'qm',
+    match_number: 1,
+    actual_time: 100,
+    alliances: {
+      red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 150 },
+      blue: { team_keys: ['frc3', 'frc4', 'frc5'], score: 30 },
+    },
+    winning_alliance: 'red',
+  };
 }
 
 describe('useEventData', () => {
@@ -328,6 +355,103 @@ describe('useEventData', () => {
     expect(result.current.data?.available).toBe(true);
   });
 
+  it('preserves stale last-good Statbotics EPA when an offline refresh fails', async () => {
+    const statboticsKey = ['epa', 'season-statbotics', 254, '2026'] as const;
+    const lastGood = { worldRank: 7, totalEpa: 48.5, record: '10-2-0' };
+    sharedQueryClient.setQueryData(statboticsKey, lastGood, { updatedAt: 1 });
+    statboticsGetMock.mockRejectedValue(new Error('venue offline'));
+    tbaGetMock.mockRejectedValue(new Error('venue offline'));
+
+    const { result } = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(statboticsGetMock).toHaveBeenCalledWith('/team_year/254/2026');
+    expect(result.current.data?.epaByTeam.get(254)).toBe(48.5);
+    expect(result.current.data?.sourceByTeam?.get(254)).toBe('statbotics');
+    expect(sharedQueryClient.getQueryData(statboticsKey)).toEqual(lastGood);
+  });
+
+  it('preserves stale last-good local EPA when the team-season refresh fails', async () => {
+    statboticsGetMock.mockResolvedValue({ available: false });
+    tbaGetMock.mockResolvedValue([localEpaMatch()]);
+    const first = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(first.result.current.data?.source).toBe('local'));
+    const lastGood = first.result.current.data?.epaByTeam.get(254);
+    expect(lastGood).toBeTypeOf('number');
+    first.unmount();
+
+    expireSharedSeasonQueries();
+    statboticsGetMock.mockRejectedValue(new Error('Statbotics offline'));
+    tbaGetMock.mockRejectedValue(new Error('TBA team matches offline'));
+    const offline = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(offline.result.current.isSuccess).toBe(true));
+    expect(offline.result.current.data?.epaByTeam.get(254)).toBe(lastGood);
+    expect(offline.result.current.data?.source).toBe('local');
+  });
+
+  it('treats a genuine successful empty TBA refresh as empty, not last-good', async () => {
+    statboticsGetMock.mockResolvedValue({ available: false });
+    tbaGetMock.mockResolvedValue([localEpaMatch()]);
+    const first = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(first.result.current.data?.source).toBe('local'));
+    first.unmount();
+
+    expireSharedSeasonQueries();
+    tbaGetMock.mockResolvedValue([]);
+    const empty = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(empty.result.current.isSuccess).toBe(true));
+    expect(empty.result.current.data?.available).toBe(false);
+    expect(empty.result.current.data?.source).toBe('none');
+    expect(empty.result.current.data?.epaByTeam.get(254)).toBeNull();
+  });
+
+  it('reuses one team-season payload between events in the same year', async () => {
+    statboticsGetMock.mockResolvedValue({ available: false });
+    const eventMatch = (eventKey: string, redScore: number, blueScore: number) => ({
+      key: `${eventKey}_qm1`,
+      event_key: eventKey,
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: eventKey === '2026a' ? 100 : 200,
+      alliances: {
+        red: { team_keys: ['frc1', 'frc2', 'frc3'], score: redScore },
+        blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: blueScore },
+      },
+      winning_alliance: redScore > blueScore ? 'red' : '',
+    });
+    tbaGetMock.mockResolvedValue([
+      eventMatch('2026a', 180, 0),
+      eventMatch('2026b', 30, 30),
+    ]);
+
+    const w = wrapper();
+    const eventA = renderHook(() => useTeamSeasonStats(1, '2026a'), { wrapper: w });
+    await waitFor(() => expect(eventA.result.current.isSuccess).toBe(true));
+    const a = eventA.result.current.data?.totalEpa;
+    eventA.unmount();
+
+    const eventB = renderHook(() => useTeamSeasonStats(1, '2026b'), { wrapper: w });
+    await waitFor(() => expect(eventB.result.current.isSuccess).toBe(true));
+    const b = eventB.result.current.data?.totalEpa;
+
+    expect(a).toBeTypeOf('number');
+    expect(b).toBeTypeOf('number');
+    expect(b).toBe(a);
+    expect(tbaGetMock.mock.calls.filter(
+      (call) => call[0] === '/team/frc1/matches/2026',
+    )).toHaveLength(1);
+  });
+
   it('useEventEpa source is none with no matches when Statbotics is down for every team', async () => {
     statboticsGetMock.mockResolvedValue({ available: false });
 
@@ -342,31 +466,59 @@ describe('useEventData', () => {
     expect(result.current.data?.epaByTeam.get(1678)).toBeNull();
   });
 
+  it('keeps the season fallback successful-but-empty during a complete TBA outage', async () => {
+    statboticsGetMock.mockResolvedValue({ available: false });
+    tbaGetMock.mockRejectedValue(new Error('venue offline'));
+
+    const { result } = renderHook(() => useEventEpa([254, 1678], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.available).toBe(false);
+    expect(result.current.data?.source).toBe('none');
+  });
+
+  it('fetches complete event schedules for the requested teams', async () => {
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc1/events/2026') return Promise.resolve(['2026a', '2026shared']);
+      if (path === '/team/frc2/events/2026') return Promise.resolve(['2026b', '2026shared']);
+      if (path.startsWith('/event/')) return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+
+    await fetchSeasonMatchRows([1, 2], '2026shared', '2026');
+
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc1/events/2026');
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc2/events/2026');
+    expect(tbaGetMock).toHaveBeenCalledWith('/event/2026a/matches');
+    expect(tbaGetMock).toHaveBeenCalledWith('/event/2026b/matches');
+    expect(tbaGetMock.mock.calls.filter(
+      (call) => call[0] === '/event/2026shared/matches',
+    )).toHaveLength(1);
+  });
+
   it('useEventEpa and useTeamSeasonStats report the SAME EPA for a team (one source)', async () => {
     // The discrepancy fix: the prediction (useEventEpa) and the Total-EPA tile
     // (useTeamSeasonStats) both read seasonEpaForTeam, so a team's EPA is byte-for-
     // byte identical in both — no more 303-in-the-tile / 290-in-the-prediction.
     statboticsGetMock.mockResolvedValue({ available: false }); // -> in-house path
+    const eventMatches = [{
+      key: '2026casnv_qm1',
+      event_key: '2026casnv',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 100,
+      alliances: {
+        red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
+        blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
+      },
+      winning_alliance: 'red',
+    }];
     tbaGetMock.mockImplementation((path: string) => {
-      if (path.startsWith('/team/') && path.includes('/events/')) {
-        return Promise.resolve(['2026casnv']);
-      }
-      if (path === '/event/2026casnv/matches') {
-        return Promise.resolve([
-          {
-            key: '2026casnv_qm1',
-            event_key: '2026casnv',
-            comp_level: 'qm',
-            match_number: 1,
-            actual_time: 100,
-            alliances: {
-              red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
-              blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
-            },
-            winning_alliance: 'red',
-          },
-        ]);
-      }
+      if (path === '/team/frc254/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/team/frc1678/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/event/2026casnv/matches') return Promise.resolve(eventMatches);
       return Promise.resolve([]);
     });
 
@@ -383,37 +535,80 @@ describe('useEventData', () => {
     expect(ev.result.current.data?.source).toBe('local');
   });
 
+  it('keeps a team EPA independent of the other displayed teams', async () => {
+    statboticsGetMock.mockResolvedValue({ available: false });
+    const current = {
+      key: '2026current_qm1',
+      event_key: '2026current',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 200,
+      alliances: {
+        red: { team_keys: ['frc1', 'frc3', 'frc4'], score: 90 },
+        blue: { team_keys: ['frc2', 'frc5', 'frc6'], score: 80 },
+      },
+      winning_alliance: 'red',
+    };
+    const prior = {
+      key: '2026prior_qm1',
+      event_key: '2026prior',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 100,
+      alliances: {
+        red: { team_keys: ['frc2', 'frc7', 'frc8'], score: 180 },
+        blue: { team_keys: ['frc9', 'frc10', 'frc11'], score: 0 },
+      },
+      winning_alliance: 'red',
+    };
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc1/events/2026') return Promise.resolve(['2026current']);
+      if (path === '/team/frc2/events/2026') return Promise.resolve(['2026prior', '2026current']);
+      if (path === '/team/frc1/matches/2026') return Promise.resolve([current]);
+      if (path === '/event/2026current/matches') return Promise.resolve([current]);
+      if (path === '/event/2026prior/matches') return Promise.resolve([prior]);
+      return Promise.resolve([]);
+    });
+
+    const w = wrapper();
+    const tile = renderHook(() => useTeamSeasonStats(1, '2026current'), { wrapper: w });
+    await waitFor(() => expect(tile.result.current.isSuccess).toBe(true));
+    const tileOnly = tile.result.current.data?.totalEpa;
+
+    const bulk = renderHook(() => useEventEpa([1, 2], '2026current'), { wrapper: w });
+    await waitFor(() => expect(bulk.result.current.isSuccess).toBe(true));
+    const bulkValue = bulk.result.current.data?.epaByTeam.get(1);
+
+    expect(tileOnly).toBeTypeOf('number');
+    expect(bulkValue).toBe(tileOnly);
+    expect(tile.result.current.data?.totalEpa).toBe(tileOnly);
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc2/events/2026');
+  });
+
   it('useEventEpa computes EPA from TBA results when Statbotics is down and the local table is empty', async () => {
     // Statbotics down for every team, and NO local matches passed (the importer
     // stores schedule only) -> fetch results from TBA and run the EPA model.
     statboticsGetMock.mockResolvedValue({ available: false });
-    tbaGetMock.mockImplementation((path: string) => {
-      // Teams attended only the current event this season.
-      if (path.startsWith('/team/')) return Promise.resolve(['2026casnv']);
-      if (path === '/event/2026casnv/matches') {
-        return Promise.resolve([
-          {
-            key: '2026casnv_qm1',
-            event_key: '2026casnv',
-            comp_level: 'qm',
-            match_number: 1,
-            actual_time: 100,
-            alliances: {
-              red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
-              blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
-            },
-            winning_alliance: 'red',
-          },
-        ]);
-      }
-      return Promise.resolve([]);
-    });
+    tbaGetMock.mockResolvedValue([{
+      key: '2026casnv_qm1',
+      event_key: '2026casnv',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 100,
+      alliances: {
+        red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
+        blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
+      },
+      winning_alliance: 'red',
+    }]);
 
     const { result } = renderHook(() => useEventEpa([254, 1678], '2026casnv'), {
       wrapper: wrapper(),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc254/events/2026');
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc1678/events/2026');
     expect(tbaGetMock).toHaveBeenCalledWith('/event/2026casnv/matches');
     expect(result.current.data?.available).toBe(true);
     expect(result.current.data?.source).toBe('local');
@@ -423,6 +618,62 @@ describe('useEventData', () => {
     expect(a).toBeGreaterThan(b);
   });
 
+  it('shows TBA EPA first, then promotes the display when Statbotics finishes', async () => {
+    let resolveStatbotics: ((value: unknown) => void) | undefined;
+    statboticsGetMock.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveStatbotics = resolve;
+      }),
+    );
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc254/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/event/2026casnv/matches') return Promise.resolve([localEpaMatch()]);
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.data?.source).toBe('local'));
+    const tbaEpa = result.current.data?.epaByTeam.get(254);
+    expect(tbaEpa).toBeTypeOf('number');
+
+    await act(async () => {
+      resolveStatbotics?.({
+        epa: { total_points: { mean: 55 }, ranks: { total: { rank: 7 } } },
+        record: { wins: 8, losses: 2, ties: 0 },
+      });
+    });
+
+    await waitFor(() => expect(result.current.data?.source).toBe('statbotics'));
+    expect(result.current.data?.epaByTeam.get(254)).toBe(55);
+    expect(result.current.data?.epaByTeam.get(254)).not.toBe(tbaEpa);
+  });
+
+  it('shows Statbotics immediately when it wins the race without waiting for TBA', async () => {
+    let resolveTba: ((value: unknown[]) => void) | undefined;
+    const pendingTba = new Promise<unknown[]>((resolve) => {
+      resolveTba = resolve;
+    });
+    tbaGetMock.mockReturnValue(pendingTba);
+    statboticsGetMock.mockResolvedValue({
+      epa: { total_points: { mean: 61 }, ranks: { total: { rank: 3 } } },
+      record: { wins: 10, losses: 1, ties: 0 },
+    });
+
+    const { result } = renderHook(() => useEventEpa([254], '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.data?.source).toBe('statbotics'));
+    expect(result.current.data?.epaByTeam.get(254)).toBe(61);
+
+    await act(async () => {
+      resolveTba?.([]);
+    });
+  });
+
   it('useEventEpa carries EPA forward from a prior event (season-wide)', async () => {
     // Statbotics down. Team 254 played a PRIOR event (2026caph) where it won big,
     // then the current event (2026casnv) where it tied. The season-wide model
@@ -430,48 +681,38 @@ describe('useEventData', () => {
     // sits clearly above the init baseline / above a team that only played the
     // current event and lost.
     statboticsGetMock.mockResolvedValue({ available: false });
+    const priorMatches: Array<Record<string, unknown>> = [];
+    for (let i = 1; i <= 6; i += 1) {
+      priorMatches.push({
+        key: `2026caph_qm${i}`,
+        event_key: '2026caph',
+        comp_level: 'qm',
+        match_number: i,
+        actual_time: 100 + i,
+        alliances: {
+          red: { team_keys: ['frc254', `frc${100 + i}`, `frc${200 + i}`], score: 150 },
+          blue: { team_keys: [`frc${300 + i}`, `frc${400 + i}`, `frc${500 + i}`], score: 30 },
+        },
+        winning_alliance: 'red',
+      });
+    }
+    const currentMatch = {
+      key: '2026casnv_qm1',
+      event_key: '2026casnv',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 1000,
+      alliances: {
+        red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 80 },
+        blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 80 },
+      },
+      winning_alliance: '',
+    };
     tbaGetMock.mockImplementation((path: string) => {
-      if (path === '/team/frc254/events/2026') {
-        return Promise.resolve(['2026caph', '2026casnv']);
-      }
-      if (path === '/team/frc1678/events/2026') {
-        return Promise.resolve(['2026casnv']);
-      }
-      if (path === '/event/2026caph/matches') {
-        // Prior event: 254 dominates across several matches.
-        const ms = [];
-        for (let i = 1; i <= 6; i += 1) {
-          ms.push({
-            key: `2026caph_qm${i}`,
-            event_key: '2026caph',
-            comp_level: 'qm',
-            match_number: i,
-            actual_time: 100 + i,
-            alliances: {
-              red: { team_keys: ['frc254', `frc${100 + i}`, `frc${200 + i}`], score: 150 },
-              blue: { team_keys: [`frc${300 + i}`, `frc${400 + i}`, `frc${500 + i}`], score: 30 },
-            },
-            winning_alliance: 'red',
-          });
-        }
-        return Promise.resolve(ms);
-      }
-      if (path === '/event/2026casnv/matches') {
-        return Promise.resolve([
-          {
-            key: '2026casnv_qm1',
-            event_key: '2026casnv',
-            comp_level: 'qm',
-            match_number: 1,
-            actual_time: 1000,
-            alliances: {
-              red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 80 },
-              blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 80 },
-            },
-            winning_alliance: '',
-          },
-        ]);
-      }
+      if (path === '/team/frc254/events/2026') return Promise.resolve(['2026caph', '2026casnv']);
+      if (path === '/team/frc1678/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/event/2026caph/matches') return Promise.resolve(priorMatches);
+      if (path === '/event/2026casnv/matches') return Promise.resolve([currentMatch]);
       return Promise.resolve([]);
     });
 
@@ -480,7 +721,6 @@ describe('useEventData', () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc254/events/2026');
     expect(tbaGetMock).toHaveBeenCalledWith('/event/2026caph/matches');
     expect(result.current.data?.source).toBe('local');
     const a = result.current.data?.epaByTeam.get(254) as number;
@@ -490,26 +730,80 @@ describe('useEventData', () => {
     expect(a).toBeGreaterThan(b);
   });
 
-  it('useEventEpa caches the per-event TBA matches fetch across hook renders (deduped)', async () => {
+  it('replays partner-only event matches instead of the inflated team slice', async () => {
     statboticsGetMock.mockResolvedValue({ available: false });
+
+    const priorEvent = Array.from({ length: 4 }, (_, index) => ({
+      key: `2026prior_qm${index + 1}`,
+      event_key: '2026prior',
+      comp_level: 'qm',
+      match_number: index + 1,
+      actual_time: 100 + index,
+      alliances: {
+        red: { team_keys: ['frc2', 'frc3', 'frc4'], score: 150 },
+        blue: { team_keys: ['frc5', 'frc6', 'frc7'], score: 30 },
+      },
+      winning_alliance: 'red',
+    }));
+    const currentEvent = [{
+      key: '2026current_qm1',
+      event_key: '2026current',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 1000,
+      alliances: {
+        red: { team_keys: ['frc1', 'frc2', 'frc8'], score: 90 },
+        blue: { team_keys: ['frc9', 'frc10', 'frc11'], score: 70 },
+      },
+      winning_alliance: 'red',
+    }];
+
+    const fullEvent = [...priorEvent, ...currentEvent];
     tbaGetMock.mockImplementation((path: string) => {
-      if (path.startsWith('/team/')) return Promise.resolve(['2026casnv']);
-      if (path === '/event/2026casnv/matches') {
-        return Promise.resolve([
-          {
-            key: '2026casnv_qm1',
-            event_key: '2026casnv',
-            comp_level: 'qm',
-            match_number: 1,
-            actual_time: 100,
-            alliances: {
-              red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
-              blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
-            },
-            winning_alliance: 'red',
-          },
-        ]);
-      }
+      if (path === '/team/frc1/matches/2026') return Promise.resolve(currentEvent);
+      if (path === '/team/frc1/events/2026') return Promise.resolve(['2026current']);
+      if (path === '/event/2026current/matches') return Promise.resolve(fullEvent);
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() => useTeamSeasonStats(1, '2026current'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const inflatedSlice = computeLocalEpa(tbaMatchesToRows(currentEvent), {
+      recencyBoost: EPA_RECENCY_BOOST,
+    }).get(1);
+    const completeEvent = computeLocalEpa(tbaMatchesToRows(fullEvent), {
+      recencyBoost: EPA_RECENCY_BOOST,
+    }).get(1);
+
+    expect(priorEvent).toHaveLength(4);
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc1/events/2026');
+    expect(tbaGetMock).toHaveBeenCalledWith('/event/2026current/matches');
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc1/matches/2026');
+    expect(result.current.data?.totalEpa).toBe(completeEvent);
+    expect(result.current.data?.totalEpa).not.toBe(inflatedSlice);
+  });
+
+  it('caches team-event and event-match payloads across hook renders', async () => {
+    statboticsGetMock.mockResolvedValue({ available: false });
+    const eventMatches = [{
+      key: '2026casnv_qm1',
+      event_key: '2026casnv',
+      comp_level: 'qm',
+      match_number: 1,
+      actual_time: 100,
+      alliances: {
+        red: { team_keys: ['frc254', 'frc1', 'frc2'], score: 120 },
+        blue: { team_keys: ['frc1678', 'frc3', 'frc4'], score: 40 },
+      },
+      winning_alliance: 'red',
+    }];
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc254/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/team/frc1678/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/event/2026casnv/matches') return Promise.resolve(eventMatches);
       return Promise.resolve([]);
     });
 
@@ -517,20 +811,13 @@ describe('useEventData', () => {
     const first = renderHook(() => useEventEpa([254, 1678], '2026casnv'), { wrapper: w });
     await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
 
-    const matchesCallsAfterFirst = tbaGetMock.mock.calls.filter(
-      (c) => c[0] === '/event/2026casnv/matches',
-    ).length;
-    expect(matchesCallsAfterFirst).toBe(1);
+    expect(tbaGetMock).toHaveBeenCalledTimes(3);
 
-    // A second hook for the SAME event reuses the cached per-event matches
-    // payload rather than refetching it.
+    // A second hook reuses both team-event lists and the shared event schedule.
     const second = renderHook(() => useEventEpa([254, 1678], '2026casnv'), { wrapper: w });
     await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
 
-    const matchesCallsAfterSecond = tbaGetMock.mock.calls.filter(
-      (c) => c[0] === '/event/2026casnv/matches',
-    ).length;
-    expect(matchesCallsAfterSecond).toBe(1);
+    expect(tbaGetMock).toHaveBeenCalledTimes(3);
   });
 
   it('useTeamSeasonStats derives Total EPA from TBA matches when Statbotics has no EPA', async () => {
@@ -551,10 +838,55 @@ describe('useEventData', () => {
       },
     ];
     tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc3256/matches/2026') return Promise.resolve(eventMatches);
       if (path === '/team/frc3256/events/2026') return Promise.resolve(['2026casnv']);
       if (path === '/event/2026casnv/matches') return Promise.resolve(eventMatches);
-      // /team/frc3256/matches/2026 -> season record source.
-      return Promise.resolve(eventMatches);
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/events/2026');
+    expect(tbaGetMock).toHaveBeenCalledWith('/event/2026casnv/matches');
+    expect(result.current.data?.epaSource).toBe('inhouse');
+    expect(result.current.data?.totalEpa).not.toBeNull();
+    expect(Number.isFinite(result.current.data?.totalEpa as number)).toBe(true);
+  });
+
+  it('useTeamSeasonStats EPA fallback runs over COMPLETE alliance match sets (not the inflated single-team slice)', async () => {
+    // Statbotics has no EPA, so the hook derives an in-house estimate season-wide.
+    // The team-season endpoint is only the team's slice; EPA must instead use
+    // the complete event endpoint so partners and opponents are fully trained.
+    statboticsGetMock.mockResolvedValue({ epa: { ranks: { total: { rank: 7 } } } });
+    const teamSlice = [{
+      key: '2026casnv_qm1', comp_level: 'qm', match_number: 1, actual_time: 10,
+      alliances: {
+        red: { team_keys: ['frc3256', 'frc1', 'frc2'], score: 150 },
+        blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 30 },
+      },
+      winning_alliance: 'red',
+    }];
+    const partnerOnly = Array.from({ length: 4 }, (_, index) => ({
+      key: `2026casnv_qm${index + 2}`,
+      comp_level: 'qm',
+      match_number: index + 2,
+      actual_time: index + 1,
+      alliances: {
+        red: { team_keys: ['frc1', 'frc7', 'frc8'], score: 150 },
+        blue: { team_keys: ['frc9', 'frc10', 'frc11'], score: 30 },
+      },
+      winning_alliance: 'red',
+    }));
+    const completeEvent = [...partnerOnly, ...teamSlice];
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc3256/matches/2026') return Promise.resolve(teamSlice);
+      if (path === '/team/frc3256/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/event/2026casnv/matches') return Promise.resolve(completeEvent);
+      return Promise.resolve([]);
     });
 
     const { result } = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
@@ -565,49 +897,14 @@ describe('useEventData', () => {
     expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
     expect(tbaGetMock).toHaveBeenCalledWith('/event/2026casnv/matches');
     expect(result.current.data?.epaSource).toBe('inhouse');
-    expect(result.current.data?.totalEpa).not.toBeNull();
-    expect(Number.isFinite(result.current.data?.totalEpa as number)).toBe(true);
-  });
-
-  it('useTeamSeasonStats EPA fallback runs over COMPLETE alliance match sets (not the inflated single-team slice)', async () => {
-    // Statbotics has no EPA, so the hook derives an in-house estimate season-wide.
-    // It must run the model over FULL (all-6-team) match sets — running it over
-    // the team's own season SLICE inflates its EPA, so that path must NOT be used.
-    statboticsGetMock.mockResolvedValue({ epa: { ranks: { total: { rank: 7 } } } });
-    tbaGetMock.mockImplementation((path: string) => {
-      if (path === '/team/frc3256/events/2026') return Promise.resolve(['2026casnv']);
-      if (path === '/event/2026casnv/matches') {
-        return Promise.resolve([
-          {
-            key: '2026casnv_qm1', comp_level: 'qm', match_number: 1, actual_time: 1,
-            alliances: {
-              red: { team_keys: ['frc3256', 'frc1', 'frc2'], score: 120 },
-              blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 40 },
-            },
-            winning_alliance: 'red',
-          },
-          {
-            key: '2026casnv_qm2', comp_level: 'qm', match_number: 2, actual_time: 2,
-            alliances: {
-              red: { team_keys: ['frc4', 'frc1', 'frc5'], score: 60 },
-              blue: { team_keys: ['frc3256', 'frc2', 'frc6'], score: 80 },
-            },
-            winning_alliance: 'blue',
-          },
-        ]);
-      }
-      return Promise.resolve([]); // team-season payload (used only for the record)
-    });
-
-    const { result } = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
-      wrapper: wrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // The EPA estimate is computed from the (season-wide) full match set.
-    expect(tbaGetMock).toHaveBeenCalledWith('/event/2026casnv/matches');
-    expect(result.current.data?.epaSource).toBe('inhouse');
-    expect(Number.isFinite(result.current.data?.totalEpa as number)).toBe(true);
+    const fullValue = computeLocalEpa(tbaMatchesToRows(completeEvent), {
+      recencyBoost: EPA_RECENCY_BOOST,
+    }).get(3256);
+    const sliceValue = computeLocalEpa(tbaMatchesToRows(teamSlice), {
+      recencyBoost: EPA_RECENCY_BOOST,
+    }).get(3256);
+    expect(result.current.data?.totalEpa).toBe(fullValue);
+    expect(result.current.data?.totalEpa).not.toBe(sliceValue);
   });
 
   it('useNexusEventStatus parses live status when Nexus is available', async () => {
@@ -734,7 +1031,7 @@ describe('useEventData', () => {
     expect(result.current.data?.status).toBeNull();
   });
 
-  it('useTeamSeasonStats uses the Statbotics record and does NOT call TBA', async () => {
+  it('uses the Statbotics record while eagerly warming the TBA fallback', async () => {
     statboticsGetMock.mockResolvedValue({
       epa: { total_points: { mean: 42 }, ranks: { total: { rank: 7 } } },
       record: { wins: 12, losses: 3, ties: 1 },
@@ -746,7 +1043,42 @@ describe('useEventData', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.seasonRecord).toBe('12-3-1');
-    expect(tbaGetMock).not.toHaveBeenCalled();
+    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
+  });
+
+  it('starts the season record request before season EPA finishes', async () => {
+    let resolveStatbotics: ((value: unknown) => void) | undefined;
+    statboticsGetMock.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveStatbotics = resolve;
+      }),
+    );
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc3256/matches/2026') {
+        return Promise.resolve([{
+          alliances: {
+            red: { team_keys: ['frc3256', 'frc1', 'frc2'], score: 100 },
+            blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 80 },
+          },
+          winning_alliance: 'red',
+        }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => {
+      expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
+    });
+    expect(result.current.isPending).toBe(true);
+
+    resolveStatbotics?.({
+      epa: { total_points: { mean: 42 }, ranks: { total: { rank: 7 } } },
+    });
+    await waitFor(() => expect(result.current.data?.seasonRecord).toBe('1-0-0'));
   });
 
   it('useTeamSeasonStats falls back to a TBA-derived record when Statbotics has none', async () => {
@@ -779,6 +1111,65 @@ describe('useEventData', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
     expect(result.current.data?.seasonRecord).toBe('1-1-0');
+  });
+
+  it('preserves a stale last-good strict TBA season record when refresh rejects', async () => {
+    statboticsGetMock.mockResolvedValue({
+      epa: { total_points: { mean: 42 }, ranks: { total: { rank: 7 } } },
+    });
+    const played = [{
+      alliances: {
+        red: { team_keys: ['frc3256', 'frc1', 'frc2'], score: 100 },
+        blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 80 },
+      },
+      winning_alliance: 'red',
+    }];
+    tbaGetMock.mockResolvedValue(played);
+    const first = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(first.result.current.data?.seasonRecord).toBe('1-0-0'));
+    first.unmount();
+
+    expireSharedSeasonQueries();
+    tbaGetMock.mockRejectedValue(new Error('venue offline'));
+    const offline = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(offline.result.current.isSuccess).toBe(true));
+    expect(offline.result.current.data?.seasonRecord).toBe('1-0-0');
+    expect(sharedQueryClient.getQueryData([
+      'tba', 'team-season-matches', 3256, '2026',
+    ])).toEqual(played);
+  });
+
+  it('treats a successful empty strict TBA season refresh as authoritative', async () => {
+    statboticsGetMock.mockResolvedValue({
+      epa: { total_points: { mean: 42 }, ranks: { total: { rank: 7 } } },
+    });
+    tbaGetMock.mockResolvedValue([{
+      alliances: {
+        red: { team_keys: ['frc3256', 'frc1', 'frc2'], score: 100 },
+        blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 80 },
+      },
+      winning_alliance: 'red',
+    }]);
+    const first = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(first.result.current.data?.seasonRecord).toBe('1-0-0'));
+    first.unmount();
+
+    expireSharedSeasonQueries();
+    tbaGetMock.mockResolvedValue([]);
+    const empty = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(empty.result.current.isSuccess).toBe(true));
+    expect(empty.result.current.data?.seasonRecord).toBeNull();
+    expect(sharedQueryClient.getQueryData([
+      'tba', 'team-season-matches', 3256, '2026',
+    ])).toEqual([]);
   });
 
   it('useTeamSeasonStats leaves the record null when both Statbotics and TBA fail', async () => {

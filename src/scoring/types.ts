@@ -30,6 +30,7 @@ export interface MatchReportInputs {
   fuelBursts: FuelBurst[];
   climbLevel: 0 | 1 | 2 | 3;
   autoClimbLevel1: boolean;
+  noShow: boolean;
 }
 
 export interface MatchReportAggregates {

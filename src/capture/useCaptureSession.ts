@@ -1038,6 +1038,7 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       fuelBursts: bursts,
       climbLevel: deferred.climbLevel,
       autoClimbLevel1: deferred.autoClimbLevel1,
+      noShow: deferred.noShow,
     };
     const agg = computeAggregates(inputs);
     // Edit (correction) mode: rewrite the loaded report IN PLACE — same id, keep

@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import Dexie from 'dexie';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const rpcMock = vi.fn();
@@ -17,7 +18,12 @@ import {
   listPitDraftsForEvent,
   listPitQuarantine,
   deletePitQuarantine,
+  completePitSync,
+  enqueuePitReport,
+  getPitReport,
+  markPitPending,
   pitDb,
+  setPitUploadedPhoto,
   submitPit,
   type PitReport,
 } from '../pitStore';
@@ -143,5 +149,158 @@ describe('submitPit', () => {
   it('throws on upsert error', async () => {
     rpcMock.mockResolvedValue({ data: null, error: { message: 'rls' } });
     await expect(submitPit(makeReport())).rejects.toThrow('rls');
+  });
+});
+
+describe('setPitUploadedPhoto', () => {
+  beforeEach(async () => {
+    await pitDb.pitReports.clear();
+    await pitDb.pitDrafts.clear();
+    await pitDb.pitPhotoCleanup.clear();
+  });
+
+  it('atomically rejects a stale upload after a newer edit is written', async () => {
+    const photoId = 'photo-1';
+    const newerPhotoId = 'photo-2';
+    const oldBlob = new Blob(['old-photo'], { type: 'image/jpeg' });
+    await enqueuePitReport(
+      makeReport({
+        photos: [{
+          id: photoId,
+          path: null,
+          order: 0,
+          mimeType: 'image/jpeg',
+          width: 100,
+          height: 80,
+        }],
+        photoPath: null,
+        notes: 'old edit',
+      }),
+      { [photoId]: oldBlob },
+    );
+    const original = await pitDb.pitReports.get('2026casj:254');
+    expect(original).toBeDefined();
+
+    const newerBlob = new Blob(['new-photo'], { type: 'image/png' });
+    const originalRevision = original!.rowRevision!;
+    let newerWriteStarted!: () => void;
+    const newerWriteHasStarted = new Promise<void>((resolve) => {
+      newerWriteStarted = resolve;
+    });
+    let releaseNewerWrite!: () => void;
+    const newerWriteMayCommit = new Promise<void>((resolve) => {
+      releaseNewerWrite = resolve;
+    });
+
+    // Hold the newer edit's read-write transaction open after its put. The
+    // stale upload completion must queue behind it and evaluate its guard
+    // against the newly committed row, not an earlier snapshot.
+    const newerWrite = pitDb.transaction('rw', pitDb.pitReports, async () => {
+      await pitDb.pitReports.put({
+        ...original!,
+        // Deliberately keep the timestamp unchanged. The monotonic revision,
+        // not updatedAt, is the submission/upload fence.
+        rowRevision: originalRevision + 1,
+        data: {
+          ...original!.data,
+          notes: 'newer edit survives',
+          photos: [{
+            id: newerPhotoId,
+            path: null,
+            order: 0,
+            mimeType: 'image/png',
+            width: 120,
+            height: 90,
+          }],
+          photoPath: null,
+        },
+        photoBlobs: { [newerPhotoId]: newerBlob },
+      });
+      newerWriteStarted();
+      await Dexie.waitFor(newerWriteMayCommit);
+    });
+    await newerWriteHasStarted;
+
+    const staleCompletion = setPitUploadedPhoto(
+      '2026casj:254',
+      photoId,
+      '2026casj/254/stale-upload.jpg',
+      originalRevision,
+    );
+    releaseNewerWrite();
+    await newerWrite;
+
+    await expect(staleCompletion).resolves.toBe(false);
+    const stored = await pitDb.pitReports.get('2026casj:254');
+    expect(stored?.updatedAt).toBe(original!.updatedAt);
+    expect(stored?.rowRevision).toBe(originalRevision + 1);
+    expect(stored?.data.notes).toBe('newer edit survives');
+    expect(stored?.data.photos[0]).toMatchObject({
+      id: newerPhotoId,
+      path: null,
+      mimeType: 'image/png',
+    });
+    expect(stored?.data.photoPath).toBeNull();
+    expect(stored?.photoBlobs).toHaveProperty(newerPhotoId);
+    expect(stored?.photoBlobs).not.toHaveProperty(photoId);
+  });
+
+  it('rejects an upload completion whose photo id is no longer present', async () => {
+    await enqueuePitReport(makeReport({ photos: [], photoPath: null }), {});
+    const current = await pitDb.pitReports.get('2026casj:254');
+
+    await expect(
+      setPitUploadedPhoto(
+        '2026casj:254',
+        'removed-photo',
+        '2026casj/254/removed-photo.jpg',
+        current!.rowRevision,
+      ),
+    ).resolves.toBe(false);
+    expect((await pitDb.pitReports.get('2026casj:254'))?.data.photos).toEqual([]);
+  });
+});
+
+describe('completePitSync', () => {
+  beforeEach(async () => {
+    await pitDb.pitReports.clear();
+    await pitDb.pitDrafts.clear();
+  });
+
+  it('does not rebase a newer row whose base has already moved', async () => {
+    await enqueuePitReport(makeReport({ notes: 'newer edit' }), {}, 999);
+    const newer = await pitDb.pitReports.get('2026casj:254');
+    expect(newer).toBeDefined();
+
+    const completion = await completePitSync(
+      '2026casj:254',
+      newer!.rowRevision! - 1,
+      100,
+      101,
+    );
+
+    expect(completion).toBe('unchanged');
+    expect(await pitDb.pitReports.get('2026casj:254')).toMatchObject({
+      rowRevision: newer!.rowRevision,
+      baseRevision: 999,
+      syncState: 'dirty',
+      data: { notes: 'newer edit' },
+    });
+  });
+
+  it('keeps a draft opened during an RPC on the acknowledged base despite stale UI saves', async () => {
+    await enqueuePitReport(makeReport({ notes: 'submission A' }), {}, 100);
+    const submissionA = await getPitReport('2026casj', 254);
+    const revisionA = submissionA!.rowRevision!;
+    await markPitPending(submissionA!.draftKey, revisionA);
+
+    await savePitDraft('2026casj', 254, makeReport({ notes: 'open draft' }), {}, 100);
+    expect(await completePitSync('2026casj:254', revisionA, 100, revisionA)).toBe('synced');
+    expect((await getPitDraft('2026casj', 254))?.baseRevision).toBe(revisionA);
+
+    await savePitDraft('2026casj', 254, makeReport({ notes: 'late UI save' }), {}, 100);
+    expect((await getPitDraft('2026casj', 254))?.baseRevision).toBe(revisionA);
+    await enqueuePitReport(makeReport({ notes: 'submission B' }), {}, 100);
+    expect((await getPitReport('2026casj', 254))?.baseRevision).toBe(revisionA);
   });
 });

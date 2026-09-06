@@ -5,6 +5,7 @@ import type { LocalMatchReport } from '@/db/types';
 import type { FuelBurst } from '@/scoring';
 import { db, saveReport } from '@/db/localStore';
 import { SYNC_POLL_MS } from '@/sync/constants';
+import { resetSyncLeaseForTests } from '@/sync/syncLease';
 
 // --- mocks ---------------------------------------------------------------
 const onlineRef = { value: true };
@@ -15,6 +16,29 @@ vi.mock('@/sync/useOnline', () => ({
 const syncOnceMock = vi.fn(async () => ({ attempted: 0, synced: 0, retried: 0, deadLettered: 0 }));
 vi.mock('@/sync/outbox', () => ({
   syncOnce: () => syncOnceMock(),
+}));
+const syncPitOnceMock = vi.fn(async () => ({ attempted: 0, synced: 0, retried: 0, deadLettered: 0 }));
+vi.mock('@/sync/pitOutbox', () => ({
+  syncPitOnce: () => syncPitOnceMock(),
+}));
+const syncMatchupNotesOnceMock = vi.fn(async () => ({ attempted: 0, synced: 0, retried: 0, deadLettered: 0 }));
+vi.mock('@/sync/matchupNotesSync', () => ({
+  syncMatchupNotesOnce: () => syncMatchupNotesOnceMock(),
+}));
+const syncStrategyCanvasOnceMock = vi.fn(async () => ({ attempted: 0, synced: 0, retried: 0, deadLettered: 0 }));
+vi.mock('@/sync/strategyCanvasSync', () => ({
+  syncStrategyCanvasOnce: () => syncStrategyCanvasOnceMock(),
+}));
+const withCrossTabSyncLeaseMock = vi.fn(
+  async (
+    work: (stillOwner: () => Promise<boolean>) => Promise<'completed' | 'incomplete'>,
+  ) => work(async () => true),
+);
+vi.mock('@/sync/syncLease', () => ({
+  withCrossTabSyncLease: (
+    work: (stillOwner: () => Promise<boolean>) => Promise<'completed' | 'incomplete'>,
+  ) => withCrossTabSyncLeaseMock(work),
+  resetSyncLeaseForTests: vi.fn(async () => undefined),
 }));
 
 import { resetSyncControllerForTests, useSync } from '../useSync';
@@ -80,15 +104,22 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
 describe('useSync', () => {
   beforeEach(async () => {
     resetSyncControllerForTests();
+    await resetSyncLeaseForTests();
     await db.reports.clear();
     onlineRef.value = true;
     syncOnceMock.mockClear();
     syncOnceMock.mockResolvedValue({ attempted: 0, synced: 0, retried: 0, deadLettered: 0 });
+    syncPitOnceMock.mockClear();
+    syncMatchupNotesOnceMock.mockClear();
+    syncStrategyCanvasOnceMock.mockClear();
+    withCrossTabSyncLeaseMock.mockReset();
+    withCrossTabSyncLeaseMock.mockImplementation(async (work) => work(async () => true));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
     resetSyncControllerForTests();
+    await resetSyncLeaseForTests();
   });
 
   it('exposes online status from useOnline', async () => {
@@ -167,7 +198,7 @@ describe('useSync', () => {
 
     // mount run
     await act(async () => {
-      await Promise.resolve();
+      await vi.waitFor(() => expect(syncOnceMock).toHaveBeenCalled());
     });
     const afterMount = syncOnceMock.mock.calls.length;
     expect(afterMount).toBeGreaterThanOrEqual(1);
@@ -219,6 +250,53 @@ describe('useSync', () => {
     // The run rejected, so the success stamp is never set.
     await waitFor(() => expect(result.current.syncing).toBe(false));
     expect(result.current.lastSyncedAt).toBe(before);
+  });
+
+  it('does not stamp a partial drain after lease loss and retries it only once', async () => {
+    let releaseRetry!: () => void;
+    const retryMayStart = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
+    let leaseCall = 0;
+    withCrossTabSyncLeaseMock.mockImplementation(async (work) => {
+      leaseCall += 1;
+      if (leaseCall === 1) {
+        let ownershipCheck = 0;
+        return work(async () => {
+          ownershipCheck += 1;
+          return ownershipCheck === 1;
+        });
+      }
+      await retryMayStart;
+      return work(async () => true);
+    });
+
+    const { result } = renderHook(() => useSync());
+    const before = result.current.lastSyncedAt;
+
+    // The first lease is lost after the match outbox and before the pit phase.
+    // The controller starts one bounded recovery attempt, held here so the
+    // incomplete run's public state can be asserted deterministically.
+    await waitFor(() => expect(withCrossTabSyncLeaseMock).toHaveBeenCalledTimes(2));
+    expect(syncOnceMock).toHaveBeenCalledTimes(1);
+    expect(syncPitOnceMock).not.toHaveBeenCalled();
+    expect(result.current.lastSyncedAt).toBe(before);
+    expect(result.current.syncing).toBe(true);
+
+    const completedAt = (before ?? 0) + 1;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(completedAt);
+    try {
+      releaseRetry();
+      await waitFor(() => expect(result.current.syncing).toBe(false));
+      expect(withCrossTabSyncLeaseMock).toHaveBeenCalledTimes(2);
+      expect(syncOnceMock).toHaveBeenCalledTimes(2);
+      expect(syncPitOnceMock).toHaveBeenCalledTimes(1);
+      expect(syncMatchupNotesOnceMock).toHaveBeenCalledTimes(1);
+      expect(syncStrategyCanvasOnceMock).toHaveBeenCalledTimes(1);
+      expect(result.current.lastSyncedAt).toBe(completedAt);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('coalesces overlapping runs: a syncNow while a run is in flight queues ONE follow-up drain', async () => {

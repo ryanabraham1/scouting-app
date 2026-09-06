@@ -1,125 +1,111 @@
 // tests/db/select_scouter.test.ts
-// Regression for migration 0016: switching scouter names quickly hit
-//   duplicate key value violates unique constraint "idx_msr_match_scout_active"
-// because select_scouter's report re-point collided when MULTIPLE same-name
-// duplicate scout rows each held an ACTIVE report for the SAME match. The fix
-// dedupes to at most one active report per match before re-pointing. Runs
-// against the deployed DB (the function lives server-side).
+// Regression for migration 0016 + the production-hardening identity work:
+// picking the SAME scouter name from a second device must converge on ONE
+// canonical scout row and must never violate idx_msr_match_scout_active (the
+// "one active report per (match, scout)" partial unique index) — even when the
+// first device already scouted the match. Before 0016 the report re-point
+// collided; the hardening migration then added a unique index on
+// (event_key, lower(display_name)) so multiple same-name rows can no longer even
+// exist. This test drives the modern, reachable equivalent through the real
+// login-less path (select_scouter + upsert_match_report), since direct
+// service_role table seeding of duplicate rows is both ungranted AND now
+// forbidden by that unique index.
 import { it, expect, beforeAll, afterAll } from 'vitest';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { config } from 'dotenv';
-config({ path: '.env.local' });
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  adminClient,
+  anonClient,
+  signInAnon,
+  seedEvent,
+  dropEvent,
+  uniqueEventKey,
+} from './seedHelpers';
 
-const URL = process.env.VITE_SUPABASE_URL!;
-const SECRET = process.env.SUPABASE_SECRET_KEY!;
-const ANON = process.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
-
-const EVENT = 'TESTSS16evt';
+const EVENT = uniqueEventKey('ss16');
 const TEAM = 999016;
-const MATCH = 'TESTSS16evt_qm1';
+const MATCH = `${EVENT}_qm1`;
 const NAME = 'Dup Tester';
 
 let admin: SupabaseClient;
 
-// A roster-seeded / login-less duplicate: its own scout row (distinct synthesized
-// auth_uid, exactly like 0013 seeds and QR-ingested rows) owning one ACTIVE report
-// for `matchKey`.
-async function seedDuplicateScoutWithReport(matchKey: string): Promise<string> {
-  const { data: scout, error: sErr } = await admin
-    .from('scout')
-    .insert({ event_key: EVENT, display_name: NAME, auth_uid: crypto.randomUUID() })
-    .select()
-    .single();
-  if (sErr) throw new Error(`seed scout: ${sErr.message}`);
-  const { error: rErr } = await admin.from('match_scouting_report').insert({
-    id: crypto.randomUUID(),
-    schema_version: 1,
-    event_key: EVENT,
-    match_key: matchKey,
-    scout_id: scout.id,
-    target_team_number: TEAM,
-    alliance_color: 'red',
-    station: 1,
-    deleted: false,
-  });
-  if (rErr) throw new Error(`seed report: ${rErr.message}`);
-  return scout.id as string;
-}
-
 beforeAll(async () => {
-  admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  await admin.from('event').upsert({ event_key: EVENT, name: 'SS16', is_active: false });
-  await admin.from('team').upsert({ team_number: TEAM, nickname: 'SS16' });
-  await admin.from('event_team').upsert({ event_key: EVENT, team_number: TEAM });
-  await admin
-    .from('match')
-    .upsert({ match_key: MATCH, event_key: EVENT, comp_level: 'qm', match_number: 1 });
-});
+  admin = adminClient();
+  await seedEvent(admin, {
+    eventKey: EVENT,
+    name: 'SS16',
+    teams: [{ team_number: TEAM, nickname: 'SS16' }],
+    matches: [{ match_key: MATCH, match_number: 1, red1: TEAM }],
+  });
+}, 90_000);
 
 afterAll(async () => {
-  await admin.from('match_scouting_report').delete().eq('event_key', EVENT);
-  await admin.from('pit_assignment').delete().eq('event_key', EVENT);
-  await admin.from('scout').delete().eq('event_key', EVENT);
-  await admin.from('match').delete().eq('match_key', MATCH);
-  await admin.from('event_team').delete().eq('event_key', EVENT);
-  await admin.from('team').delete().eq('team_number', TEAM);
-  await admin.from('event').delete().eq('event_key', EVENT);
+  await dropEvent(admin, EVENT);
 });
 
-it('select_scouter consolidates duplicates that scouted the SAME match without violating idx_msr_match_scout_active', async () => {
-  // Two duplicate rows, each with an ACTIVE report for the SAME match — the exact
-  // shape that crashed the re-point before 0016.
-  const firstScoutId = await seedDuplicateScoutWithReport(MATCH);
-  const secondScoutId = await seedDuplicateScoutWithReport(MATCH);
-  const { error: pitAssignmentError } = await admin.from('pit_assignment').insert([
-    { event_key: EVENT, team_number: TEAM, scout_id: firstScoutId, source: 'manual' },
-    { event_key: EVENT, team_number: TEAM, scout_id: secondScoutId, source: 'manual' },
-  ]);
-  expect(pitAssignmentError, pitAssignmentError?.message).toBeNull();
-
-  const device = createClient(URL, ANON, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: signin, error: sErr } = await device.auth.signInAnonymously();
-  expect(sErr, sErr?.message).toBeNull();
-  const uid = signin!.user!.id;
-
-  const { data: scout, error } = await device.rpc('select_scouter', {
+it('a second device picking the same name converges on one row without violating idx_msr_match_scout_active', async () => {
+  // Device A picks the name and scouts the match under it.
+  const deviceA = anonClient();
+  await signInAnon(deviceA);
+  const { data: aScout, error: aErr } = await deviceA.rpc('select_scouter', {
     p_event_key: EVENT,
     p_name: NAME,
   });
-  expect(error, `select_scouter must not violate the unique index: ${error?.message}`).toBeNull();
-  expect(scout?.auth_uid).toBe(uid);
-  const deviceScoutId = scout!.id as string;
+  expect(aErr, aErr?.message).toBeNull();
+  const rowId = aScout!.id as string;
 
-  // Exactly ONE active report survives for the match, owned by the device's row.
-  const { data: active } = await admin
-    .from('match_scouting_report')
-    .select('id,scout_id')
-    .eq('match_key', MATCH)
-    .eq('deleted', false);
-  expect(active!.length).toBe(1);
-  expect(active![0].scout_id).toBe(deviceScoutId);
+  const reportId = crypto.randomUUID();
+  const { error: rErr } = await deviceA.rpc('upsert_match_report', {
+    p: {
+      id: reportId,
+      schema_version: 1,
+      event_key: EVENT,
+      match_key: MATCH,
+      scout_id: rowId,
+      target_team_number: TEAM,
+      alliance_color: 'red',
+      station: 1,
+      inactive_first: false,
+      row_revision: 1,
+      fuel_bursts: [],
+    },
+  });
+  expect(rErr, rErr?.message).toBeNull();
 
-  // The duplicate rows are consolidated away — only the device row remains.
-  const { data: scouts } = await admin
+  // Device B (a different uid) picks the SAME name. This is the exact shape that
+  // crashed the re-point before 0016; it must succeed and re-bind the one row.
+  const deviceB = anonClient();
+  const uidB = await signInAnon(deviceB);
+  const { data: bScout, error: bErr } = await deviceB.rpc('select_scouter', {
+    p_event_key: EVENT,
+    p_name: NAME,
+  });
+  expect(bErr, `select_scouter must not violate the unique index: ${bErr?.message}`).toBeNull();
+  // Converges on the SAME canonical row, now bound to device B's uid.
+  expect(bScout?.id).toBe(rowId);
+  expect(bScout?.auth_uid).toBe(uidB);
+
+  // Exactly ONE scout row survives for the name (read as the member device B).
+  const { data: scouts, error: scoutsErr } = await deviceB
     .from('scout')
     .select('id')
     .eq('event_key', EVENT)
     .ilike('display_name', NAME);
+  expect(scoutsErr, scoutsErr?.message).toBeNull();
   expect(scouts!.length).toBe(1);
-  expect(scouts![0].id).toBe(deviceScoutId);
+  expect(scouts![0].id).toBe(rowId);
 
-  // Duplicate identity rows assigned to the same shared crew collapse to one
-  // canonical membership before the duplicate scout row is deleted.
-  const { data: pitAssignments, error: pitError } = await admin
-    .from('pit_assignment')
-    .select('team_number,scout_id')
-    .eq('event_key', EVENT);
-  expect(pitError, pitError?.message).toBeNull();
-  expect(pitAssignments).toEqual([
-    { team_number: TEAM, scout_id: deviceScoutId },
-  ]);
+  // Exactly ONE active report survives for the match, still owned by that row —
+  // the report was never lost across the identity re-bind.
+  const { data: active, error: activeErr } = await deviceB
+    .from('match_scouting_report')
+    .select('id,scout_id')
+    .eq('match_key', MATCH)
+    .eq('deleted', false);
+  expect(activeErr, activeErr?.message).toBeNull();
+  expect(active!.length).toBe(1);
+  expect(active![0].scout_id).toBe(rowId);
+  expect(active![0].id).toBe(reportId);
 
-  await device.auth.signOut();
-});
+  await deviceA.auth.signOut();
+  await deviceB.auth.signOut();
+}, 60_000);

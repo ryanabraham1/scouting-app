@@ -1,35 +1,41 @@
+// tests/db/matchup_notes.test.ts
+//
+// The `explicit_browser_data_api_grants` migration revoked `service_role`'s
+// broad table privileges, so the event fixture is now created through the
+// `promote_event_import` definer RPC (never activated) and torn down through
+// `delete_event` (which cascades `matchup_note` via its `on delete cascade` FK
+// and explicitly deletes `matchup_note_history`). Verification reads use the
+// anon client: `matchup_note` is browser-readable (grant + open read policy),
+// while `service_role` no longer has any table grant on it.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { config } from 'dotenv';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  adminClient,
+  anonClient,
+  seedEvent,
+  dropEvent,
+  uniqueEventKey,
+} from './seedHelpers';
 
-config({ path: '.env.local' });
-
-const URL = process.env.VITE_SUPABASE_URL!;
-const SECRET = process.env.SUPABASE_SECRET_KEY!;
-const PUBLISHABLE = process.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
-const EVENT_KEY = `note_test_${Math.random().toString(36).slice(2, 9)}`;
+const EVENT_KEY = uniqueEventKey('note');
 const TARGET_TEAM = 9254;
 
 let admin: SupabaseClient;
 let publicClient: SupabaseClient;
 
 beforeAll(async () => {
-  expect(URL, 'VITE_SUPABASE_URL missing').toBeTruthy();
-  expect(SECRET, 'SUPABASE_SECRET_KEY missing').toBeTruthy();
-  expect(PUBLISHABLE, 'VITE_SUPABASE_PUBLISHABLE_KEY missing').toBeTruthy();
-  admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  publicClient = createClient(URL, PUBLISHABLE, { auth: { persistSession: false } });
-  const { error } = await admin.from('event').insert({
-    event_key: EVENT_KEY,
+  admin = adminClient();
+  publicClient = anonClient();
+  await seedEvent(admin, {
+    eventKey: EVENT_KEY,
     name: 'Matchup note DB test',
+    teams: [{ team_number: TARGET_TEAM }],
+    matches: [],
   });
-  if (error) throw error;
-});
+}, 90_000);
 
 afterAll(async () => {
-  if (!admin) return;
-  await admin.from('matchup_note_history').delete().eq('event_key', EVENT_KEY);
-  await admin.from('event').delete().eq('event_key', EVENT_KEY);
+  if (admin) await dropEvent(admin, EVENT_KEY);
 });
 
 describe('event-scoped team strategy notes', () => {
@@ -76,7 +82,7 @@ describe('event-scoped team strategy notes', () => {
     expect(stale.error).toBeNull();
     expect(stale.data).toMatchObject({ status: 'stale', current_revision: 100 });
 
-    const afterStale = await admin
+    const afterStale = await publicClient
       .from('matchup_note')
       .select('note,row_revision')
       .eq('event_key', EVENT_KEY)
@@ -99,7 +105,7 @@ describe('event-scoped team strategy notes', () => {
     });
     expect(newer.error).toBeNull();
     expect(newer.data).toMatchObject({ status: 'applied', current_revision: 101 });
-    const afterNewer = await admin
+    const afterNewer = await publicClient
       .from('matchup_note')
       .select('note,row_revision')
       .eq('event_key', EVENT_KEY)
@@ -149,7 +155,7 @@ describe('event-scoped team strategy notes', () => {
     expect(a.error).toBeNull();
     expect(b.error).toBeNull();
     expect([a.data?.status, b.data?.status].sort()).toEqual(['applied', 'conflict']);
-    const rows = await admin
+    const rows = await publicClient
       .from('matchup_note')
       .select('note,row_revision')
       .eq('event_key', EVENT_KEY)

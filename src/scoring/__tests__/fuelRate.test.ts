@@ -12,6 +12,7 @@ describe('computeAggregates with rate > 5 (0..30 BPS)', () => {
       fuelBursts: [burst],
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
     });
     // 20 BPS for 1.0s = 20 fuel in the (always-active) transition window.
     expect(agg.teleopFuelActive).toBe(20);
@@ -25,6 +26,7 @@ describe('computeAggregates with rate > 5 (0..30 BPS)', () => {
       fuelBursts: [burst],
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
     });
     // 30 BPS for 2.0s = 60 fuel.
     expect(agg.teleopFuelActive).toBe(60);

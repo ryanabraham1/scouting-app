@@ -42,6 +42,7 @@ export async function enableDemoMode(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      apikey: env.SUPABASE_PUBLISHABLE_KEY,
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({

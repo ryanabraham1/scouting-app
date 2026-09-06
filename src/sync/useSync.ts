@@ -30,6 +30,7 @@ import {
   requeueAuthClassPitDeadLetters,
 } from '@/pit/pitStore';
 import { SYNC_POLL_MS } from '@/sync/constants';
+import { withCrossTabSyncLease } from '@/sync/syncLease';
 
 export interface UseSyncResult {
   online: boolean;
@@ -37,7 +38,7 @@ export interface UseSyncResult {
   deadLetters: number;
   syncing: boolean;
   syncNow: () => void;
-  /** Date.now() of the last run() that completed WITHOUT throwing; null until one does. */
+  /** Date.now() of the last fully completed leased drain; null until one finishes. */
   lastSyncedAt: number | null;
 }
 
@@ -115,97 +116,6 @@ async function refreshSharedCounts(): Promise<void> {
   });
 }
 
-const FALLBACK_LEASE_KEY = 'frc-scout-sync-lease';
-const FALLBACK_LEASE_MS = 30_000;
-const FALLBACK_RENEW_MS = 10_000;
-
-async function withCrossTabLease(
-  work: (stillOwner: () => boolean) => Promise<void>,
-): Promise<boolean> {
-  const locks = typeof navigator !== 'undefined'
-    ? (navigator as Navigator & {
-        locks?: {
-          request<T>(
-            name: string,
-            options: { ifAvailable: true },
-            callback: (lock: unknown | null) => Promise<T>,
-          ): Promise<T>;
-        };
-      }).locks
-    : undefined;
-  if (locks?.request) {
-    return locks.request('frc-scout-outbox-sync', { ifAvailable: true }, async (lock) => {
-      if (!lock) return false;
-      await work(() => true);
-      return true;
-    });
-  }
-
-  // Older Safari/WebViews lack navigator.locks. A short localStorage lease is
-  // cross-tab visible; writing a unique token then reading it back prevents two
-  // contenders that observed an expired value from both entering.
-  if (typeof localStorage === 'undefined') {
-    await work(() => true);
-    return true;
-  }
-  const now = Date.now();
-  const token = `${now}:${Math.random().toString(36).slice(2)}`;
-  try {
-    const current = JSON.parse(localStorage.getItem(FALLBACK_LEASE_KEY) ?? 'null') as
-      | { token?: string; expiresAt?: number }
-      | null;
-    if (current?.expiresAt && current.expiresAt > now) return false;
-    localStorage.setItem(
-      FALLBACK_LEASE_KEY,
-      JSON.stringify({ token, expiresAt: now + FALLBACK_LEASE_MS }),
-    );
-    const claimed = JSON.parse(localStorage.getItem(FALLBACK_LEASE_KEY) ?? 'null') as
-      | { token?: string }
-      | null;
-    if (claimed?.token !== token) return false;
-    const stillOwner = () => {
-      try {
-        const lease = JSON.parse(localStorage.getItem(FALLBACK_LEASE_KEY) ?? 'null') as
-          | { token?: string; expiresAt?: number }
-          | null;
-        return lease?.token === token && (lease.expiresAt ?? 0) > Date.now();
-      } catch {
-        return false;
-      }
-    };
-    if (!stillOwner()) return false;
-    const renew = setInterval(() => {
-      try {
-        if (!stillOwner()) return;
-        localStorage.setItem(
-          FALLBACK_LEASE_KEY,
-          JSON.stringify({ token, expiresAt: Date.now() + FALLBACK_LEASE_MS }),
-        );
-      } catch {
-        /* the ownership check fences subsequent work */
-      }
-    }, FALLBACK_RENEW_MS);
-    try {
-      await work(stillOwner);
-    } finally {
-      clearInterval(renew);
-    }
-    return true;
-  } catch {
-    await work(() => true);
-    return true;
-  } finally {
-    try {
-      const current = JSON.parse(localStorage.getItem(FALLBACK_LEASE_KEY) ?? 'null') as
-        | { token?: string }
-        | null;
-      if (current?.token === token) localStorage.removeItem(FALLBACK_LEASE_KEY);
-    } catch {
-      /* storage unavailable */
-    }
-  }
-}
-
 async function runSharedSync(): Promise<void> {
   if (sharedRunning) {
     sharedRerunRequested = true;
@@ -215,23 +125,36 @@ async function runSharedSync(): Promise<void> {
   const generation = controllerGeneration;
   publishShared({ syncing: true });
   let ok = false;
+  let retriedIncompleteDrain = false;
   try {
-    do {
+    for (;;) {
       sharedRerunRequested = false;
-      const acquired = await withCrossTabLease(async (stillOwner) => {
-        if (!stillOwner()) return;
+      const leaseResult = await withCrossTabSyncLease(async (stillOwner) => {
+        if (!(await stillOwner())) return 'incomplete';
         await syncOnce();
-        if (!stillOwner()) return;
+        if (!(await stillOwner())) return 'incomplete';
         await syncPitOnce();
-        if (!stillOwner()) return;
+        if (!(await stillOwner())) return 'incomplete';
         await syncMatchupNotesOnce();
-        if (!stillOwner()) return;
+        if (!(await stillOwner())) return 'incomplete';
         await syncStrategyCanvasOnce();
+        return 'completed';
       });
       if (generation !== controllerGeneration) return;
-      if (!acquired) break;
+      if (leaseResult === 'not-acquired') break;
+      if (leaseResult === 'incomplete') {
+        // A suspended tab can lose its fallback lease between outbox phases.
+        // Retry once immediately: if a successor owns the lease this resolves
+        // as not-acquired, and if no successor claimed it we finish the drain.
+        // A second loss stops here and leaves the normal poll/queue event as the
+        // bounded retry path rather than spinning inside one controller run.
+        if (retriedIncompleteDrain) break;
+        retriedIncompleteDrain = true;
+        continue;
+      }
       ok = true;
-    } while (sharedRerunRequested);
+      if (!sharedRerunRequested) break;
+    }
   } catch {
     ok = false;
   } finally {

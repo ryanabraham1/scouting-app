@@ -4,7 +4,12 @@ import { supabase } from '@/lib/supabase';
 import { tbaGet, statboticsGet, nexusGet, syncEventResults } from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
 import { computeLocalEpa } from '@/dash/localEpa';
-import { fetchSeasonMatchRows, EPA_STALE_TIME } from '@/dash/seasonEpa';
+import {
+  fetchSeasonMatchRows,
+  fetchTeamSeasonMatchesCached,
+  EPA_STALE_TIME,
+  SEASON_EPA_CLOSURE_VERSION,
+} from '@/dash/seasonEpa';
 import {
   parseNexusEventStatus,
   type NexusEventStatus,
@@ -460,11 +465,78 @@ export interface TeamSeasonEpa {
   source: 'statbotics' | 'inhouse' | 'none';
 }
 
+type StatboticsSeasonEpa = ReturnType<typeof parseStatboticsTeamYear>;
+
+function statboticsSeasonResult(sb: StatboticsSeasonEpa): TeamSeasonEpa {
+  return {
+    epa: sb.totalEpa,
+    worldRank: sb.worldRank,
+    record: sb.record,
+    source: sb.totalEpa != null ? 'statbotics' : 'none',
+  };
+}
+
+function localSeasonResult(team: number, localRows: MatchRow[]): TeamSeasonEpa {
+  const computed = computeLocalEpa(localRows, {
+    recencyBoost: EPA_RECENCY_BOOST,
+  }).get(team);
+  const epa = computed != null && Number.isFinite(computed) ? computed : null;
+  return {
+    epa,
+    worldRank: null,
+    record: null,
+    source: epa != null ? 'inhouse' : 'none',
+  };
+}
+
+function sameSeasonResult(a: TeamSeasonEpa, b: TeamSeasonEpa): boolean {
+  return a.epa === b.epa &&
+    a.worldRank === b.worldRank &&
+    a.record === b.record &&
+    a.source === b.source;
+}
+
+function normalizedSeasonTeams(teamNumbers: number[]): number[] {
+  return [...new Set(teamNumbers)]
+    .filter((team) => Number.isSafeInteger(team) && team > 0)
+    .sort((a, b) => a - b);
+}
+
+async function statboticsSeasonEpa(
+  team: number,
+  year: string,
+): Promise<ReturnType<typeof parseStatboticsTeamYear>> {
+  const queryKey = ['epa', 'season-statbotics', team, year] as const;
+  try {
+    return await queryClient.fetchQuery({
+      queryKey,
+      staleTime: EPA_STALE_TIME,
+      retry: false,
+      queryFn: async () => {
+        const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
+        const unavailable =
+          typeof json === 'object' &&
+          json !== null &&
+          (json as { available?: unknown }).available === false;
+        if (unavailable) throw new Error('Statbotics is unavailable');
+        return parseStatboticsTeamYear(json);
+      },
+    });
+  } catch {
+    // A rejected refresh leaves React Query's last successful data intact. Read
+    // that persisted value explicitly instead of converting the outage into a
+    // successful null response that would overwrite the last-good snapshot.
+    return queryClient.getQueryData<ReturnType<typeof parseStatboticsTeamYear>>(
+      queryKey,
+    ) ?? { worldRank: null, totalEpa: null, record: null };
+  }
+}
+
 /**
- * SINGLE SOURCE OF TRUTH for a team's season EPA, cached per (team, year,
- * recency). Statbotics season EPA (`team_year`) when available; otherwise the
- * recency-weighted in-house model over the union of events THAT TEAM attended
- * (full alliances — never a single event, which cold-starts and underestimates).
+ * Statbotics season EPA (`team_year`) when available; otherwise the
+ * recency-weighted in-house model over every complete event attended by this
+ * team. The result is cached per team and is independent of which other teams
+ * happen to be displayed alongside it.
  *
  * Both the Total-EPA tile (useTeamSeasonStats) and the match prediction
  * (useEventEpa) read THIS, so a team shows the SAME EPA everywhere — and both use
@@ -476,43 +548,82 @@ export async function seasonEpaForTeam(
   team: number,
   eventKey: string,
   year: string,
+  onPromotion?: () => void,
 ): Promise<TeamSeasonEpa> {
-  return queryClient.fetchQuery({
-    queryKey: ['epa', 'season-team', team, year, EPA_RECENCY_BOOST],
-    staleTime: EPA_STALE_TIME,
-    queryFn: async (): Promise<TeamSeasonEpa> => {
-      let sb = { worldRank: null, totalEpa: null, record: null } as ReturnType<
-        typeof parseStatboticsTeamYear
-      >;
-      try {
-        const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
-        const unavailable =
-          typeof json === 'object' &&
-          json !== null &&
-          (json as { available?: unknown }).available === false;
-        if (!unavailable) sb = parseStatboticsTeamYear(json);
-      } catch {
-        // A team-specific proxy failure must still get the in-house fallback.
-      }
-      if (sb.totalEpa != null) {
-        return { epa: sb.totalEpa, worldRank: sb.worldRank, record: sb.record, source: 'statbotics' };
-      }
-      let epa: number | null = null;
-      try {
-        const rows = await fetchSeasonMatchRows([team], eventKey, year);
-        const computed = computeLocalEpa(rows, { recencyBoost: EPA_RECENCY_BOOST }).get(team);
-        epa = computed != null && Number.isFinite(computed) ? computed : null;
-      } catch {
-        // Keep this team unavailable without rejecting every other team's EPA.
-      }
-      return {
-        epa,
-        worldRank: sb.worldRank,
-        record: sb.record,
-        source: epa != null ? 'inhouse' : 'none',
-      };
-    },
-  });
+  const queryKey = [
+    'epa',
+    'season-team',
+    SEASON_EPA_CLOSURE_VERSION,
+    team,
+    year,
+    EPA_RECENCY_BOOST,
+  ] as const;
+  const raceState: { delayedStatbotics: Promise<StatboticsSeasonEpa> | null } = {
+    delayedStatbotics: null,
+  };
+  try {
+    const initial = await queryClient.fetchQuery({
+      queryKey,
+      staleTime: EPA_STALE_TIME,
+      retry: false,
+      queryFn: async (): Promise<TeamSeasonEpa> => {
+        const statboticsPromise = statboticsSeasonEpa(team, year);
+        const localPromise = fetchSeasonMatchRows([team], eventKey, year)
+          .then((rows) => localSeasonResult(team, rows));
+        const first = await Promise.race([
+          statboticsPromise.then((value) => ({ source: 'statbotics' as const, value })),
+          localPromise.then((value) => ({ source: 'local' as const, value })),
+        ]);
+
+        if (first.source === 'statbotics') {
+          if (first.value.totalEpa != null) return statboticsSeasonResult(first.value);
+          const local = await localPromise;
+          return {
+            ...local,
+            worldRank: first.value.worldRank,
+            record: first.value.record,
+          };
+        }
+
+        // TBA won the race. Return it now, but keep the Statbotics request alive
+        // so a later authoritative EPA can replace the visible fallback.
+        raceState.delayedStatbotics = statboticsPromise;
+        return first.value;
+      },
+    });
+
+    const delayedStatbotics = raceState.delayedStatbotics;
+    if (delayedStatbotics !== null) {
+      void delayedStatbotics.then((sb: StatboticsSeasonEpa) => {
+        const current = queryClient.getQueryData<TeamSeasonEpa>(queryKey);
+        if (!current) return;
+        const next = sb.totalEpa != null
+          ? statboticsSeasonResult(sb)
+          : {
+              ...current,
+              worldRank: sb.worldRank ?? current.worldRank,
+              record: sb.record ?? current.record,
+            };
+        if (sameSeasonResult(current, next)) return;
+        queryClient.setQueryData(queryKey, next);
+        void queryClient.invalidateQueries({ queryKey: ['epa', 'event'] });
+        void queryClient.invalidateQueries({ queryKey: ['epa', 'team-season-stats'] });
+        onPromotion?.();
+      }).catch(() => {
+        // The Statbotics helper normally converts outages to a null result. This
+        // final guard ensures an unexpected rejection never disturbs TBA data.
+      });
+    }
+
+    return initial;
+  } catch {
+    return queryClient.getQueryData<TeamSeasonEpa>(queryKey) ?? {
+      epa: null,
+      worldRank: null,
+      record: null,
+      source: 'none',
+    };
+  }
 }
 
 /**
@@ -528,26 +639,44 @@ export function useEventEpa(
   eventKey: string | null,
   _matches: MatchRow[] = [],
 ): UseQueryResult<EventEpa> {
-  const sortedTeams = [...teamNumbers].sort((a, b) => a - b);
+  const displayQueryClient = useQueryClient();
+  const sortedTeams = normalizedSeasonTeams(teamNumbers);
   const year = eventKey ? eventKey.slice(0, 4) : '';
+  const displayQueryKey = [
+    'epa',
+    'event',
+    SEASON_EPA_CLOSURE_VERSION,
+    EPA_RECENCY_BOOST,
+    eventKey,
+    sortedTeams.join(','),
+  ] as const;
   return useQuery({
-    queryKey: ['epa', 'event', eventKey, sortedTeams.join(',')],
+    queryKey: displayQueryKey,
     enabled: !!eventKey && sortedTeams.length > 0,
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<EventEpa> => {
       const results = await Promise.allSettled(
-        sortedTeams.map((team) => seasonEpaForTeam(team, eventKey as string, year)),
+        sortedTeams.map((team) => seasonEpaForTeam(
+          team,
+          eventKey as string,
+          year,
+          () => {
+            void displayQueryClient.invalidateQueries({
+              queryKey: displayQueryKey,
+              exact: true,
+            });
+          },
+        )),
       );
       const epaByTeam = new Map<number, number | null>();
       const sourceByTeam = new Map<number, 'statbotics' | 'local' | 'none'>();
       let anyStatbotics = false;
       let anyEpa = false;
-      sortedTeams.forEach((team, i) => {
-        const settled = results[i];
-        const r: TeamSeasonEpa =
-          settled.status === 'fulfilled'
-            ? settled.value
-            : { epa: null, worldRank: null, record: null, source: 'none' };
+      sortedTeams.forEach((team, index) => {
+        const settled = results[index];
+        const r: TeamSeasonEpa = settled.status === 'fulfilled'
+          ? settled.value
+          : { epa: null, worldRank: null, record: null, source: 'none' };
         epaByTeam.set(team, r.epa);
         // seasonEpaForTeam returns 'inhouse' for the local fallback; normalize to
         // the event-level 'local' label so the per-team source matches `source`.
@@ -962,27 +1091,41 @@ export function useTeamSeasonStats(
   eventKey: string | null,
   _matches: MatchRow[] = [],
 ): UseQueryResult<TeamSeasonStats> {
+  const displayQueryClient = useQueryClient();
   const year = eventKey ? eventKey.slice(0, 4) : '';
+  const displayQueryKey = [
+    'epa',
+    'team-season-stats',
+    SEASON_EPA_CLOSURE_VERSION,
+    EPA_RECENCY_BOOST,
+    eventKey,
+    year,
+    team,
+  ] as const;
   return useQuery({
-    queryKey: ['statbotics', 'team-year', team, year],
+    queryKey: displayQueryKey,
     enabled: !!eventKey && team > 0,
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<TeamSeasonStats> => {
+      // Start the strict TBA record request alongside EPA. This deliberately
+      // spends an extra cached request when Statbotics already has a record so
+      // the fallback is ready immediately when it does not.
+      const tbaRecordPromise = fetchTeamSeasonMatchesCached(team, year)
+        .then((matches) => seasonRecordFromTbaMatches(matches, team))
+        .catch(() => null);
+
       // Same single source of truth as the match prediction -> identical EPA.
-      const r = await seasonEpaForTeam(team, eventKey as string, year);
+      const r = await seasonEpaForTeam(team, eventKey as string, year, () => {
+        void displayQueryClient.invalidateQueries({
+          queryKey: displayQueryKey,
+          exact: true,
+        });
+      });
 
       // Season record: prefer the one Statbotics returned; else derive a W-L-T
       // from the team's FULL-season TBA matches. tbaGet throws on non-2xx, so
       // guard it — a TBA outage just leaves the record null.
-      let seasonRecord = r.record;
-      if (seasonRecord == null) {
-        try {
-          const tbaSeason = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
-          seasonRecord = seasonRecordFromTbaMatches(tbaSeason, team);
-        } catch {
-          /* TBA unavailable — leave the record null */
-        }
-      }
+      const seasonRecord = r.record ?? await tbaRecordPromise;
 
       const epaSource: EpaSource = r.source;
       return { worldRank: r.worldRank, totalEpa: r.epa, epaSource, seasonRecord };

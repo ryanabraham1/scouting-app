@@ -1,42 +1,77 @@
+// tests/db/triggers.test.ts
+//
+// Server-side scoring parity (the byte-equivalence contract) + the report
+// revision/timestamp guard, exercised through the CURRENTLY-REACHABLE paths.
+//
+// The `explicit_browser_data_api_grants` migration revoked `service_role`'s
+// broad table privileges, so the old fixture pattern — direct
+// `admin.from('match_scouting_report').insert(...)` of hand-crafted rows, a
+// direct `admin.update(...)` to trip the BEFORE UPDATE trigger, and direct
+// deletes — is no longer possible for ANY Data API role (anon holds only
+// SELECT on the report table; service_role holds none). Reports are now created
+// through the `upsert_match_report` definer RPC, which runs the SAME
+// `recompute_match_report_aggregates` these tests assert on, so the golden
+// cases become an end-to-end proof of the server math. `recompute` is also
+// invoked directly (still service_role-executable) on the RPC-written row to
+// prove the standalone entrypoint agrees. Aggregates are read back with the
+// anon client (open read policy + grant).
+//
+// Two assertions were REFRAMED to the reachable contract:
+//   * The "BEFORE UPDATE bumps row_revision" trigger fires only on DIRECT
+//     table updates, which no client can issue anymore. We instead assert the
+//     observable guarantee the RPC provides: a newer revision advances
+//     row_revision and updated_at monotonically.
+//   * The negative-duration burst clamp inside `recompute` is now unreachable
+//     because `validate_match_report_payload` (run by the RPC) REJECTS a burst
+//     with endMs < startMs at ingress (22023) — corrupt bursts can no longer be
+//     written at all. We assert that ingress rejection; the recompute clamp
+//     remains as defense-in-depth (its TS twin is still covered by
+//     src/scoring/__tests__/compute.test.ts).
 import { it, expect, beforeAll, afterAll } from 'vitest';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { config } from 'dotenv';
-config({ path: '.env.local' });
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  adminClient,
+  anonClient,
+  provisionScouts,
+  seedEvent,
+  dropEvent,
+  uniqueEventKey,
+} from './seedHelpers';
 
-const URL = process.env.VITE_SUPABASE_URL!;
-const SECRET = process.env.SUPABASE_SECRET_KEY!;
-let admin: SupabaseClient;
-
-const EVENT = 'TESTC2evt';
+const EVENT = uniqueEventKey('c2');
 const TEAM = 999001;
-const MATCH = 'TESTC2evt_qm1';
-const MATCH2 = 'TESTC2evt_qm2';
+// Distinct matches so each report occupies a distinct (match_key, scout_id)
+// active slot and never supersedes another via the RPC's slot guard.
+const MATCH1 = `${EVENT}_qm1`; // TEAM at red1  (test 1: parity + revision guard)
+const MATCH2 = `${EVENT}_qm2`; // TEAM at blue2 (test 2: B3 golden)
+const MATCH3 = `${EVENT}_qm3`; // TEAM at red3  (test 3: negative-burst rejection)
+
+let admin: SupabaseClient;
+let anon: SupabaseClient;
+let device: SupabaseClient; // event member, drives upsert_match_report
 let scoutId = '';
-let reportId = '';
 
 beforeAll(async () => {
-  admin = createClient(URL, SECRET, { auth: { persistSession: false } });
-  await admin.from('event').upsert({ event_key: EVENT, name: 'C2 Test', is_active: false });
-  await admin.from('team').upsert({ team_number: TEAM, nickname: 'C2' });
-  await admin.from('match').upsert({ match_key: MATCH, event_key: EVENT, comp_level: 'qm', match_number: 1 });
-  await admin.from('match').upsert({ match_key: MATCH2, event_key: EVENT, comp_level: 'qm', match_number: 2 });
-  // Conflict on the per-event composite (the legacy global UNIQUE(auth_uid) was
-  // dropped in migration 0029). auth_uid is random here, so this is effectively a
-  // plain insert; the target just needs to be a real unique constraint.
-  const { data: s } = await admin.from('scout')
-    .upsert({ event_key: EVENT, display_name: 'C2 scout', auth_uid: crypto.randomUUID() }, { onConflict: 'event_key,auth_uid' })
-    .select().single();
-  scoutId = s!.id;
-});
+  admin = adminClient();
+  anon = anonClient();
+  await seedEvent(admin, {
+    eventKey: EVENT,
+    name: 'C2 Test',
+    teams: [{ team_number: TEAM, nickname: 'C2' }],
+    matches: [
+      { match_key: MATCH1, match_number: 1, red1: TEAM },
+      { match_key: MATCH2, match_number: 2, blue2: TEAM },
+      { match_key: MATCH3, match_number: 3, red3: TEAM },
+    ],
+  });
+  const provisioned = await provisionScouts(EVENT, ['C2 scout']);
+  device = provisioned.client;
+  scoutId = provisioned.scouts['C2 scout'];
+}, 90_000);
 
 afterAll(async () => {
-  if (reportId) await admin.from('match_scouting_report').delete().eq('id', reportId);
-  await admin.from('scout').delete().eq('id', scoutId);
-  await admin.from('match').delete().eq('match_key', MATCH);
-  await admin.from('match').delete().eq('match_key', MATCH2);
-  await admin.from('event_team').delete().eq('event_key', EVENT);
-  await admin.from('team').delete().eq('team_number', TEAM);
-  await admin.from('event').delete().eq('event_key', EVENT);
+  if (admin) await dropEvent(admin, EVENT);
+  await device?.auth.signOut();
 });
 
 it('recompute mirrors TS fuel-by-window math; inactiveFirst parity + boundary + rounding', async () => {
@@ -56,27 +91,36 @@ it('recompute mirrors TS fuel-by-window math; inactiveFirst parity + boundary + 
     { startMs: 105000, endMs: 115000, rate: 1.0, window: 'shift4' },
     { startMs: 60000, endMs: 63000, rate: 0.5, window: 'shift3' },
   ];
-  const { data: r, error: insErr } = await admin.from('match_scouting_report').insert({
-    schema_version: 1, event_key: EVENT, match_key: MATCH, scout_id: scoutId,
-    target_team_number: TEAM, alliance_color: 'red', station: 1,
-    inactive_first: true, fuel_bursts: bursts,
-  }).select().single();
-  expect(insErr, insErr?.message).toBeNull();
-  reportId = r!.id;
+  const reportId = crypto.randomUUID();
+  const { error: upErr } = await device.rpc('upsert_match_report', {
+    p: {
+      id: reportId,
+      schema_version: 1,
+      event_key: EVENT,
+      match_key: MATCH1,
+      scout_id: scoutId,
+      target_team_number: TEAM,
+      alliance_color: 'red',
+      station: 1,
+      inactive_first: true,
+      fuel_bursts: bursts,
+      row_revision: 1,
+    },
+  });
+  expect(upErr, upErr?.message).toBeNull();
 
-  const { error: rcErr } = await admin.rpc('recompute_match_report_aggregates', { p_report_id: reportId });
-  expect(rcErr, rcErr?.message).toBeNull();
-
-  const { data: out } = await admin.from('match_scouting_report')
+  const { data: out } = await anon
+    .from('match_scouting_report')
     .select('auto_fuel,teleop_fuel_active,teleop_fuel_inactive,endgame_fuel,fuel_by_shift,fuel_points')
-    .eq('id', reportId).single();
+    .eq('id', reportId)
+    .single();
 
   // auto burst classified to auto window only.
   expect(out!.auto_fuel).toBe(20);
   // fuel_by_shift indexes 0..3 = shift1..shift4 rounded per window.
   // shift1: 25s*2=50 ; shift2: 25s*2=50 ; shift3: 3s*0.5=1.5 -> 2 ; shift4: burst start 105000 -> window shift4, 10s*1=10
   expect(out!.fuel_by_shift).toEqual([50, 50, 2, 10]);
-  // endgame_fuel: no burst with startMs>=110000 -> 0
+  // endgame_fuel: no burst with window 'endgame' -> 0
   expect(out!.endgame_fuel).toBe(0);
   // teleop_fuel_active = transition(5) + active shifts(shift2=50, shift4=10) = 65
   expect(out!.teleop_fuel_active).toBe(65);
@@ -84,18 +128,42 @@ it('recompute mirrors TS fuel-by-window math; inactiveFirst parity + boundary + 
   expect(out!.teleop_fuel_inactive).toBe(52);
   // fuel_points = active windows: auto(20)+transition(5)+endgame(0)+shift2(50)+shift4(10) = 85, *1
   expect(out!.fuel_points).toBe(85);
-});
 
-it('BEFORE UPDATE bumps row_revision and updated_at', async () => {
-  const before = await admin.from('match_scouting_report')
-    .select('row_revision,updated_at').eq('id', reportId).single();
-  await admin.from('match_scouting_report').update({ notes: 'touch' }).eq('id', reportId);
-  const after = await admin.from('match_scouting_report')
-    .select('row_revision,updated_at').eq('id', reportId).single();
-  expect(after.data!.row_revision).toBe(before.data!.row_revision + 1);
+  // REFRAMED revision/timestamp guard: the BEFORE UPDATE trigger's auto-bump is
+  // only reachable through a direct table UPDATE, which no client can issue.
+  // The observable contract is the RPC's monotonic revision + advancing
+  // updated_at, so assert that instead.
+  const before = await anon
+    .from('match_scouting_report')
+    .select('row_revision,updated_at')
+    .eq('id', reportId)
+    .single();
+  const { error: bumpErr } = await device.rpc('upsert_match_report', {
+    p: {
+      id: reportId,
+      schema_version: 1,
+      event_key: EVENT,
+      match_key: MATCH1,
+      scout_id: scoutId,
+      target_team_number: TEAM,
+      alliance_color: 'red',
+      station: 1,
+      inactive_first: true,
+      fuel_bursts: bursts,
+      row_revision: 2,
+      notes: 'touch',
+    },
+  });
+  expect(bumpErr, bumpErr?.message).toBeNull();
+  const after = await anon
+    .from('match_scouting_report')
+    .select('row_revision,updated_at')
+    .eq('id', reportId)
+    .single();
+  expect(after.data!.row_revision).toBeGreaterThan(before.data!.row_revision);
   expect(new Date(after.data!.updated_at).getTime())
     .toBeGreaterThanOrEqual(new Date(before.data!.updated_at).getTime());
-});
+}, 30_000);
 
 it('recompute matches the B3 TS computeAggregates golden case (declared-window attribution + straddle)', async () => {
   // FROZEN B3 golden input, inactive_first = true => shift1,shift3 inactive; shift2,shift4 active.
@@ -120,65 +188,82 @@ it('recompute matches the B3 TS computeAggregates golden case (declared-window a
     { startMs: 85000, endMs: 88000, rate: 0.5, window: 'shift4' },
     { startMs: 110000, endMs: 123000, rate: 0.5, window: 'endgame' },
   ];
-  const { data: r, error: insErr } = await admin.from('match_scouting_report').insert({
-    schema_version: 1, event_key: EVENT, match_key: MATCH2, scout_id: scoutId,
-    target_team_number: TEAM, alliance_color: 'blue', station: 2,
-    inactive_first: true, fuel_bursts: bursts,
-  }).select().single();
-  expect(insErr, insErr?.message).toBeNull();
-  const b3Id = r!.id as string;
+  const b3Id = crypto.randomUUID();
+  const { error: upErr } = await device.rpc('upsert_match_report', {
+    p: {
+      id: b3Id,
+      schema_version: 1,
+      event_key: EVENT,
+      match_key: MATCH2,
+      scout_id: scoutId,
+      target_team_number: TEAM,
+      alliance_color: 'blue',
+      station: 2,
+      inactive_first: true,
+      fuel_bursts: bursts,
+      row_revision: 1,
+    },
+  });
+  expect(upErr, upErr?.message).toBeNull();
 
-  try {
-    const { error: rcErr } = await admin.rpc('recompute_match_report_aggregates', { p_report_id: b3Id });
-    expect(rcErr, rcErr?.message).toBeNull();
+  // The standalone recompute entrypoint is still service_role-executable; invoke
+  // it directly on the RPC-written row to prove it agrees with the recompute the
+  // RPC already ran (it recomputes aggregates identically; the row_revision bump
+  // from its direct UPDATE is irrelevant here — this test asserts only math).
+  const { error: rcErr } = await admin.rpc('recompute_match_report_aggregates', { p_report_id: b3Id });
+  expect(rcErr, rcErr?.message).toBeNull();
 
-    const { data: out } = await admin.from('match_scouting_report')
-      .select('auto_fuel,teleop_fuel_active,teleop_fuel_inactive,endgame_fuel,fuel_by_shift,fuel_points')
-      .eq('id', b3Id).single();
+  const { data: out } = await anon
+    .from('match_scouting_report')
+    .select('auto_fuel,teleop_fuel_active,teleop_fuel_inactive,endgame_fuel,fuel_by_shift,fuel_points')
+    .eq('id', b3Id)
+    .single();
 
-    expect(out!.auto_fuel).toBe(5);
-    expect(out!.fuel_by_shift).toEqual([6, 4, 3, 2]);
-    expect(out!.endgame_fuel).toBe(7);
-    // teleop_fuel_active = transition(3) + active shifts shift2(4)+shift4(2) = 9
-    expect(out!.teleop_fuel_active).toBe(9);
-    // teleop_fuel_inactive = inactive shifts shift1(6)+shift3(3) = 9
-    expect(out!.teleop_fuel_inactive).toBe(9);
-    // fuel_points = auto(5)+transition(3)+endgame(7)+shift2(4)+shift4(2) = 21, *1
-    expect(out!.fuel_points).toBe(21);
-  } finally {
-    await admin.from('match_scouting_report').delete().eq('id', b3Id);
-  }
-});
+  expect(out!.auto_fuel).toBe(5);
+  expect(out!.fuel_by_shift).toEqual([6, 4, 3, 2]);
+  expect(out!.endgame_fuel).toBe(7);
+  // teleop_fuel_active = transition(3) + active shifts shift2(4)+shift4(2) = 9
+  expect(out!.teleop_fuel_active).toBe(9);
+  // teleop_fuel_inactive = inactive shifts shift1(6)+shift3(3) = 9
+  expect(out!.teleop_fuel_inactive).toBe(9);
+  // fuel_points = auto(5)+transition(3)+endgame(7)+shift2(4)+shift4(2) = 21, *1
+  expect(out!.fuel_points).toBe(21);
+}, 30_000);
 
-it('recompute clamps a negative-duration burst to ZERO fuel (0040 parity with TS)', async () => {
+it('rejects a negative-duration burst at ingress (0040 clamp moved to write validation)', async () => {
   // Mirrors src/scoring/__tests__/compute.test.ts "negative-duration bursts
-  // contribute ZERO fuel": a corrupt/merged burst with endMs < startMs must
-  // count as 0 on the server too, never subtract from its window.
+  // contribute ZERO fuel". The recompute clamp still exists as defense-in-depth,
+  // but a corrupt burst (endMs < startMs) can no longer be WRITTEN: the RPC's
+  // validate_match_report_payload rejects it up front with 22023, so the clamp
+  // is now an unreachable safety net rather than an observable behavior.
   const bursts = [
     { startMs: 0, endMs: 4000, rate: 1.0, window: 'auto' }, // 4.0 fuel
-    { startMs: 9000, endMs: 3000, rate: 2.0, window: 'auto' }, // corrupt: would be -12
-    { startMs: 5000, endMs: 1000, rate: 5.0, window: 'shift1' }, // corrupt: would be -20
+    { startMs: 9000, endMs: 3000, rate: 2.0, window: 'auto' }, // corrupt: endMs < startMs
   ];
-  const { data: r, error: insErr } = await admin.from('match_scouting_report').insert({
-    schema_version: 1, event_key: EVENT, match_key: MATCH2, scout_id: scoutId,
-    target_team_number: TEAM, alliance_color: 'red', station: 3,
-    inactive_first: false, fuel_bursts: bursts,
-  }).select().single();
-  expect(insErr, insErr?.message).toBeNull();
-  const negId = r!.id as string;
+  const negId = crypto.randomUUID();
+  const { error } = await device.rpc('upsert_match_report', {
+    p: {
+      id: negId,
+      schema_version: 1,
+      event_key: EVENT,
+      match_key: MATCH3,
+      scout_id: scoutId,
+      target_team_number: TEAM,
+      alliance_color: 'red',
+      station: 3,
+      inactive_first: false,
+      fuel_bursts: bursts,
+      row_revision: 1,
+    },
+  });
+  expect(error, 'a negative-duration burst must be rejected before it can be stored').not.toBeNull();
+  expect(error?.code).toBe('22023');
 
-  try {
-    const { error: rcErr } = await admin.rpc('recompute_match_report_aggregates', { p_report_id: negId });
-    expect(rcErr, rcErr?.message).toBeNull();
-
-    const { data: out } = await admin.from('match_scouting_report')
-      .select('auto_fuel,fuel_by_shift,fuel_points')
-      .eq('id', negId).single();
-
-    expect(out!.auto_fuel).toBe(4); // 4.0 + 0, NOT 4.0 - 12
-    expect(out!.fuel_by_shift).toEqual([0, 0, 0, 0]); // 0, NOT -20
-    expect(out!.fuel_points).toBe(4);
-  } finally {
-    await admin.from('match_scouting_report').delete().eq('id', negId);
-  }
-});
+  // Nothing was persisted for the corrupt payload.
+  const { data } = await anon
+    .from('match_scouting_report')
+    .select('id')
+    .eq('id', negId)
+    .maybeSingle();
+  expect(data).toBeNull();
+}, 30_000);

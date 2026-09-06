@@ -195,6 +195,16 @@ describe('toUpsertPayload', () => {
     expect(p.intake_sources).toEqual(['ground', 'station']);
   });
 
+  it('passes a null inactive_first straight through (unresolved shift)', () => {
+    // inactive_first is tri-state: null means the scout never resolved the
+    // inactive-first shift. The server column is nullable and its recompute
+    // coalesces null -> false, so the wire must forward null verbatim rather
+    // than coercing it (the server validation accepts JSON boolean OR null).
+    const p = toUpsertPayload(makeReport({ inactiveFirst: null, inactiveFirstSource: null }));
+    expect(p.inactive_first).toBeNull();
+    expect(p.inactive_first_source).toBeNull();
+  });
+
   it('handles null auto_* fields', () => {
     const p = toUpsertPayload(makeReport({ autoStartPosition: null, autoPath: null }));
     expect(p.auto_start_position).toBeNull();

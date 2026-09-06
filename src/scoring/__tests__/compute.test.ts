@@ -16,6 +16,7 @@ describe('computeAggregates — multi-burst, boundary-straddle, round-half-up pe
     inactiveFirst: true, // shift1 & shift3 INACTIVE; shift2 & shift4 ACTIVE
     climbLevel: 0,
     autoClimbLevel1: false,
+    noShow: false,
     fuelBursts: [
       // auto: 4.5 fuel -> rounds half-up to 5
       { startMs: 0, endMs: 9000, rate: 0.5, window: 'auto' },
@@ -75,6 +76,7 @@ describe('computeAggregates — round-half-up boundary (.5 always up, not banker
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [{ startMs: 0, endMs: 1000, rate: 0.5, window: 'auto' }], // 0.5
     });
     expect(agg.autoFuel).toBe(1);
@@ -86,6 +88,7 @@ describe('computeAggregates — round-half-up boundary (.5 always up, not banker
       inactiveFirst: true,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [],
     });
     expect(agg).toEqual({
@@ -99,6 +102,36 @@ describe('computeAggregates — round-half-up boundary (.5 always up, not banker
   });
 });
 
+describe('computeAggregates — no-show server parity', () => {
+  it('zeroes every aggregate while leaving non-empty raw evidence outside the result', () => {
+    const fuelBursts: MatchReportInputs['fuelBursts'] = [
+      { startMs: 0, endMs: 2000, rate: 10, window: 'auto' },
+      { startMs: 0, endMs: 3000, rate: 10, window: 'transition' },
+      { startMs: 10000, endMs: 12000, rate: 10, window: 'shift1' },
+      { startMs: 110000, endMs: 112000, rate: 10, window: 'endgame' },
+    ];
+
+    const agg = computeAggregates({
+      schemaVersion: 2,
+      inactiveFirst: false,
+      climbLevel: 3,
+      autoClimbLevel1: true,
+      noShow: true,
+      fuelBursts,
+    });
+
+    expect(agg).toEqual({
+      autoFuel: 0,
+      teleopFuelActive: 0,
+      teleopFuelInactive: 0,
+      endgameFuel: 0,
+      fuelByShift: [0, 0, 0, 0],
+      fuelPoints: 0,
+    });
+    expect(fuelBursts).toHaveLength(4);
+  });
+});
+
 describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => {
   it('pins the audited decimal counterexample after nano-rate quantization', () => {
     const agg = computeAggregates({
@@ -106,6 +139,7 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [{
         startMs: 0,
         endMs: 102,
@@ -125,6 +159,7 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [{
         startMs: 0,
         endMs: 1000,
@@ -137,6 +172,7 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [{
         startMs: 0,
         endMs: 1000,
@@ -155,6 +191,7 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [
         { startMs: 0, endMs: 1000, rate: 0.24999999975, window: 'auto' },
         { startMs: 1000, endMs: 2000, rate: 0.24999999975, window: 'auto' },
@@ -185,6 +222,7 @@ describe('computeAggregates — inactiveFirst:false inverts active/inactive shif
     inactiveFirst: false, // shift1 & shift3 ACTIVE; shift2 & shift4 INACTIVE
     climbLevel: 0,
     autoClimbLevel1: false,
+    noShow: false,
     fuelBursts: [
       // auto: 4.5 fuel -> rounds half-up to 5
       { startMs: 0, endMs: 9000, rate: 0.5, window: 'auto' },
@@ -242,6 +280,7 @@ describe('computeAggregates — negative-duration bursts contribute ZERO fuel', 
       inactiveFirst: false,
       climbLevel: 0,
       autoClimbLevel1: false,
+      noShow: false,
       fuelBursts: [
         { startMs: 0, endMs: 4000, rate: 1.0, window: 'auto' }, // 4.0 fuel
         { startMs: 9000, endMs: 3000, rate: 2.0, window: 'auto' }, // corrupt: -12 → clamps to 0

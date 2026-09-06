@@ -219,6 +219,62 @@ localDescribe('production consistency concurrency (local Supabase only)', () => 
     expect(stored.data).toEqual({ row_revision: 20, notes: 'preserve' });
   });
 
+  // Regression: a scout who never resolved the inactive-first shift uploads
+  // inactive_first = null. The column is nullable and the recompute coalesces
+  // null -> false, so the payload validation must accept JSON null (it used to
+  // dead-letter it as "inactive_first must be a JSON boolean").
+  it('accepts a null inactive_first (unresolved shift)', async () => {
+    const id = crypto.randomUUID();
+    const res = await publicClient.rpc('upsert_match_report', {
+      p: report({
+        id,
+        target_team_number: TEAMS[2],
+        station: 3,
+        inactive_first: null,
+        inactive_first_source: null,
+      }),
+    });
+    expect(res.error).toBeNull();
+    const stored = await admin
+      .from('match_scouting_report')
+      .select('inactive_first')
+      .eq('id', id)
+      .single();
+    expect(stored.data?.inactive_first).toBeNull();
+  });
+
+  // Regression: feeding bursts share the fuel windowForBurst() tagging, which
+  // emits 'auto' during the auto / pre-GO phases. fuel_bursts already accept
+  // 'auto'; feeding_bursts must too, or feeding-in-auto dead-letters as
+  // "feeding burst is malformed".
+  it('accepts a feeding burst tagged with the auto window', async () => {
+    const id = crypto.randomUUID();
+    const res = await publicClient.rpc('upsert_match_report', {
+      p: report({
+        id,
+        target_team_number: TEAMS[3],
+        station: 1,
+        alliance_color: 'blue',
+        feeding_bursts: [{ rate: 3, startMs: 0, endMs: 5000, window: 'auto' }],
+      }),
+    });
+    expect(res.error).toBeNull();
+  });
+
+  // Guard against over-relaxing: an unknown feeding window is still terminal.
+  it('still rejects a feeding burst with an unknown window', async () => {
+    const res = await publicClient.rpc('upsert_match_report', {
+      p: report({
+        id: crypto.randomUUID(),
+        target_team_number: TEAMS[4],
+        station: 2,
+        alliance_color: 'blue',
+        feeding_bursts: [{ rate: 3, startMs: 0, endMs: 5000, window: 'shift9' }],
+      }),
+    });
+    expect(res.error?.code).toBe('22023');
+  });
+
   it('allows exactly one concurrent assignment CAS replacement', async () => {
     const firstRows = [
       { match_key: MATCH, scout_id: scoutA, team_number: TEAMS[0], station: 1 },

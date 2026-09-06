@@ -30,16 +30,18 @@ comment saying so.
 
 For the rate-burst model, all three do the same thing:
 
-1. **Integrate** each burst into its window: `fuel = rate × (endMs − startMs) / 1000`,
+1. **Short-circuit no-shows:** when `noShow` / `no_show` is true, emit zero for every
+   fuel aggregate without discarding the raw bursts or other captured evidence.
+2. **Integrate** each burst into its window: `fuel = rate × (endMs − startMs) / 1000`,
    accumulated as a float per window.
-2. **Round half-up ONCE per window** (`floor(x + 0.5)`) — *not* per burst. Rounding
+3. **Round half-up ONCE per window** (`floor(x + 0.5)`) — *not* per burst. Rounding
    timing is a correctness detail; per-burst rounding gives different totals.
-3. **Classify** each teleop shift window active/inactive via `isInactive(shiftN,
+4. **Classify** each teleop shift window active/inactive via `isInactive(shiftN,
    inactiveFirst)` (= `((shiftN % 2) === 1) === inactiveFirst`). auto/transition/endgame
    are always active.
-4. **Sum points**: `(auto + transition + endgame + Σ active shifts) × FUEL_POINTS`.
+5. **Sum points**: `(auto + transition + endgame + Σ active shifts) × FUEL_POINTS`.
    Inactive-shift fuel contributes 0.
-5. Emit `autoFuel`, `teleopFuelActive`, `teleopFuelInactive`, `endgameFuel`,
+6. Emit `autoFuel`, `teleopFuelActive`, `teleopFuelInactive`, `endgameFuel`,
    `fuelByShift[1..4]`, `fuelPoints`.
 
 The SQL helpers mirror the TS line-for-line:

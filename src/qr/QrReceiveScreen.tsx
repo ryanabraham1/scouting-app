@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrowserQRCodeReader } from '@zxing/browser';
-import { Camera, CameraOff, CheckCircle2, RotateCcw, UserRound } from 'lucide-react';
+import { Camera, CameraOff, CheckCircle2, RotateCcw, Trash2, UserRound } from 'lucide-react';
 import { FountainDecoder, parseFrame, bytesToReports } from '@/qr/envelope';
 import { decompressForQr, DecompressionUnsupportedError } from '@/qr/compress';
 import { postIngest } from '@/qr/ingestClient';
@@ -137,6 +137,17 @@ function QrReceiveScanner() {
   // decoderRef, so the upload can be retried WITHOUT re-scanning every frame.
   const [canRetry, setCanRetry] = useState(false);
   const [stagingReady, setStagingReady] = useState(false);
+  const [stagingLoadFailed, setStagingLoadFailed] = useState(false);
+  // Retrying the durable-staging read reruns only that startup check. The
+  // camera remains gated by stagingReady until the retry proves there is no
+  // retained completed transfer to protect.
+  const [stagingLoadGeneration, setStagingLoadGeneration] = useState(0);
+  const [hasStagedTransfer, setHasStagedTransfer] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  // Incrementing this restarts the camera effect after an explicitly discarded
+  // completed transfer. Phase alone is not a dependency because ordinary
+  // ingest state changes must never create a second camera reader.
+  const [scanGeneration, setScanGeneration] = useState(0);
 
   // Upload the already-decoded batch held in decoderRef. Extracted so both the
   // auto-complete path and a manual "Retry upload" can run it; the decoded bytes
@@ -176,6 +187,7 @@ function QrReceiveScanner() {
         if (result.failed.length === 0) {
           await clearStagedQrTransfer();
           stagedRef.current = null;
+          setHasStagedTransfer(false);
         }
         setPhase('done');
       }
@@ -200,6 +212,7 @@ function QrReceiveScanner() {
         payload: decoder.payloadBytes(),
       });
       stagedRef.current = staged;
+      setHasStagedTransfer(true);
       controlsRef.current?.stop();
       await runIngest();
     } catch (error) {
@@ -217,22 +230,38 @@ function QrReceiveScanner() {
 
   useEffect(() => {
     let cancelled = false;
+    setStagingReady(false);
+    setStagingLoadFailed(false);
+    setErrorMessage(null);
+    setPhase('scanning');
     void loadStagedQrTransfer()
       .then((staged) => {
         if (cancelled) return;
         setStagingReady(true);
         if (!staged) return;
         stagedRef.current = staged;
+        setHasStagedTransfer(true);
         completedRef.current = true;
         void runIngest();
       })
-      .catch(() => {
-        if (!cancelled) setStagingReady(true);
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        // An unreadable store is NOT equivalent to an empty store. Starting a
+        // new scan here could overwrite an unknown retained transfer, so keep
+        // the camera blocked until an explicit retry successfully reads it.
+        setStagingReady(false);
+        setStagingLoadFailed(true);
+        setErrorMessage(
+          error instanceof Error
+            ? `Could not check for a saved QR transfer: ${error.message}`
+            : 'Could not check for a saved QR transfer.',
+        );
+        setPhase('error');
       });
     return () => {
       cancelled = true;
     };
-  }, [runIngest]);
+  }, [runIngest, stagingLoadGeneration]);
 
   useEffect(() => {
     let cancelled = false;
@@ -361,12 +390,52 @@ function QrReceiveScanner() {
       cancelled = true;
       controlsRef.current?.stop();
     };
-  }, [stageDecodedAndIngest, stagingReady]);
+  }, [scanGeneration, stageDecodedAndIngest, stagingReady]);
 
   const retryTransfer = useCallback((): void => {
     if (stagedRef.current) void runIngest();
     else void stageDecodedAndIngest();
   }, [runIngest, stageDecodedAndIngest]);
+
+  const retryStagingLoad = useCallback((): void => {
+    setStagingLoadGeneration((generation) => generation + 1);
+  }, []);
+
+  const discardTransfer = useCallback(async (): Promise<void> => {
+    if (discarding) return;
+    setDiscarding(true);
+    controlsRef.current?.stop();
+    try {
+      // Clear durable staging before re-enabling the camera. If deletion fails,
+      // keep the poisoned transfer visible so a reload cannot silently restore
+      // it after the user has already started scanning a replacement.
+      await clearStagedQrTransfer();
+      stagedRef.current = null;
+      decoderRef.current = new FountainDecoder();
+      completedRef.current = false;
+      foreignSidRef.current = null;
+      foreignCountRef.current = 0;
+      setHasStagedTransfer(false);
+      setReceived(0);
+      setTotal(null);
+      setIngested(null);
+      setFailedCount(0);
+      setFailedError(null);
+      setErrorMessage(null);
+      setCanRetry(false);
+      setPhase('scanning');
+      setScanGeneration((generation) => generation + 1);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? `Could not discard the received transfer: ${error.message}`
+          : 'Could not discard the received transfer.',
+      );
+      setPhase('error');
+    } finally {
+      setDiscarding(false);
+    }
+  }, [discarding]);
 
   return (
     <div
@@ -396,7 +465,16 @@ function QrReceiveScanner() {
           >
             <CameraOff className="size-10 shrink-0" aria-hidden />
             <p className="text-base font-medium">{errorMessage ?? 'Something went wrong.'}</p>
-            {canRetry ? (
+            {stagingLoadFailed ? (
+              <button
+                type="button"
+                data-testid="qr-receive-retry-load"
+                onClick={retryStagingLoad}
+                className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-destructive/50 px-4 text-sm font-medium text-destructive hover:bg-destructive/15"
+              >
+                <RotateCcw className="size-4" /> Retry load
+              </button>
+            ) : canRetry ? (
               <button
                 type="button"
                 data-testid="qr-receive-retry"
@@ -404,6 +482,18 @@ function QrReceiveScanner() {
                 className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-destructive/50 px-4 text-sm font-medium text-destructive hover:bg-destructive/15"
               >
                 <RotateCcw className="size-4" /> Retry upload
+              </button>
+            ) : null}
+            {hasStagedTransfer ? (
+              <button
+                type="button"
+                data-testid="qr-receive-discard"
+                onClick={() => void discardTransfer()}
+                disabled={discarding}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-60"
+              >
+                <Trash2 className="size-4" />
+                {discarding ? 'Discarding…' : 'Discard transfer and scan again'}
               </button>
             ) : null}
           </div>
@@ -433,6 +523,18 @@ function QrReceiveScanner() {
                 className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-energy/50 px-4 text-sm font-medium text-energy hover:bg-energy/15"
               >
                 <RotateCcw className="size-4" /> Retry failed uploads
+              </button>
+            )}
+            {failedCount > 0 && hasStagedTransfer && (
+              <button
+                type="button"
+                data-testid="qr-receive-discard"
+                onClick={() => void discardTransfer()}
+                disabled={discarding}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-60"
+              >
+                <Trash2 className="size-4" />
+                {discarding ? 'Discarding…' : 'Discard transfer and scan again'}
               </button>
             )}
           </div>

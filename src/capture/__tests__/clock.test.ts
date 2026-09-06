@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   teleopWindowAt,
@@ -286,5 +286,64 @@ describe('purity guard', () => {
     );
     expect(teleopFn).not.toContain('Date.now');
     expect(burstFn).not.toContain('Date.now');
+  });
+});
+
+// Contract guard: every window the client can stamp onto a burst must be one the
+// server's validate_match_report_payload accepts, or the whole report terminally
+// dead-letters ("feeding burst is malformed"). windowForBurst() returns 'auto'
+// during the auto phase AND the pre-GO 'pause'/'done' fallback, so the server's
+// FEEDING whitelist (which historically omitted 'auto') has to include it too.
+describe('burst window ↔ server validation contract', () => {
+  const CLIENT_EMITTABLE_WINDOWS: MatchWindow[] = (() => {
+    const phases = ['idle', 'auto', 'pause', 'teleop', 'done'] as const;
+    const times = [-1000, 0, 15000, 40000, 90000, 140000, 200000];
+    const out = new Set<MatchWindow>();
+    for (const phase of phases) {
+      for (const t of times) out.add(windowForBurst(phase, t));
+    }
+    return [...out];
+  })();
+
+  /** Parse the `b->>'window' not in ( … )` whitelist that follows a given anchor. */
+  function windowWhitelistAfter(sql: string, anchor: string): Set<string> {
+    const from = sql.indexOf(anchor);
+    if (from === -1) throw new Error(`anchor not found: ${anchor}`);
+    const clauseStart = sql.indexOf("b->>'window' not in (", from);
+    if (clauseStart === -1) throw new Error(`window whitelist not found after ${anchor}`);
+    const open = sql.indexOf('(', clauseStart);
+    const close = sql.indexOf(')', open);
+    const list = sql.slice(open + 1, close);
+    return new Set([...list.matchAll(/'([^']+)'/g)].map((m) => m[1]));
+  }
+
+  /** Latest migration (by filename) that (re)defines the payload validator. */
+  function latestValidatorSql(): string {
+    const dir = resolve(process.cwd(), 'supabase/migrations');
+    const file = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .filter((f) =>
+        readFileSync(resolve(dir, f), 'utf8').includes(
+          'function public.validate_match_report_payload',
+        ),
+      )
+      .sort()
+      .pop();
+    if (!file) throw new Error('no validate_match_report_payload migration found');
+    return readFileSync(resolve(dir, file), 'utf8');
+  }
+
+  it('the client only emits windows the server accepts for fuel and feeding bursts', () => {
+    // 'auto' is a real client output — assert we are actually testing that case.
+    expect(CLIENT_EMITTABLE_WINDOWS).toContain('auto');
+
+    const sql = latestValidatorSql();
+    const fuelWhitelist = windowWhitelistAfter(sql, "p->'fuel_bursts'");
+    const feedingWhitelist = windowWhitelistAfter(sql, "p->'feeding_bursts'");
+
+    for (const w of CLIENT_EMITTABLE_WINDOWS) {
+      expect(fuelWhitelist.has(w)).toBe(true);
+      expect(feedingWhitelist.has(w)).toBe(true);
+    }
   });
 });

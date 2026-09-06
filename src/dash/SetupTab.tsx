@@ -199,8 +199,8 @@ export default function SetupTab(): JSX.Element {
   }, [activeEvent, loadEventData]);
 
   // All already-imported events, so the lead can switch the active one WITHOUT
-  // re-importing: switching only flips is_active, which the open
-  // `event_update_open` RLS policy permits for anon.
+  // re-importing: switching flips is_active atomically via the `set_active_event`
+  // RPC (see setActiveEvent.ts / migration 0037), not a direct anon `event` UPDATE.
   const loadEvents = useCallback(async () => {
     const { data } = await supabase
       .from('event')
