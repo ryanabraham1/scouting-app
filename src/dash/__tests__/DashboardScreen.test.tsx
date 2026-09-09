@@ -1,184 +1,107 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 vi.mock('@/dash/useActiveEvent', () => ({
   useActiveEvent: () => ({ eventKey: '2026demo', loading: false, authoritative: true }),
 }));
-
-// DashboardScreen drives the real-time engine via useEventLiveSync (react-query +
-// supabase Realtime). Stub it so this shell test stays isolated, like the views.
 vi.mock('@/dash/useEventData', () => ({ useEventLiveSync: () => {} }));
-
-// Stub the heavy tab bodies so the shell test stays isolated (no supabase/react-query).
-vi.mock('@/dash/NextMatchView', () => ({ default: () => <div data-testid="view-next" /> }));
-// TeamView echoes the selectedTeam prop so the ranking→team hand-off is
-// observable, and exposes a button that fires onOpenMatch like the real
-// last-match card so the team→match deep-link is observable.
-vi.mock('@/dash/TeamView', () => ({
-  default: ({
-    selectedTeam,
-    onOpenMatch,
-  }: {
-    selectedTeam?: number | null;
-    onOpenMatch?: (k: string) => void;
-  }) => (
-    <div data-testid="view-team" data-selected={selectedTeam ?? ''}>
-      <button data-testid="team-open-match" onClick={() => onOpenMatch?.('2026demo_qm7')}>
-        open match
-      </button>
+vi.mock('@/dash/strategy/StrategyView', () => ({
+  default: () => <div data-testid="view-strategy" />,
+}));
+vi.mock('@/dash/PicklistView', () => ({
+  default: ({ onSelectTeam }: { onSelectTeam?: (team: number) => void }) => (
+    <div data-testid="view-picklist">
+      <button type="button" onClick={() => onSelectTeam?.(254)}>Open 254</button>
     </div>
   ),
 }));
-// MatchView echoes the initialMatchKey prop so the team→match deep-link lands.
-vi.mock('@/dash/MatchView', () => ({
-  default: ({ initialMatchKey }: { initialMatchKey?: string | null }) => (
-    <div data-testid="view-match" data-initial-match={initialMatchKey ?? ''} />
-  ),
-}));
-// RankingView exposes a button that fires onSelectTeam, like the real team cell.
-vi.mock('@/dash/RankingView', () => ({
-  default: ({ onSelectTeam }: { onSelectTeam?: (n: number) => void }) => (
-    <div data-testid="view-ranking">
-      <button data-testid="rank-pick-254" onClick={() => onSelectTeam?.(254)}>
-        254
-      </button>
-    </div>
-  ),
-}));
-vi.mock('@/dash/PicklistView', () => ({ default: () => <div data-testid="view-picklist" /> }));
+vi.mock('@/dash/DraftBoardView', () => ({ default: () => <div data-testid="view-draft" /> }));
 vi.mock('@/dash/ScoutersTab', () => ({ default: () => <div data-testid="scouters-tab" /> }));
-vi.mock('@/dash/SetupTab', () => ({ default: () => <div data-testid="setup-tab" /> }));
+vi.mock('@/dash/SetupTab', () => ({ default: () => <div data-testid="settings-tab" /> }));
 
 import DashboardScreen from '../DashboardScreen';
 
+function renderDashboard(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter initialEntries={['/dashboard']}>
+      <DashboardScreen />
+    </MemoryRouter>,
+  );
+}
+
+function unlock(): void {
+  fireEvent.change(screen.getByLabelText('Lead dashboard code'), { target: { value: '12345' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock dashboard' }));
+}
+
 beforeEach(() => {
+  window.sessionStorage.clear();
   window.history.replaceState({}, '', '/dashboard');
 });
 
 describe('DashboardScreen', () => {
-  it('defaults to the Next Match tab', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    expect(screen.getByTestId('view-next')).toBeInTheDocument();
+  it('starts locked and rejects an incorrect code', () => {
+    renderDashboard();
+    expect(screen.getByTestId('lead-dashboard-lock')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Lead dashboard code'), { target: { value: '11111' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock dashboard' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('not correct');
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 
-  it('switches to the Scouters and Setup tabs on click', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    fireEvent.click(screen.getByRole('tab', { name: 'Scouters' }));
-    expect(screen.getByTestId('scouters-tab')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Setup' }));
-    expect(screen.getByTestId('setup-tab')).toBeInTheDocument();
+  it('unlocks with the exact code 12345 for the current session', () => {
+    renderDashboard();
+    unlock();
+    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    expect(screen.getByTestId('view-strategy')).toBeInTheDocument();
+    expect(window.sessionStorage.getItem('frc-lead-dashboard-unlocked')).toBe('true');
   });
 
-  it('switches to the Match drill-down tab on click', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    fireEvent.click(screen.getByRole('tab', { name: 'Match' }));
-    expect(screen.getByTestId('view-match')).toBeInTheDocument();
+  it('shows only the five requested lead sections', () => {
+    renderDashboard();
+    unlock();
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())).toEqual([
+      'Strategy',
+      'Scouters',
+      'Picklist',
+      'Draft',
+      'Settings',
+    ]);
   });
 
-  it('persists tab changes in the URL and responds to history navigation', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    fireEvent.click(screen.getByRole('tab', { name: 'Ranking' }));
-    expect(new URLSearchParams(window.location.search).get('tab')).toBe('ranking');
-
-    window.history.replaceState({}, '', '/dashboard?tab=team');
-    fireEvent.popState(window);
-    expect(screen.getByTestId('view-team')).toBeInTheDocument();
-  });
-
-  it('opens directly on Setup when ?tab=setup (the /admin alias)', () => {
+  it('keeps old Setup links working as Settings', () => {
     window.history.replaceState({}, '', '/dashboard?tab=setup');
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    expect(screen.getByTestId('setup-tab')).toBeInTheDocument();
+    renderDashboard();
+    unlock();
+    expect(screen.getByTestId('settings-tab')).toBeInTheDocument();
   });
 
-  it('resolves the retired ?tab=scouter alias to the merged Scouters tab', () => {
-    window.history.replaceState({}, '', '/dashboard?tab=scouter');
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    expect(screen.getByTestId('scouters-tab')).toBeInTheDocument();
+  it('locks again from the dashboard header', () => {
+    renderDashboard();
+    unlock();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock dashboard' }));
+    expect(screen.getByTestId('lead-dashboard-lock')).toBeInTheDocument();
+    expect(window.sessionStorage.getItem('frc-lead-dashboard-unlocked')).toBeNull();
   });
 
-  it('resolves the retired ?tab=roster alias to the merged Scouters tab', () => {
-    window.history.replaceState({}, '', '/dashboard?tab=roster');
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    expect(screen.getByTestId('scouters-tab')).toBeInTheDocument();
-  });
+  it('opens Picklist team details on the Analysis page', () => {
+    function LocationProbe(): JSX.Element {
+      const location = useLocation();
+      return <div data-testid="location">{`${location.pathname}${location.search}`}</div>;
+    }
 
-  it('always renders the Setup tab LAST in the tab bar', () => {
     render(
-      <MemoryRouter>
-        <DashboardScreen />
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route path="/dashboard" element={<DashboardScreen />} />
+          <Route path="/analysis" element={<LocationProbe />} />
+        </Routes>
       </MemoryRouter>,
     );
-    const tabs = screen.getAllByRole('tab');
-    const labels = tabs.map((t) => t.textContent?.trim());
-    // Setup is pinned to the far right (stable sort moves only setup to the end).
-    expect(labels[labels.length - 1]).toBe('Setup');
-  });
-
-  it('hides the Alliance tab button but shows Draft', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    const labels = screen.getAllByRole('tab').map((t) => t.textContent?.trim());
-    // Alliance is currently hidden (TABS entry carries `hidden: true`).
-    expect(labels).not.toContain('Alliance');
-    expect(labels).toContain('Draft');
-  });
-
-  it('opens the Team tab with the team preselected when a ranking row is picked', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    fireEvent.click(screen.getByRole('tab', { name: 'Ranking' }));
-    fireEvent.click(screen.getByTestId('rank-pick-254'));
-    const team = screen.getByTestId('view-team');
-    expect(team).toBeInTheDocument();
-    expect(team.getAttribute('data-selected')).toBe('254');
-  });
-
-  it('opens the Match tab with the match preselected when a team last-match card is opened', () => {
-    render(
-      <MemoryRouter>
-        <DashboardScreen />
-      </MemoryRouter>,
-    );
-    fireEvent.click(screen.getByRole('tab', { name: 'Team' }));
-    fireEvent.click(screen.getByTestId('team-open-match'));
-    const matchView = screen.getByTestId('view-match');
-    expect(matchView).toBeInTheDocument();
-    expect(matchView.getAttribute('data-initial-match')).toBe('2026demo_qm7');
+    unlock();
+    fireEvent.click(screen.getByRole('tab', { name: 'Picklist' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open 254' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('/analysis?tab=team&team=254');
   });
 });

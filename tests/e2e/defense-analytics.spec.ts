@@ -23,8 +23,8 @@ const eventKey = '2026casnv';
 test('defense analytics surface in Ranking and Team tabs', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
   await setActiveEvent(admin, eventKey); // do NOT rely on a prior test's is_active
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('tab', { name: 'Ranking' }).click();
   await expect(page.getByTestId('dash-ranking')).toBeVisible({ timeout: 25_000 });

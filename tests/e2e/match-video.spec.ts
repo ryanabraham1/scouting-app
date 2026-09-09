@@ -37,7 +37,7 @@ test.describe('match video', () => {
   test('match video card renders with a valid terminal state', async ({ page }) => {
     test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
     await setActiveEvent(admin, eventKey);
-    await page.goto('/dashboard');
+    await page.goto('/analysis');
     await page.getByRole('tab', { name: 'Match', exact: true }).click();
     await page.locator('[data-testid^="match-item-"]').first().click();
     await expect(page.getByText('Match video & activity', { exact: true })).toBeVisible();
@@ -58,7 +58,7 @@ test.describe('match video', () => {
   test('watch-on-youtube link present when a video exists', async ({ page }) => {
     test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
     await setActiveEvent(admin, eventKey);
-    await page.goto('/dashboard');
+    await page.goto('/analysis');
     await page.getByRole('tab', { name: 'Match', exact: true }).click();
     await page.locator('[data-testid^="match-item-"]').first().click();
     const frame = page.getByTestId('match-video-frame');
@@ -74,7 +74,7 @@ test.describe('match video', () => {
   test('team view last-match card shows a video terminal state', async ({ page }) => {
     test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
     await setActiveEvent(admin, eventKey);
-    await page.goto('/dashboard');
+    await page.goto('/analysis');
     await page.getByRole('tab', { name: 'Team' }).click();
     // Team selection is a dropdown; index 1 skips the placeholder option.
     await page.getByTestId('team-select').selectOption({ index: 1 });

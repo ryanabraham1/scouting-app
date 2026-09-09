@@ -1,6 +1,5 @@
 // App smoke test — the default route (/) now renders the landing page chooser,
-// which lets the user pick Scout vs Lead Dashboard. We verify the app mounts and
-// shows the home-screen shell with both choices.
+// which lets the user pick Scout, Analysis, or Lead Dashboard.
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
@@ -22,6 +21,7 @@ describe('App', () => {
     render(<App />);
     expect(await screen.findByTestId('home-screen')).toBeInTheDocument();
     expect(screen.getByTestId('home-go-scout')).toBeInTheDocument();
+    expect(screen.getByTestId('home-go-analysis')).toBeInTheDocument();
     expect(screen.getByTestId('home-go-dashboard')).toBeInTheDocument();
   });
 });

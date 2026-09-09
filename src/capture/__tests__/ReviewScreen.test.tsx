@@ -180,6 +180,21 @@ describe('ReviewScreen', () => {
     expect(screen.queryByText(/fed corral/i)).toBeNull();
   });
 
+  it('keeps Fouls & reasons permanently expanded', async () => {
+    render(<Host onSaved={vi.fn()} initInactiveFirst={false} />);
+
+    for (let i = 0; i < 2; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('review-next'));
+      });
+    }
+
+    expect(screen.getByText('Fouls & reasons')).toBeTruthy();
+    expect(screen.getByTestId('review-fouls-minor').closest('details')).toBeNull();
+    expect(screen.getByTestId('review-foul-reasons').closest('details')).toBeNull();
+  });
+
   it('records selected foul reasons and persists them into the saved report', async () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);

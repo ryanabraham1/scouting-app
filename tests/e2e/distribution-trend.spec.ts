@@ -37,8 +37,8 @@ test('distribution + recent-form surface in Team and Ranking', async ({ page }) 
   // Set active immediately before navigating (shared flag — avoid cross-spec races).
   await setActiveEvent(admin, eventKey);
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
 
   // --- Ranking tab FIRST: it lists only SCOUTED teams; pick one with data. ---
   await page.getByRole('tab', { name: 'Ranking' }).click();

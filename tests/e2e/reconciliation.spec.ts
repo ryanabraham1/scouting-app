@@ -118,7 +118,7 @@ test('multi-scout conflict surfaces in MatchView, ReportDetail, and TeamView', a
   await setActiveEvent(admin, EVENT);
 
   // --- 1. MatchView conflict chip -----------------------------------------
-  await page.goto('/dashboard');
+  await page.goto('/analysis');
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 

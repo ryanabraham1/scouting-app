@@ -1,5 +1,5 @@
 // tests/e2e/alliance-simulator.spec.ts
-// Alliance Simulator (Lead Dashboard tab): pick any 3 teams at the active event
+// Alliance Simulator (Analysis tab): pick any 3 teams at the active event
 // and see a projected alliance score, a win probability vs a baseline, and a
 // role-gap table. Read-only — no DB writes, no cleanup. Single-worker, live remote.
 //
@@ -33,11 +33,9 @@ test('simulate a 3-team alliance: score, cap+clear, win prob vs baseline', async
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
 
   await setActiveEvent(admin, eventKey);
-  // The simulator is intentionally hidden from the main tab bar but remains
-  // available through its stable deep link for focused analysis.
-  await page.goto('/dashboard?tab=alliance');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('tab', { name: 'Alliance' })).toHaveCount(0);
+  await page.goto('/analysis?tab=alliance');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('tab', { name: 'Alliance' })).toBeVisible();
   await expect(page.getByTestId('dash-alliance')).toBeVisible({ timeout: 25_000 });
 
   // Prompt shown before 3 picks.

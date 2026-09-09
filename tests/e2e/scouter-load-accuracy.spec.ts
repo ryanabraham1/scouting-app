@@ -11,7 +11,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -50,7 +50,7 @@ test('Scenario A — Load card renders with real reports', async ({ page }) => {
 
   await setActiveEvent(admin, eventKey);
 
-  await page.goto('/dashboard?tab=scouters');
+  await openLeadDashboard(page, '/dashboard?tab=scouters');
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('scouter-load-card')).toBeVisible({ timeout: 15_000 });
 
@@ -107,7 +107,7 @@ test('Scenario B — Accuracy renders real numbers on a seeded overlap', async (
   test.skip(!!ins.error, `Could not seed overlap row: ${ins.error?.message ?? ''}`);
   seededIds.push(id);
 
-  await page.goto('/dashboard?tab=scouters');
+  await openLeadDashboard(page, '/dashboard?tab=scouters');
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 15_000 });
 
   // Open the overlapped scouter's row (the second scout we seeded onto).
@@ -132,7 +132,7 @@ test('Scenario C — Accuracy stays hidden with no overlap', async ({ page }) =>
     await admin.from('match_scouting_report').delete().eq('id', id);
   }
 
-  await page.goto('/dashboard?tab=scouters');
+  await openLeadDashboard(page, '/dashboard?tab=scouters');
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 15_000 });
 
   // The deterministic suite scout owns reports but, after removing Scenario B's

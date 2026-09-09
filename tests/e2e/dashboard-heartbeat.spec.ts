@@ -6,7 +6,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -83,8 +83,7 @@ test('Scenario A — heartbeat reflects a freshly inserted report', async ({ pag
   });
   expect(error).toBeNull();
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await openLeadDashboard(page);
   // The heartbeat moved from Next Match to the Scouters tab (anchored to the
   // freshest-reported match, gated on an active event).
   await page.getByRole('tab', { name: 'Scouters' }).click();
@@ -127,8 +126,8 @@ test('Scenario B — MatchView scouting-status drill-down', async ({ page }) => 
     deleted: false,
   });
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 
@@ -146,8 +145,7 @@ test('Scenario C — offline shows last-synced, not a crash', async ({ page, con
 
   // 1. Warm the cache online; confirm the tile renders (primes persisted cache).
   //    The heartbeat now lives on the Scouters tab.
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await openLeadDashboard(page);
   await page.getByRole('tab', { name: 'Scouters' }).click();
   await expect(page.getByTestId('dash-scouters')).toBeVisible({ timeout: 25_000 });
   await expect(page.getByTestId('scout-heartbeat')).toBeVisible({ timeout: 10_000 });
@@ -156,7 +154,7 @@ test('Scenario C — offline shows last-synced, not a crash', async ({ page, con
   // dev server does not serve the production service worker, so a hard offline
   // reload would only test Chromium's ERR_INTERNET_DISCONNECTED page.
   await context.setOffline(true);
-  await page.getByRole('tab', { name: 'Setup' }).click();
+  await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByRole('tab', { name: 'Scouters' }).click();
 
   // 3. The resilient invariant: Scouters still renders the warmed data and there

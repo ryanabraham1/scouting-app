@@ -71,7 +71,7 @@ test('captured report syncs to the server on reconnect with no duplicate', async
 
   await page.getByTestId('capture-start').click();
   await page.getByTestId('capture-go').click();
-  await page.getByTestId('capture-inactive-no').click();
+  await page.getByTestId('capture-auto-winner-blue').click();
   const hold = page.getByTestId('capture-hold');
   await hold.dispatchEvent('pointerdown');
   await hold.dispatchEvent('pointerup');

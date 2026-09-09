@@ -42,8 +42,8 @@ test('MatchView search filters the match list and shows an empty state', async (
     .limit(1);
   const probe = matches?.[0] ?? null;
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 

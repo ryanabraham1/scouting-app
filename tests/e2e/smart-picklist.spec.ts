@@ -20,7 +20,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -46,8 +46,7 @@ test.afterAll(async () => {
 
 /** Open the dashboard Picklist panel (IconTabs render role=tab buttons). */
 async function openPicklist(page: Page): Promise<void> {
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await openLeadDashboard(page);
   await page.getByRole('tab', { name: 'Picklist' }).click();
   await expect(page.getByTestId('dash-picklist')).toBeVisible({ timeout: 15_000 });
 }

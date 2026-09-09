@@ -94,11 +94,15 @@ const rawRoutes: RouteObject[] = [
     lazy: async () => ({ Component: (await import('../dash/DashboardScreen')).default }),
   },
   {
+    path: '/analysis',
+    lazy: async () => ({ Component: (await import('../dash/AnalysisScreen')).default }),
+  },
+  {
     path: '/sync',
     lazy: async () => ({ Component: (await import('../sync/SyncStatusScreen')).default }),
   },
-  // Legacy admin entry point folds into the dashboard Setup tab.
-  { path: '/admin', element: <Navigate to="/dashboard?tab=setup" replace /> },
+  // Legacy admin entry point folds into Lead Dashboard Settings.
+  { path: '/admin', element: <Navigate to="/dashboard?tab=settings" replace /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ];
 

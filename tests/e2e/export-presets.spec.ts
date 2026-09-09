@@ -7,7 +7,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -43,8 +43,7 @@ test('lead exports the alliance-selection presets from the picklist', async ({ p
 
   await setActiveEvent(admin, eventKey);
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await openLeadDashboard(page);
 
   // Picklist tab + one team so the presets have something to export.
   await page.getByRole('tab', { name: 'Picklist' }).click();

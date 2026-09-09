@@ -3,6 +3,17 @@ import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/** Open the lightly protected Lead Dashboard using the shared team code. */
+export async function openLeadDashboard(page: Page, path = '/dashboard'): Promise<void> {
+  await page.goto(path);
+  const code = page.getByLabel('Lead dashboard code');
+  if (await code.isVisible().catch(() => false)) {
+    await code.fill('12345');
+    await page.getByRole('button', { name: 'Unlock dashboard' }).click();
+  }
+  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+}
+
 /** Make exactly one event active (mirrors the app's setActiveEvent). */
 export async function setActiveEvent(admin: SupabaseClient, eventKey: string): Promise<void> {
   const { error } = await admin.rpc('set_active_event', { p_event_key: eventKey });

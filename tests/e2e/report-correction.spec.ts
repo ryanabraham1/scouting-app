@@ -55,7 +55,7 @@ async function captureBaseline(page: import('@playwright/test').Page): Promise<v
   await expect(page.getByTestId('capture-go')).toBeVisible();
   await page.getByTestId('capture-go').click();
   await expect(page.getByTestId('capture-go-interstitial')).toBeVisible();
-  await page.getByTestId('capture-inactive-no').click();
+  await page.getByTestId('capture-auto-winner-blue').click();
 
   const hold = page.getByTestId('capture-hold');
   const box = await hold.boundingBox();

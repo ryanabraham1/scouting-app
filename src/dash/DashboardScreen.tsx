@@ -1,119 +1,172 @@
-// src/dash/DashboardScreen.tsx — open (no login) lead/drive-coach hub. Landscape
-// tab bar with lucide icons: Pit Display · Strategy · Team · Scouters · Match ·
-// Ranking · Picklist · Draft · Setup. Initial tab is read from ?tab= so the
-// legacy /admin -> /dashboard?tab=setup alias lands on Setup; the retired
-// ?tab=scouter and ?tab=roster both resolve to the merged Scouters tab.
-import { useEffect, useState } from 'react';
+// src/dash/DashboardScreen.tsx — lightly protected controls for lead-only work.
+// The PIN is intentionally a client-side guard against accidental edits, not an
+// authentication boundary. Analysis lives separately at /analysis.
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  MonitorPlay,
   Presentation,
-  UserSearch,
-  ListOrdered,
   ClipboardList,
   Settings,
   UserCheck,
-  Grid3x3,
-  Users,
   Gavel,
+  Lock,
+  ShieldCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { IconTabs } from '@/components/ui/IconTabs';
 import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
-import NextMatchView from '@/dash/NextMatchView';
 import StrategyView from '@/dash/strategy/StrategyView';
-import TeamView from '@/dash/TeamView';
-import MatchView from '@/dash/MatchView';
-import RankingView from '@/dash/RankingView';
 import PicklistView from '@/dash/PicklistView';
 import ScoutersTab from '@/dash/ScoutersTab';
 import SetupTab from '@/dash/SetupTab';
-import AllianceSimulatorView from '@/dash/AllianceSimulatorView';
 import DraftBoardView from '@/dash/DraftBoardView';
 
-type Tab =
-  | 'next'
-  | 'strategy'
-  | 'team'
-  | 'scouters'
-  | 'match'
-  | 'ranking'
-  | 'picklist'
-  | 'draft'
-  | 'setup'
-  | 'alliance';
+type Tab = 'strategy' | 'scouters' | 'picklist' | 'draft' | 'settings';
 
-// `hidden` keeps a tab fully wired (route + render branch + ?tab= deep link)
-// while removing its button from the tab bar. To bring a tab back, just delete
-// its `hidden: true`.
-const TABS: { key: Tab; label: string; icon: LucideIcon; needsEvent: boolean; hidden?: boolean }[] = [
-  // Tab id stays 'next' (URL/deep-link stability); the label is now Pit Display.
-  { key: 'next', label: 'Pit Display', icon: MonitorPlay, needsEvent: true },
+const LEAD_UNLOCK_KEY = 'frc-lead-dashboard-unlocked';
+const LEAD_CODE = '12345';
+
+const TABS: { key: Tab; label: string; icon: LucideIcon; needsEvent: boolean }[] = [
   { key: 'strategy', label: 'Strategy', icon: Presentation, needsEvent: true },
-  { key: 'team', label: 'Team', icon: UserSearch, needsEvent: true },
   { key: 'scouters', label: 'Scouters', icon: UserCheck, needsEvent: false },
-  { key: 'match', label: 'Match', icon: Grid3x3, needsEvent: true },
-  { key: 'ranking', label: 'Ranking', icon: ListOrdered, needsEvent: true },
   { key: 'picklist', label: 'Picklist', icon: ClipboardList, needsEvent: true },
   { key: 'draft', label: 'Draft', icon: Gavel, needsEvent: true },
-  { key: 'setup', label: 'Setup', icon: Settings, needsEvent: false },
-  // Hidden for now — no clear use alongside the Draft board. Re-enable by
-  // removing `hidden: true`.
-  { key: 'alliance', label: 'Alliance', icon: Users, needsEvent: true, hidden: true },
+  { key: 'settings', label: 'Settings', icon: Settings, needsEvent: false },
 ];
 
-/** Legacy ?tab= values that now fold into a current tab. */
 const TAB_ALIASES: Record<string, Tab> = {
+  setup: 'settings',
   scouter: 'scouters',
   roster: 'scouters',
 };
 
 function initialTab(): Tab {
   try {
-    const q = new URLSearchParams(window.location.search).get('tab');
-    if (q) {
-      if (TABS.some((t) => t.key === q)) return q as Tab;
-      if (q in TAB_ALIASES) return TAB_ALIASES[q];
-    }
+    const query = new URLSearchParams(window.location.search).get('tab');
+    if (query && TABS.some((tab) => tab.key === query)) return query as Tab;
+    if (query && query in TAB_ALIASES) return TAB_ALIASES[query];
   } catch {
-    /* no window/search — fall through */
+    // Browser history is unavailable during non-browser rendering.
   }
-  return 'next';
+  return 'strategy';
 }
 
-export default function DashboardScreen(): JSX.Element {
-  const { eventKey, loading, authoritative } = useActiveEvent();
-  // Real-time engine for the whole dashboard: pushes Nexus field snapshots +
-  // freshly-scored results into the query cache the instant they land, and runs
-  // the TBA results reconcile safety net. No-op without an event.
-  useEventLiveSync(eventKey);
-  const [tab, setTab] = useState<Tab>(initialTab);
-  // Lifted so a click in Ranking can preselect the team on the Team tab.
-  const [teamSelection, setTeamSelection] = useState<{
-    eventKey: string | null;
-    value: number | null;
-  }>({ eventKey, value: null });
-  // Lifted so a click on a team's last-match card deep-links to the Match tab.
-  const [matchSelection, setMatchSelection] = useState<{
-    eventKey: string | null;
-    value: string | null;
-  }>({ eventKey, value: null });
-  const selectedTeam = teamSelection.eventKey === eventKey ? teamSelection.value : null;
-  const selectedMatchKey = matchSelection.eventKey === eventKey ? matchSelection.value : null;
+function readUnlocked(): boolean {
+  try {
+    return window.sessionStorage.getItem(LEAD_UNLOCK_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
-  function selectTab(next: Tab, historyMode: 'push' | 'replace' = 'push'): void {
+function LeadGate({ children }: { children: (lockDashboard: () => void) => ReactNode }): JSX.Element {
+  const [unlocked, setUnlocked] = useState(readUnlocked);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState(false);
+
+  function unlock(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (code !== LEAD_CODE) {
+      setError(true);
+      setCode('');
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(LEAD_UNLOCK_KEY, 'true');
+    } catch {
+      // The current render can still unlock if storage is unavailable.
+    }
+    setError(false);
+    setUnlocked(true);
+  }
+
+  function lockDashboard(): void {
+    try {
+      window.sessionStorage.removeItem(LEAD_UNLOCK_KEY);
+    } catch {
+      // State still locks this render if storage is unavailable.
+    }
+    setCode('');
+    setUnlocked(false);
+  }
+
+  if (unlocked) return <>{children(lockDashboard)}</>;
+
+  return (
+    <main
+      data-testid="lead-dashboard-lock"
+      className="flex min-h-screen flex-col bg-background px-safe py-safe text-foreground"
+    >
+      <div className="flex items-center">
+        <BackLink to="/" label="Home" icon="home" />
+      </div>
+      <div className="flex flex-1 items-center justify-center py-8">
+        <form
+          onSubmit={unlock}
+          className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl sm:p-8"
+        >
+          <span className="mb-5 flex size-12 items-center justify-center rounded-xl border border-energy/30 bg-energy/10 text-energy">
+            <ShieldCheck className="size-6" aria-hidden />
+          </span>
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-energy">Lead controls</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight">Unlock Lead Dashboard</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Enter the 5-digit team code to access strategy and event controls.
+          </p>
+          <label htmlFor="lead-code" className="mt-6 block text-sm font-semibold">
+            Team code
+          </label>
+          <input
+            id="lead-code"
+            aria-label="Lead dashboard code"
+            aria-invalid={error}
+            aria-describedby={error ? 'lead-code-error' : undefined}
+            autoComplete="off"
+            autoFocus
+            inputMode="numeric"
+            type="password"
+            pattern="[0-9]*"
+            maxLength={5}
+            value={code}
+            onChange={(event) => {
+              setCode(event.target.value.replace(/\D/g, '').slice(0, 5));
+              setError(false);
+            }}
+            className="mt-2 min-h-12 w-full rounded-lg border border-input bg-background px-4 font-mono text-xl tracking-[0.35em] outline-none transition focus:border-energy focus:ring-2 focus:ring-energy/30"
+          />
+          {error ? (
+            <p id="lead-code-error" role="alert" className="mt-2 text-sm text-destructive">
+              That code is not correct. Try again.
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-energy px-4 text-sm font-bold text-energy-foreground transition-colors hover:bg-energy/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-energy"
+          >
+            Unlock dashboard
+          </button>
+        </form>
+      </div>
+    </main>
+  );
+}
+
+function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.Element {
+  const { eventKey, loading, authoritative } = useActiveEvent();
+  useEventLiveSync(eventKey);
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>(initialTab);
+
+  function selectTab(next: Tab): void {
     setTab(next);
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('tab', next);
-      window.history[historyMode === 'replace' ? 'replaceState' : 'pushState'](
-        null,
-        '',
-        `${url.pathname}${url.search}${url.hash}`,
-      );
+      window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
     } catch {
-      /* URL history is unavailable in non-browser renders. */
+      // URL history is unavailable during non-browser rendering.
     }
   }
 
@@ -123,23 +176,10 @@ export default function DashboardScreen(): JSX.Element {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  useEffect(() => {
-    setTeamSelection({ eventKey, value: null });
-    setMatchSelection({ eventKey, value: null });
-  }, [eventKey]);
-
-  const current = TABS.find((t) => t.key === tab);
+  const current = TABS.find((item) => item.key === tab);
   const dataGated = current?.needsEvent ?? true;
-
-  function openTeam(teamNumber: number): void {
-    setTeamSelection({ eventKey, value: teamNumber });
-    selectTab('team');
-  }
-
-  function openMatch(matchKey: string): void {
-    setMatchSelection({ eventKey, value: matchKey });
-    selectTab('match');
-  }
+  const openTeam = (teamNumber: number) =>
+    navigate(`/analysis?tab=team&team=${encodeURIComponent(teamNumber)}`);
 
   return (
     <div
@@ -148,27 +188,35 @@ export default function DashboardScreen(): JSX.Element {
     >
       <header className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <BackLink to="/" label="Home" icon="home" />
-          <h1 className="truncate text-xl font-bold sm:text-2xl">Dashboard</h1>
+          <BackLink to="/" label="Home" icon="home" iconOnly className="sm:hidden" />
+          <BackLink to="/" label="Home" icon="home" className="hidden sm:inline-flex" />
+          <h1 className="truncate text-xl font-bold sm:text-2xl">Lead Dashboard</h1>
         </div>
-        <span className="max-w-[7rem] shrink-0 truncate font-mono text-xs text-muted-foreground sm:max-w-none sm:text-sm">
-          {eventKey ?? '—'}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="hidden max-w-[5rem] truncate font-mono text-xs text-muted-foreground sm:block sm:max-w-none sm:text-sm">
+            {eventKey ?? '—'}
+          </span>
+          <button
+            type="button"
+            aria-label="Lock dashboard"
+            onClick={lockDashboard}
+            className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Lock className="size-4" aria-hidden />
+            <span className="hidden sm:inline">Lock</span>
+          </button>
+        </div>
       </header>
 
       <IconTabs<Tab>
-        ariaLabel="Dashboard sections"
+        ariaLabel="Lead Dashboard sections"
         value={tab}
         onChange={selectTab}
-        tabs={[...TABS]
-          .filter((t) => !t.hidden)
-          // Setup is pinned to the far right no matter what other tabs exist
-          // (stable sort: every non-setup tab keeps its order, setup goes last).
-          .sort((a, b) => Number(a.key === 'setup') - Number(b.key === 'setup'))
-          .map((t) => {
-            const Icon = t.icon;
-            return { value: t.key, label: t.label, icon: <Icon /> };
-          })}
+        className="!gap-1.5 [&>button]:!min-h-16 [&>button]:!min-w-[3.25rem] [&>button]:!w-[3.25rem] [&>button]:!basis-[3.25rem] [&>button]:!flex-col [&>button]:!gap-0.5 [&>button]:!px-0.5 sm:grid-cols-5 sm:!gap-2 sm:[&>button]:!min-w-0 sm:[&>button]:!w-auto sm:[&>button]:!basis-auto sm:[&>button]:!px-2"
+        tabs={TABS.map((item) => {
+          const Icon = item.icon;
+          return { value: item.key, label: item.label, icon: <Icon /> };
+        })}
       />
 
       {!authoritative && eventKey ? (
@@ -182,54 +230,29 @@ export default function DashboardScreen(): JSX.Element {
         </div>
       ) : null}
 
-      {/* Scouters stays usable without an event (roster lives on its own table). */}
       {tab === 'scouters' && <ScoutersTab eventKey={eventKey} />}
-      {tab === 'setup' && <SetupTab />}
+      {tab === 'settings' && <SetupTab />}
 
       {dataGated &&
         (loading ? (
-          <p data-testid="dashboard-loading" className="text-muted-foreground">
-            Loading event…
-          </p>
+          <p data-testid="dashboard-loading" className="text-muted-foreground">Loading event…</p>
         ) : !eventKey ? (
           <p data-testid="dashboard-no-event" className="text-muted-foreground">
-            No active event. Set one in the Setup tab.
+            No active event. Set one in Settings.
           </p>
         ) : (
           <section className="min-w-0 flex-1">
-            {tab === 'next' && <NextMatchView eventKey={eventKey} />}
             {tab === 'strategy' && <StrategyView eventKey={eventKey} />}
-            {tab === 'team' && (
-              <TeamView
-                eventKey={eventKey}
-                selectedTeam={selectedTeam}
-                onSelectTeam={(team) => setTeamSelection({ eventKey, value: team })}
-                onOpenMatch={openMatch}
-              />
-            )}
-            {tab === 'match' && (
-              <MatchView
-                eventKey={eventKey}
-                initialMatchKey={selectedMatchKey}
-                onSelectMatch={(matchKey) =>
-                  setMatchSelection({ eventKey, value: matchKey })
-                }
-              />
-            )}
-            {tab === 'ranking' && (
-              <RankingView eventKey={eventKey} onSelectTeam={openTeam} />
-            )}
             {tab === 'picklist' && (
-              <PicklistView
-                eventKey={eventKey}
-                onSelectTeam={openTeam}
-                readOnly={!authoritative}
-              />
+              <PicklistView eventKey={eventKey} onSelectTeam={openTeam} readOnly={!authoritative} />
             )}
             {tab === 'draft' && <DraftBoardView eventKey={eventKey} onSelectTeam={openTeam} />}
-            {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
           </section>
         ))}
     </div>
   );
+}
+
+export default function DashboardScreen(): JSX.Element {
+  return <LeadGate>{(lockDashboard) => <LeadDashboard lockDashboard={lockDashboard} />}</LeadGate>;
 }

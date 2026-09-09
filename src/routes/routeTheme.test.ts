@@ -28,7 +28,7 @@ describe('route theme', () => {
     },
   );
 
-  it.each(['/', '/dashboard', '/dashboard?tab=setup', '/admin'])(
+  it.each(['/', '/analysis', '/dashboard', '/dashboard?tab=settings', '/admin'])(
     'keeps dark mode for %s',
     (pathname) => {
       applyRouteTheme(pathname);

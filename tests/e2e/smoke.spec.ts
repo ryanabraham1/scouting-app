@@ -15,16 +15,25 @@ test('app loads on the landing chooser and Scout reaches /scout (no login)', asy
   await expect(page.getByTestId('scout-home')).toBeVisible({ timeout: 10_000 });
 });
 
-// The dashboard/lead views are open too — no login gate.
-test('dashboard is reachable without a login', async ({ page }) => {
+test('Lead Dashboard unlocks with the team code', async ({ page }) => {
   await page.goto('/dashboard');
+  await expect(page.getByTestId('lead-dashboard-lock')).toBeVisible({ timeout: 10_000 });
+  await page.getByLabel('Lead dashboard code').fill('12345');
+  await page.getByRole('button', { name: 'Unlock dashboard' }).click();
   await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('tab', { name: 'Setup' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible();
 });
 
-// Legacy /admin alias folds into the dashboard Setup tab.
-test('/admin redirects into the dashboard Setup tab', async ({ page }) => {
+test('/admin redirects into Lead Dashboard Settings', async ({ page }) => {
   await page.goto('/admin');
-  await expect(page).toHaveURL(/\/dashboard\?tab=setup$/, { timeout: 10_000 });
+  await expect(page).toHaveURL(/\/dashboard\?tab=settings$/, { timeout: 10_000 });
+  await page.getByLabel('Lead dashboard code').fill('12345');
+  await page.getByRole('button', { name: 'Unlock dashboard' }).click();
   await expect(page.getByTestId('setup-tab')).toBeVisible({ timeout: 10_000 });
+});
+
+test('Analysis is open and includes Alliance', async ({ page }) => {
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('tab', { name: 'Alliance' })).toBeVisible();
 });

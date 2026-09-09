@@ -14,7 +14,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -50,8 +50,8 @@ test('Match tab shows a labeled Scoring estimate card (tolerant of an empty even
     .limit(1);
   const probe = matches?.[0] ?? null;
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 
@@ -85,8 +85,7 @@ test('Strategy tab shows per-team component lines with rounding tolerance', asyn
   test.skip(!URL || !SECRET, 'env');
   await setActiveEvent(admin, eventKey);
 
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await openLeadDashboard(page);
   await page.getByRole('tab', { name: 'Strategy' }).click();
 
   const noMatch = page.getByTestId('dash-strategy-no-match');

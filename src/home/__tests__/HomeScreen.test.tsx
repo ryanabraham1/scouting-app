@@ -1,4 +1,4 @@
-// HomeScreen landing page — lets the user choose Scout vs Lead Dashboard.
+// HomeScreen landing page — lets the user choose Scout, Analysis, or Lead Dashboard.
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect } from 'vitest';
@@ -35,5 +35,13 @@ describe('HomeScreen', () => {
     expect(dash).toBeInTheDocument();
     expect(dash).toHaveAttribute('href', '/dashboard');
     expect(dash).toHaveTextContent(/dashboard/i);
+  });
+
+  it('offers an Analysis choice linking to /analysis', () => {
+    renderHome();
+    const analysis = screen.getByTestId('home-go-analysis');
+    expect(analysis).toBeInTheDocument();
+    expect(analysis).toHaveAttribute('href', '/analysis');
+    expect(analysis).toHaveTextContent(/analysis/i);
   });
 });

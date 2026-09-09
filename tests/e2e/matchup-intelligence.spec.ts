@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { ensureStrategyMatchup, setActiveEvent } from './helpers';
+import { ensureStrategyMatchup, openLeadDashboard, setActiveEvent } from './helpers';
 
 // Build the service-role admin client locally, exactly as dashboard.spec.ts does
 // (admin is NOT exported from helpers; only setActiveEvent is).
@@ -23,7 +23,7 @@ test.afterAll(async () => {
 
 test('distinct partner/opponent team notes persist to server and resurface', async ({ page }) => {
   await setActiveEvent(admin, '2026casnv');
-  await page.goto('/dashboard?tab=strategy'); // the matchup panel lives on the Strategy tab
+  await openLeadDashboard(page, '/dashboard?tab=strategy');
   await expect(page.getByTestId('dash-strategy')).toBeVisible();
   await ensureStrategyMatchup(page);
 
@@ -96,7 +96,7 @@ test('distinct partner/opponent team notes persist to server and resurface', asy
 
 test('offline save shows the unsynced state, then drains when back online', async ({ page }) => {
   await setActiveEvent(admin, '2026casnv');
-  await page.goto('/dashboard?tab=strategy');
+  await openLeadDashboard(page, '/dashboard?tab=strategy');
   await ensureStrategyMatchup(page);
   await expect(page.getByTestId('dash-matchup-panel')).toBeVisible();
 

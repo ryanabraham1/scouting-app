@@ -18,6 +18,7 @@ import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { E2E_AUTH_STATE_PATH } from './global-setup';
+import { openLeadDashboard } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -113,7 +114,7 @@ async function capture(page: Page, matchKey: string, team: number, climb = 3): P
   await page.getByTestId('capture-start').click();
   await page.getByTestId('capture-go').click();
   await expect(page.getByTestId('capture-go-interstitial')).toBeVisible();
-  await page.getByTestId('capture-inactive-no').click();
+  await page.getByTestId('capture-auto-winner-blue').click();
 
   // Slider-shoot: press + drag right + hold so the rate integrates to a real
   // non-zero fuel burst (mirrors capture.spec).
@@ -312,20 +313,25 @@ test('lead dashboard navigates all tabs without crashing', async ({ browser }) =
   try {
     const page = await ctx.newPage();
     watch(page, 'dashboard');
-    await page.goto('/dashboard');
-    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 20_000 });
+    await openLeadDashboard(page);
 
-    // Exact labels (so "Match" doesn't also match "Pit Display"/"Strategy").
-    const TABS = ['Pit Display', 'Strategy', 'Team', 'Match', 'Ranking', 'Picklist', 'Scouters', 'Setup'];
-    for (const label of TABS) {
+    const LEAD_TABS = ['Strategy', 'Scouters', 'Picklist', 'Draft', 'Settings'];
+    for (const label of LEAD_TABS) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       // The error boundary would replace the screen with route-error; assert it never does.
       await expect(page.getByTestId('route-error')).toHaveCount(0);
       await page.waitForTimeout(800);
     }
-    // Setup tab should resolve the active event.
-    await page.getByRole('tab', { name: 'Setup', exact: true }).click();
+    await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByTestId('setup-active-event')).toHaveText(EVENT, { timeout: 15_000 });
+
+    await page.goto('/analysis');
+    const ANALYSIS_TABS = ['Pit Display', 'Team', 'Match', 'Ranking', 'Alliance'];
+    for (const label of ANALYSIS_TABS) {
+      await page.getByRole('tab', { name: label, exact: true }).click();
+      await expect(page.getByTestId('route-error')).toHaveCount(0);
+      await page.waitForTimeout(800);
+    }
   } finally {
     await ctx.close();
   }
@@ -473,10 +479,9 @@ test('pit scouting submits multiple photos, syncs, and supports later editing', 
     });
     expect(finalPhotoIds.some((id) => !initialPhotoIds.includes(id))).toBe(true);
 
-    // Dashboard reads the final manifest and exposes every photo in its lightbox.
-    await page.goto('/dashboard');
-    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 20_000 });
-    await page.getByRole('tab', { name: 'Team', exact: true }).click();
+    // Analysis reads the final manifest and exposes every photo in its lightbox.
+    await page.goto('/analysis?tab=team');
+    await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('team-select').selectOption(String(team));
     await page.getByTestId('team-photo-thumb').click();
     await expect(page.getByRole('button', { name: 'Next pit photo' })).toBeVisible({

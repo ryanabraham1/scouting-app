@@ -389,36 +389,36 @@ export function CaptureScreen(props: {
         data-testid="capture-go-interstitial"
         className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-6 text-foreground"
       >
-        <p className="text-xl font-semibold">Which hub state came first?</p>
+        <p className="text-xl font-semibold">Which alliance won Auto?</p>
         <div className="flex w-full max-w-lg flex-col gap-4">
           <Button
-            data-testid="capture-inactive-yes"
+            data-testid="capture-auto-winner-red"
             size="big"
-            className="flex-1"
+            className="flex-1 border-red-700 bg-red-600 text-white hover:bg-red-700"
             onClick={() => {
-              s.setInactiveFirst(true);
+              // The AUTO FUEL winner's HUB is inactive during Shift 1.
+              s.setInactiveFirst(s.allianceColor === 'red');
               s.clock.markGo();
               props.onAction?.('inactive_answered');
               buzz(25);
               s.setShowGo(false);
             }}
           >
-            Yes
+            Red
           </Button>
           <Button
-            data-testid="capture-inactive-no"
-            variant="secondary"
+            data-testid="capture-auto-winner-blue"
             size="big"
-            className="flex-1"
+            className="flex-1 border-blue-800 bg-blue-600 text-white hover:bg-blue-700"
             onClick={() => {
-              s.setInactiveFirst(false);
+              s.setInactiveFirst(s.allianceColor === 'blue');
               s.clock.markGo();
               props.onAction?.('inactive_answered');
               buzz(25);
               s.setShowGo(false);
             }}
           >
-            No
+            Blue
           </Button>
         </div>
       </div>

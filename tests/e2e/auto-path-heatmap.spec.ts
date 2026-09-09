@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { setActiveEvent } from './helpers';
+import { openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -47,8 +47,8 @@ test('TeamView shows the auto-consistency heatmap card for a reported team', asy
   const target = withAuto?.target_team_number ?? autoRows?.[0]?.target_team_number;
   test.skip(target == null, 'No scouted reports at this event to drive the heatmap.');
 
-  await page.goto('/dashboard?tab=team');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis?tab=team');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('dash-team')).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('team-select').selectOption(String(target));
   await expect(page.getByTestId('team-detail')).toBeVisible({ timeout: 15_000 });
@@ -61,7 +61,7 @@ test('TeamView shows the auto-consistency heatmap card for a reported team', asy
 
 test('Strategy whiteboard exposes one shared auto-overlay toggle', async ({ page }) => {
   await setActiveEvent(admin, eventKey);
-  await page.goto('/dashboard?tab=strategy');
+  await openLeadDashboard(page, '/dashboard?tab=strategy');
   await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
 
   const toggle = page.getByTestId('dash-strategy-autos-toggle');

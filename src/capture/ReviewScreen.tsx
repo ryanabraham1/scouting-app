@@ -445,10 +445,10 @@ export function ReviewScreen(props: {
         {/* Step 3: Fouls & flags */}
         {step === 2 && (
           <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:gap-4">
-<details open={s.foulsMinor > 0 || s.foulsMajor > 0 || undefined} className="rounded-2xl border border-border p-3"><summary className="min-h-12 cursor-pointer content-center font-semibold">Fouls & reasons</summary>            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
+            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
               <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
                 <Flag className="size-5 text-warning" />
-                Fouls
+                Fouls &amp; reasons
               </p>
               <div className="grid grid-cols-2 gap-2 landscape:gap-3">
                 <label className={labelClass}>
@@ -509,7 +509,6 @@ export function ReviewScreen(props: {
                 </div>
               </div>
             </div>
-</details>
             <div
               data-testid="review-flags"
               className="rounded-2xl border border-border bg-card p-3 landscape:p-4"

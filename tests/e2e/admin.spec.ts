@@ -1,10 +1,10 @@
-// tests/e2e/admin.spec.ts — no login: open the dashboard Setup tab, auto-generate
-// assignments, and publish. (/admin redirects to /dashboard?tab=setup.)
+// tests/e2e/admin.spec.ts — unlock Lead Dashboard Settings, auto-generate
+// assignments, and publish. (/admin redirects to /dashboard?tab=settings.)
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
-import { ensureRosterName, pickScouter, setActiveEvent } from './helpers';
+import { ensureRosterName, openLeadDashboard, pickScouter, setActiveEvent } from './helpers';
 import { E2E_EVENT_KEY } from './global-setup';
 
 loadEnv({ path: '.env.local' });
@@ -48,9 +48,8 @@ test('lead auto-generates assignments and publishes (no login)', async ({ page }
   // flag; other specs mutate it, so set it last to avoid cross-spec races).
   await setActiveEvent(admin, EVENT);
 
-  // /admin folds into the dashboard Setup tab — no login gate.
-  await page.goto('/admin');
-  await expect(page).toHaveURL(/\/dashboard\?tab=setup$/, { timeout: 15_000 });
+  await openLeadDashboard(page, '/admin');
+  await expect(page).toHaveURL(/\/dashboard\?tab=settings$/, { timeout: 15_000 });
   await expect(page.getByTestId('setup-tab')).toBeVisible({ timeout: 15_000 });
 
   // Auto-generate against the dedicated run event.
@@ -72,7 +71,7 @@ test('lead auto-generates assignments and publishes (no login)', async ({ page }
 test('lead publishes balanced pit assignments and the scout sees their teams', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
   await setActiveEvent(admin, EVENT);
-  await page.goto('/dashboard?tab=setup');
+  await openLeadDashboard(page, '/dashboard?tab=settings');
   await expect(page.getByTestId('setup-tab')).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('tab', { name: 'Pit assignments', exact: true }).click();
@@ -141,7 +140,7 @@ test('lead publishes balanced pit assignments and the scout sees their teams', a
 test('coverage board reflects gap count as the lead edits a slot', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
   await setActiveEvent(admin, EVENT);
-  await page.goto('/dashboard?tab=setup');
+  await openLeadDashboard(page, '/dashboard?tab=settings');
   await expect(page.getByTestId('setup-tab')).toBeVisible({ timeout: 15_000 });
 
   await page.getByTestId('auto-generate-btn').click();

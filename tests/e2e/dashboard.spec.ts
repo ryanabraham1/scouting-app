@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { ensureStrategyMatchup, setActiveEvent } from './helpers';
+import { ensureStrategyMatchup, openLeadDashboard, setActiveEvent } from './helpers';
 
 loadEnv({ path: '.env.local' });
 
@@ -35,14 +35,13 @@ test('lead sees a next-match prediction and builds a persisted picklist (no logi
   // Set active immediately before navigating (shared flag — avoid cross-spec races).
   await setActiveEvent(admin, eventKey);
 
-  // Dashboard is open — no login gate.
-  await page.goto('/dashboard');
-  await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
+  await page.goto('/analysis');
+  await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('tab', { name: 'Pit Display' })).toBeVisible();
 
   // The confidence-weighted prediction moved to the Strategy tab. This must hold
   // whether or not Statbotics is reachable (the proxy degrades to unavailable).
-  await page.getByRole('tab', { name: 'Strategy' }).click();
+  await openLeadDashboard(page, '/dashboard?tab=strategy');
   await expect(page.getByTestId('dash-strategy')).toBeVisible({ timeout: 25_000 });
   await ensureStrategyMatchup(page);
   await expect(page.getByTestId('dash-next-red-score')).toBeVisible({ timeout: 25_000 });

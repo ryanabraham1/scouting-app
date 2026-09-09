@@ -1,17 +1,16 @@
-// src/home/HomeScreen.tsx — landing page. No auth, no gates: a deliberate fork
-// between the two roles. Scouts tap "Scout"; leads/drive-coaches tap "Lead
-// Dashboard". Uses react-router client-side navigation so it works offline (a
+// src/home/HomeScreen.tsx — landing page. Scouts capture data, anyone can inspect
+// Analysis, and leads unlock Lead Dashboard controls. Uses client-side navigation
+// so it works offline (a
 // full-page reload would depend on the service worker re-serving the document).
-// Built for phones in landscape — the two choices sit side by side there,
+// Built for phones in landscape — the three choices sit side by side there,
 // stacked otherwise.
 import { Link } from 'react-router-dom';
-import { ClipboardList, LayoutDashboard, ArrowRight } from 'lucide-react';
+import { ClipboardList, LayoutDashboard, ArrowRight, ChartNoAxesCombined } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-// Semantic tone per role: brand (cyan) = field-side data capture, energy
-// (orange) = the lead "running the show" role. Keeps the two-way fork instantly
-// readable and matches NextMatchView's brand/energy badge language.
-type Tone = 'brand' | 'energy';
+// Semantic tone per role: brand (cyan) = capture, success (green) = insight,
+// and energy (orange) = lead controls.
+type Tone = 'brand' | 'analysis' | 'energy';
 
 interface Choice {
   testid: string;
@@ -25,14 +24,17 @@ interface Choice {
 // Static class maps so Tailwind keeps the utilities (no dynamic interpolation).
 const TONE_TILE: Record<Tone, string> = {
   brand: 'bg-brand/10 text-brand group-hover:bg-brand group-hover:text-brand-foreground',
+  analysis: 'bg-success/10 text-success group-hover:bg-success group-hover:text-success-foreground',
   energy: 'bg-energy/10 text-energy group-hover:bg-energy group-hover:text-energy-foreground',
 };
 const TONE_CARD: Record<Tone, string> = {
   brand: 'hover:border-brand focus-visible:ring-brand',
+  analysis: 'hover:border-success focus-visible:ring-success',
   energy: 'hover:border-energy focus-visible:ring-energy',
 };
 const TONE_ARROW: Record<Tone, string> = {
   brand: 'group-hover:text-brand',
+  analysis: 'group-hover:text-success',
   energy: 'group-hover:text-energy',
 };
 
@@ -46,11 +48,19 @@ const CHOICES: Choice[] = [
     tone: 'brand',
   },
   {
+    testid: 'home-go-analysis',
+    href: '/analysis',
+    icon: ChartNoAxesCombined,
+    title: 'Analysis',
+    blurb: 'Explore teams, matches, rankings and alliance combinations.',
+    tone: 'analysis',
+  },
+  {
     testid: 'home-go-dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
     title: 'Lead Dashboard',
-    blurb: 'Rankings, picklist, roster and event setup for leads.',
+    blurb: 'Strategy, scouters, picklist, draft and settings for leads.',
     tone: 'energy',
   },
 ];
@@ -67,11 +77,11 @@ export default function HomeScreen(): JSX.Element {
         </p>
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Pick your station</h1>
         <p className="max-w-md text-sm text-muted-foreground">
-          Two ways in — grabbing data on the floor, or running the show from the dashboard.
+          Capture data, study the field, or open the controls used by team leads.
         </p>
       </header>
 
-      <div className="grid w-full max-w-3xl grid-cols-1 gap-4 landscape:grid-cols-2 sm:grid-cols-2">
+      <div className="grid w-full max-w-5xl grid-cols-1 gap-4 landscape:grid-cols-3 sm:grid-cols-3">
         {CHOICES.map((c) => {
           const Icon = c.icon;
           return (
