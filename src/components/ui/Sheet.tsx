@@ -93,7 +93,7 @@ export function Sheet({
   return createPortal(
     <div
       data-testid={`${testid}-overlay`}
-      className="fixed inset-0 z-50 flex"
+      className="fixed inset-0 z-[80] flex"
     >
       <div
         onClick={onClose}

@@ -57,6 +57,7 @@ import {
 import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
 import { cn } from '@/lib/utils';
 import { reportMatchesScoutScope } from '@/scout/reportScope';
+import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -838,6 +839,7 @@ export default function ScoutHome() {
               <LogOut className="size-5 shrink-0" />
               <span >Change scouter</span>
             </Button>
+            <NotificationPermissionPrompt />
           </nav>
           </details>
         </div>

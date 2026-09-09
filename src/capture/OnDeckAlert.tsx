@@ -28,14 +28,23 @@ function useOnDeckNotification(assignment: OnDeckMatch, urgency: string) {
     const key = `${a.match_key}:${a.target_team_number}:${urgency}`;
     if (notifiedRef.current === key) return;
     notifiedRef.current = key;
-    try {
-      new Notification("You're on deck — scout now", {
-        body: `${matchLabelFromKey(a.match_key)} · team #${a.target_team_number} · ${a.alliance_color} ${a.station}`,
-        tag: 'frc-scout-on-deck',
-      });
-    } catch {
-      // Some browsers throw if constructed outside a SW on mobile; ignore.
-    }
+    const title = "You're on deck — scout now";
+    const options: NotificationOptions = {
+      body: `${matchLabelFromKey(a.match_key)} · team #${a.target_team_number} · ${a.alliance_color} ${a.station}`,
+      tag: 'frc-scout-on-deck',
+    };
+    void (async () => {
+      try {
+        if ('serviceWorker' in navigator) {
+          const registration = await navigator.serviceWorker.ready;
+          await registration.showNotification(title, options);
+          return;
+        }
+        new Notification(title, options);
+      } catch {
+        // Delivery remains best-effort; the visible on-deck banner is the fallback.
+      }
+    })();
   }, [assignment, urgency]);
 }
 
