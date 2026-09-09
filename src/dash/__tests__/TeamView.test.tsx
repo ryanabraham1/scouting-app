@@ -14,6 +14,7 @@ import type { TeamPit } from '@/dash/useTeamPit';
 const useEventTeamsMock = vi.fn();
 const useEventReportsMock = vi.fn();
 const useEventEpaMock = vi.fn();
+const useTeamEpaHistoryMock = vi.fn();
 
 const useEventScoutsMock = vi.fn();
 const useTeamPitMock = vi.fn();
@@ -31,6 +32,17 @@ vi.mock('@/dash/useEventData', () => ({
   useTbaTeam: () => ({ data: null }),
   useTbaTeamEventStatus: () => ({ data: null }),
   useTeamSeasonStats: () => ({ data: null }),
+}));
+
+vi.mock('@/dash/useTeamEpaHistory', () => ({
+  useTeamEpaHistory: (team: number | null, eventKey: string | null) =>
+    useTeamEpaHistoryMock(team, eventKey),
+}));
+
+vi.mock('@/dash/TeamEpaHistoryChart', () => ({
+  default: ({ teamNumber, points }: { teamNumber: number; points: unknown[] }) => (
+    <div data-testid="team-epa-history">Team {teamNumber} · {points.length} EPA points</div>
+  ),
 }));
 
 const useTeamPhotoMock = vi.fn();
@@ -203,6 +215,7 @@ beforeEach(() => {
   useEventReportsMock.mockReset();
   useEventScoutsMock.mockReset();
   useEventEpaMock.mockReset();
+  useTeamEpaHistoryMock.mockReset();
   useTeamPitMock.mockReset();
   useEventMatchesMock.mockReset();
   useTeamPhotoMock.mockReset();
@@ -215,6 +228,7 @@ beforeEach(() => {
     querySuccess([{ id: 's1', display_name: 'Ada', event_key: '2026casnv' }]),
   );
   useEventEpaMock.mockReturnValue(querySuccess(epaResult(48.5, true)));
+  useTeamEpaHistoryMock.mockReturnValue(querySuccess([]));
   // default: a pit report exists for the selected team.
   useTeamPitMock.mockReturnValue(querySuccess(pit({})));
 });
@@ -325,6 +339,20 @@ describe('TeamView', () => {
     selectTeam(getByTestId, '254');
     const epa = getByTestId('team-epa');
     expect(epa.textContent).toContain('48.5');
+  });
+
+  it('shows the selected team EPA progression on the analysis page', async () => {
+    useTeamEpaHistoryMock.mockReturnValue(
+      querySuccess([
+        { matchKey: '2026one_qm1', eventKey: '2026one', compLevel: 'qm', matchNumber: 1, value: 42 },
+        { matchKey: '2026two_qm2', eventKey: '2026two', compLevel: 'qm', matchNumber: 2, value: 48.5 },
+      ]),
+    );
+    const { getByTestId, findByTestId } = render(<TeamView eventKey="2026casnv" />);
+    selectTeam(getByTestId, '254');
+
+    expect((await findByTestId('team-epa-history')).textContent).toContain('2 EPA points');
+    expect(useTeamEpaHistoryMock).toHaveBeenLastCalledWith(254, '2026casnv');
   });
 
   it('uses the selected team scouting fallback when external EPA is unavailable', () => {

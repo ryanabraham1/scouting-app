@@ -1,6 +1,6 @@
 // src/dash/seasonEpa.ts
 //
-// Season-wide (cross-event) EPA support for the LOCAL (TBA-derived) fallback.
+// Season-wide (cross-event) support for the primary LOCAL (TBA-derived) EPA.
 //
 // The EPA model in localEpa.ts (computeLocalEpa) carries EPA forward naturally
 // because it processes matches chronologically. So if we feed it the COMBINED

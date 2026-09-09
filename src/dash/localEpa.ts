@@ -1,7 +1,7 @@
 // src/dash/localEpa.ts
 // A point-unit "overall EPA" computed from played match results (no-foul scores
-// + alliance rosters). Used as a fallback when Statbotics is offline so the
-// next-match prediction and Total-EPA tile still have a baseline.
+// + alliance rosters). This is the dashboard's primary live EPA; Statbotics is
+// retained only as a fallback when TBA match results are unavailable.
 //
 // This ports the SCALAR (overall, index-0) recurrence from the live Statbotics
 // source (github.com/avgupta456/statbotics, backend/src/models/epa/*) for modern
@@ -216,14 +216,21 @@ export interface LocalEpaOptions {
   recencyBoost?: number;
 }
 
-/**
- * Compute a local EPA (total points) per team from played matches.
- * Returns an empty map when there are no played matches.
- */
-export function computeLocalEpa(
+/** EPA immediately after one of the selected team's played matches. */
+export interface LocalEpaHistoryPoint {
+  matchKey: string;
+  eventKey: string;
+  compLevel: string;
+  matchNumber: number;
+  value: number;
+}
+
+function runLocalEpa(
   matches: MatchRow[],
-  options: LocalEpaOptions = {},
-): Map<number, number> {
+  options: LocalEpaOptions,
+  historyTeam?: number,
+): { epa: Map<number, number>; history: LocalEpaHistoryPoint[] } {
+  const history: LocalEpaHistoryPoint[] = [];
   const recencyBoost = options.recencyBoost ?? 0;
   const played = matches
     .filter(isPlayed)
@@ -231,7 +238,7 @@ export function computeLocalEpa(
     .sort((a, b) => a.match_number - b.match_number);
 
   const epa = new Map<number, number>();
-  if (played.length === 0) return epa;
+  if (played.length === 0) return { epa, history };
 
   // Recency multiplier for the match at chronological index `i` of `total`.
   const total = played.length;
@@ -306,9 +313,43 @@ export function computeLocalEpa(
         nByTeam.set(t, (nByTeam.get(t) as number) + 1);
       }
     }
+
+    if (historyTeam != null && (reds.includes(historyTeam) || blues.includes(historyTeam))) {
+      history.push({
+        matchKey: m.match_key,
+        eventKey: m.event_key,
+        compLevel: m.comp_level,
+        matchNumber: m.match_number,
+        value: epa.get(historyTeam) as number,
+      });
+    }
   });
 
-  return epa;
+  return { epa, history };
+}
+
+/**
+ * Compute a local EPA (total points) per team from played matches.
+ * Returns an empty map when there are no played matches.
+ */
+export function computeLocalEpa(
+  matches: MatchRow[],
+  options: LocalEpaOptions = {},
+): Map<number, number> {
+  return runLocalEpa(matches, options).epa;
+}
+
+/**
+ * Replay the same model once and capture the selected team's EPA after every
+ * match it played. The final point is guaranteed to equal computeLocalEpa for
+ * the same full match set and options.
+ */
+export function computeLocalEpaHistory(
+  matches: MatchRow[],
+  team: number,
+  options: LocalEpaOptions = {},
+): LocalEpaHistoryPoint[] {
+  return runLocalEpa(matches, options, team).history;
 }
 
 // ===========================================================================

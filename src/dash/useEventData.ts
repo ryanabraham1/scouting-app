@@ -535,8 +535,8 @@ async function statboticsSeasonEpa(
 /**
  * Our recency-weighted in-house model over every complete event attended by
  * this team; Statbotics season EPA (`team_year`) is only the fallback when TBA
- * has no usable match-result EPA. The result is cached per team and is
- * independent of which other teams happen to be displayed alongside it.
+ * has no usable match-result EPA. The result is cached per active event/team
+ * and is independent of which other teams happen to be displayed alongside it.
  *
  * Both the Total-EPA tile (useTeamSeasonStats) and the match prediction
  * (useEventEpa) read THIS, so a team shows the SAME EPA everywhere — and both use
@@ -554,6 +554,7 @@ export async function seasonEpaForTeam(
     'epa',
     'season-team',
     SEASON_EPA_CLOSURE_VERSION,
+    eventKey,
     team,
     year,
     EPA_RECENCY_BOOST,

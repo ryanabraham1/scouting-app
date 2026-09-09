@@ -1,6 +1,6 @@
 // src/dash/__tests__/localEpa.test.ts
 import { describe, it, expect } from 'vitest';
-import { computeLocalEpa, tbaMatchesToRows } from '@/dash/localEpa';
+import { computeLocalEpa, computeLocalEpaHistory, tbaMatchesToRows } from '@/dash/localEpa';
 import type { MatchRow } from '@/dash/useEventData';
 
 let seq = 0;
@@ -36,6 +36,60 @@ describe('computeLocalEpa', () => {
 
   it('returns an empty map for an empty input', () => {
     expect(computeLocalEpa([]).size).toBe(0);
+  });
+
+  it('captures one connected-history point after every match the team played', () => {
+    const matches = [
+      match({
+        match_key: '2026first_qm1',
+        event_key: '2026first',
+        match_number: 1,
+        red1: 1,
+        red2: 2,
+        red3: 3,
+        blue1: 4,
+        blue2: 5,
+        blue3: 6,
+        actual_red_score: 120,
+        actual_blue_score: 90,
+      }),
+      match({
+        match_key: '2026first_qm2',
+        event_key: '2026first',
+        match_number: 2,
+        red1: 7,
+        red2: 8,
+        red3: 9,
+        blue1: 4,
+        blue2: 5,
+        blue3: 6,
+        actual_red_score: 80,
+        actual_blue_score: 100,
+      }),
+      match({
+        match_key: '2026second_qm1',
+        event_key: '2026second',
+        match_number: 3,
+        red1: 1,
+        red2: 7,
+        red3: 8,
+        blue1: 4,
+        blue2: 5,
+        blue3: 6,
+        actual_red_score: 70,
+        actual_blue_score: 130,
+      }),
+    ];
+    const options = { recencyBoost: 0.5 };
+    const history = computeLocalEpaHistory(matches, 1, options);
+
+    expect(history.map((point) => point.matchKey)).toEqual([
+      '2026first_qm1',
+      '2026second_qm1',
+    ]);
+    expect(history.map((point) => point.eventKey)).toEqual(['2026first', '2026second']);
+    expect(history[0]?.value).not.toBe(history[1]?.value);
+    expect(history.at(-1)?.value).toBeCloseTo(computeLocalEpa(matches, options).get(1) as number, 10);
   });
 
   it('recencyBoost 0 reproduces the exact (un-tilted) Statbotics port', () => {

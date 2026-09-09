@@ -2,11 +2,11 @@
 // TEAMVIEW (contracts §2 TeamAgg, §5 hooks, §8 testids). A staff-facing team
 // deep-dive: pick a team from the event roster, then render that team's TeamAgg
 // (fuel breakdown with a rate-FUEL low-confidence chip, climb, defense,
-// reliability, scoutingExpectedPoints), its Statbotics EPA (or an "unavailable"
-// note when Statbotics is down — never hard-fail), and the team's scouted
+// reliability, scoutingExpectedPoints), its in-house season EPA progression
+// (with Statbotics only as a fallback), and the team's scouted
 // matches. Dark theme, shadcn primitives, 44px touch targets.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Wrench,
   Cog,
@@ -65,6 +65,7 @@ import {
   type MatchRow,
 } from '@/dash/useEventData';
 import { useTeamPit, useTeamPhoto, type TeamPit } from '@/dash/useTeamPit';
+import { useTeamEpaHistory } from '@/dash/useTeamEpaHistory';
 import ReportDetail from '@/dash/ReportDetail';
 import AutoOptions from '@/dash/AutoOptions';
 import MatchVideo from '@/dash/MatchVideo';
@@ -80,6 +81,8 @@ import { BarChart, LineChart, StackedBar } from '@/dash/charts';
 import ConflictMarker from '@/components/ConflictMarker';
 import { useMultiScoutConflicts } from '@/dash/useMultiScoutConflicts';
 import { msrReportIdentity, type MsrRow, type MultiScoutGroup } from '@/dash/types';
+
+const TeamEpaHistoryChart = lazy(() => import('@/dash/TeamEpaHistoryChart'));
 
 export interface TeamViewProps {
   eventKey: string;
@@ -1006,6 +1009,7 @@ function TeamDetail(props: {
   photoNode: JSX.Element | null;
   lastMatchNode: JSX.Element | null;
   epaNode: JSX.Element;
+  epaHistoryNode: JSX.Element | null;
   pitNode: JSX.Element;
   scoutName: (id: string | null | undefined) => string;
   onOpenReport: (r: MsrRow) => void;
@@ -1050,6 +1054,9 @@ function TeamDetail(props: {
 
       {/* Last-match video + our activity timeline. */}
       {props.lastMatchNode}
+
+      {/* Season-wide in-house EPA after every TBA match, including offseason events. */}
+      {props.epaHistoryNode}
 
       {/* Fuel */}
       <Card className="border-zinc-800 bg-zinc-950">
@@ -1254,7 +1261,7 @@ function TeamDetail(props: {
         <TeamTrends matches={matches} showClimb={!neverClimbs} />
       ) : null}
 
-      {/* Statbotics EPA */}
+      {/* Current in-house EPA (Statbotics only when match results are unavailable). */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="space-y-0">
           <CardTitle className="flex items-center gap-2 text-zinc-100">
@@ -1466,12 +1473,12 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   const scoutName = (id: string | null | undefined): string =>
     id ? scoutNameById.get(id) ?? '(unknown)' : 'unassigned';
 
-  // EPA only for the selected team (never hard-fail on Statbotics outage).
-  // Pass the event matches so EPA can fall back to a local estimate (computed
-  // from real results) when Statbotics is offline.
+  // EPA only for the selected team. The season model is computed from real TBA
+  // results; Statbotics is consulted only if those match results are unavailable.
   const epaTeams = useMemo(() => (selected != null ? [selected] : []), [selected]);
   const matchesQuery = useEventMatches(eventKey);
   const epaQuery = useEventEpa(epaTeams, eventKey, matchesQuery.data ?? []);
+  const epaHistoryQuery = useTeamEpaHistory(selected, eventKey);
 
   // Aggregate the whole event once; index the selected team's TeamAgg out of it.
   const reports = reportsQuery.data ?? [];
@@ -1552,6 +1559,30 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
       )}
     </div>
   );
+  const epaHistoryNode = selected != null ? (
+    epaHistoryQuery.isLoading ? (
+      <Card className="border-zinc-800 bg-zinc-950" data-testid="team-epa-history-loading">
+        <CardContent className="pt-6">
+          <div className="h-64 rounded-lg bg-zinc-900/70 motion-safe:animate-pulse" />
+        </CardContent>
+      </Card>
+    ) : (
+      <Suspense
+        fallback={
+          <Card className="border-zinc-800 bg-zinc-950" data-testid="team-epa-history-loading">
+            <CardContent className="pt-6">
+              <div className="h-64 rounded-lg bg-zinc-900/70 motion-safe:animate-pulse" />
+            </CardContent>
+          </Card>
+        }
+      >
+        <TeamEpaHistoryChart
+          teamNumber={selected}
+          points={epaHistoryQuery.data ?? []}
+        />
+      </Suspense>
+    )
+  ) : null;
 
   const pitNode = (
     <PitPanel
@@ -1856,6 +1887,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             photoNode={photoThumb}
             lastMatchNode={lastMatchNode}
             epaNode={epaNode}
+            epaHistoryNode={epaHistoryNode}
             pitNode={pitNode}
             scoutName={scoutName}
             onOpenReport={(report) => setOpenReportId(msrReportIdentity(report))}
@@ -1887,6 +1919,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             {/* EPA may still be available; show it so the team isn't a dead end. */}
             <div className="mt-3">{epaNode}</div>
           </div>
+          {epaHistoryNode}
           {/* Pit data may still exist even without match reports. */}
           {pitNode}
         </div>

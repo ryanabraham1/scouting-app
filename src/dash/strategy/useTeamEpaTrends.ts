@@ -45,8 +45,9 @@ function involves(m: MatchRow, team: number): boolean {
 }
 
 /**
- * The EPA-drop flag for one team, or null. Cached per (team, year) — shares
- * the season match rows with the EPA fallback, so repeat calls are free.
+ * The EPA-drop flag for one team, or null. Cached per active event/team/year —
+ * the event scope matters because a freshly imported event is force-included
+ * before it necessarily appears in TBA's team-season event list.
  */
 export async function epaTrendForTeam(
   team: number,
@@ -58,6 +59,7 @@ export async function epaTrendForTeam(
       'epa',
       'trend',
       SEASON_EPA_CLOSURE_VERSION,
+      eventKey,
       team,
       year,
       EPA_RECENCY_BOOST,
