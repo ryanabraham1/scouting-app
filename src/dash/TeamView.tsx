@@ -266,7 +266,7 @@ function locationStr(city: string | null, state: string | null, country: string 
 
 /**
  * The Blue Alliance panel: live event rank + record, season world rank + EPA +
- * record (Statbotics with in-house fallback), team identity / location, and a
+ * record (in-house EPA with Statbotics metadata/fallback), team identity / location, and a
  * deep link to the team's TBA page. Every field degrades to "—" so a TBA outage
  * never blanks the team view.
  */
@@ -290,8 +290,8 @@ function TeamTbaPanel(props: {
   const epaHint =
     season?.totalEpa != null
       ? season.epaSource === 'statbotics'
-        ? 'Statbotics season EPA'
-        : 'in-house estimate (Statbotics offline)'
+        ? 'Statbotics fallback EPA'
+        : 'live in-house EPA from TBA match results'
       : undefined;
 
   return (
@@ -1514,7 +1514,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     );
   }, [teamMatches]);
 
-  // EPA node: number when available, "unavailable" note when Statbotics is down.
+  // EPA node: local match-result value, then Statbotics/scouting fallback.
   const epa = epaQuery.data;
   const externalEpa = selected != null ? epa?.epaByTeam.get(selected) ?? null : null;
   const epaValue =
@@ -1537,17 +1537,17 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             </span>
           ) : epaIsLocal ? (
             <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-              Local estimate — Statbotics offline (computed from match results).
+              Live in-house EPA (computed from TBA match results).
             </span>
           ) : (
             <span className="rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-xs font-medium text-energy">
-              Statbotics EPA (total points).
+              Statbotics fallback EPA (total points).
             </span>
           )}
         </div>
       ) : (
         <span className="text-sm text-zinc-400">
-          EPA unavailable — Statbotics is offline or has no data for this team.
+          EPA unavailable — no TBA match-result or Statbotics data for this team.
         </span>
       )}
     </div>

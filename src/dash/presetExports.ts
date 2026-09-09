@@ -220,15 +220,17 @@ function htmlEscape(value: string | number | null | undefined): string {
     .replace(/"/g, '&quot;');
 }
 
-/** EPA-source banner copy, mirroring RankingView's two non-Statbotics cases. */
+/** EPA-source banner copy for exported/printed strategy material. */
 export function epaBannerText(
   source: 'statbotics' | 'local' | 'none',
 ): string | null {
-  if (source === 'statbotics') return null;
   if (source === 'local') {
-    return 'Statbotics offline — EPA shows a local estimate computed from match results.';
+    return 'EPA uses our live in-house calculator over TBA match results.';
   }
-  return 'Statbotics & match-result EPA unavailable — EPA shows our in-house estimate from scouting data.';
+  if (source === 'statbotics') {
+    return 'TBA match-result EPA unavailable — EPA uses the Statbotics fallback.';
+  }
+  return 'Match-result EPA and Statbotics unavailable — EPA uses scouting estimates where possible.';
 }
 
 /**

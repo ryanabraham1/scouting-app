@@ -452,12 +452,16 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
 
   const epaBanner =
     epaSource === 'local' ? (
+      <div data-testid="alliance-epa-banner" className="text-xs text-energy">
+        Projections use our live local EPA computed in-house from TBA match results.
+      </div>
+    ) : epaSource === 'statbotics' ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-warning">
-        Statbotics offline — projections use a local EPA estimate computed from match results.
+        TBA match-result EPA unavailable — projections use the Statbotics fallback.
       </div>
     ) : !statboticsAvailable ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-warning">
-        Statbotics &amp; match-result EPA unavailable — projections use our in-house scouting estimate.
+        Match-result EPA and Statbotics unavailable — projections use our scouting estimate.
       </div>
     ) : null;
 

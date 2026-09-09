@@ -892,16 +892,16 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
             </div>
           </div>
         </CardHeader>
-        {epaSource !== 'statbotics' ? (
-          <div
-            data-testid="pick-export-epa-banner"
-            className="px-6 pb-2 text-xs text-warning"
-          >
-            {epaSource === 'local'
-              ? 'Statbotics offline — exported EPA shows a local estimate computed from match results.'
-              : 'Statbotics & match-result EPA unavailable — exported EPA shows our in-house estimate from scouting data.'}
-          </div>
-        ) : null}
+        <div
+          data-testid="pick-export-epa-banner"
+          className="px-6 pb-2 text-xs text-warning"
+        >
+          {epaSource === 'local'
+            ? 'Exported EPA uses our live in-house calculator over TBA match results.'
+            : epaSource === 'statbotics'
+              ? 'TBA match-result EPA unavailable — exported EPA uses the Statbotics fallback.'
+              : 'Match-result EPA and Statbotics unavailable — exported EPA uses in-house scouting estimates where possible.'}
+        </div>
         {loadError || readOnly ? (
           <div
             data-testid="pick-readonly-warning"

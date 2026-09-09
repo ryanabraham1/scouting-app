@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 export interface CompareTeam {
   agg: TeamAgg;
-  /** Best-available EPA (Statbotics → local → in-house), or null. */
+  /** Best-available EPA (local → Statbotics → scouting), or null. */
   epa: number | null;
 }
 

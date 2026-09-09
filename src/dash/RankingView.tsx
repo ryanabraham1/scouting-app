@@ -108,7 +108,7 @@ type SortDir = 'asc' | 'desc';
 /** A fully-resolved row: the pure agg plus the external (EPA/TBA) values. */
 interface Row {
   agg: TeamAgg;
-  /** Best-available EPA: Statbotics → local match-results → in-house scouting. */
+  /** Best-available EPA: local match-results → Statbotics → in-house scouting. */
   epa: number | null;
   /** True when `epa` is our in-house scouting estimate (no external EPA source). */
   epaInHouse: boolean;
@@ -639,7 +639,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
               data-testid="dash-ranking-epa-banner"
               className="text-xs text-warning"
             >
-              Statbotics offline — EPA column shows a local estimate computed from match results.
+              EPA column uses our live in-house calculator over TBA match results.
             </div>
           ) : rows.some((row) => row.epaInHouse) ? (
             <div

@@ -618,7 +618,7 @@ describe('useEventData', () => {
     expect(a).toBeGreaterThan(b);
   });
 
-  it('shows TBA EPA first, then promotes the display when Statbotics finishes', async () => {
+  it('keeps TBA EPA when Statbotics finishes and does not overwrite the live model', async () => {
     let resolveStatbotics: ((value: unknown) => void) | undefined;
     statboticsGetMock.mockImplementation(
       () => new Promise((resolve) => {
@@ -646,12 +646,13 @@ describe('useEventData', () => {
       });
     });
 
-    await waitFor(() => expect(result.current.data?.source).toBe('statbotics'));
-    expect(result.current.data?.epaByTeam.get(254)).toBe(55);
-    expect(result.current.data?.epaByTeam.get(254)).not.toBe(tbaEpa);
+    await waitFor(() => expect(statboticsGetMock).toHaveBeenCalled());
+    expect(result.current.data?.source).toBe('local');
+    expect(result.current.data?.epaByTeam.get(254)).toBe(tbaEpa);
+    expect(result.current.data?.epaByTeam.get(254)).not.toBe(55);
   });
 
-  it('shows Statbotics immediately when it wins the race without waiting for TBA', async () => {
+  it('waits for the local replay, then uses Statbotics only when TBA has no EPA', async () => {
     let resolveTba: ((value: unknown[]) => void) | undefined;
     const pendingTba = new Promise<unknown[]>((resolve) => {
       resolveTba = resolve;
@@ -666,12 +667,15 @@ describe('useEventData', () => {
       wrapper: wrapper(),
     });
 
-    await waitFor(() => expect(result.current.data?.source).toBe('statbotics'));
-    expect(result.current.data?.epaByTeam.get(254)).toBe(61);
+    await waitFor(() => expect(statboticsGetMock).toHaveBeenCalled());
+    expect(result.current.isPending).toBe(true);
+    expect(result.current.data).toBeUndefined();
 
     await act(async () => {
       resolveTba?.([]);
     });
+    await waitFor(() => expect(result.current.data?.source).toBe('statbotics'));
+    expect(result.current.data?.epaByTeam.get(254)).toBe(61);
   });
 
   it('useEventEpa carries EPA forward from a prior event (season-wide)', async () => {

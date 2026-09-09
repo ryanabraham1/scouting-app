@@ -4,12 +4,11 @@
 // finally made VISIBLE. The in-house EPA (see src/dash/localEpa.ts) is derived
 // purely from played match results (actual_red_score/actual_blue_score on the
 // `match` table, which originate from The Blue Alliance via event import); it is
-// a faithful, Statbotics-style estimate used only when the live Statbotics EPA
-// is unavailable, and is labelled "in-house" so it is never mistaken for the
-// official number.
+// a faithful, Statbotics-style estimate used as the primary live number, and is
+// labelled "in-house" so it is never mistaken for the Statbotics fallback.
 //
 // Pure & presentational: props in → JSX out. No fetching, no side effects. The
-// orchestrator resolves which EPA to show (Statbotics or in-house) and passes
+// orchestrator resolves which EPA to show (in-house or Statbotics fallback) and passes
 // `epaSource` so this card can label it correctly.
 
 import { cn } from '@/lib/utils';
@@ -167,7 +166,7 @@ function InHouseBadge() {
   return (
     <span
       data-testid="dash-season-epa-source"
-      title="Computed in-house from TheBlueAlliance match results — Statbotics EPA unavailable"
+      title="Computed live in-house from The Blue Alliance match results"
       className="inline-flex items-center rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-energy"
     >
       in-house
@@ -192,8 +191,8 @@ function recordTone(record: string | null): 'green' | 'warning' | 'gray' {
 
 /**
  * "Season Rankings" block for the broadcast dashboard. Shows OUR team's Season
- * Record (gray), World Rank + Total EPA (blue) — Statbotics when available, else
- * the in-house TBA-derived estimate (clearly labelled). Crashes on nothing.
+ * Record (gray), World Rank + Total EPA (blue) — the in-house TBA-derived
+ * estimate when available, else the Statbotics fallback. Crashes on nothing.
  */
 export default function SeasonStats({
   worldRank,

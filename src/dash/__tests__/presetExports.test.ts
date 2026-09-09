@@ -342,7 +342,7 @@ describe('picklistToolCsv', () => {
 });
 
 describe('allianceSheetToHtml', () => {
-  it('contains title, table, one tr per row, escapes HTML, and shows EPA note when not statbotics', () => {
+  it('contains title, table, one tr per row, escapes HTML, and labels local EPA', () => {
     const html = allianceSheetToHtml(
       [
         row({ rank: 1, teamNumber: 254, nickname: '<Poofs> & co' }),
@@ -357,15 +357,16 @@ describe('allianceSheetToHtml', () => {
     // HTML-escaped nickname
     expect(html).toContain('&lt;Poofs&gt; &amp; co');
     // EPA note present for local source
-    expect(html).toContain('local estimate');
+    expect(html).toContain('live in-house calculator');
     // one data row per row in tbody
     const trCount = (html.match(/<tr/g) || []).length;
     // header tr + 2 data rows
     expect(trCount).toBe(3);
   });
 
-  it('omits the EPA note when source is statbotics', () => {
+  it('labels Statbotics as the fallback source', () => {
     const html = allianceSheetToHtml([row({ rank: 1, teamNumber: 254 })], '2026demo', 'statbotics');
-    expect(html).not.toContain('<p class="epa-note">');
+    expect(html).toContain('<p class="epa-note">');
+    expect(html).toContain('Statbotics fallback');
   });
 });

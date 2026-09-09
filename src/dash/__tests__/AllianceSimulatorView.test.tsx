@@ -157,12 +157,12 @@ describe('AllianceSimulatorView', () => {
     expect(getByTestId('alliance-epa-banner').textContent).toMatch(/local/i);
   });
 
-  it('EPA banner absent when source is statbotics', () => {
+  it('labels Statbotics as the fallback when local EPA is unavailable', () => {
     useEventEpaMock.mockReturnValue(
       dataResult<EventEpa>({ epaByTeam: new Map(), available: true, source: 'statbotics' }),
     );
-    const { queryByTestId } = render(<AllianceSimulatorView eventKey="2026casnv" />);
-    expect(queryByTestId('alliance-epa-banner')).toBeNull();
+    const { getByTestId } = render(<AllianceSimulatorView eventKey="2026casnv" />);
+    expect(getByTestId('alliance-epa-banner').textContent).toContain('Statbotics fallback');
   });
 
   it('Top baseline excludes the picked teams (no self-vs-self ~50%)', () => {

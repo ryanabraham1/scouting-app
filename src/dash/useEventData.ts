@@ -96,9 +96,9 @@ export interface EventEpa {
   available: boolean;
   /**
    * Where the EPA values came from:
-   *  - 'statbotics': live Statbotics EPA for at least one team.
-   *  - 'local': Statbotics was down for ALL teams, so we computed a simplified
-   *    local EPA from this event's played match results (see computeLocalEpa).
+   *  - 'local': our live, season-wide EPA computed from TBA match results.
+   *  - 'statbotics': Statbotics fallback for at least one team whose local
+   *    match-result EPA was unavailable.
    *  - 'none': neither source produced anything (e.g. no matches passed in).
    * Additive + OPTIONAL so existing object-literal fixtures (e.g. RankingView /
    * TeamView tests owned by another agent) keep type-checking. `useEventEpa`
@@ -533,14 +533,14 @@ async function statboticsSeasonEpa(
 }
 
 /**
- * Statbotics season EPA (`team_year`) when available; otherwise the
- * recency-weighted in-house model over every complete event attended by this
- * team. The result is cached per team and is independent of which other teams
- * happen to be displayed alongside it.
+ * Our recency-weighted in-house model over every complete event attended by
+ * this team; Statbotics season EPA (`team_year`) is only the fallback when TBA
+ * has no usable match-result EPA. The result is cached per team and is
+ * independent of which other teams happen to be displayed alongside it.
  *
  * Both the Total-EPA tile (useTeamSeasonStats) and the match prediction
  * (useEventEpa) read THIS, so a team shows the SAME EPA everywhere — and both use
- * the same `team_year` metric, fixing the old `team_event` vs `team_year` and
+ * the same local metric, fixing the old `team_event` vs `team_year` and
  * "6-team combined run vs single-team run" discrepancies. Cached + persisted
  * (queryPersist) so it computes once per team and serves offline.
  */
@@ -558,8 +558,8 @@ export async function seasonEpaForTeam(
     year,
     EPA_RECENCY_BOOST,
   ] as const;
-  const raceState: { delayedStatbotics: Promise<StatboticsSeasonEpa> | null } = {
-    delayedStatbotics: null,
+  const backgroundState: { statbotics: Promise<StatboticsSeasonEpa> | null } = {
+    statbotics: null,
   };
   try {
     const initial = await queryClient.fetchQuery({
@@ -570,40 +570,38 @@ export async function seasonEpaForTeam(
         const statboticsPromise = statboticsSeasonEpa(team, year);
         const localPromise = fetchSeasonMatchRows([team], eventKey, year)
           .then((rows) => localSeasonResult(team, rows));
-        const first = await Promise.race([
-          statboticsPromise.then((value) => ({ source: 'statbotics' as const, value })),
-          localPromise.then((value) => ({ source: 'local' as const, value })),
-        ]);
-
-        if (first.source === 'statbotics') {
-          if (first.value.totalEpa != null) return statboticsSeasonResult(first.value);
-          const local = await localPromise;
-          return {
-            ...local,
-            worldRank: first.value.worldRank,
-            record: first.value.record,
-          };
+        const local = await localPromise;
+        if (local.epa != null) {
+          // EPA stays local. Statbotics may still enrich rank/record metadata in
+          // the background, but it must never overwrite the live local value.
+          backgroundState.statbotics = statboticsPromise;
+          return local;
         }
 
-        // TBA won the race. Return it now, but keep the Statbotics request alive
-        // so a later authoritative EPA can replace the visible fallback.
-        raceState.delayedStatbotics = statboticsPromise;
-        return first.value;
+        const statbotics = await statboticsPromise;
+        if (statbotics.totalEpa != null) {
+          return {
+            ...statboticsSeasonResult(statbotics),
+          };
+        }
+        return {
+          ...local,
+          worldRank: statbotics.worldRank,
+          record: statbotics.record,
+        };
       },
     });
 
-    const delayedStatbotics = raceState.delayedStatbotics;
+    const delayedStatbotics = backgroundState.statbotics;
     if (delayedStatbotics !== null) {
       void delayedStatbotics.then((sb: StatboticsSeasonEpa) => {
         const current = queryClient.getQueryData<TeamSeasonEpa>(queryKey);
         if (!current) return;
-        const next = sb.totalEpa != null
-          ? statboticsSeasonResult(sb)
-          : {
-              ...current,
-              worldRank: sb.worldRank ?? current.worldRank,
-              record: sb.record ?? current.record,
-            };
+        const next = {
+          ...current,
+          worldRank: sb.worldRank ?? current.worldRank,
+          record: sb.record ?? current.record,
+        };
         if (sameSeasonResult(current, next)) return;
         queryClient.setQueryData(queryKey, next);
         void queryClient.invalidateQueries({ queryKey: ['epa', 'event'] });
@@ -630,9 +628,9 @@ export async function seasonEpaForTeam(
  * EPA per team for a match, for the prediction. Reads {@link seasonEpaForTeam}
  * for EACH team, so every team's prediction EPA EQUALS its Total-EPA tile (no
  * more 303-vs-290 discrepancy). `source` is 'statbotics' if any team has a
- * Statbotics season EPA, else 'local' if any team has an in-house estimate, else
- * 'none'. The third arg is accepted for call-site compatibility but unused — EPA
- * is season-wide, not derived from the current event's rows.
+ * local EPA, else 'statbotics' if at least one team needed the fallback, else
+ * 'none'. The third arg is accepted for call-site compatibility but unused —
+ * EPA is season-wide, not derived from the current event's rows.
  */
 export function useEventEpa(
   teamNumbers: number[],
@@ -671,6 +669,7 @@ export function useEventEpa(
       const epaByTeam = new Map<number, number | null>();
       const sourceByTeam = new Map<number, 'statbotics' | 'local' | 'none'>();
       let anyStatbotics = false;
+      let anyLocal = false;
       let anyEpa = false;
       sortedTeams.forEach((team, index) => {
         const settled = results[index];
@@ -687,9 +686,16 @@ export function useEventEpa(
         if (r.epa != null) {
           anyEpa = true;
           if (r.source === 'statbotics') anyStatbotics = true;
+          else anyLocal = true;
         }
       });
-      const source: EventEpa['source'] = anyStatbotics ? 'statbotics' : anyEpa ? 'local' : 'none';
+      const source: EventEpa['source'] = anyEpa
+        ? anyLocal
+          ? 'local'
+          : anyStatbotics
+            ? 'statbotics'
+            : 'none'
+        : 'none';
       return { epaByTeam, available: anyEpa, source, sourceByTeam };
     },
   });
@@ -1071,7 +1077,7 @@ export function useEventInfo(eventKey: string | null): UseQueryResult<EventInfo>
   });
 }
 
-/** Season-level stats for OUR team: Statbotics world rank/EPA with in-house fallback. */
+/** Season-level stats for OUR team: in-house EPA with Statbotics metadata/fallback. */
 export interface TeamSeasonStats {
   worldRank: number | null;
   totalEpa: number | null;
@@ -1081,8 +1087,8 @@ export interface TeamSeasonStats {
 
 /**
  * Season EPA + world rank + W-L-T record for a single team. EPA comes from the
- * shared {@link seasonEpaForTeam} (Statbotics `team_year`, else the season-wide
- * recency-weighted in-house model) — the SAME source the match prediction uses,
+ * shared {@link seasonEpaForTeam} (season-wide recency-weighted in-house model,
+ * else Statbotics `team_year`) — the SAME source the match prediction uses,
  * so the Total-EPA tile and the prediction always agree. `epaSource` is
  * 'statbotics' | 'inhouse' | 'none'; the record falls back to a TBA-derived W-L-T.
  */

@@ -145,7 +145,7 @@ export function saveDraftState(eventKey: string, state: DraftState): void {
 export interface DraftRow {
   teamNumber: number;
   nickname: string | null;
-  /** Best-available EPA (Statbotics → local → in-house), null when unknown. */
+  /** Best-available EPA (local → Statbotics → scouting), null when unknown. */
   epa: number | null;
   expectedPoints: number;
   /** Best auto-points value: real scouting component, else gated EPA estimate. */

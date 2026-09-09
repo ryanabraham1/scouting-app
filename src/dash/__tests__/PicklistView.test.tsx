@@ -607,9 +607,11 @@ describe('PicklistView', () => {
     expect(ids).toEqual(['pick-row-254', 'pick-row-1678', 'pick-row-333']);
   });
 
-  it('hides the EPA banner for live Statbotics and shows it for in-house EPA', async () => {
-    const { queryByTestId } = await renderLoaded();
-    expect(queryByTestId('pick-export-epa-banner')).toBeNull();
+  it('labels Statbotics as fallback and the no-result path as in-house scouting', async () => {
+    const { getByTestId: getInitialByTestId } = await renderLoaded();
+    expect(getInitialByTestId('pick-export-epa-banner').textContent).toContain(
+      'Statbotics fallback',
+    );
 
     cleanup();
     epaFixture = {
@@ -620,7 +622,7 @@ describe('PicklistView', () => {
     };
     const { getByTestId } = await renderLoaded();
     const banner = getByTestId('pick-export-epa-banner');
-    expect(banner.textContent).toContain('in-house estimate');
+    expect(banner.textContent).toContain('in-house scouting');
   });
 
   it('shows a cached failed-load fallback read-only and never autosaves it', async () => {

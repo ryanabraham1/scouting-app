@@ -2,7 +2,7 @@
 // Cluster PICKLIST — Team EPA Board.
 // A Field-Control-Console leaderboard of EVERY event team ranked by EPA, with a
 // one-tap add-to-picklist control per row. Pure/presentational: it receives the
-// already-resolved per-team EPA (Statbotics → local → in-house 'est', mirroring
+// already-resolved per-team EPA (local → Statbotics → scouting 'est', mirroring
 // RankingView's resolution) and an `onAdd` callback that reuses PicklistView's
 // dedupe path, so a board add lands dirty exactly like a manual add.
 //
@@ -52,7 +52,7 @@ export interface PicklistEpaBoardProps {
 interface BoardRow {
   teamNumber: number;
   nickname: string | null;
-  /** Best-available EPA: Statbotics → local → in-house scouting; null = none. */
+  /** Best-available EPA: local → Statbotics → in-house scouting; null = none. */
   epa: number | null;
   /** True when `epa` is our in-house scouting estimate (shows the "est" chip). */
   inHouse: boolean;
@@ -123,11 +123,11 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
   const withEpaCount = useMemo(() => rows.filter((r) => r.epa != null).length, [rows]);
 
   const sourceNote =
-    epaSource === 'statbotics'
-      ? null
-      : epaSource === 'local'
-        ? 'Statbotics offline — EPA shows a local estimate computed from match results.'
-        : 'Statbotics & match-result EPA unavailable — EPA shows our in-house estimate from scouting data.';
+    epaSource === 'local'
+      ? 'Live in-house EPA computed from TBA match results.'
+      : epaSource === 'statbotics'
+        ? 'TBA match-result EPA unavailable — using the Statbotics fallback.'
+        : 'Match-result EPA and Statbotics unavailable — using in-house scouting estimates where possible.';
 
   return (
     <Card data-testid="picklist-epa-board" className="bg-card">
