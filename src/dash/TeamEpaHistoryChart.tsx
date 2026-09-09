@@ -69,8 +69,8 @@ export default function TeamEpaHistoryChart({
     matchLabel: compactMatchLabel(point.matchKey),
   }));
   const latest = data.at(-1)?.value ?? null;
-  const first = data[0]?.value ?? null;
-  const change = latest != null && first != null ? latest - first : null;
+  const previous = data.at(-2)?.value ?? null;
+  const change = latest != null && previous != null ? latest - previous : null;
   const stride = Math.max(1, Math.ceil(data.length / 10));
   const ticks = data
     .filter((_, index) => index % stride === 0 || index === data.length - 1)
@@ -104,7 +104,7 @@ export default function TeamEpaHistoryChart({
             <span className="text-2xl font-bold text-cyan-300">{latest.toFixed(1)}</span>
             {change != null ? (
               <span className={change >= 0 ? 'text-xs text-success' : 'text-xs text-warning'}>
-                {change >= 0 ? '+' : ''}{change.toFixed(1)} since first match
+                {change >= 0 ? '+' : ''}{change.toFixed(1)} since last match
               </span>
             ) : null}
           </div>

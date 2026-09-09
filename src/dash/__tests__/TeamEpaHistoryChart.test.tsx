@@ -28,6 +28,6 @@ describe('TeamEpaHistoryChart', () => {
     expect(accessiblePoints).toHaveLength(3);
     expect(accessiblePoints[2]?.textContent).toContain('40.8 EPA');
     expect(getByTestId('team-epa-history').textContent).toContain('40.8');
-    expect(getByTestId('team-epa-history').textContent).toContain('-1.3 since first match');
+    expect(getByTestId('team-epa-history').textContent).toContain('-5.5 since last match');
   });
 });
