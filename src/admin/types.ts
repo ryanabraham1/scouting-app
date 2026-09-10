@@ -17,8 +17,9 @@ export interface AssignTeam {
 
 export interface AssignOptions {
   ownTeam: number;
-  breakEveryN: number;
   rotatePositions: boolean;
+  /** Assignment strategy. Omitted callers retain the standard balanced mode. */
+  scheduleMode?: 'balanced' | 'blocked';
   /**
    * When there's slack (more scouts than seats in a match), avoid handing a
    * scout two matches in a row. Optional; treated as `true` when omitted so
@@ -26,11 +27,27 @@ export interface AssignOptions {
    */
   avoidBackToBack?: boolean;
   /**
-   * How many matches a scout rests once they hit `breakEveryN` consecutive
-   * matches. Optional; treated as `1` when omitted (the prior implicit behavior).
-   * The rest is a SOFT preference — a slot is never left unscouted to honor it.
+   * In blocked mode, how many assignments a scout completes before their
+   * longer break. Gaps between those assignments do not reset the count.
+   */
+  blockAssignments?: number;
+  /**
+   * In blocked mode, how many full event matches sit between assignments in a
+   * work block. 0 allows consecutive matches, 1 means every other match, etc.
+   */
+  spacingMatches?: number;
+  /**
+   * In blocked mode, how many full event matches a scout rests after finishing
+   * a work block. Scheduling constraints are preferences: coverage wins when
+   * the available scout pool cannot satisfy both.
    */
   breakLength?: number;
+}
+
+export interface AutoAssignmentPlan {
+  assignments: Assignment[];
+  /** Match keys where a spacing or break preference had to be relaxed. */
+  relaxedMatchKeys: string[];
 }
 
 export type AllianceColor = 'red' | 'blue';

@@ -1,4 +1,11 @@
-import type { AssignMatch, AssignScout, AssignOptions, Assignment, AllianceColor } from './types';
+import type {
+  AssignMatch,
+  AssignScout,
+  AssignOptions,
+  Assignment,
+  AllianceColor,
+  AutoAssignmentPlan,
+} from './types';
 import { isQualMatchKey } from '@/lib/formatMatch';
 
 interface Slot {
@@ -31,30 +38,41 @@ export function autoAssign(
   scouts: AssignScout[],
   opts: AssignOptions,
 ): Assignment[] {
+  return autoAssignPlan(rawMatches, scouts, opts).assignments;
+}
+
+export function autoAssignPlan(
+  rawMatches: AssignMatch[],
+  scouts: AssignScout[],
+  opts: AssignOptions,
+): AutoAssignmentPlan {
   // Scouting assignments are created ONLY for qualification matches; playoffs
   // are intentionally never assigned. Filter defensively here so even a direct
   // caller (not just AssignmentBoard) can never produce a playoff assignment.
   const matches = rawMatches.filter((m) => isQualMatchKey(m.matchKey));
   const result: Assignment[] = [];
+  const relaxedMatchKeys = new Set<string>();
+  const blocked = opts.scheduleMode === 'blocked';
+  const blockAssignments = Math.max(1, opts.blockAssignments ?? 2);
+  const spacingMatches = Math.max(0, opts.spacingMatches ?? 0);
+  const breakLength = Math.max(0, opts.breakLength ?? 1);
 
   // Per-scout running state.
   const totalCount = new Map<string, number>(); // total assignments so far
-  const consecutive = new Map<string, number>(); // consecutive assignments without a rest
-  const restRemaining = new Map<string, number>(); // matches of owed rest still pending (soft)
+  const blockProgress = new Map<string, number>(); // assignments completed in this work block
+  const nextPreferredMatch = new Map<string, number>(); // first match index after spacing/rest
   const lastStation = new Map<string, number>(); // last station scouted (for rotation bias)
   const lastColor = new Map<string, AllianceColor>(); // last alliance color (for rotation bias)
   for (const s of scouts) {
     totalCount.set(s.id, 0);
-    consecutive.set(s.id, 0);
-    restRemaining.set(s.id, 0);
+    blockProgress.set(s.id, 0);
+    nextPreferredMatch.set(s.id, 0);
   }
-  // How long a break lasts once earned (>=1 match). Legacy callers omit it -> 1.
-  const breakLength = Math.max(1, opts.breakLength ?? 1);
 
   const scoutOrder = new Map<string, number>();
   scouts.forEach((s, i) => scoutOrder.set(s.id, i));
 
-  for (const match of matches) {
+  for (const [matchIndex, match] of matches.entries()) {
     const slots = slotsForMatch(match, opts.ownTeam);
     const usedThisMatch = new Set<string>();
 
@@ -77,19 +95,21 @@ export function autoAssign(
         return true;
       });
 
-      // Scheduled break is a SOFT preference: prefer scouts who are NOT due for a
-      // rest, but NEVER drop a slot just because everyone is due. When the scout
-      // pool equals the slot count, the break used to fire for everyone at once,
-      // leaving entire matches (every breakEveryN-th) completely unscouted. A
-      // scout is "on break" while they still owe rest matches (restRemaining > 0).
-      const notOnBreak = baseEligible.filter((s) => (restRemaining.get(s.id) ?? 0) <= 0);
-      const eligible = notOnBreak.length > 0 ? notOnBreak : baseEligible;
+      // Block spacing and breaks are SOFT preferences. If nobody eligible can
+      // honor them, fill the seat anyway and record that the plan was relaxed.
+      const onSchedule = blocked
+        ? baseEligible.filter((s) => matchIndex >= (nextPreferredMatch.get(s.id) ?? 0))
+        : baseEligible;
+      const eligible = onSchedule.length > 0 ? onSchedule : baseEligible;
+      if (blocked && onSchedule.length === 0 && baseEligible.length > 0) {
+        relaxedMatchKeys.add(match.matchKey);
+      }
 
       // When the pool is larger than slots, also avoid back-to-back same scout.
       // Opt-out via avoidBackToBack:false (default on for legacy callers).
       const slotsThisMatch = slots.length;
       let pool = eligible;
-      if ((opts.avoidBackToBack ?? true) && scouts.length > slotsThisMatch) {
+      if (!blocked && (opts.avoidBackToBack ?? true) && scouts.length > slotsThisMatch) {
         const filtered = eligible.filter((s) => !prevMatchScouts.has(s.id));
         if (filtered.length > 0) pool = filtered;
       }
@@ -97,6 +117,14 @@ export function autoAssign(
       if (pool.length === 0) continue; // slot omitted: no eligible scout
 
       pool.sort((a, b) => {
+        if (blocked) {
+          // Finish an already-started work block before opening a new one. This
+          // forms recognizable shifts while spacing can still produce every-
+          // other, every-third, or wider patterns inside each block.
+          const activeA = (blockProgress.get(a.id) ?? 0) > 0 ? 0 : 1;
+          const activeB = (blockProgress.get(b.id) ?? 0) > 0 ? 0 : 1;
+          if (activeA !== activeB) return activeA - activeB;
+        }
         const ca = totalCount.get(a.id) ?? 0;
         const cb = totalCount.get(b.id) ?? 0;
         if (ca !== cb) return ca - cb; // fewest assignments first
@@ -120,30 +148,20 @@ export function autoAssign(
       totalCount.set(chosen.id, (totalCount.get(chosen.id) ?? 0) + 1);
       lastStation.set(chosen.id, slot.station);
       lastColor.set(chosen.id, slot.allianceColor);
-    }
-
-    // Update per-scout counters after the match.
-    for (const s of scouts) {
-      if (usedThisMatch.has(s.id)) {
-        // Worked this match: extend the streak. On hitting the cadence, owe a
-        // full breakLength rest and reset the streak.
-        const streak = (consecutive.get(s.id) ?? 0) + 1;
-        if (opts.breakEveryN > 0 && streak >= opts.breakEveryN) {
-          restRemaining.set(s.id, breakLength);
-          consecutive.set(s.id, 0);
+      if (blocked) {
+        const progress = (blockProgress.get(chosen.id) ?? 0) + 1;
+        if (progress >= blockAssignments) {
+          blockProgress.set(chosen.id, 0);
+          nextPreferredMatch.set(chosen.id, matchIndex + breakLength + 1);
         } else {
-          consecutive.set(s.id, streak);
+          blockProgress.set(chosen.id, progress);
+          nextPreferredMatch.set(chosen.id, matchIndex + spacingMatches + 1);
         }
-      } else {
-        // Missed the match: pay down any owed rest, and the gap breaks the streak.
-        const owed = restRemaining.get(s.id) ?? 0;
-        if (owed > 0) restRemaining.set(s.id, owed - 1);
-        consecutive.set(s.id, 0);
       }
     }
   }
 
-  return result;
+  return { assignments: result, relaxedMatchKeys: [...relaxedMatchKeys] };
 }
 
 function prevMatchKey(matches: AssignMatch[], current: AssignMatch): string | null {

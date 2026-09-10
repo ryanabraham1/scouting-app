@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { autoAssign } from './autoAssign';
+import { autoAssignPlan } from './autoAssign';
 import {
   loadMatchAssignmentSnapshot,
   publishAssignments,
@@ -57,10 +57,13 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
 
   // Auto-generate tuning — surfaced to the lead so they control HOW seats get
   // filled, not just that they do.
-  const [restEveryN, setRestEveryN] = useState(6);
-  const [restLength, setRestLength] = useState(1);
+  const [scheduleMode, setScheduleMode] = useState<'balanced' | 'blocked'>('balanced');
+  const [blockAssignments, setBlockAssignments] = useState(2);
+  const [spacingMatches, setSpacingMatches] = useState(1);
+  const [restLength, setRestLength] = useState(3);
   const [rotatePositions, setRotatePositions] = useState(true);
   const [avoidBackToBack, setAvoidBackToBack] = useState(true);
+  const [generationWarning, setGenerationWarning] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   // Manual authoring aid: hide fully-covered matches so the lead can fill holes.
   const [onlyGaps, setOnlyGaps] = useState(false);
@@ -90,6 +93,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     setBatchLoading(true);
     setAuthorityIssue(null);
     setVerificationIssue(null);
+    setGenerationWarning(null);
     setConfirmClearAll(false);
   }, [eventKey]);
 
@@ -297,17 +301,24 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   }, [generated, slots, picks, publishedMapped]);
 
   function generateFrom(activePool: AssignScout[]): void {
-    const result = autoAssign(qualMatches, activePool, {
+    const plan = autoAssignPlan(qualMatches, activePool, {
       ownTeam,
-      breakEveryN: restEveryN,
+      scheduleMode,
+      blockAssignments,
+      spacingMatches,
       breakLength: restLength,
       rotatePositions,
       avoidBackToBack,
     });
     const next: Record<string, string> = {};
-    for (const a of result) {
+    for (const a of plan.assignments) {
       next[slotKey(a)] = a.scoutId;
     }
+    setGenerationWarning(
+      plan.relaxedMatchKeys.length > 0
+        ? `Full coverage required relaxing the blocked schedule in ${plan.relaxedMatchKeys.length} match${plan.relaxedMatchKeys.length === 1 ? '' : 'es'}. Add more available scouters or reduce the spacing or break length to honor it exactly.`
+        : null,
+    );
     setPicks(next);
     setGenerated(true);
     setPublished(null);
@@ -319,6 +330,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     if (!editorReady) return;
     const requestEventKey = eventKey;
     setError(null);
+    setGenerationWarning(null);
     // No per-event scouts checked in yet: seed the pool from the persistent
     // roster so the lead can assign before anyone has picked their name.
     if (pool.length === 0) {
@@ -351,6 +363,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     if (!editorReady) return;
     const requestEventKey = eventKey;
     setError(null);
+    setGenerationWarning(null);
     if (pool.length === 0 && !seeding) {
       setSeeding(true);
       try {
@@ -644,39 +657,98 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
               Tune how <span className="font-medium text-foreground">Auto-generate</span> fills
               seats. Changes apply the next time you generate.
             </p>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-              <span className="min-w-[9rem]">Give each scouter a break</span>
-              <label className="inline-flex items-center gap-1.5">
-                every
-                <Input
-                  data-testid="opt-rest-every"
-                  type="number"
-                  min={0}
-                  max={99}
-                  value={restEveryN}
-                  onChange={(e) => setRestEveryN(Math.max(0, Number(e.target.value) || 0))}
-                  className="h-9 w-16 text-center font-mono"
-                  aria-label="Break cadence (matches between breaks)"
-                />
-                matches,
+            <fieldset className="grid gap-2 sm:grid-cols-2">
+              <legend className="sr-only">Assignment pattern</legend>
+              <label
+                className={`cursor-pointer rounded-md border p-3 ${scheduleMode === 'balanced' ? 'border-brand bg-brand/10 text-foreground' : 'border-border bg-background/40 text-muted-foreground'}`}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <input
+                    data-testid="opt-mode-balanced"
+                    type="radio"
+                    name="assignment-pattern"
+                    value="balanced"
+                    checked={scheduleMode === 'balanced'}
+                    onChange={() => setScheduleMode('balanced')}
+                    className="size-4 accent-brand"
+                  />
+                  Balanced rotation
+                </span>
+                <span className="mt-1 block pl-6 text-xs text-muted-foreground">
+                  Spread work evenly across the full schedule.
+                </span>
               </label>
-              <label className="inline-flex items-center gap-1.5">
-                lasting
-                <Input
-                  data-testid="opt-rest-length"
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={restLength}
-                  onChange={(e) => setRestLength(Math.max(1, Number(e.target.value) || 1))}
-                  disabled={restEveryN === 0}
-                  className="h-9 w-16 text-center font-mono disabled:opacity-40"
-                  aria-label="Break length (matches of rest)"
-                />
-                {restLength === 1 ? 'match' : 'matches'}
+              <label
+                className={`cursor-pointer rounded-md border p-3 ${scheduleMode === 'blocked' ? 'border-brand bg-brand/10 text-foreground' : 'border-border bg-background/40 text-muted-foreground'}`}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <input
+                    data-testid="opt-mode-blocked"
+                    type="radio"
+                    name="assignment-pattern"
+                    value="blocked"
+                    checked={scheduleMode === 'blocked'}
+                    onChange={() => setScheduleMode('blocked')}
+                    className="size-4 accent-brand"
+                  />
+                  Work/rest blocks
+                </span>
+                <span className="mt-1 block pl-6 text-xs text-muted-foreground">
+                  Give each scouter a defined work pattern, then a longer break.
+                </span>
               </label>
-              <span className="text-xs text-muted-foreground">(0 cadence = never rest)</span>
-            </div>
+            </fieldset>
+            {scheduleMode === 'blocked' ? (
+              <div className="rounded-md border border-border bg-background/40 p-3">
+                <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Block pattern
+                </p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2 leading-9">
+                  <span>Work</span>
+                  <Input
+                    data-testid="opt-block-assignments"
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={blockAssignments}
+                    onChange={(e) =>
+                      setBlockAssignments(Math.max(1, Number(e.target.value) || 1))
+                    }
+                    className="h-9 w-16 text-center font-mono"
+                    aria-label="Assignments per work block"
+                  />
+                  <span>{blockAssignments === 1 ? 'assignment' : 'assignments'}, with</span>
+                  <Input
+                    data-testid="opt-spacing-matches"
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={spacingMatches}
+                    onChange={(e) => setSpacingMatches(Math.max(0, Number(e.target.value) || 0))}
+                    className="h-9 w-16 text-center font-mono"
+                    aria-label="Matches between assignments"
+                  />
+                  <span>
+                    {spacingMatches === 1 ? 'match' : 'matches'} between each, then rest
+                  </span>
+                  <Input
+                    data-testid="opt-rest-length"
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={restLength}
+                    onChange={(e) => setRestLength(Math.max(0, Number(e.target.value) || 0))}
+                    className="h-9 w-16 text-center font-mono"
+                    aria-label="Break length in matches"
+                  />
+                  <span>{restLength === 1 ? 'match' : 'matches'}.</span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Spacing 0 allows consecutive matches; 1 means every other match; 2 means every
+                  third match.
+                </p>
+              </div>
+            ) : null}
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 data-testid="opt-rotate"
@@ -687,16 +759,18 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
               />
               <span>Rotate stations &amp; alliance colors across a scouter's matches</span>
             </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                data-testid="opt-avoid-b2b"
-                type="checkbox"
-                checked={avoidBackToBack}
-                onChange={(e) => setAvoidBackToBack(e.target.checked)}
-                className="size-4 accent-brand"
-              />
-              <span>Avoid back-to-back matches when there are enough scouters</span>
-            </label>
+            {scheduleMode === 'balanced' ? (
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  data-testid="opt-avoid-b2b"
+                  type="checkbox"
+                  checked={avoidBackToBack}
+                  onChange={(e) => setAvoidBackToBack(e.target.checked)}
+                  className="size-4 accent-brand"
+                />
+                <span>Avoid back-to-back matches when there are enough scouters</span>
+              </label>
+            ) : null}
           </div>
         ) : null}
 
@@ -712,6 +786,14 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
         {error ? (
           <p data-testid="assignments-publish-error" className="mt-4 text-sm text-destructive">
             {error}
+          </p>
+        ) : null}
+        {generationWarning ? (
+          <p
+            data-testid="assignments-generation-warning"
+            className="mt-4 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm text-warning"
+          >
+            {generationWarning}
           </p>
         ) : null}
         {authorityIssue || verificationIssue ? (

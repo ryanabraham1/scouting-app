@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slotsForMatch, autoAssign } from '../autoAssign';
+import { slotsForMatch, autoAssign, autoAssignPlan } from '../autoAssign';
 import type { AssignMatch, AssignScout, AssignOptions, Assignment } from '../types';
 
 const m1: AssignMatch = {
@@ -53,9 +53,9 @@ describe('slotsForMatch', () => {
 });
 
 // 12 matches, ownTeam 3256 placed in red station 1 of EVERY match (so exactly 5 slots/match = 60 slots).
-function buildMatches(): AssignMatch[] {
+function buildMatches(count = 12): AssignMatch[] {
   const matches: AssignMatch[] = [];
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= count; i++) {
     const base = 100 + i * 10;
     matches.push({
       matchKey: `2026casnv_qm${i}`,
@@ -73,7 +73,7 @@ function buildScouts(n: number): AssignScout[] {
   }));
 }
 
-const OPTS: AssignOptions = { ownTeam: 3256, breakEveryN: 0, rotatePositions: false };
+const OPTS: AssignOptions = { ownTeam: 3256, rotatePositions: false };
 
 describe('autoAssign', () => {
   it('(a) never assigns the 3256 slot', () => {
@@ -83,14 +83,10 @@ describe('autoAssign', () => {
     expect(out).toHaveLength(60);
   });
 
-  it('(a2) covers EVERY match even when the scout pool equals the slots/match with a break cadence', () => {
-    // 5 scouts, 5 slots/match (own team in red1), breakEveryN=6. The scheduled
-    // break must NOT leave any match unscouted — regression for the lockstep gap
-    // where every breakEveryN-th match got zero assignments.
+  it('(a2) covers EVERY match when the scout pool equals the slots/match', () => {
     const matches = buildMatches();
     const out = autoAssign(matches, buildScouts(5), {
       ownTeam: 3256,
-      breakEveryN: 6,
       rotatePositions: true,
     });
     for (const m of matches) {
@@ -155,50 +151,18 @@ describe('autoAssign quals-only', () => {
   });
 });
 
-describe('autoAssign break cadence', () => {
-  // Helper: longest run of consecutive matches (in match order) a scout is assigned to.
-  function longestStreak(out: Assignment[], matches: AssignMatch[], scoutId: string): number {
-    let best = 0;
-    let cur = 0;
-    for (const m of matches) {
-      const worked = out.some((a) => a.matchKey === m.matchKey && a.scoutId === scoutId);
-      if (worked) {
-        cur += 1;
-        best = Math.max(best, cur);
-      } else {
-        cur = 0;
-      }
-    }
-    return best;
-  }
-
-  it('(g) breakLength keeps a rested scout out for that many matches (with slack)', () => {
-    // breakEveryN=1 -> a break is earned after every worked match; breakLength=3
-    // -> once earned, the scout sits out the next 3 matches. Ample slack (20
-    // scouts for 5 slots) lets the soft rest be honored while every slot fills.
-    const matches = buildMatches(); // 12 matches, 5 slots each
-    const scouts = buildScouts(20);
-    const breakLength = 3;
-    const out = autoAssign(matches, scouts, {
-      ownTeam: 3256,
-      breakEveryN: 1,
-      breakLength,
-      rotatePositions: false,
-    });
-    // Every slot still filled.
-    expect(out).toHaveLength(60);
-    // For each scout, consecutive worked matches are at least breakLength+1 apart.
+describe('autoAssign work/rest blocks', () => {
+  function workedMatchIndexes(
+    out: Assignment[],
+    matches: AssignMatch[],
+    scoutId: string,
+  ): number[] {
     const idxOf = new Map(matches.map((m, i) => [m.matchKey, i]));
-    for (const s of scouts) {
-      const worked = out
-        .filter((a) => a.scoutId === s.id)
-        .map((a) => idxOf.get(a.matchKey) as number)
-        .sort((a, b) => a - b);
-      for (let i = 1; i < worked.length; i++) {
-        expect(worked[i] - worked[i - 1]).toBeGreaterThanOrEqual(breakLength + 1);
-      }
-    }
-  });
+    return out
+      .filter((a) => a.scoutId === scoutId)
+      .map((a) => idxOf.get(a.matchKey) as number)
+      .sort((a, b) => a - b);
+  }
 
   it('(f) accepts avoidBackToBack:false without degrading coverage or balance', () => {
     // The flag only relaxes a soft tiebreak; correctness (full coverage, ±1
@@ -207,7 +171,6 @@ describe('autoAssign break cadence', () => {
     const scouts = buildScouts(6);
     const out = autoAssign(matches, scouts, {
       ownTeam: 3256,
-      breakEveryN: 0,
       rotatePositions: false,
       avoidBackToBack: false,
     });
@@ -217,20 +180,69 @@ describe('autoAssign break cadence', () => {
     expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
   });
 
-  it('(e) honors breakEveryN (no over-long streak) AND keeps full coverage when there is slack', () => {
-    // Coverage is MANDATORY; the scheduled break is best-effort. With ample slack
-    // (10 scouts for 5 slots/match) the break can be honored AND every slot filled.
-    // (The old version used 6 scouts for 5 slots, where honoring a hard break is
-    // only possible by DROPPING slots — that was the A2 unscouted-match bug.)
-    const matches = buildMatches(); // 12 matches, 5 slots each = 60 slots
-    const scouts = buildScouts(10);
-    const opts: AssignOptions = { ownTeam: 3256, breakEveryN: 2, rotatePositions: false };
-    const out = autoAssign(matches, scouts, opts);
+  it('counts spaced assignments toward the block and accepts spacing values above 1', () => {
+    const matches = buildMatches(24);
+    const scouts = buildScouts(25);
+    const blockAssignments = 2;
+    const spacingMatches = 3;
+    const breakLength = 4;
+    const plan = autoAssignPlan(matches, scouts, {
+      ownTeam: 3256,
+      rotatePositions: false,
+      scheduleMode: 'blocked',
+      blockAssignments,
+      spacingMatches,
+      breakLength,
+    });
+
+    expect(plan.assignments).toHaveLength(24 * 5);
+    expect(plan.relaxedMatchKeys).toEqual([]);
+    const loads = scouts.map(
+      (s) => plan.assignments.filter((assignment) => assignment.scoutId === s.id).length,
+    );
+    expect(Math.max(...loads) - Math.min(...loads)).toBeLessThanOrEqual(blockAssignments);
     for (const s of scouts) {
-      expect(longestStreak(out, matches, s.id)).toBeLessThanOrEqual(2);
+      const worked = workedMatchIndexes(plan.assignments, matches, s.id);
+      for (let i = 1; i < worked.length; i++) {
+        const previousCompletedBlock = i % blockAssignments === 0;
+        const minimumGap = (previousCompletedBlock ? breakLength : spacingMatches) + 1;
+        expect(worked[i] - worked[i - 1]).toBeGreaterThanOrEqual(minimumGap);
+      }
     }
-    // Full coverage: every slot of every match is filled, and 3256 is never scouted.
-    expect(out).toHaveLength(60);
-    expect(out.some((a) => a.targetTeamNumber === 3256)).toBe(false);
+  });
+
+  it('uses consecutive assignments when spacing is 0, then honors the longer break', () => {
+    const matches = buildMatches(18);
+    const scouts = buildScouts(15);
+    const plan = autoAssignPlan(matches, scouts, {
+      ownTeam: 3256,
+      rotatePositions: false,
+      scheduleMode: 'blocked',
+      blockAssignments: 2,
+      spacingMatches: 0,
+      breakLength: 3,
+    });
+    expect(plan.relaxedMatchKeys).toEqual([]);
+    for (const s of scouts) {
+      const worked = workedMatchIndexes(plan.assignments, matches, s.id);
+      for (let i = 1; i < worked.length; i++) {
+        expect(worked[i] - worked[i - 1]).toBeGreaterThanOrEqual(i % 2 === 0 ? 4 : 1);
+      }
+    }
+  });
+
+  it('relaxes blocked preferences instead of leaving seats empty when staffing is tight', () => {
+    const matches = buildMatches();
+    const plan = autoAssignPlan(matches, buildScouts(5), {
+      ownTeam: 3256,
+      rotatePositions: false,
+      scheduleMode: 'blocked',
+      blockAssignments: 2,
+      spacingMatches: 3,
+      breakLength: 4,
+    });
+    expect(plan.assignments).toHaveLength(60);
+    expect(plan.relaxedMatchKeys.length).toBeGreaterThan(0);
+    expect(plan.assignments.some((a) => a.targetTeamNumber === 3256)).toBe(false);
   });
 });

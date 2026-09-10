@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const autoAssign = vi.fn();
+let relaxedMatchKeys: string[] = [];
 const publishAssignments = vi.fn();
 const loadMatchAssignmentSnapshot = vi.fn();
 const ensureEventScoutsFromRoster = vi.fn();
@@ -14,7 +15,12 @@ const fakeQueryClient = {
   getQueryData: (key: unknown[]) => queryCache.get(JSON.stringify(key)),
   setQueryData: (key: unknown[], value: unknown) => queryCache.set(JSON.stringify(key), value),
 };
-vi.mock('../autoAssign', () => ({ autoAssign: (...a: unknown[]) => autoAssign(...a) }));
+vi.mock('../autoAssign', () => ({
+  autoAssignPlan: (...a: unknown[]) => ({
+    assignments: autoAssign(...a),
+    relaxedMatchKeys,
+  }),
+}));
 vi.mock('../setAssignmentsClient', () => ({
   publishAssignments: (...a: unknown[]) => publishAssignments(...a),
   loadMatchAssignmentSnapshot: (...a: unknown[]) => loadMatchAssignmentSnapshot(...a),
@@ -46,6 +52,7 @@ const SCOUTS: AssignScout[] = [
 describe('AssignmentBoard', () => {
   beforeEach(() => {
     autoAssign.mockReset();
+    relaxedMatchKeys = [];
     publishAssignments.mockReset();
     loadMatchAssignmentSnapshot.mockReset();
     ensureEventScoutsFromRoster.mockReset();
@@ -338,10 +345,11 @@ describe('AssignmentBoard', () => {
     render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
     // Open the options panel and change every knob.
     fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
-    fireEvent.change(screen.getByTestId('opt-rest-every'), { target: { value: '3' } });
-    fireEvent.change(screen.getByTestId('opt-rest-length'), { target: { value: '2' } });
+    fireEvent.click(screen.getByTestId('opt-mode-blocked'));
+    fireEvent.change(screen.getByTestId('opt-block-assignments'), { target: { value: '3' } });
+    fireEvent.change(screen.getByTestId('opt-spacing-matches'), { target: { value: '2' } });
+    fireEvent.change(screen.getByTestId('opt-rest-length'), { target: { value: '4' } });
     fireEvent.click(screen.getByTestId('opt-rotate')); // default on -> off
-    fireEvent.click(screen.getByTestId('opt-avoid-b2b')); // default on -> off
     await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
     fireEvent.click(screen.getByTestId('auto-generate-btn'));
     await waitFor(() => expect(autoAssign).toHaveBeenCalled());
@@ -349,11 +357,25 @@ describe('AssignmentBoard', () => {
       MATCHES,
       SCOUTS,
       expect.objectContaining({
-        breakEveryN: 3,
-        breakLength: 2,
+        scheduleMode: 'blocked',
+        blockAssignments: 3,
+        spacingMatches: 2,
+        breakLength: 4,
         rotatePositions: false,
-        avoidBackToBack: false,
       }),
+    );
+  });
+
+  it('warns when full coverage requires relaxing a blocked schedule', async () => {
+    autoAssign.mockReturnValue([]);
+    relaxedMatchKeys = ['2026casnv_qm1'];
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    fireEvent.click(screen.getByTestId('opt-mode-blocked'));
+    await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('auto-generate-btn'));
+    expect(await screen.findByTestId('assignments-generation-warning')).toHaveTextContent(
+      /relaxing the blocked schedule in 1 match/i,
     );
   });
 
