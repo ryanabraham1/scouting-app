@@ -1,9 +1,10 @@
 // supabase/functions/sync-event-results/index.ts
 // Pull-based RECONCILE of TBA match results into our `match` table. The
 // tba-webhook lands results in real time, but TBA webhooks can be dropped or
-// delayed; the dashboard calls this periodically (and once on load to backfill)
-// so a missed webhook self-heals and previously-played matches are never stuck
-// "unplayed". Writes with the service role (clients can't UPDATE `match`).
+// delayed; the app calls this periodically (and once on load to backfill) so a
+// missed webhook self-heals, predicted times keep moving, and previously-played
+// matches are never stuck "unplayed". Writes with the service role (clients
+// can't UPDATE `match`).
 //
 // Idempotent: re-running upserts the same rows. Returns a small summary.
 // Deployed with verify_jwt = false (it only pulls public TBA data and writes
@@ -40,6 +41,7 @@ interface TbaMatch {
   comp_level: string;
   match_number: number;
   time?: number | null;
+  predicted_time?: number | null;
   winning_alliance?: string | null;
   alliances?: { red?: TbaAlliance; blue?: TbaAlliance };
 }
@@ -51,6 +53,15 @@ function winnerOf(m: TbaMatch, red: number | null, blue: number | null): string 
   if (red > blue) return "red";
   if (blue > red) return "blue";
   return "tie";
+}
+
+/** Compare timestamptz values by instant, not by `Z` versus `+00:00` spelling. */
+function sameTimestamp(a: unknown, b: unknown): boolean {
+  if (a == null && b == null) return true;
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const aMs = Date.parse(a);
+  const bMs = Date.parse(b);
+  return Number.isFinite(aMs) && Number.isFinite(bMs) && aMs === bMs;
 }
 
 Deno.serve(async (req) => {
@@ -111,7 +122,14 @@ Deno.serve(async (req) => {
         winner: played ? winnerOf(m, redScore, blueScore) : null,
         result_synced_at: played ? new Date().toISOString() : null,
       };
-      if (m.time) row.scheduled_time = new Date(m.time * 1000).toISOString();
+      row.scheduled_time =
+        typeof m.time === "number" && m.time > 0
+          ? new Date(m.time * 1000).toISOString()
+          : null;
+      row.predicted_time =
+        typeof m.predicted_time === "number" && m.predicted_time > 0
+          ? new Date(m.predicted_time * 1000).toISOString()
+          : null;
       return { row, played };
     });
 
@@ -119,13 +137,14 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Only write rows that actually changed, so a 60s reconcile doesn't rewrite the
-  // whole schedule every minute (which would bump result_synced_at and fire a
-  // realtime event for every match). Write a row when: it's a new match_key
-  // (adds a missing playoff schedule row) OR a played result differs from stored.
+  // Only write rows that actually changed, so a 60s reconcile doesn't rewrite
+  // the whole schedule every minute. Write a row when it is new or its timing /
+  // played result changed.
   const { data: existing } = await svc
     .from("match")
-    .select("match_key, actual_red_score, actual_blue_score, winner")
+    .select(
+      "match_key, scheduled_time, predicted_time, actual_red_score, actual_blue_score, winner",
+    )
     .eq("event_key", eventKey);
   const prev = new Map(
     (existing ?? []).map((r) => [
@@ -134,6 +153,8 @@ Deno.serve(async (req) => {
         ars: r.actual_red_score as number | null,
         abs: r.actual_blue_score as number | null,
         winner: r.winner as string | null,
+        scheduled: r.scheduled_time as string | null,
+        predicted: r.predicted_time as string | null,
       },
     ]),
   );
@@ -141,10 +162,17 @@ Deno.serve(async (req) => {
     .filter(({ row, played }) => {
       const p = prev.get(row.match_key as string);
       if (!p) return true; // new match (e.g. a playoff match not yet imported)
-      if (!played) return false; // existing + still unplayed -> nothing to sync
-      // Rewrite on any result change — including a winner flip (DQ / tiebreaker)
-      // where the two scores stay numerically equal.
+      const timingChanged =
+        !sameTimestamp(p.scheduled, row.scheduled_time) ||
+        !sameTimestamp(p.predicted, row.predicted_time);
+      // If TBA temporarily regresses a played match to an unplayed shape, never
+      // let a timing-only refresh erase the result we already hold.
+      if (!played && (p.ars != null || p.abs != null || p.winner != null)) return false;
+      if (!played) return timingChanged;
+      // Rewrite on any timing/result change — including a winner flip (DQ /
+      // tiebreaker) where the two scores stay numerically equal.
       return (
+        timingChanged ||
         p.ars !== row.actual_red_score ||
         p.abs !== row.actual_blue_score ||
         p.winner !== row.winner

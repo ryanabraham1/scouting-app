@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, CheckCircle2, PartyPopper } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Clock3, PartyPopper } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { supabase } from '@/lib/supabase';
-import { nexusGet } from '@/dash/proxies';
+import { nexusGet, syncEventResults } from '@/dash/proxies';
 import { parseNexusEventStatus, type NexusEventStatus } from '@/dash/nexusClient';
-import { NEXUS_POLL_MS } from '@/dash/constants';
-import { getCachedMatches } from '@/db/preloadClient';
+import { NEXUS_POLL_MS, RESULTS_RECONCILE_MS } from '@/dash/constants';
+import { getCachedMatches, replaceCachedMatchesForEvent } from '@/db/preloadClient';
+import type { CachedMatch } from '@/db/types';
 import { cn } from '@/lib/utils';
 import { OnDeckAlert } from '@/capture/OnDeckAlert';
 import { selectOnDeck, nexusStatusForKey } from '@/capture/onDeck';
+import { matchTimeDisplay, matchTimeSourceLabel } from '@/capture/matchTime';
 
 /** Raw `match` row shape we care about for the scout's match list. */
 export interface UpcomingMatchRow {
@@ -18,6 +20,7 @@ export interface UpcomingMatchRow {
   comp_level: string;
   match_number: number;
   scheduled_time: string | null;
+  predicted_time: string | null;
   red1: number | null;
   red2: number | null;
   red3: number | null;
@@ -87,7 +90,7 @@ interface EnrichedAssignment {
 function sortFields(e: EnrichedAssignment): { time: string | null; lvl: number; num: number } {
   if (e.match) {
     return {
-      time: e.match.scheduled_time,
+      time: e.match.predicted_time ?? e.match.scheduled_time,
       lvl: COMP_LEVEL_ORDER[e.match.comp_level] ?? 99,
       num: e.match.match_number,
     };
@@ -154,6 +157,9 @@ export function UpcomingMatches({
   completedKeys,
 }: UpcomingMatchesProps) {
   const [matches, setMatches] = useState<UpcomingMatchRow[] | null>(null);
+  // The displayed countdown advances locally; it does not create extra network
+  // traffic. Thirty seconds keeps minute boundaries feeling current.
+  const [now, setNow] = useState(() => Date.now());
   // Optional Nexus live status. Fetched directly (no react-query) so this stays
   // self-contained; null/unavailable simply hides the live affordances.
   const [nexus, setNexus] = useState<NexusEventStatus | null>(null);
@@ -167,42 +173,77 @@ export function UpcomingMatches({
       return;
     }
     let cancelled = false;
+    let refreshing = false;
+    let hasResolvedMatches = false;
+    let cleanup: (() => void) | undefined;
     void (async () => {
       // Offline-first: show the cached schedule immediately so a reload with no
       // wifi renders matches instead of spinning on "Loading matches…" forever.
       // CachedMatch is structurally identical to UpcomingMatchRow.
       const cached = await getCachedMatches(eventKey);
       if (cancelled) return;
-      const hadCache = cached.length > 0;
-      if (hadCache) setMatches(cached as UpcomingMatchRow[]);
-
-      // Then refresh from the network when reachable. If the query throws or
-      // returns nothing/error, keep whatever we already showed from cache.
-      try {
-        const res = await supabase
-          .from('match')
-          .select(
-            'match_key,event_key,comp_level,match_number,scheduled_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at',
-          )
-          .eq('event_key', eventKey);
-        if (cancelled) return;
-        if (!res.error && res.data) {
-          setMatches(res.data as UpcomingMatchRow[]);
-        } else if (!hadCache) {
-          // Genuinely nothing (no cache, network gave nothing): show the empty
-          // state rather than leaving `null` (loading) forever.
-          setMatches([]);
-        }
-      } catch {
-        if (cancelled) return;
-        // Offline / transport error. Only fall to empty if we had no cache.
-        if (!hadCache) setMatches([]);
+      if (cached.length > 0) {
+        hasResolvedMatches = true;
+        setMatches(cached as UpcomingMatchRow[]);
       }
+
+      const refresh = async (): Promise<void> => {
+        if (refreshing || cancelled) return;
+        refreshing = true;
+        try {
+          // Reconcile TBA first so this read includes moving predicted times and
+          // any results that a webhook missed. The helper is best-effort.
+          await syncEventResults(eventKey);
+          if (cancelled) return;
+          const res = await supabase
+            .from('match')
+            .select(
+              'match_key,event_key,comp_level,match_number,scheduled_time,predicted_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at',
+            )
+            .eq('event_key', eventKey);
+          if (cancelled) return;
+          if (!res.error && res.data) {
+            const rows = res.data as UpcomingMatchRow[];
+            hasResolvedMatches = true;
+            setMatches(rows);
+            await replaceCachedMatchesForEvent(eventKey, rows as CachedMatch[]);
+          } else if (!hasResolvedMatches) {
+            setMatches([]);
+          }
+        } catch {
+          if (!cancelled && !hasResolvedMatches) setMatches([]);
+        } finally {
+          refreshing = false;
+        }
+      };
+
+      await refresh();
+      if (cancelled) return;
+
+      const refreshWhenVisible = (): void => {
+        if (document.visibilityState === 'visible') void refresh();
+      };
+      const id = window.setInterval(() => void refresh(), RESULTS_RECONCILE_MS);
+      window.addEventListener('focus', refreshWhenVisible);
+      document.addEventListener('visibilitychange', refreshWhenVisible);
+
+      // Register cleanup only after the async cache read has completed.
+      cleanup = () => {
+        window.clearInterval(id);
+        window.removeEventListener('focus', refreshWhenVisible);
+        document.removeEventListener('visibilitychange', refreshWhenVisible);
+      };
     })();
     return () => {
       cancelled = true;
+      cleanup?.();
     };
   }, [eventKey]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Live field status from Nexus (degrades silently when unavailable). This is
   // REAL-TIME data, so we poll on NEXUS_POLL_MS rather than fetching once — the
@@ -259,20 +300,56 @@ export function UpcomingMatches({
   const onDeck = selectOnDeck(
     todoList.map((e) => e.assignment),
     nexus,
-    (a) => byKey.get(a.match_key)?.scheduled_time ?? null,
+    (a) => {
+      const match = byKey.get(a.match_key);
+      return match?.predicted_time ?? match?.scheduled_time ?? null;
+    },
   );
+  const nextTiming = todoList[0]?.match
+    ? matchTimeDisplay(todoList[0].match, { now })
+    : null;
+  const onDeckMatch = onDeck ? byKey.get(onDeck.assignment.match_key) : null;
+  const onDeckTiming = onDeckMatch ? matchTimeDisplay(onDeckMatch, { now }) : null;
 
   return (
     <section data-testid="scout-upcoming-matches">
       {onDeck ? (
         <div className="mb-3">
-          <OnDeckAlert result={onDeck} onStart={onStart} />
+          <OnDeckAlert result={onDeck} timing={onDeckTiming} onStart={onStart} />
         </div>
       ) : null}
       {view === 'todo' && todoList[0] && !onDeck ? (
         <div className="mb-4 rounded-2xl border border-brand/40 bg-card p-4">
           <p className="text-sm font-medium text-muted-foreground">Your next match · {matchLabelFromKey(todoList[0].assignment.match_key)}</p>
-          <h2 className="mt-2 text-3xl font-bold">Team {todoList[0].assignment.target_team_number}</h2>
+          <div
+            data-testid="scout-next-match-time"
+            className="mt-3 flex items-center gap-3 rounded-xl border border-brand/25 bg-brand/5 px-3 py-2.5"
+          >
+            <Clock3 className="size-5 shrink-0 text-brand" />
+            {nextTiming ? (
+              <>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {matchTimeSourceLabel(nextTiming.source)} start
+                  </p>
+                  <p className="font-mono text-xl font-bold tabular-nums">{nextTiming.clock}</p>
+                </div>
+                <p
+                  className={cn(
+                    'shrink-0 text-right text-sm font-bold tabular-nums',
+                    nextTiming.state === 'late' ? 'text-warning' : 'text-brand',
+                  )}
+                >
+                  {nextTiming.state === 'future'
+                    ? `${nextTiming.minutesAway} min away`
+                    : nextTiming.relative}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-semibold text-muted-foreground">Start time TBD</p>
+            )}
+          </div>
+          <h2 className="mt-3 text-3xl font-bold">Team {todoList[0].assignment.target_team_number}</h2>
           <p className="mt-1 text-base capitalize">{todoList[0].assignment.alliance_color} alliance · Station {todoList[0].assignment.station}</p>
           <Button className="mt-4 w-full" variant="brand" size="big" onClick={() => onStart(todoList[0].assignment)}>Start scouting</Button>
         </div>
@@ -329,11 +406,12 @@ export function UpcomingMatches({
         </p>
       ) : (
         <ul className="flex flex-col gap-2 landscape:grid landscape:grid-cols-2">
-          {(expanded || view !== 'todo' ? shown : shown.slice(0, 3)).map(({ assignment: a }) => {
+          {(expanded || view !== 'todo' ? shown : shown.slice(0, 3)).map(({ assignment: a, match }) => {
             const isDone = view === 'done';
             const isMissed = view === 'missed';
             // Live (queuing/on-field) affordance only matters for the upcoming feed.
             const liveStatus = view === 'todo' ? liveStatusForKey(nexus, a.match_key) : null;
+            const timing = view === 'todo' && match ? matchTimeDisplay(match, { now }) : null;
             return (
             <li key={a.match_key} data-testid="scout-upcoming-match">
               <Button
@@ -396,6 +474,19 @@ export function UpcomingMatches({
                 {isDone ? (
                   <span className="text-xs font-medium text-success">
                     Tap to review or re-scout
+                  </span>
+                ) : view === 'todo' ? (
+                  <span
+                    data-testid="scout-assignment-time"
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs font-semibold',
+                      timing?.state === 'late' ? 'text-warning' : 'text-muted-foreground',
+                    )}
+                  >
+                    <Clock3 className="size-3.5 shrink-0" />
+                    {timing
+                      ? `${matchTimeSourceLabel(timing.source)} ${timing.clock} · ${timing.relative}`
+                      : 'Time TBD'}
                   </span>
                 ) : null}
               </Button>

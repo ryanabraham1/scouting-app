@@ -100,9 +100,9 @@ export const NEXUS_POLL_MS = 10_000;
 export const NEXUS_STALE_MS = 120_000;
 
 /**
- * Cadence (ms) for the safety-net TBA results reconcile the dashboard triggers
- * (`sync-event-results`). The tba-webhook lands results in real time; this only
- * backfills anything a dropped/late webhook missed, so it can be relatively slow.
+ * Cadence (ms) for the safety-net TBA match reconcile used by the dashboard and
+ * Scout Home (`sync-event-results`). The tba-webhook is primary; this backfills
+ * missed results and refreshes moving predicted start times.
  */
 export const RESULTS_RECONCILE_MS = 60_000;
 

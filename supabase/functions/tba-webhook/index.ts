@@ -114,6 +114,7 @@ interface TbaMatch {
   match_number?: number;
   set_number?: number;
   time?: number | null;
+  predicted_time?: number | null;
   winning_alliance?: string | null;
   alliances?: { red?: TbaAlliance; blue?: TbaAlliance };
 }
@@ -176,6 +177,9 @@ async function upsertMatchScore(m: TbaMatch): Promise<void> {
     row.blue3 = teamNum(blueKeys[2]);
   }
   if (m.time) row.scheduled_time = new Date(m.time * 1000).toISOString();
+  if (m.predicted_time) {
+    row.predicted_time = new Date(m.predicted_time * 1000).toISOString();
+  }
   if (played) {
     row.actual_red_score = redScore;
     row.actual_blue_score = blueScore;
@@ -223,8 +227,10 @@ async function upsertUpcoming(data: Record<string, unknown>): Promise<void> {
     blue2: teamNum(teamKeys[4]),
     blue3: teamNum(teamKeys[5]),
   };
-  const scheduled = (data.predicted_time ?? data.scheduled_time) as number | undefined;
+  const scheduled = data.scheduled_time as number | undefined;
+  const predicted = data.predicted_time as number | undefined;
   if (scheduled) row.scheduled_time = new Date(scheduled * 1000).toISOString();
+  if (predicted) row.predicted_time = new Date(predicted * 1000).toISOString();
   const { error } = await svcClient().from("match").upsert(row, { onConflict: "match_key" });
   if (error) console.error("[tba-webhook] upcoming upsert failed", matchKey, error.message);
 }

@@ -34,6 +34,7 @@ const matchRows = [
     comp_level: 'qm',
     match_number: 5,
     scheduled_time: '2026-06-23T10:00:00Z',
+    predicted_time: '2026-06-23T10:18:00Z',
     red1: 254, red2: 1678, red3: 100,
     blue1: 200, blue2: 300, blue3: 400,
     actual_red_score: null, actual_blue_score: null,
@@ -45,6 +46,7 @@ const matchRows = [
     comp_level: 'qm',
     match_number: 3,
     scheduled_time: '2026-06-23T09:00:00Z',
+    predicted_time: null,
     red1: 11, red2: 12, red3: 13,
     blue1: 21, blue2: 22, blue3: 23,
     actual_red_score: 50, actual_blue_score: 40,
@@ -56,6 +58,7 @@ const matchRows = [
     comp_level: 'sf',
     match_number: 1,
     scheduled_time: null,
+    predicted_time: null,
     red1: 1, red2: 2, red3: 3,
     blue1: 4, blue2: 5, blue3: 6,
     actual_red_score: null, actual_blue_score: null,
@@ -116,6 +119,11 @@ vi.mock('@/roster/selectScouter', () => ({
 
 vi.mock('@/roster/rosterClient', () => ({
   listRoster: () => Promise.resolve([{ id: 'r1', name: 'Casey' }]),
+}));
+
+vi.mock('@/dash/proxies', () => ({
+  nexusGet: () => Promise.resolve({ available: false }),
+  syncEventResults: () => Promise.resolve(),
 }));
 
 let storedActiveEvent: string | null = '2026demo';
@@ -403,6 +411,7 @@ function mkCachedMatch(over: Partial<CachedMatch>): CachedMatch {
     comp_level: 'qm',
     match_number: 5,
     scheduled_time: null,
+    predicted_time: null,
     red1: 254, red2: 1678, red3: 100,
     blue1: 200, blue2: 300, blue3: 400,
     actual_red_score: null, actual_blue_score: null,
@@ -545,6 +554,21 @@ describe('ScoutHome matches to scout', () => {
     fireEvent.click(row);
     // Capture flow opens on the placement step.
     expect(await screen.findByTestId('capture-placement-submit')).toBeTruthy();
+  });
+
+  it('shows the TBA estimate and minutes until the scout\'s next match', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-06-23T10:00:00Z'));
+    try {
+      renderHome();
+      const heroTime = await screen.findByTestId('scout-next-match-time');
+      expect(heroTime.textContent).toContain('Estimated start');
+      expect(heroTime.textContent).toContain('18 min away');
+      const rowTime = await screen.findByTestId('scout-assignment-time');
+      expect(rowTime.textContent).toContain('Estimated');
+      expect(rowTime.textContent).toContain('in 18 min');
+    } finally {
+      now.mockRestore();
+    }
   });
 });
 

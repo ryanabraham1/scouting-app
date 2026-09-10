@@ -105,6 +105,7 @@ export interface CachedMatch {
   comp_level: string;
   match_number: number;
   scheduled_time: string | null;
+  predicted_time: string | null;
   red1: number | null;
   red2: number | null;
   red3: number | null;

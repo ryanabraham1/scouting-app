@@ -39,12 +39,14 @@ vi.mock('@/roster/rosterClient', () => ({
 import {
   preloadEventData,
   getCachedAssignments,
+  getCachedMatches,
   getCachedPitAssignments,
   getCachedPitAssignmentsForEvent,
   getPreloadMeta,
+  replaceCachedMatchesForEvent,
 } from '../preloadClient';
 import { db } from '../localStore';
-import type { CachedAssignment, CachedPitAssignment } from '../types';
+import type { CachedAssignment, CachedMatch, CachedPitAssignment } from '../types';
 
 function assignmentRow(
   scoutId: string,
@@ -72,6 +74,27 @@ function pitAssignmentRow(scoutId: string): CachedPitAssignment {
   };
 }
 
+function matchRow(eventKey: string, matchNumber: number, predictedTime: string | null): CachedMatch {
+  return {
+    match_key: `${eventKey}_qm${matchNumber}`,
+    event_key: eventKey,
+    comp_level: 'qm',
+    match_number: matchNumber,
+    scheduled_time: '2026-04-04T20:00:00Z',
+    predicted_time: predictedTime,
+    red1: 1,
+    red2: 2,
+    red3: 3,
+    blue1: 4,
+    blue2: 5,
+    blue3: 6,
+    actual_red_score: null,
+    actual_blue_score: null,
+    winner: null,
+    result_synced_at: null,
+  };
+}
+
 describe('preloadEventData — event-scoped assignment caches', () => {
   beforeEach(async () => {
     await db.cachedAssignments.clear();
@@ -93,6 +116,22 @@ describe('preloadEventData — event-scoped assignment caches', () => {
       columns:
         'event_key,team_number,scout_id,source,scout:scout!pit_assignment_event_scout_fkey(display_name)',
     });
+  });
+
+  it('persists refreshed predictions without disturbing another event cache', async () => {
+    await db.cachedMatches.bulkPut([
+      matchRow('2026event', 1, null),
+      matchRow('2026other', 1, '2026-04-04T20:05:00Z'),
+    ]);
+
+    await replaceCachedMatchesForEvent('2026event', [
+      matchRow('2026event', 2, '2026-04-04T20:22:00Z'),
+    ]);
+
+    expect(await getCachedMatches('2026event')).toMatchObject([
+      { match_key: '2026event_qm2', predicted_time: '2026-04-04T20:22:00Z' },
+    ]);
+    expect(await getCachedMatches('2026other')).toHaveLength(1);
   });
 
   it('treats an empty event response as authoritative without clearing another event', async () => {

@@ -113,10 +113,10 @@ export async function nexusGet<T>(path: string): Promise<T | ProxyUnavailable> {
 }
 
 /**
- * Trigger the server-side TBA results reconcile for an event. Best-effort and
- * never throws: lands real match results into our `match` table (service-role
- * write) so the dashboard knows which matches are played even if a tba-webhook
- * was dropped. Safe to call repeatedly (idempotent upsert).
+ * Trigger the server-side TBA match reconcile for an event. Best-effort and
+ * never throws: lands current predicted/scheduled times plus real results into
+ * our `match` table (service-role write), healing dropped webhooks. Safe to call
+ * repeatedly (idempotent upsert).
  */
 export async function syncEventResults(eventKey: string): Promise<void> {
   try {

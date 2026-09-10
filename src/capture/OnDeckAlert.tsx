@@ -12,9 +12,11 @@ import { Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { matchLabelFromKey } from '@/capture/UpcomingMatches';
 import { onDeckHeadline, type OnDeckResult, type OnDeckMatch } from '@/capture/onDeck';
+import { matchTimeSourceLabel, type MatchTimeDisplay } from '@/capture/matchTime';
 
 interface OnDeckAlertProps<A extends OnDeckMatch> {
   result: OnDeckResult<A>;
+  timing?: MatchTimeDisplay | null;
   onStart: (a: A) => void;
 }
 
@@ -48,7 +50,7 @@ function useOnDeckNotification(assignment: OnDeckMatch, urgency: string) {
   }, [assignment, urgency]);
 }
 
-export function OnDeckAlert<A extends OnDeckMatch>({ result, onStart }: OnDeckAlertProps<A>) {
+export function OnDeckAlert<A extends OnDeckMatch>({ result, timing, onStart }: OnDeckAlertProps<A>) {
   const { assignment: a, urgency, liveStatus } = result;
   useOnDeckNotification(a, urgency);
 
@@ -109,8 +111,19 @@ export function OnDeckAlert<A extends OnDeckMatch>({ result, onStart }: OnDeckAl
             {a.alliance_color} {a.station}
           </span>
         </div>
+        <div
+          data-testid="scout-on-deck-time"
+          className={cn(
+            'mt-1 flex items-center gap-1.5 text-xs font-semibold tabular-nums',
+            timing?.state === 'late' ? 'text-warning' : 'text-muted-foreground',
+          )}
+        >
+          {timing
+            ? `${matchTimeSourceLabel(timing.source)} ${timing.clock} · ${timing.relative}`
+            : 'Time TBD'}
+        </div>
       </div>
-      <span className="shrink-0 rounded-md bg-foreground/10 px-3 py-1.5 text-sm font-semibold">
+      <span className="hidden shrink-0 rounded-md bg-foreground/10 px-3 py-1.5 text-sm font-semibold sm:inline-flex">
         Scout now
       </span>
     </button>

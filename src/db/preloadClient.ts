@@ -35,7 +35,7 @@ export interface PreloadResult {
 // Same column list UpcomingMatches.tsx selects from `match` — keep in sync so
 // the cache is a drop-in for the live query.
 const MATCH_COLUMNS =
-  'match_key,event_key,comp_level,match_number,scheduled_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at';
+  'match_key,event_key,comp_level,match_number,scheduled_time,predicted_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at';
 
 function errMsg(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -258,6 +258,18 @@ export async function preloadEventData(opts: {
 export async function getCachedMatches(eventKey: string): Promise<CachedMatch[]> {
   const rows = await db.cachedMatches.where('event_key').equals(eventKey).toArray();
   return rows.sort((a, b) => a.match_number - b.match_number);
+}
+
+/** Replace one event's cached schedule after a successful non-empty live read. */
+export async function replaceCachedMatchesForEvent(
+  eventKey: string,
+  rows: CachedMatch[],
+): Promise<void> {
+  if (!eventKey || rows.length === 0) return;
+  await db.transaction('rw', db.cachedMatches, async () => {
+    await db.cachedMatches.where('event_key').equals(eventKey).delete();
+    await db.cachedMatches.bulkPut(rows);
+  });
 }
 
 /** Cached assignments for a scout. */

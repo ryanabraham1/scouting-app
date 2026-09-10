@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { OnDeckAlert } from '@/capture/OnDeckAlert';
 
 describe('OnDeckAlert notification delivery', () => {
@@ -32,6 +32,13 @@ describe('OnDeckAlert notification delivery', () => {
           urgency: 'on-deck',
           liveStatus: 'on deck',
         }}
+        timing={{
+          source: 'estimated',
+          clock: '2:18 PM',
+          relative: 'in 5 min',
+          state: 'future',
+          minutesAway: 5,
+        }}
         onStart={vi.fn()}
       />,
     );
@@ -45,5 +52,9 @@ describe('OnDeckAlert notification delivery', () => {
         }),
       );
     });
+    expect(screen.getByTestId('scout-on-deck-time').textContent).toBe(
+      'Estimated 2:18 PM · in 5 min',
+    );
+    expect(screen.getByText('Scout now').className).toContain('sm:inline-flex');
   });
 });
