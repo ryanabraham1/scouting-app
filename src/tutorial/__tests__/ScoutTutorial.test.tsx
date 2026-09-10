@@ -79,8 +79,8 @@ describe('ScoutTutorial module hub and production coaching', () => {
     expect(
       screen.getByRole('button', { name: 'Practice pit scouting' }),
     ).toBeInTheDocument();
-    expect(screen.getByText(`${MATCH_STEP_COUNT} guided controls`)).toBeTruthy();
-    expect(screen.getByText(`${PIT_STEP_COUNT} guided controls`)).toBeTruthy();
+    expect(screen.getByText(`${MATCH_STEP_COUNT} quick steps`)).toBeTruthy();
+    expect(screen.getByText(`${PIT_STEP_COUNT} quick steps`)).toBeTruthy();
     expect(screen.queryByTestId('tutorial-practice-banner')).toBeNull();
     expect(screen.queryByText(/nothing is saved/i)).toBeNull();
     expect(screen.queryByText(/focus highlighted control/i)).toBeNull();
@@ -181,10 +181,19 @@ describe('ScoutTutorial module hub and production coaching', () => {
     );
   });
 
-  it('keeps the guided Undo pointer on the production action row', () => {
-    const undoStep = MATCH_COACH_STEPS.find((step) => step.id === 'undo');
-    expect(undoStep?.target).toBe('[data-testid="capture-undo"]');
-    expect(undoStep?.action).toBe('undo');
+  it('removes redundant action drills and navigation-only coach steps', () => {
+    const stepIds = [
+      ...MATCH_COACH_STEPS.map((step) => step.id),
+      ...PIT_COACH_STEPS.map((step) => step.id),
+    ];
+    expect(stepIds).not.toContain('undo');
+    expect(stepIds).not.toContain('foul');
+    expect(stepIds).not.toContain('auto-clear');
+    expect(
+      [...MATCH_COACH_STEPS, ...PIT_COACH_STEPS].some(
+        (step) => step.target.endsWith('next"]'),
+      ),
+    ).toBe(false);
   });
 
   it('allows optional controls to advance without entering fake values', async () => {
@@ -201,20 +210,23 @@ describe('ScoutTutorial module hub and production coaching', () => {
         '[data-testid="pit-mechanisms"]',
       ),
     );
-    skipOptional();
-    expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
-      'data-target-selector',
-      '[data-testid="pit-mechanisms-other"]',
-    );
-    skipOptional();
     expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
+    fireEvent.click(screen.getByTestId('pit-next'));
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="pit-capabilities"]',
+      ),
+    );
+    skipOptional();
     expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
-      '[data-testid="pit-next"]',
+      '[data-testid="pit-intake-sources"]',
     );
+    expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
   });
 
-  it('targets each review page and the production rating slider/Clear behavior', async () => {
+  it('keeps grouped review coaching aligned with the visible production page', async () => {
     renderTutorial();
     await openReview();
 
@@ -225,32 +237,42 @@ describe('ScoutTutorial module hub and production coaching', () => {
       'data-target-selector',
       '[data-testid="review-climb"]',
     );
-    for (let i = 0; i < 3; i += 1) skipOptional();
-    await waitFor(() =>
-      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
-        'data-target-selector',
-        '[data-testid="review-intake-sources"]',
-      ),
-    );
-    for (let i = 0; i < 5; i += 1) skipOptional();
+    skipOptional();
     expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
-      '[data-testid="review-defense-rating"]',
+      '[data-testid="review-ratings"]',
     );
+    expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
+
     fireEvent.change(screen.getByTestId('review-defense-rating'), {
       target: { value: '7' },
     });
     expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
-      '[data-testid="review-driver-skill"]',
+      '[data-testid="review-ratings"]',
     );
-    skipOptional();
+
+    fireEvent.click(screen.getByTestId('review-next'));
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="review-field-path"]',
+      ),
+    );
+    expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('review-next'));
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="review-foul-reasons"]',
+      ),
+    );
     skipOptional();
     expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
-      '[data-testid="review-defense-rating-clear"]',
+      '[data-testid="review-notes"]',
     );
-    expect(screen.getByTestId('review-defense-rating-clear')).toBeEnabled();
   });
 
   it('keeps pit photos and both module reports out of production persistence/network', async () => {
@@ -333,9 +355,9 @@ describe('ScoutTutorial module hub and production coaching', () => {
     expect(readTutorialProgress('scout-1')?.data.pit.status).toBe('in_progress');
   });
 
-  it('defines the complete production-control coverage map with exact step counts', () => {
-    expect(MATCH_STEP_COUNT).toBe(40);
-    expect(PIT_STEP_COUNT).toBe(29);
+  it('defines the concise production workflow with exact step counts', () => {
+    expect(MATCH_STEP_COUNT).toBe(19);
+    expect(PIT_STEP_COUNT).toBe(12);
 
     const matchTargets = MATCH_COACH_STEPS.map((step) => step.target);
     for (const target of [
@@ -343,19 +365,14 @@ describe('ScoutTutorial module hub and production coaching', () => {
       '[data-testid="capture-start"]',
       '[data-testid="capture-hold"]',
       '[data-testid="capture-left-line"]',
-      '[data-testid="capture-auto-climb"]',
       '[data-testid="capture-go-interstitial"]',
       '[data-testid="capture-feed"]',
       '[data-testid="capture-defense"]',
       '[data-testid="capture-defended"]',
-      '[data-testid="capture-reanchor"]',
       '[data-testid="review-climb"]',
-      '[data-testid="review-intake-sources"]',
-      '[data-testid="review-defense-rating"]',
-      '[data-testid="review-defense-rating-clear"]',
-      '[data-testid="review-flags"]',
+      '[data-testid="review-ratings"]',
       '[data-testid="review-field-path"]',
-      '[data-testid="review-summary"]',
+      '[data-testid="review-foul-reasons"]',
       '[data-testid="review-notes"]',
       '[data-testid="review-save"]',
     ]) {
@@ -366,22 +383,14 @@ describe('ScoutTutorial module hub and production coaching', () => {
     for (const target of [
       '[data-testid="pit-drivetrain"]',
       '[data-testid="pit-mechanisms"]',
-      '[data-testid="pit-mechanisms-other"]',
       '[data-testid="pit-capabilities"]',
       '[data-testid="pit-intake-sources"]',
       '[data-testid="pit-match-strategy"]',
-      '[data-testid="pit-vision"]',
-      '[data-testid="pit-battery-count"]',
-      '[data-testid="pit-charger-count"]',
       '[data-testid="pit-length"]',
-      '[data-testid="pit-trench"]',
-      '[data-testid="pit-auto-pick-start"]',
       '[data-testid="pit-auto-field"]',
       '[data-testid="pit-auto-draw-path"]',
-      '[data-testid="pit-auto-clear"]',
       '[data-testid="pit-notes"]',
       '[data-testid="pit-camera-control"]',
-      '[data-testid="pit-photo-control"]',
       '[data-testid="pit-submit"]',
     ]) {
       expect(pitTargets).toContain(target);

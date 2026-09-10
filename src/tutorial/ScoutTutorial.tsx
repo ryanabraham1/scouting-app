@@ -173,7 +173,7 @@ function TutorialHub(props: {
                   {module.detail}
                 </p>
                 <p className="mt-3 font-mono text-xs text-muted-foreground">
-                  {module.steps} guided controls
+                  {module.steps} quick steps
                 </p>
                 <Button
                   data-testid={`tutorial-hub-${module.id}`}
@@ -467,7 +467,13 @@ export default function ScoutTutorial(): JSX.Element {
       currentMatchStep.screen === 'review' &&
       currentMatchStep.action === action
     ) {
-      advanceMatch();
+      const next = MATCH_COACH_STEPS[matchStep + 1];
+      if (
+        next?.screen === 'review' &&
+        next.page === currentMatchStep.page
+      ) {
+        advanceMatch();
+      }
     }
   };
 
@@ -482,7 +488,9 @@ export default function ScoutTutorial(): JSX.Element {
   };
 
   const observePit = (action: PitObservedAction): void => {
-    if (currentPitStep.action === action) advancePit();
+    if (currentPitStep.action !== action) return;
+    const next = PIT_COACH_STEPS[pitCoachStep + 1];
+    if (next?.page === currentPitStep.page) advancePit();
   };
 
   const handlePitPage = (page: number): void => {
@@ -516,6 +524,7 @@ export default function ScoutTutorial(): JSX.Element {
             onDone={() => finishModule('match')}
             renderFrame={(frame) => {
               const step = currentMatchStep;
+              const next = MATCH_COACH_STEPS[matchStep + 1];
               const visible =
                 screen === 'match' &&
                 ((step.screen === 'live' && frame.stage === 'live') ||
@@ -531,7 +540,13 @@ export default function ScoutTutorial(): JSX.Element {
                   stepKey={`match:${step.id}`}
                   target={visible ? step.target : '[data-tutorial-missing]'}
                   content={frame.content}
-                  onNextControl={step.optional ? advanceMatch : undefined}
+                  onNextControl={
+                    step.optional &&
+                    next?.screen === step.screen &&
+                    (step.screen === 'live' || next.page === step.page)
+                      ? advanceMatch
+                      : undefined
+                  }
                 />
               );
             }}
@@ -552,7 +567,12 @@ export default function ScoutTutorial(): JSX.Element {
                 ? currentPitStep.target
                 : '[data-tutorial-missing]'
             }
-            onNextControl={currentPitStep.optional ? advancePit : undefined}
+            onNextControl={
+              currentPitStep.optional &&
+              PIT_COACH_STEPS[pitCoachStep + 1]?.page === currentPitStep.page
+                ? advancePit
+                : undefined
+            }
             content={
               <PitScoutScreen
                 key={`pit-${pitRunKey}`}
