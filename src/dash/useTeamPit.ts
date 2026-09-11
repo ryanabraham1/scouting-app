@@ -2,7 +2,13 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { signedPitPhotoUrl } from '@/pit/photoUpload';
 import { tbaGetOptional, isUnavailable } from '@/dash/proxies';
-import type { PitPhoto } from '@/pit/pitStore';
+import {
+  normalizeAutoRoutines,
+  normalizePitQuestionnaire,
+  type PitAutoRoutine,
+  type PitPhoto,
+  type PitQuestionnaire,
+} from '@/pit/pitStore';
 
 // Normalized pit report for dashboard consumption. The DB folds capability list
 // and intake sources into one jsonb `capabilities` column of the shape
@@ -26,6 +32,8 @@ export interface TeamPit {
   robotWidthIn: number | null;
   robotHeightIn: number | null;
   trenchCapable: boolean;
+  questionnaire?: PitQuestionnaire;
+  autoRoutines?: PitAutoRoutine[];
   photos?: PitPhoto[];
   photoPath: string | null;
   notes: string | null;
@@ -150,6 +158,12 @@ export function rowToTeamPit(row: Record<string, unknown>): TeamPit {
     robotWidthIn: dims.widthIn,
     robotHeightIn: dims.heightIn,
     trenchCapable: dims.trenchCapable,
+    questionnaire: normalizePitQuestionnaire(data.pit_questionnaire),
+    autoRoutines: normalizeAutoRoutines(
+      data.auto_routines,
+      data.preferred_auto_start_position,
+      data.preferred_auto_path,
+    ),
     photos,
     photoPath: photos[0]?.path ?? data.photo_path ?? null,
     notes: data.notes ?? null,

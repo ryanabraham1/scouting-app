@@ -88,6 +88,39 @@ describe('FieldDiagram pick-start', () => {
     expect(p.x).toBeCloseTo(0.75, 5);
     expect(p.y).toBeCloseTo(0.25, 5);
   });
+
+  it('maps pointer positions through a cropped visible field range', () => {
+    const onStartChange = vi.fn();
+    const { getByTestId } = render(
+      <FieldDiagram
+        mode="pick-start"
+        visibleXRange={[0.25, 1]}
+        onStartChange={onStartChange}
+      />
+    );
+    fireEvent.pointerUp(getByTestId('field-diagram'), {
+      clientX: 100,
+      clientY: 25,
+    });
+    expect(onStartChange.mock.calls[0][0]).toEqual({ x: 0.625, y: 0.25 });
+  });
+
+  it('maps a rotated cropped field back to canonical coordinates', () => {
+    const onStartChange = vi.fn();
+    const { getByTestId } = render(
+      <FieldDiagram
+        mode="pick-start"
+        rotate
+        visibleXRange={[0.25, 1]}
+        onStartChange={onStartChange}
+      />
+    );
+    fireEvent.pointerUp(getByTestId('field-diagram'), {
+      clientX: 100,
+      clientY: 50,
+    });
+    expect(onStartChange.mock.calls[0][0]).toEqual({ x: 0.625, y: 0.5 });
+  });
 });
 
 describe('FieldDiagram pick-start marker shape', () => {

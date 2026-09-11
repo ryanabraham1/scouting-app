@@ -130,6 +130,8 @@ describe('submitPit', () => {
       ],
       match_strategy: ['score', 'cycle'],
       robot_dimensions: { lengthIn: 30, widthIn: 28, heightIn: 24, trenchCapable: true },
+      pit_questionnaire: {},
+      auto_routines: [],
       photos: [{
         id: 'legacy',
         path: '2026casj/254/a.jpg',

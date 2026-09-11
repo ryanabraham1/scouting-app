@@ -9,7 +9,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Wrench,
-  Cog,
   Sparkles,
   Inbox,
   StickyNote,
@@ -24,7 +23,6 @@ import {
   TrendingUp,
   ListChecks,
   Eye,
-  BatteryCharging,
   Ruler,
   Swords,
   Route,
@@ -237,22 +235,6 @@ function dimensionsStr(l: number | null, w: number | null, h: number | null): st
   if (l == null && w == null && h == null) return '—';
   const part = (n: number | null): string => (n == null ? '?' : String(n));
   return `${part(l)} × ${part(w)} × ${part(h)} in`;
-}
-
-/** Battery / charger inventory summary, em-dash when nothing is known. */
-function batteryStr(
-  count: number | null,
-  chargers: number | null,
-  brand: string | null,
-  connector: string | null,
-): string {
-  const parts: string[] = [];
-  if (count != null) parts.push(`${count} batt`);
-  if (chargers != null) parts.push(`${chargers} charger${chargers === 1 ? '' : 's'}`);
-  const extras = [brand, connector].filter((p): p is string => !!p);
-  const main = parts.join(' · ');
-  if (!main && extras.length === 0) return '—';
-  return extras.length ? `${main || '—'} (${extras.join(', ')})` : main;
 }
 
 /** Format a W-L-T record, or em-dash when no parts are known. */
@@ -499,6 +481,24 @@ function LastMatchCard(props: {
   );
 }
 
+const PIT_VALUE_LABELS: Record<string, string> = {
+  turret: 'Turret', double_turret: 'Double turret', single_lane: 'Single lane shooter',
+  double_lane: 'Double lane shooter', full_width_drum: 'Full-width shooter (drum)',
+  ground: 'Ground', outpost_only: 'Outpost only', against_hub: 'Against the hub',
+  near_hub: 'Near the hub', alliance_zone_except_trench: 'Alliance zone except trench',
+  anywhere_including_trench: 'Anywhere including trench', not_capable: 'Not capable',
+  '0_25': '0–25%', '25_50': '25–50%', '50_75': '50–75%', '75_90': '75–90%',
+  '90_100': '90–100%', yes: 'Yes', no: 'No', not_tested: 'Not sure / not tested',
+  shooting: 'Shooting', feed_neutral: 'Feeding from neutral', score_outpost: 'Scoring in outpost',
+  feed_under_trench: 'Feeding under trench', feed_opponent_to_neutral: 'Opponent zone → neutral',
+  feed_opponent_to_alliance: 'Opponent zone → alliance zone', defense: 'Defense', other: 'Other',
+};
+
+function pitValue(value: string | null | undefined): string {
+  if (!value) return '—';
+  return PIT_VALUE_LABELS[value] ?? value;
+}
+
 function PitPanel(props: {
   pit: TeamPit | null;
   isLoading: boolean;
@@ -534,7 +534,7 @@ function PitPanel(props: {
                 </span>
               </div>
               <DetailRow
-                icon={<Cog />}
+                icon={<Gauge />}
                 label="Drivetrain"
                 value={pit.drivetrain ?? '—'}
                 testid="team-pit-drivetrain"
@@ -547,88 +547,70 @@ function PitPanel(props: {
               />
             </div>
 
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(340px,1.1fr)] lg:items-start">
-              <div className="flex min-w-0 flex-col gap-5">
-                <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-                  <ChipRow
-                    icon={<Cog />}
-                    label="Mechanisms"
-                    items={pit.mechanisms}
-                    testid="team-pit-mechanisms"
-                  />
-                  <ChipRow
-                    icon={<Sparkles />}
-                    label="Capabilities"
-                    items={pit.capabilities}
-                    testid="team-pit-capabilities"
-                  />
-                  <ChipRow
-                    icon={<Inbox />}
-                    label="Intake sources"
-                    items={pit.intakeSources}
-                    testid="team-pit-intake"
-                  />
-                  <ChipRow
-                    icon={<Swords />}
-                    label="Match strategy"
-                    items={pit.matchStrategy}
-                    testid="team-pit-strategy"
-                  />
+            <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+              <div className="flex min-w-0 flex-col gap-4">
+                <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3 sm:grid-cols-2">
+                  <DetailRow icon={<Ruler />} label="Dimensions" value={dimensionsStr(pit.robotLengthIn, pit.robotWidthIn, pit.robotHeightIn) + (pit.trenchCapable ? ' · trench ✓' : ' · no trench')} testid="team-pit-dimensions" />
+                  <DetailRow icon={<Gauge />} label="Weight" value={pit.questionnaire?.robotWeightLb == null ? '—' : `${pit.questionnaire.robotWeightLb} lb`} testid="team-pit-weight" />
+                  <DetailRow icon={<Gauge />} label="Swerve type" value={pitValue(pit.questionnaire?.swerveType)} testid="team-pit-swerve" />
+                  <DetailRow icon={<Swords />} label="Shooter" value={pit.questionnaire?.shooterType === 'other' ? pitValue(pit.questionnaire.shooterTypeOther) : pitValue(pit.questionnaire?.shooterType)} testid="team-pit-shooter" />
+                  <DetailRow icon={<Swords />} label="Fixed angle" value={pitValue(pit.questionnaire?.shooterFixedAngle)} testid="team-pit-fixed-angle" />
+                  <DetailRow icon={<Sparkles />} label="Balls / second" value={pit.questionnaire?.estimatedBallsPerSecond?.toString() ?? '—'} testid="team-pit-bps" />
+                  <DetailRow icon={<Inbox />} label="Ball capacity" value={pit.questionnaire?.estimatedBallCapacity?.toString() ?? '—'} testid="team-pit-capacity" />
+                  <DetailRow icon={<MapPin />} label="Shooting range" value={pit.questionnaire?.shootingRange === 'other' ? pitValue(pit.questionnaire.shootingRangeOther) : pitValue(pit.questionnaire?.shootingRange)} testid="team-pit-range" />
+                  <DetailRow icon={<Crosshair />} label="General accuracy" value={pitValue(pit.questionnaire?.generalAccuracy)} testid="team-pit-accuracy" />
+                  <DetailRow icon={<Crosshair />} label="Accuracy on move" value={pitValue(pit.questionnaire?.shootOnMoveAccuracy)} testid="team-pit-move-accuracy" />
+                  <DetailRow icon={<Sparkles />} label="Intake while shooting" value={pitValue(pit.questionnaire?.intakeWhileShooting)} testid="team-pit-cleanup" />
+                  <DetailRow icon={<Wrench />} label="Rebuilt since last event" value={pit.questionnaire?.rebuildChanges === 'no' ? 'No' : pitValue(pit.questionnaire?.rebuildChanges)} testid="team-pit-rebuild" />
                 </div>
-
-                <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <DetailRow
-                    icon={<BatteryCharging />}
-                    label="Batteries"
-                    value={batteryStr(
-                      pit.batteryCount,
-                      pit.chargerCount,
-                      pit.batteryBrand,
-                      pit.batteryConnector,
-                    )}
-                    testid="team-pit-batteries"
-                  />
-                  <DetailRow
-                    icon={<Ruler />}
-                    label="Dimensions"
-                    value={
-                      dimensionsStr(pit.robotLengthIn, pit.robotWidthIn, pit.robotHeightIn) +
-                      (pit.trenchCapable ? ' · trench ✓' : '')
-                    }
-                    testid="team-pit-dimensions"
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ChipRow icon={<Inbox />} label="Intake locations" items={pit.questionnaire?.intakeLocations.map(pitValue)} testid="team-pit-intake" />
+                  <ChipRow icon={<Sparkles />} label="Capabilities" items={pit.questionnaire?.totalCapabilities.map((item) => item === 'other' ? pitValue(pit.questionnaire?.capabilityOther) : pitValue(item))} testid="team-pit-capabilities" />
                 </div>
+                {pit.questionnaire?.concerns ? (
+                  <div className="flex flex-col gap-1.5" data-testid="team-pit-concerns">
+                    <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Concerns</span>
+                    <p className="rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed text-foreground">{pit.questionnaire.concerns}</p>
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex min-w-0 flex-col gap-4">
-                <div className="flex flex-col gap-2" data-testid="team-pit-auto">
+                <div className="flex flex-col gap-3" data-testid="team-pit-auto">
                   <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
                     <Route />
-                    Preferred auto
+                    Autonomous routines
                   </span>
-                  {pit.preferredAutoStartPosition || pit.preferredAutoPath ? (
-                    <div className="w-full max-w-[520px] overflow-hidden rounded-lg border border-border bg-muted/20 p-2">
-                      <FieldDiagram
-                        mode="view"
-                        startPosition={pit.preferredAutoStartPosition}
-                        path={pit.preferredAutoPath}
-                        data-testid="team-pit-auto-field"
-                      />
-                    </div>
+                  {pit.autoRoutines?.length ? (
+                    pit.autoRoutines.map((routine, index) => (
+                      <div key={routine.id} className="flex flex-col gap-2 rounded-lg border border-border bg-muted/20 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-foreground">Auto {index + 1}</span>
+                          <span className="font-mono text-sm text-energy">{routine.estimatedPoints == null ? 'Points —' : `${routine.estimatedPoints} pts`}</span>
+                        </div>
+                        <p className="text-sm text-foreground">{routine.description || 'No description recorded.'}</p>
+                        <p className="text-xs text-muted-foreground">Under trench: {routine.underTrench == null ? '—' : routine.underTrench ? 'Yes' : 'No'} · Over bump: {routine.overBump == null ? '—' : routine.overBump ? 'Yes' : 'No'}</p>
+                        {routine.startPosition || routine.path ? (
+                          <div className="w-full overflow-hidden rounded-lg border border-border bg-background/30 p-2">
+                            <FieldDiagram mode="view" startPosition={routine.startPosition} path={routine.path} data-testid={`team-pit-auto-field-${index}`} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
                   ) : (
                     <span className="text-sm text-muted-foreground" data-testid="team-pit-auto-empty">
-                      No preferred auto recorded.
+                      No autos recorded.
                     </span>
                   )}
                 </div>
-                {pit.notes ? (
+                {pit.questionnaire?.additionalComments || pit.notes ? (
                   <div className="flex flex-col gap-1.5" data-testid="team-pit-notes">
                     <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
                       <StickyNote />
                       Notes
                     </span>
                     <p className="rounded-lg border border-border bg-muted/20 p-3 text-sm leading-relaxed text-foreground">
-                      {pit.notes}
+                      {pit.questionnaire?.additionalComments || pit.notes}
                     </p>
                   </div>
                 ) : null}

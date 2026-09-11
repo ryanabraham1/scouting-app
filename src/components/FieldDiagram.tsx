@@ -49,6 +49,12 @@ export interface FieldDiagramProps {
    * overflowing vertically. Implied when `rotate` is set.
    */
   fillHeight?: boolean;
+  /**
+   * Restrict the visible horizontal slice of the field while keeping stored
+   * points in canonical full-field [0,1] coordinates. Useful when a workflow
+   * only needs one alliance side and the neutral zone.
+   */
+  visibleXRange?: readonly [number, number];
   ['data-testid']?: string;
 }
 
@@ -112,9 +118,13 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
     heatmap,
     rotate,
     fillHeight,
+    visibleXRange,
   } = props;
   const rotated = !!rotate;
   const heightFit = rotated || !!fillHeight;
+  const visibleMinX = clamp01(visibleXRange?.[0] ?? 0);
+  const visibleMaxX = clamp01(visibleXRange?.[1] ?? 1);
+  const visibleSpan = Math.max(0.01, visibleMaxX - visibleMinX);
   const testid = props['data-testid'] ?? 'field-diagram';
   // Unique-per-instance id for the heatmap blur filter so multiple diagrams on a
   // page don't share/clobber one another's <filter>.
@@ -137,7 +147,8 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
     // The inverse of that rotation maps a pointer at container-normalized (u,v)
     // back to canonical field space: x = v, y = 1 - u. (Rendering applies the
     // same rotation, so a placed marker always lands under the finger.)
-    const fx = rotated ? v : u;
+    const visibleX = visibleMinX + (rotated ? v : u) * visibleSpan;
+    const fx = visibleX;
     const fy = rotated ? 1 - u : v;
     return { x: clamp01(mx(fx)), y: clamp01(fy) };
   };
@@ -215,10 +226,24 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
         // fillHeight (no rotate): normal aspect, still sized by height.
         // default: full width, height driven by the image (unchanged).
         ...(rotated
-          ? { height: '100%', aspectRatio: '1584 / 3902', containerType: 'size' as const }
+          ? {
+              height: '100%',
+              maxWidth: '100%',
+              aspectRatio: `1584 / ${3902 * visibleSpan}`,
+              containerType: 'size' as const,
+            }
           : heightFit
-            ? { height: '100%', aspectRatio: '3902 / 1584' }
-            : { width: '100%', minWidth: 44, minHeight: 44 }),
+            ? {
+                height: '100%',
+                maxWidth: '100%',
+                aspectRatio: `${3902 * visibleSpan} / 1584`,
+              }
+            : {
+                width: '100%',
+                minWidth: 44,
+                minHeight: 44,
+                aspectRatio: `${3902 * visibleSpan} / 1584`,
+              }),
       }}
     >
      <div
@@ -232,9 +257,22 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
               height: '100cqw',
               transform: 'translate(-50%, -50%) rotate(90deg)',
             }
-          : { position: 'relative', width: '100%', height: heightFit ? '100%' : undefined }
+          : { position: 'relative', width: '100%', height: '100%' }
       }
      >
+      <div
+        data-testid={`${testid}-viewport`}
+        style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}
+      >
+       <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: `${(-visibleMinX / visibleSpan) * 100}%`,
+          width: `${100 / visibleSpan}%`,
+        }}
+       >
       <img
         src="/assets/field/field.png"
         alt="field"
@@ -366,6 +404,8 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
           }}
         />
       )}
+       </div>
+      </div>
      </div>
     </div>
   );

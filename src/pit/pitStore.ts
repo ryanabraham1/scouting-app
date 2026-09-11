@@ -13,6 +13,37 @@ export interface PitPhoto {
 
 export type PitPhotoBlobs = Record<string, Blob>;
 
+export interface PitAutoRoutine {
+  id: string;
+  description: string;
+  startPosition: { x: number; y: number } | null;
+  path: { x: number; y: number }[] | null;
+  underTrench: boolean | null;
+  overBump: boolean | null;
+  estimatedPoints: number | null;
+}
+
+export interface PitQuestionnaire {
+  robotWeightLb: number | null;
+  swerveType: string;
+  shooterType: string;
+  shooterTypeOther: string;
+  shooterFixedAngle: string;
+  intakeLocations: string[];
+  estimatedBallsPerSecond: number | null;
+  estimatedBallCapacity: number | null;
+  shootingRange: string;
+  shootingRangeOther: string;
+  generalAccuracy: string;
+  shootOnMoveAccuracy: string;
+  intakeWhileShooting: string;
+  totalCapabilities: string[];
+  capabilityOther: string;
+  rebuildChanges: string;
+  concerns: string;
+  additionalComments: string;
+}
+
 export interface PitReport {
   eventKey: string;
   teamNumber: number;
@@ -39,6 +70,10 @@ export interface PitReport {
   robotWidthIn: number | null;
   robotHeightIn: number | null;
   trenchCapable: boolean;
+  /** 2026 pit questionnaire. Optional only so pre-migration local drafts remain readable. */
+  questionnaire?: PitQuestionnaire;
+  /** Multiple independently described and drawn autonomous routines. */
+  autoRoutines?: PitAutoRoutine[];
   photos: PitPhoto[];
   /** First photo path retained for compatibility with pre-multi-photo consumers. */
   photoPath: string | null;
@@ -145,6 +180,10 @@ export const PIT_NUMERIC_LIMITS = {
   batteryCount: 99,
   chargerCount: 99,
   dimensionIn: 120,
+  robotWeightLb: 300,
+  ballsPerSecond: 100,
+  ballCapacity: 500,
+  autoPoints: 500,
   teamNumber: 99_999,
 } as const;
 
@@ -178,6 +217,20 @@ function persistedReportProblem(value: unknown): string | null {
       (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > max)
     ) return `Stored ${field} is outside its safe range.`;
   }
+  const questionnaire = recordValue(data.questionnaire);
+  if (questionnaire) {
+    for (const [field, max] of [
+      ['robotWeightLb', PIT_NUMERIC_LIMITS.robotWeightLb],
+      ['estimatedBallsPerSecond', PIT_NUMERIC_LIMITS.ballsPerSecond],
+      ['estimatedBallCapacity', PIT_NUMERIC_LIMITS.ballCapacity],
+    ] as const) {
+      const number = questionnaire[field];
+      if (
+        number != null &&
+        (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > max)
+      ) return `Stored ${field} is outside its safe range.`;
+    }
+  }
   const pointIsFinite = (point: unknown): boolean => {
     const p = recordValue(point);
     return Boolean(
@@ -195,6 +248,31 @@ function persistedReportProblem(value: unknown): string | null {
     data.preferredAutoPath != null &&
     (!Array.isArray(data.preferredAutoPath) || !data.preferredAutoPath.every(pointIsFinite))
   ) return 'Stored preferred-auto path is malformed.';
+  if (data.autoRoutines != null) {
+    if (!Array.isArray(data.autoRoutines) || data.autoRoutines.length > 12) {
+      return 'Stored auto routines are malformed.';
+    }
+    for (const routine of data.autoRoutines) {
+      const auto = recordValue(routine);
+      if (!auto || typeof auto.id !== 'string' || typeof auto.description !== 'string') {
+        return 'Stored auto routine is malformed.';
+      }
+      if (auto.startPosition != null && !pointIsFinite(auto.startPosition)) {
+        return 'Stored auto routine start is malformed.';
+      }
+      if (
+        auto.path != null &&
+        (!Array.isArray(auto.path) || !auto.path.every(pointIsFinite) || auto.path.length > 256)
+      ) return 'Stored auto routine path is malformed.';
+      if (
+        auto.estimatedPoints != null &&
+        (typeof auto.estimatedPoints !== 'number' ||
+          !Number.isFinite(auto.estimatedPoints) ||
+          auto.estimatedPoints < 0 ||
+          auto.estimatedPoints > PIT_NUMERIC_LIMITS.autoPoints)
+      ) return 'Stored auto routine points are outside their safe range.';
+    }
+  }
   return null;
 }
 
@@ -404,6 +482,8 @@ export function pitUpsertPayload(
   rowRevision: number,
   baseRevision?: number | null,
 ): Record<string, unknown> {
+  const questionnaire = report.questionnaire;
+  const firstAuto = report.autoRoutines?.[0];
   const photos = normalizePhotos(report).photos.map((photo, index) => ({
     id: photo.id,
     path: photo.path,
@@ -418,8 +498,8 @@ export function pitUpsertPayload(
     drivetrain: report.drivetrain,
     mechanisms: report.mechanisms,
     capabilities: {
-      items: report.capabilities,
-      intakeSources: report.intakeSources,
+      items: questionnaire?.totalCapabilities ?? report.capabilities,
+      intakeSources: questionnaire?.intakeLocations ?? report.intakeSources,
     },
     vision_system: report.visionSystem,
     batteries: {
@@ -428,8 +508,8 @@ export function pitUpsertPayload(
       brand: report.batteryBrand,
       connector: report.batteryConnector,
     },
-    preferred_auto_start_position: report.preferredAutoStartPosition,
-    preferred_auto_path: report.preferredAutoPath,
+    preferred_auto_start_position: firstAuto?.startPosition ?? report.preferredAutoStartPosition,
+    preferred_auto_path: firstAuto?.path ?? report.preferredAutoPath,
     match_strategy: report.matchStrategy,
     robot_dimensions: {
       lengthIn: report.robotLengthIn,
@@ -437,9 +517,11 @@ export function pitUpsertPayload(
       heightIn: report.robotHeightIn,
       trenchCapable: report.trenchCapable,
     },
+    pit_questionnaire: report.questionnaire ?? {},
+    auto_routines: report.autoRoutines ?? [],
     photos,
     photo_path: photos[0]?.path ?? null,
-    notes: report.notes,
+    notes: questionnaire?.additionalComments ?? report.notes,
     author_scout_id: report.scoutId,
     row_revision: rowRevision,
   };
@@ -488,6 +570,107 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+export function emptyPitQuestionnaire(): PitQuestionnaire {
+  return {
+    robotWeightLb: null,
+    swerveType: '',
+    shooterType: '',
+    shooterTypeOther: '',
+    shooterFixedAngle: '',
+    intakeLocations: [],
+    estimatedBallsPerSecond: null,
+    estimatedBallCapacity: null,
+    shootingRange: '',
+    shootingRangeOther: '',
+    generalAccuracy: '',
+    shootOnMoveAccuracy: '',
+    intakeWhileShooting: '',
+    totalCapabilities: [],
+    capabilityOther: '',
+    rebuildChanges: '',
+    concerns: '',
+    additionalComments: '',
+  };
+}
+
+export function normalizePitQuestionnaire(raw: unknown): PitQuestionnaire {
+  const value = objectValue(raw);
+  const base = emptyPitQuestionnaire();
+  const text = (key: keyof PitQuestionnaire): string =>
+    typeof value[key] === 'string' ? value[key] as string : '';
+  const strings = (key: keyof PitQuestionnaire): string[] =>
+    Array.isArray(value[key])
+      ? (value[key] as unknown[]).filter((item): item is string => typeof item === 'string')
+      : [];
+  return {
+    ...base,
+    robotWeightLb: finiteOrNull(value.robotWeightLb),
+    swerveType: text('swerveType'),
+    shooterType: text('shooterType'),
+    shooterTypeOther: text('shooterTypeOther'),
+    shooterFixedAngle: text('shooterFixedAngle'),
+    intakeLocations: strings('intakeLocations'),
+    estimatedBallsPerSecond: finiteOrNull(value.estimatedBallsPerSecond),
+    estimatedBallCapacity: finiteOrNull(value.estimatedBallCapacity),
+    shootingRange: text('shootingRange'),
+    shootingRangeOther: text('shootingRangeOther'),
+    generalAccuracy: text('generalAccuracy'),
+    shootOnMoveAccuracy: text('shootOnMoveAccuracy'),
+    intakeWhileShooting: text('intakeWhileShooting'),
+    totalCapabilities: strings('totalCapabilities'),
+    capabilityOther: text('capabilityOther'),
+    rebuildChanges: text('rebuildChanges'),
+    concerns: text('concerns'),
+    additionalComments: text('additionalComments'),
+  };
+}
+
+export function normalizeAutoRoutines(
+  raw: unknown,
+  legacyStart?: unknown,
+  legacyPath?: unknown,
+): PitAutoRoutine[] {
+  const point = (candidate: unknown): { x: number; y: number } | null => {
+    const value = objectValue(candidate);
+    return typeof value.x === 'number' && Number.isFinite(value.x) &&
+      typeof value.y === 'number' && Number.isFinite(value.y)
+      ? { x: value.x, y: value.y }
+      : null;
+  };
+  const path = (candidate: unknown): { x: number; y: number }[] | null => {
+    if (!Array.isArray(candidate)) return null;
+    const points = candidate.map(point).filter((item): item is { x: number; y: number } => Boolean(item));
+    return points.length > 0 ? points : null;
+  };
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.slice(0, 12).map((candidate, index) => {
+      const value = objectValue(candidate);
+      return {
+        id: typeof value.id === 'string' && value.id ? value.id : `auto-${index + 1}`,
+        description: typeof value.description === 'string' ? value.description : '',
+        startPosition: point(value.startPosition),
+        path: path(value.path),
+        underTrench: typeof value.underTrench === 'boolean' ? value.underTrench : null,
+        overBump: typeof value.overBump === 'boolean' ? value.overBump : null,
+        estimatedPoints: finiteOrNull(value.estimatedPoints),
+      };
+    });
+  }
+  const startPosition = point(legacyStart);
+  const legacyAutoPath = path(legacyPath);
+  return startPosition || legacyAutoPath
+    ? [{
+        id: 'legacy-auto',
+        description: '',
+        startPosition,
+        path: legacyAutoPath,
+        underTrench: null,
+        overBump: null,
+        estimatedPoints: null,
+      }]
+    : [];
 }
 
 export function pitReportFromRow(
@@ -553,6 +736,12 @@ export function pitReportFromRow(
       robotWidthIn: finiteOrNull(dimensions.widthIn),
       robotHeightIn: finiteOrNull(dimensions.heightIn),
       trenchCapable: dimensions.trenchCapable === true,
+      questionnaire: normalizePitQuestionnaire(row.pit_questionnaire),
+      autoRoutines: normalizeAutoRoutines(
+        row.auto_routines,
+        row.preferred_auto_start_position,
+        row.preferred_auto_path,
+      ),
       photos,
       photoPath: photos[0]?.path ?? null,
       notes: typeof row.notes === 'string' ? row.notes : '',

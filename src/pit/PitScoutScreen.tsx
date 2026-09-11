@@ -2,23 +2,24 @@ import * as React from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  Cog,
   Camera,
   Images,
   CheckCircle2,
-  ClipboardList,
   Eraser,
   Eye,
-  BatteryCharging,
   Gauge,
   ListChecks,
   Loader2,
+  Maximize2,
+  Plus,
   Ruler,
   Route,
+  Sparkles,
   StickyNote,
   Swords,
   Trash2,
   Wrench,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,10 @@ import { cn } from '@/lib/utils';
 import type { TeamPit } from '@/dash/useTeamPit';
 import {
   PIT_NUMERIC_LIMITS,
+  emptyPitQuestionnaire,
+  normalizeAutoRoutines,
+  normalizePitQuestionnaire,
+  type PitAutoRoutine,
   type PitReport,
   type PitPhoto,
   type PitPhotoBlobs,
@@ -43,20 +48,18 @@ import {
 
 export type PitObservedAction =
   | 'drivetrain'
-  | 'mechanism'
-  | 'mechanism_other'
   | 'capability'
   | 'intake_source'
   | 'strategy'
   | 'vision'
-  | 'battery_count'
-  | 'charger_count'
-  | 'battery_brand'
-  | 'battery_connector'
+  | 'shooter'
+  | 'accuracy'
+  | 'status'
   | 'length'
   | 'width'
   | 'height'
   | 'trench'
+  | 'auto_open'
   | 'auto_pick_mode'
   | 'auto_start'
   | 'auto_draw_mode'
@@ -94,51 +97,65 @@ function previewFor(file: Blob): string {
   }
 }
 
-const DRIVETRAINS = ['', 'swerve', 'tank', 'mecanum', 'west_coast', 'other'];
-const CAPABILITY_OPTIONS = ['auto', 'climb_l1', 'climb_l2', 'climb_l3', 'defense'];
-const INTAKE_OPTIONS = ['neutral', 'depot', 'human_feed'];
-// Common REBUILT mechanisms; scouts can add anything else via the "Other" field.
-const MECHANISM_OPTIONS = [
-  'intake',
-  'shooter',
-  'elevator',
-  'arm',
-  'climber',
-  'hopper',
-  'indexer',
+const DRIVETRAINS = ['', 'swerve', 'tank'];
+const SHOOTER_TYPES = [
   'turret',
+  'double_turret',
+  'single_lane',
+  'double_lane',
+  'full_width_drum',
+  'other',
 ];
-const STRATEGY_OPTIONS = ['score', 'feed', 'defend', 'cycle', 'support'];
+const INTAKE_OPTIONS = ['ground', 'outpost_only'];
+const SHOOTING_RANGES = [
+  'against_hub',
+  'near_hub',
+  'alliance_zone_except_trench',
+  'anywhere_including_trench',
+  'other',
+];
+const ACCURACY_OPTIONS = ['not_capable', '0_25', '25_50', '50_75', '75_90', '90_100'];
+const ROBOT_CAPABILITIES = [
+  'shooting',
+  'feed_neutral',
+  'score_outpost',
+  'feed_under_trench',
+  'feed_opponent_to_neutral',
+  'feed_opponent_to_alliance',
+  'defense',
+  'other',
+];
 
 // Human-friendly labels for the option keys (values written to the DB are
 // unchanged — only the displayed text is prettified).
 const OPTION_LABELS: Record<string, string> = {
   swerve: 'Swerve',
   tank: 'Tank',
-  mecanum: 'Mecanum',
-  west_coast: 'West Coast',
   other: 'Other',
-  auto: 'Autonomous',
-  climb_l1: 'Climb L1',
-  climb_l2: 'Climb L2',
-  climb_l3: 'Climb L3',
-  defense: 'Defense',
-  neutral: 'Neutral',
-  depot: 'Depot',
-  human_feed: 'Human feed',
-  intake: 'Intake',
-  shooter: 'Shooter',
-  elevator: 'Elevator',
-  arm: 'Arm',
-  climber: 'Climber',
-  hopper: 'Hopper',
-  indexer: 'Indexer',
   turret: 'Turret',
-  score: 'Score',
-  feed: 'Feed',
-  defend: 'Defend',
-  cycle: 'Cycle',
-  support: 'Support',
+  double_turret: 'Double turret',
+  single_lane: 'Single lane shooter',
+  double_lane: 'Double lane shooter',
+  full_width_drum: 'Full-width shooter (drum)',
+  ground: 'Ground',
+  outpost_only: 'Outpost only',
+  against_hub: 'Against the hub',
+  near_hub: 'In the proximity of the hub',
+  alliance_zone_except_trench: 'Anywhere in the alliance zone (except under trench)',
+  anywhere_including_trench: 'Anywhere, including under trench',
+  not_capable: 'Not capable',
+  '0_25': '0–25%',
+  '25_50': '25–50%',
+  '50_75': '50–75%',
+  '75_90': '75–90%',
+  '90_100': '90–100%',
+  shooting: 'Shooting',
+  feed_neutral: 'Feeding from neutral',
+  score_outpost: 'Scoring in outpost',
+  feed_under_trench: 'Feeding by pushing balls under trench',
+  feed_opponent_to_neutral: 'Feeding from opponent alliance zone into neutral zone',
+  feed_opponent_to_alliance: 'Feeding from opponent alliance zone into alliance zone',
+  defense: 'Defense',
 };
 
 function labelFor(key: string): string {
@@ -165,6 +182,16 @@ function emptyReport(p: PitScoutScreenProps): PitReport {
     robotWidthIn: null,
     robotHeightIn: null,
     trenchCapable: false,
+    questionnaire: emptyPitQuestionnaire(),
+    autoRoutines: [{
+      id: 'auto-1',
+      description: '',
+      startPosition: null,
+      path: null,
+      underTrench: null,
+      overBump: null,
+      estimatedPoints: null,
+    }],
     photos: [],
     photoPath: null,
     notes: '',
@@ -173,6 +200,8 @@ function emptyReport(p: PitScoutScreenProps): PitReport {
 }
 
 function reportFromCachedPit(pit: TeamPit, props: PitScoutScreenProps): PitReport {
+  const questionnaire = normalizePitQuestionnaire(pit.questionnaire);
+  if (!questionnaire.additionalComments && pit.notes) questionnaire.additionalComments = pit.notes;
   return {
     eventKey: props.eventKey,
     teamNumber: props.teamNumber,
@@ -192,6 +221,12 @@ function reportFromCachedPit(pit: TeamPit, props: PitScoutScreenProps): PitRepor
     robotWidthIn: pit.robotWidthIn,
     robotHeightIn: pit.robotHeightIn,
     trenchCapable: pit.trenchCapable,
+    questionnaire,
+    autoRoutines: normalizeAutoRoutines(
+      pit.autoRoutines,
+      pit.preferredAutoStartPosition,
+      pit.preferredAutoPath,
+    ),
     photos: pit.photos ?? [],
     photoPath: pit.photoPath,
     notes: pit.notes ?? '',
@@ -215,14 +250,15 @@ export function parsePitNumber(v: string, max: number): number | null {
 // of one long form: a progress bar + one focused section at a time + Back/Next.
 // Steps map to logical groups of fields; the ordered titles/icons drive the header.
 const STEPS: { title: string; icon: LucideIcon }[] = [
-  { title: 'Drivetrain & mechanisms', icon: Gauge },
-  { title: 'Capabilities & intake', icon: ListChecks },
-  { title: 'Strategy, vision & power', icon: Swords },
-  { title: 'Robot dimensions', icon: Ruler },
-  { title: 'Preferred auto', icon: Route },
-  { title: 'Notes & photos', icon: StickyNote },
+  { title: 'Robot basics', icon: Gauge },
+  { title: 'Shooter', icon: Swords },
+  { title: 'Capabilities', icon: ListChecks },
+  { title: 'Autonomous routines', icon: Route },
+  { title: 'Robot status', icon: Eye },
+  { title: 'Photos & comments', icon: StickyNote },
 ];
 const LAST_STEP = STEPS.length - 1;
+const PIT_AUTO_VISIBLE_X_RANGE = [0.25, 1] as const;
 
 // One step's panel. ALL panels stay mounted (so field state survives navigation
 // and every control is reachable for tests); the inactive ones are display:none.
@@ -279,6 +315,8 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
   >('ready');
   // Preferred-auto editor: tap to place the start, or draw the path.
   const [autoMode, setAutoMode] = React.useState<'pick-start' | 'draw-path'>('pick-start');
+  const [activeAutoId, setActiveAutoId] = React.useState<string | null>(null);
+  const [autoDrawingOpen, setAutoDrawingOpen] = React.useState(false);
   // Wizard step (mirrors the Review flow). All panels stay mounted; only the
   // active one is visible.
   const [step, setStep] = React.useState(0);
@@ -293,6 +331,25 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
   const draftStorageRef = React.useRef(draftStorage);
   const reportRef = React.useRef(report);
   const baseRevisionRef = React.useRef(baseRevision);
+  const autoDrawingTriggerRef = React.useRef<HTMLButtonElement>(null);
+  const autoDrawingCloseRef = React.useRef<HTMLButtonElement>(null);
+
+  React.useEffect(() => {
+    if (!autoDrawingOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusFrame = window.requestAnimationFrame(() => autoDrawingCloseRef.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setAutoDrawingOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+      autoDrawingTriggerRef.current?.focus();
+    };
+  }, [autoDrawingOpen]);
 
   React.useEffect(() => {
     reportRef.current = report;
@@ -421,15 +478,26 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
         return;
       }
 
+      const questionnaire = normalizePitQuestionnaire(loadedReport.questionnaire);
+      if (!questionnaire.additionalComments && loadedReport.notes) {
+        questionnaire.additionalComments = loadedReport.notes;
+      }
       const next = {
         ...emptyReport(props),
         ...loadedReport,
+        questionnaire,
+        autoRoutines: normalizeAutoRoutines(
+          loadedReport.autoRoutines,
+          loadedReport.preferredAutoStartPosition,
+          loadedReport.preferredAutoPath,
+        ),
         photos: loadedReport.photos ?? [],
         scoutId: props.scoutId,
         eventKey: props.eventKey,
         teamNumber: props.teamNumber,
       };
       setReport(next);
+      setActiveAutoId(next.autoRoutines[0]?.id ?? null);
       setBaseRevision(loadedRevision);
       setIsEditing(loadedRevision != null || Boolean(local));
       photoBlobsRef.current = blobs;
@@ -458,6 +526,10 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
 
   function recoverConflictCopy(): void {
     if (!conflictCopy) return;
+    const questionnaire = normalizePitQuestionnaire(conflictCopy.report.questionnaire);
+    if (!questionnaire.additionalComments && conflictCopy.report.notes) {
+      questionnaire.additionalComments = conflictCopy.report.notes;
+    }
     const recovered = {
       ...emptyReport(props),
       ...conflictCopy.report,
@@ -465,6 +537,12 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
       teamNumber: props.teamNumber,
       scoutId: props.scoutId,
       photos: conflictCopy.report.photos ?? [],
+      questionnaire,
+      autoRoutines: normalizeAutoRoutines(
+        conflictCopy.report.autoRoutines,
+        conflictCopy.report.preferredAutoStartPosition,
+        conflictCopy.report.preferredAutoPath,
+      ),
     };
     setReport(recovered);
     photoBlobsRef.current = conflictCopy.photoBlobs;
@@ -492,6 +570,44 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
     setReport(next);
     queueDraftSave(next, { ...photoBlobsRef.current });
     setStatus('idle');
+  }
+
+  function updateQuestionnaire(patch: Partial<ReturnType<typeof emptyPitQuestionnaire>>): void {
+    update({
+      questionnaire: {
+        ...normalizePitQuestionnaire(reportRef.current.questionnaire),
+        ...patch,
+      },
+    });
+  }
+
+  function addAuto(): void {
+    const routine: PitAutoRoutine = {
+      id: crypto.randomUUID(),
+      description: '',
+      startPosition: null,
+      path: null,
+      underTrench: null,
+      overBump: null,
+      estimatedPoints: null,
+    };
+    update({ autoRoutines: [...(reportRef.current.autoRoutines ?? []), routine] });
+    setActiveAutoId(routine.id);
+    setAutoMode('pick-start');
+  }
+
+  function updateAuto(id: string, patch: Partial<PitAutoRoutine>): void {
+    update({
+      autoRoutines: (reportRef.current.autoRoutines ?? []).map((routine) =>
+        routine.id === id ? { ...routine, ...patch } : routine
+      ),
+    });
+  }
+
+  function removeAuto(id: string): void {
+    const routines = (reportRef.current.autoRoutines ?? []).filter((routine) => routine.id !== id);
+    update({ autoRoutines: routines });
+    setActiveAutoId(routines[0]?.id ?? null);
   }
 
   function toggle(list: string[], value: string): string[] {
@@ -608,17 +724,6 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
   // green = scored end-game), defense (brand cyan = defense convention) and
   // autonomous (energy orange); intake sourcing (fuel) is energy orange.
   type ChipTone = 'success' | 'brand' | 'energy';
-  const CHIP_TONE: Record<string, ChipTone> = {
-    auto: 'energy',
-    climb_l1: 'success',
-    climb_l2: 'success',
-    climb_l3: 'success',
-    defense: 'brand',
-    neutral: 'energy',
-    depot: 'energy',
-    human_feed: 'energy',
-  };
-
   const TONE_CHIP: Record<ChipTone, string> = {
     success: 'border-success/40 bg-success/15 text-success',
     brand: 'border-brand/40 bg-brand/15 text-brand',
@@ -646,6 +751,9 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
   const StepIcon = STEPS[step].icon;
   const photoControlsDisabled =
     processingPhotos || report.photos.length >= MAX_PIT_PHOTOS;
+  const questionnaire = normalizePitQuestionnaire(report.questionnaire);
+  const autoRoutines = report.autoRoutines ?? [];
+  const activeAuto = autoRoutines.find((routine) => routine.id === activeAutoId) ?? autoRoutines[0];
 
   if (hydration !== 'ready') {
     return (
@@ -745,9 +853,9 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
         </label>
       </div>
 
-      {/* Step 1 — Drivetrain & mechanisms */}
+      {/* Step 1 — Robot basics */}
       <Panel active={step === 0}>
-        <div className="grid gap-4 lg:grid-cols-[minmax(15rem,0.7fr)_minmax(0,1.3fr)]">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Group icon={Gauge} title="Drivetrain">
             <Label htmlFor="pit-drivetrain" className="sr-only">
               Drivetrain
@@ -768,430 +876,618 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                 </option>
               ))}
             </select>
+            {report.drivetrain === 'swerve' ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pit-swerve-type" className="text-sm text-muted-foreground">
+                  What type of swerve?
+                </Label>
+                <Input
+                  id="pit-swerve-type"
+                  data-testid="pit-swerve-type"
+                  className="h-14 text-base"
+                  placeholder="e.g. SDS MK4i L2"
+                  value={questionnaire.swerveType}
+                  onChange={(event) => updateQuestionnaire({ swerveType: event.target.value })}
+                />
+              </div>
+            ) : null}
           </Group>
 
-          <Group icon={Cog} title="Mechanisms">
-            <div data-testid="pit-mechanisms" className="grid gap-2 sm:grid-cols-2">
-              {MECHANISM_OPTIONS.map((m) => {
-                const active = report.mechanisms.includes(m);
-                return (
-                  <label key={m} className={optionChip(active, 'brand')}>
-                    <input
-                      type="checkbox"
-                      className={cn('size-6', TONE_ACCENT.brand)}
-                      checked={active}
-                      onChange={() => {
-                        update({ mechanisms: toggle(report.mechanisms, m) });
-                        props.onAction?.('mechanism');
-                      }}
-                    />
-                    {labelFor(m)}
-                  </label>
-                );
-              })}
+          <Group icon={Ruler} title="Robot size">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {([
+                ['length', 'Length (inches)', report.robotLengthIn],
+                ['width', 'Width (inches)', report.robotWidthIn],
+                ['height', 'Height (inches)', report.robotHeightIn],
+              ] as const).map(([field, label, value]) => (
+                <div key={field} className="flex flex-col gap-1.5">
+                  <Label htmlFor={`pit-${field}`} className="text-sm text-muted-foreground">{label}</Label>
+                  <Input
+                    id={`pit-${field}`}
+                    data-testid={`pit-${field}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={PIT_NUMERIC_LIMITS.dimensionIn}
+                    className="h-14 text-base"
+                    value={value ?? ''}
+                    onChange={(event) => {
+                      const number = parsePitNumber(event.target.value, PIT_NUMERIC_LIMITS.dimensionIn);
+                      update({ [`robot${field[0].toUpperCase()}${field.slice(1)}In`]: number });
+                      props.onAction?.(field);
+                    }}
+                  />
+                </div>
+              ))}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pit-weight" className="text-sm text-muted-foreground">
+                  Weight without battery and bumpers (lb)
+                </Label>
+                <Input
+                  id="pit-weight"
+                  data-testid="pit-weight"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={PIT_NUMERIC_LIMITS.robotWeightLb}
+                  className="h-14 text-base"
+                  value={questionnaire.robotWeightLb ?? ''}
+                  onChange={(event) => updateQuestionnaire({
+                    robotWeightLb: parsePitNumber(event.target.value, PIT_NUMERIC_LIMITS.robotWeightLb),
+                  })}
+                />
+              </div>
             </div>
-            <Label htmlFor="pit-mechanisms-other" className="mt-1 text-sm text-muted-foreground">
-              Other (comma separated)
-            </Label>
-            <Input
-              id="pit-mechanisms-other"
-              data-testid="pit-mechanisms-other"
-              className="h-14 text-base"
-              placeholder="e.g. passive deflector, vision turret"
-              value={report.mechanisms.filter((m) => !MECHANISM_OPTIONS.includes(m)).join(', ')}
-              onChange={(e) => {
-                // Preserve the checklist selections; replace only the free-text extras.
-                const known = report.mechanisms.filter((m) => MECHANISM_OPTIONS.includes(m));
-                const custom = e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                update({ mechanisms: [...known, ...custom] });
-                props.onAction?.('mechanism_other');
-              }}
-            />
+            <label className={optionChip(report.trenchCapable, 'success')}>
+              <input
+                type="checkbox"
+                data-testid="pit-trench"
+                className={cn('size-6', TONE_ACCENT.success)}
+                checked={report.trenchCapable}
+                onChange={() => {
+                  update({ trenchCapable: !report.trenchCapable });
+                  props.onAction?.('trench');
+                }}
+              />
+              Can they go under the trench?
+            </label>
           </Group>
         </div>
       </Panel>
 
-      {/* Step 2 — Capabilities & intake */}
+      {/* Step 2 — Shooter */}
       <Panel active={step === 1}>
         <div className="grid gap-4 md:grid-cols-2">
-          <Group icon={ListChecks} title="Capabilities" tone="text-success">
-            <div data-testid="pit-capabilities" className="flex flex-col gap-2">
-              {CAPABILITY_OPTIONS.map((c) => {
-                const active = report.capabilities.includes(c);
-                const tone = CHIP_TONE[c] ?? 'brand';
+          <Group icon={Swords} title="Shooter type">
+            <div data-testid="pit-shooter-type" className="flex flex-col gap-2">
+              {SHOOTER_TYPES.map((option) => {
+                const active = questionnaire.shooterType === option;
                 return (
-                  <label key={c} className={optionChip(active, tone)}>
+                  <label key={option} className={optionChip(active, 'brand')}>
                     <input
-                      type="checkbox"
-                      className={cn('size-6', TONE_ACCENT[tone])}
+                      type="radio"
+                      name="pit-shooter-type"
+                      className={cn('size-6', TONE_ACCENT.brand)}
                       checked={active}
                       onChange={() => {
-                        update({ capabilities: toggle(report.capabilities, c) });
-                        props.onAction?.('capability');
+                        updateQuestionnaire({ shooterType: option });
+                        props.onAction?.('shooter');
                       }}
                     />
-                    {labelFor(c)}
+                    {labelFor(option)}
                   </label>
                 );
               })}
             </div>
+            {questionnaire.shooterType === 'other' ? (
+              <Input
+                data-testid="pit-shooter-other"
+                className="h-14 text-base"
+                aria-label="Other shooter type"
+                placeholder="Describe the shooter"
+                value={questionnaire.shooterTypeOther}
+                onChange={(event) => updateQuestionnaire({ shooterTypeOther: event.target.value })}
+              />
+            ) : null}
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">Is the shooter at a fixed angle?</p>
+              <label className={optionChip(questionnaire.shooterFixedAngle === 'no', 'brand')}>
+                <input
+                  type="radio"
+                  name="pit-fixed-angle"
+                  checked={questionnaire.shooterFixedAngle === 'no'}
+                  onChange={() => updateQuestionnaire({ shooterFixedAngle: 'no' })}
+                  className={cn('size-6', TONE_ACCENT.brand)}
+                />
+                No
+              </label>
+              <Input
+                data-testid="pit-fixed-angle"
+                className="h-14 text-base"
+                aria-label="Fixed shooter angle"
+                placeholder="Yes — enter approximate angle"
+                value={questionnaire.shooterFixedAngle === 'no' ? '' : questionnaire.shooterFixedAngle}
+                onChange={(event) => updateQuestionnaire({ shooterFixedAngle: event.target.value })}
+              />
+            </div>
           </Group>
 
-          <Group icon={ClipboardList} title="Intake sources" tone="text-energy">
-            <div data-testid="pit-intake-sources" className="flex flex-col gap-2">
-              {INTAKE_OPTIONS.map((s) => {
-                const active = report.intakeSources.includes(s);
-                const tone = CHIP_TONE[s] ?? 'energy';
+          <Group icon={Sparkles} title="Scoring performance" tone="text-energy">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pit-balls-per-second">Estimated balls per second</Label>
+                <Input
+                  id="pit-balls-per-second"
+                  data-testid="pit-balls-per-second"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={PIT_NUMERIC_LIMITS.ballsPerSecond}
+                  className="h-14 text-base"
+                  value={questionnaire.estimatedBallsPerSecond ?? ''}
+                  onChange={(event) => updateQuestionnaire({
+                    estimatedBallsPerSecond: parsePitNumber(event.target.value, PIT_NUMERIC_LIMITS.ballsPerSecond),
+                  })}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pit-ball-capacity">Estimated ball storage capacity</Label>
+                <Input
+                  id="pit-ball-capacity"
+                  data-testid="pit-ball-capacity"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={PIT_NUMERIC_LIMITS.ballCapacity}
+                  className="h-14 text-base"
+                  value={questionnaire.estimatedBallCapacity ?? ''}
+                  onChange={(event) => updateQuestionnaire({
+                    estimatedBallCapacity: parsePitNumber(event.target.value, PIT_NUMERIC_LIMITS.ballCapacity),
+                  })}
+                />
+              </div>
+            </div>
+            <p className="text-sm font-medium">Where can they shoot from?</p>
+            <div data-testid="pit-shooting-range" className="flex flex-col gap-2">
+              {SHOOTING_RANGES.map((option) => {
+                const active = questionnaire.shootingRange === option;
                 return (
-                  <label key={s} className={optionChip(active, tone)}>
+                  <label key={option} className={optionChip(active, 'energy')}>
                     <input
-                      type="checkbox"
-                      className={cn('size-6', TONE_ACCENT[tone])}
+                      type="radio"
+                      name="pit-shooting-range"
+                      className={cn('size-6', TONE_ACCENT.energy)}
                       checked={active}
                       onChange={() => {
-                        update({ intakeSources: toggle(report.intakeSources, s) });
+                        updateQuestionnaire({ shootingRange: option });
+                        props.onAction?.('shooter');
+                      }}
+                    />
+                    {labelFor(option)}
+                  </label>
+                );
+              })}
+            </div>
+            {questionnaire.shootingRange === 'other' ? (
+              <Input
+                data-testid="pit-shooting-range-other"
+                className="h-14 text-base"
+                aria-label="Other shooting range"
+                placeholder="Describe where they can shoot from"
+                value={questionnaire.shootingRangeOther}
+                onChange={(event) => updateQuestionnaire({ shootingRangeOther: event.target.value })}
+              />
+            ) : null}
+          </Group>
+        </div>
+      </Panel>
+
+      {/* Step 3 — General capabilities */}
+      <Panel active={step === 2}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Group icon={ListChecks} title="Intake & total capabilities" tone="text-success">
+            <p className="text-sm font-medium">Where can they intake from?</p>
+            <div data-testid="pit-intake-sources" className="flex flex-col gap-2">
+              {INTAKE_OPTIONS.map((option) => {
+                const active = questionnaire.intakeLocations.includes(option);
+                return (
+                  <label key={option} className={optionChip(active, 'energy')}>
+                    <input
+                      type="checkbox"
+                      className={cn('size-6', TONE_ACCENT.energy)}
+                      checked={active}
+                      onChange={() => {
+                        updateQuestionnaire({
+                          intakeLocations: toggle(questionnaire.intakeLocations, option),
+                        });
                         props.onAction?.('intake_source');
                       }}
                     />
-                    {labelFor(s)}
+                    {labelFor(option)}
                   </label>
                 );
               })}
+            </div>
+            <p className="mt-2 text-sm font-medium">Total robot capabilities</p>
+            <div data-testid="pit-capabilities" className="flex flex-col gap-2">
+              {ROBOT_CAPABILITIES.map((option) => {
+                const active = questionnaire.totalCapabilities.includes(option);
+                return (
+                  <label key={option} className={optionChip(active, option === 'defense' ? 'brand' : 'success')}>
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      className={cn('size-6', TONE_ACCENT[option === 'defense' ? 'brand' : 'success'])}
+                      onChange={() => {
+                        updateQuestionnaire({
+                          totalCapabilities: toggle(questionnaire.totalCapabilities, option),
+                        });
+                        props.onAction?.('capability');
+                      }}
+                    />
+                    {labelFor(option)}
+                  </label>
+                );
+              })}
+            </div>
+            {questionnaire.totalCapabilities.includes('other') ? (
+              <Input
+                data-testid="pit-capability-other"
+                className="h-14 text-base"
+                aria-label="Other robot capability"
+                placeholder="Describe other capability"
+                value={questionnaire.capabilityOther}
+                onChange={(event) => updateQuestionnaire({ capabilityOther: event.target.value })}
+              />
+            ) : null}
+          </Group>
+
+          <Group icon={Gauge} title="Accuracy & cleanup">
+            {([
+              ['generalAccuracy', 'General scoring accuracy'],
+              ['shootOnMoveAccuracy', 'Scoring accuracy while shooting on the move'],
+            ] as const).map(([field, title]) => (
+              <div key={field} className="flex flex-col gap-2">
+                <p className="text-sm font-medium">{title}</p>
+                {ACCURACY_OPTIONS.map((option) => (
+                  <label key={option} className={optionChip(questionnaire[field] === option, 'brand')}>
+                    <input
+                      type="radio"
+                      name={`pit-${field}`}
+                      checked={questionnaire[field] === option}
+                      className={cn('size-6', TONE_ACCENT.brand)}
+                      onChange={() => {
+                        updateQuestionnaire({ [field]: option });
+                        props.onAction?.('accuracy');
+                      }}
+                    />
+                    {option === 'not_capable'
+                      ? field === 'generalAccuracy'
+                        ? 'Not capable of scoring :('
+                        : 'Not capable of SOTM'
+                      : labelFor(option)}
+                  </label>
+                ))}
+              </div>
+            ))}
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">Can they intake while shooting? (Cleanup)</p>
+              {[
+                ['yes', 'Yes'],
+                ['no', 'No'],
+                ['not_tested', 'Not sure / not tested'],
+              ].map(([value, label]) => (
+                <label key={value} className={optionChip(questionnaire.intakeWhileShooting === value, 'energy')}>
+                  <input
+                    type="radio"
+                    name="pit-intake-while-shooting"
+                    checked={questionnaire.intakeWhileShooting === value}
+                    className={cn('size-6', TONE_ACCENT.energy)}
+                    onChange={() => updateQuestionnaire({ intakeWhileShooting: value })}
+                  />
+                  {label}
+                </label>
+              ))}
             </div>
           </Group>
         </div>
       </Panel>
 
-      {/* Step 3 — Strategy, vision & power */}
-      <Panel active={step === 2}>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Group icon={Swords} title="Preferred match strategy">
-            <div
-              data-testid="pit-match-strategy"
-              className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"
+      {/* Step 4 — Autonomous routines */}
+      <Panel active={step === 3}>
+        <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {autoRoutines.map((routine, index) => (
+              <Button
+                key={routine.id}
+                type="button"
+                variant={activeAuto?.id === routine.id ? 'brand' : 'outline'}
+                size="sm"
+                onClick={() => setActiveAutoId(routine.id)}
+              >
+                Auto {index + 1}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              data-testid="pit-auto-add"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={autoRoutines.length >= 12}
+              onClick={addAuto}
             >
-              {STRATEGY_OPTIONS.map((s) => {
-                const active = report.matchStrategy.includes(s);
-                return (
-                  <label key={s} className={optionChip(active, 'brand')}>
-                    <input
-                      type="checkbox"
-                      className={cn('size-6', TONE_ACCENT.brand)}
-                      checked={active}
-                      onChange={() => {
-                        update({ matchStrategy: toggle(report.matchStrategy, s) });
-                        props.onAction?.('strategy');
-                      }}
-                    />
-                    {labelFor(s)}
-                  </label>
-                );
-              })}
+              <Plus className="size-4" /> Add auto
+            </Button>
+          </div>
+          {!activeAuto ? (
+            <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              Add an auto to draw and describe each routine separately.
             </div>
-          </Group>
+          ) : (
+            <div className="flex flex-col gap-4" data-testid="pit-auto-editor">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">
+                  Auto {autoRoutines.findIndex((routine) => routine.id === activeAuto.id) + 1}
+                </h2>
+                <Button type="button" variant="ghost" size="sm" onClick={() => removeAuto(activeAuto.id)}>
+                  <Trash2 className="mr-1.5 size-4" /> Remove
+                </Button>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pit-auto-description">Describe this auto and its consistency</Label>
+                <textarea
+                  id="pit-auto-description"
+                  data-testid="pit-auto-description"
+                  className="min-h-28 w-full rounded-xl border border-input bg-transparent p-3 text-base"
+                  placeholder="Starting position, balls scored, pickups, route, and consistency…"
+                  value={activeAuto.description}
+                  onChange={(event) => updateAuto(activeAuto.id, { description: event.target.value })}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pit-auto-points">Estimated points scored in auto</Label>
+                  <Input
+                    id="pit-auto-points"
+                    data-testid="pit-auto-points"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={PIT_NUMERIC_LIMITS.autoPoints}
+                    className="h-14 text-base"
+                    value={activeAuto.estimatedPoints ?? ''}
+                    onChange={(event) => updateAuto(activeAuto.id, {
+                      estimatedPoints: parsePitNumber(event.target.value, PIT_NUMERIC_LIMITS.autoPoints),
+                    })}
+                  />
+                </div>
+                {([
+                  ['underTrench', 'Go under trench?'],
+                  ['overBump', 'Go over bump?'],
+                ] as const).map(([field, label]) => (
+                  <div key={field} className="flex flex-col gap-1.5">
+                    <Label htmlFor={`pit-auto-${field}`}>{label}</Label>
+                    <select
+                      id={`pit-auto-${field}`}
+                      data-testid={`pit-auto-${field}`}
+                      className="h-14 rounded-xl border border-input bg-transparent px-3 text-base text-foreground"
+                      value={activeAuto[field] == null ? '' : activeAuto[field] ? 'yes' : 'no'}
+                      onChange={(event) => updateAuto(activeAuto.id, {
+                        [field]: event.target.value === '' ? null : event.target.value === 'yes',
+                      })}
+                    >
+                      <option value="">Select…</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Auto path</Label>
+                <button
+                  ref={autoDrawingTriggerRef}
+                  type="button"
+                  data-testid="pit-auto-open-drawing"
+                  aria-haspopup="dialog"
+                  className="group relative w-full overflow-hidden rounded-2xl border border-border bg-muted/30 text-left shadow-sm transition hover:border-brand/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  onClick={() => {
+                    setAutoDrawingOpen(true);
+                    props.onAction?.('auto_open');
+                  }}
+                >
+                  <div className="pointer-events-none">
+                    <FieldDiagram
+                      mode="view"
+                      visibleXRange={PIT_AUTO_VISIBLE_X_RANGE}
+                      startPosition={activeAuto.startPosition}
+                      path={activeAuto.path}
+                      data-testid="pit-auto-field-preview"
+                    />
+                  </div>
+                  <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-background/90 px-3 py-2 text-sm font-semibold backdrop-blur-sm">
+                    <span>{activeAuto.path?.length ? 'Edit this auto path' : 'Draw this auto path'}</span>
+                    <span className="flex items-center gap-1.5 text-brand">
+                      Open full screen <Maximize2 className="size-4" />
+                    </span>
+                  </span>
+                </button>
+                <p className="text-xs text-muted-foreground">
+                  Shows the blue side through the neutral zone. The red scoring end is intentionally cropped out.
+                </p>
+              </div>
 
-          <Group icon={Eye} title="Vision & batteries">
-            <Label
-              htmlFor="pit-vision"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground"
-            >
-              Vision system
-            </Label>
+              {autoDrawingOpen ? (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="pit-auto-drawing-title"
+                  data-testid="pit-auto-drawing-dialog"
+                  className="fixed inset-0 z-[100] flex flex-col bg-background px-safe py-safe"
+                >
+                  <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-3 sm:px-5">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand">
+                        Auto {autoRoutines.findIndex((routine) => routine.id === activeAuto.id) + 1}
+                      </p>
+                      <h2 id="pit-auto-drawing-title" className="truncate text-lg font-semibold">
+                        Draw the blue-side route
+                      </h2>
+                    </div>
+                    <Button
+                      ref={autoDrawingCloseRef}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1.5"
+                      onClick={() => setAutoDrawingOpen(false)}
+                    >
+                      Done <X className="size-4" />
+                    </Button>
+                  </header>
+
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-3 py-2 sm:px-5">
+                    <Button
+                      type="button"
+                      data-testid="pit-auto-pick-start"
+                      variant={autoMode === 'pick-start' ? 'brand' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setAutoMode('pick-start');
+                        props.onAction?.('auto_pick_mode');
+                      }}
+                    >
+                      Set start
+                    </Button>
+                    <Button
+                      type="button"
+                      data-testid="pit-auto-draw-path"
+                      variant={autoMode === 'draw-path' ? 'brand' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setAutoMode('draw-path');
+                        props.onAction?.('auto_draw_mode');
+                      }}
+                    >
+                      Draw path
+                    </Button>
+                    <Button
+                      type="button"
+                      data-testid="pit-auto-clear"
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto gap-1.5"
+                      onClick={() => {
+                        updateAuto(activeAuto.id, { startPosition: null, path: null });
+                        props.onAction?.('auto_clear');
+                      }}
+                    >
+                      <Eraser className="size-4" /> Clear
+                    </Button>
+                    <p className="basis-full text-xs text-muted-foreground">
+                      {autoMode === 'pick-start'
+                        ? 'Tap where the robot starts.'
+                        : 'Drag from the start through the full route.'}
+                    </p>
+                  </div>
+
+                  <div
+                    data-testid="pit-auto-field-shell"
+                    className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2 sm:p-4"
+                  >
+                    <FieldDiagram
+                      mode={autoMode}
+                      rotate={isPhonePortrait}
+                      fillHeight
+                      visibleXRange={PIT_AUTO_VISIBLE_X_RANGE}
+                      startPosition={activeAuto.startPosition}
+                      path={activeAuto.path}
+                      onStartChange={(point: FieldPoint) => {
+                        updateAuto(activeAuto.id, { startPosition: point });
+                        props.onAction?.('auto_start');
+                      }}
+                      onPathChange={(points: FieldPoint[]) => {
+                        updateAuto(activeAuto.id, { path: points });
+                        props.onAction?.('auto_path');
+                      }}
+                      data-testid="pit-auto-field"
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </Panel>
+
+      {/* Step 5 — Robot status */}
+      <Panel active={step === 4}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Group icon={Eye} title="Vision & rebuild status">
+            <Label htmlFor="pit-vision">What vision are they running, if any?</Label>
             <Input
               id="pit-vision"
               data-testid="pit-vision"
               className="h-14 text-base"
               placeholder="e.g. Limelight 3, PhotonVision, none"
               value={report.visionSystem}
-              onChange={(e) => {
-                update({ visionSystem: e.target.value });
+              onChange={(event) => {
+                update({ visionSystem: event.target.value });
                 props.onAction?.('vision');
               }}
             />
-            <p className="eyebrow mt-2 flex items-center gap-1.5">
-              <BatteryCharging className="size-4 text-energy" />
-              Batteries &amp; chargers
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pit-battery-count" className="text-sm text-muted-foreground">
-                  Batteries
-                </Label>
-                <Input
-                  id="pit-battery-count"
-                  data-testid="pit-battery-count"
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={PIT_NUMERIC_LIMITS.batteryCount}
-                  className="h-14 text-base"
-                  placeholder="0"
-                  value={report.batteryCount ?? ''}
-                  onChange={(e) => {
-                    update({
-                      batteryCount: parsePitNumber(
-                        e.target.value,
-                        PIT_NUMERIC_LIMITS.batteryCount,
-                      ),
-                    });
-                    props.onAction?.('battery_count');
-                  }}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pit-charger-count" className="text-sm text-muted-foreground">
-                  Chargers
-                </Label>
-                <Input
-                  id="pit-charger-count"
-                  data-testid="pit-charger-count"
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={PIT_NUMERIC_LIMITS.chargerCount}
-                  className="h-14 text-base"
-                  placeholder="0"
-                  value={report.chargerCount ?? ''}
-                  onChange={(e) => {
-                    update({
-                      chargerCount: parsePitNumber(
-                        e.target.value,
-                        PIT_NUMERIC_LIMITS.chargerCount,
-                      ),
-                    });
-                    props.onAction?.('charger_count');
-                  }}
-                />
-              </div>
-              {report.batteryCount !== 0 && <>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pit-battery-brand" className="text-sm text-muted-foreground">
-                  Brand
-                </Label>
-                <Input
-                  id="pit-battery-brand"
-                  data-testid="pit-battery-brand"
-                  className="h-14 text-base"
-                  placeholder="e.g. MK, Duracell"
-                  value={report.batteryBrand}
-                  onChange={(e) => {
-                    update({ batteryBrand: e.target.value });
-                    props.onAction?.('battery_brand');
-                  }}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pit-battery-connector" className="text-sm text-muted-foreground">
-                  Connector type
-                </Label>
-                <Input
-                  id="pit-battery-connector"
-                  data-testid="pit-battery-connector"
-                  className="h-14 text-base"
-                  placeholder="e.g. Anderson SB50"
-                  value={report.batteryConnector}
-                  onChange={(e) => {
-                    update({ batteryConnector: e.target.value });
-                    props.onAction?.('battery_connector');
-                  }}
-                />
-              </div>
-              </>}
-            </div>
+            <p className="mt-2 text-sm font-medium">Did they rebuild since their last competition?</p>
+            <label className={optionChip(questionnaire.rebuildChanges === 'no', 'brand')}>
+              <input
+                type="radio"
+                name="pit-rebuild"
+                checked={questionnaire.rebuildChanges === 'no'}
+                className={cn('size-6', TONE_ACCENT.brand)}
+                onChange={() => updateQuestionnaire({ rebuildChanges: 'no' })}
+              />
+              No
+            </label>
+            <Input
+              data-testid="pit-rebuild-changes"
+              className="h-14 text-base"
+              aria-label="Rebuild changes"
+              placeholder="Yes — describe the changes"
+              value={questionnaire.rebuildChanges === 'no' ? '' : questionnaire.rebuildChanges}
+              onChange={(event) => {
+                updateQuestionnaire({ rebuildChanges: event.target.value });
+                props.onAction?.('status');
+              }}
+            />
+          </Group>
+          <Group icon={Wrench} title="Concerns">
+            <Label htmlFor="pit-concerns">Concerns (bent parts, reliability, etc.; enter N/A if none)</Label>
+            <textarea
+              id="pit-concerns"
+              data-testid="pit-concerns"
+              className="min-h-44 w-full rounded-xl border border-input bg-transparent p-3 text-base"
+              value={questionnaire.concerns}
+              onChange={(event) => updateQuestionnaire({ concerns: event.target.value })}
+            />
           </Group>
         </div>
       </Panel>
 
-      {/* Step 4 — Robot dimensions */}
-      <Panel active={step === 3}>
-        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pit-length" className="text-sm text-muted-foreground">
-                Length (inches)
-              </Label>
-              <Input
-                id="pit-length"
-                data-testid="pit-length"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={PIT_NUMERIC_LIMITS.dimensionIn}
-                className="h-14 text-base"
-                placeholder="0"
-                value={report.robotLengthIn ?? ''}
-                onChange={(e) => {
-                  update({
-                    robotLengthIn: parsePitNumber(
-                      e.target.value,
-                      PIT_NUMERIC_LIMITS.dimensionIn,
-                    ),
-                  });
-                  props.onAction?.('length');
-                }}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pit-width" className="text-sm text-muted-foreground">
-                Width (inches)
-              </Label>
-              <Input
-                id="pit-width"
-                data-testid="pit-width"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={PIT_NUMERIC_LIMITS.dimensionIn}
-                className="h-14 text-base"
-                placeholder="0"
-                value={report.robotWidthIn ?? ''}
-                onChange={(e) => {
-                  update({
-                    robotWidthIn: parsePitNumber(
-                      e.target.value,
-                      PIT_NUMERIC_LIMITS.dimensionIn,
-                    ),
-                  });
-                  props.onAction?.('width');
-                }}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pit-height" className="text-sm text-muted-foreground">
-                Height (inches)
-              </Label>
-              <Input
-                id="pit-height"
-                data-testid="pit-height"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={PIT_NUMERIC_LIMITS.dimensionIn}
-                className="h-14 text-base"
-                placeholder="0"
-                value={report.robotHeightIn ?? ''}
-                onChange={(e) => {
-                  update({
-                    robotHeightIn: parsePitNumber(
-                      e.target.value,
-                      PIT_NUMERIC_LIMITS.dimensionIn,
-                    ),
-                  });
-                  props.onAction?.('height');
-                }}
-              />
-            </div>
-          </div>
-          <label className={cn(optionChip(report.trenchCapable, 'success'), 'mt-1')}>
-            <input
-              type="checkbox"
-              data-testid="pit-trench"
-              className={cn('size-6', TONE_ACCENT.success)}
-              checked={report.trenchCapable}
-              onChange={() => {
-                update({ trenchCapable: !report.trenchCapable });
-                props.onAction?.('trench');
-              }}
-            />
-            Can fit through the trench
-          </label>
-        </div>
-      </Panel>
-
-      {/* Step 5 — Preferred auto */}
-      <Panel active={step === 4}>
-        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              data-testid="pit-auto-pick-start"
-              variant={autoMode === 'pick-start' ? 'brand' : 'outline'}
-              size="sm"
-              onClick={() => {
-                setAutoMode('pick-start');
-                props.onAction?.('auto_pick_mode');
-              }}
-            >
-              Set start
-            </Button>
-            <Button
-              type="button"
-              data-testid="pit-auto-draw-path"
-              variant={autoMode === 'draw-path' ? 'brand' : 'outline'}
-              size="sm"
-              onClick={() => {
-                setAutoMode('draw-path');
-                props.onAction?.('auto_draw_mode');
-              }}
-            >
-              Draw path
-            </Button>
-            <Button
-              type="button"
-              data-testid="pit-auto-clear"
-              variant="outline"
-              size="sm"
-              className="ml-auto gap-1.5"
-              onClick={() => {
-                update({ preferredAutoStartPosition: null, preferredAutoPath: null });
-                props.onAction?.('auto_clear');
-              }}
-            >
-              <Eraser className="size-4" /> Clear
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {autoMode === 'pick-start'
-              ? isPhonePortrait
-                ? 'Turn phone sideways · tap the start spot'
-                : 'Tap the field where it starts'
-              : 'Drag across the field to draw the path'}
-          </p>
-          <div
-            data-testid="pit-auto-field-shell"
-            className={
-              isPhonePortrait
-                ? 'mx-auto flex h-[55dvh] min-h-80 w-full justify-center'
-                : 'mx-auto w-full max-w-4xl'
-            }
-          >
-            <FieldDiagram
-              mode={autoMode}
-              rotate={isPhonePortrait}
-              fillHeight={isPhonePortrait}
-              startPosition={report.preferredAutoStartPosition}
-              path={report.preferredAutoPath}
-              onStartChange={(p: FieldPoint) => {
-                update({ preferredAutoStartPosition: p });
-                props.onAction?.('auto_start');
-              }}
-              onPathChange={(pts: FieldPoint[]) => {
-                update({ preferredAutoPath: pts });
-                props.onAction?.('auto_path');
-              }}
-              data-testid="pit-auto-field"
-            />
-          </div>
-        </div>
-      </Panel>
-
-      {/* Step 6 — Notes & photo */}
+      {/* Step 6 — Photos & comments */}
       <Panel active={step === 5}>
         <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
           <Label htmlFor="pit-notes" className="text-sm text-muted-foreground">
-            Notes
+            Additional comments (optional)
           </Label>
           <textarea
             id="pit-notes"
             data-testid="pit-notes"
+            aria-label="Notes / additional comments"
             className="min-h-28 w-full rounded-xl border border-input bg-transparent p-3 text-base"
-            placeholder="Anything notable about this robot…"
-            value={report.notes}
+            placeholder="Anything else the strategy team should know…"
+            value={questionnaire.additionalComments}
             onChange={(e) => {
-              update({ notes: e.target.value });
+              updateQuestionnaire({ additionalComments: e.target.value });
               props.onAction?.('notes');
             }}
           />

@@ -207,7 +207,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
     await waitFor(() =>
       expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
         'data-target-selector',
-        '[data-testid="pit-mechanisms"]',
+        '[data-testid="pit-length"]',
       ),
     );
     expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
@@ -215,13 +215,19 @@ describe('ScoutTutorial module hub and production coaching', () => {
     await waitFor(() =>
       expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
         'data-target-selector',
+        '[data-testid="pit-shooter-type"]',
+      ),
+    );
+    fireEvent.click(screen.getByTestId('pit-next'));
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
         '[data-testid="pit-capabilities"]',
       ),
     );
-    skipOptional();
     expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
-      '[data-testid="pit-intake-sources"]',
+      '[data-testid="pit-capabilities"]',
     );
     expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
   });
@@ -272,6 +278,48 @@ describe('ScoutTutorial module hub and production coaching', () => {
     expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
       '[data-testid="review-notes"]',
+    );
+  });
+
+  it('opens and coaches the full-screen pit Auto drawing flow in order', async () => {
+    renderTutorial();
+    await startPit();
+
+    fireEvent.change(screen.getByTestId('pit-drivetrain'), {
+      target: { value: 'swerve' },
+    });
+    fireEvent.click(screen.getByTestId('pit-next'));
+    fireEvent.click(screen.getByTestId('pit-next'));
+    fireEvent.click(screen.getByTestId('pit-next'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="pit-auto-open-drawing"]',
+      ),
+    );
+    fireEvent.click(screen.getByTestId('pit-auto-open-drawing'));
+    expect(screen.getByTestId('pit-auto-drawing-dialog')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="pit-auto-field"]',
+      ),
+    );
+
+    fireEvent.pointerUp(screen.getByTestId('pit-auto-field'), { pointerId: 1 });
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="pit-auto-draw-path"]',
+      ),
+    );
+    fireEvent.click(screen.getByTestId('pit-auto-draw-path'));
+    await waitFor(() =>
+      expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
+        'data-target-selector',
+        '[data-testid="pit-auto-field"]',
+      ),
     );
   });
 
@@ -382,13 +430,13 @@ describe('ScoutTutorial module hub and production coaching', () => {
     const pitTargets = PIT_COACH_STEPS.map((step) => step.target);
     for (const target of [
       '[data-testid="pit-drivetrain"]',
-      '[data-testid="pit-mechanisms"]',
-      '[data-testid="pit-capabilities"]',
-      '[data-testid="pit-intake-sources"]',
-      '[data-testid="pit-match-strategy"]',
       '[data-testid="pit-length"]',
+      '[data-testid="pit-shooter-type"]',
+      '[data-testid="pit-capabilities"]',
+      '[data-testid="pit-auto-open-drawing"]',
       '[data-testid="pit-auto-field"]',
       '[data-testid="pit-auto-draw-path"]',
+      '[data-testid="pit-vision"]',
       '[data-testid="pit-notes"]',
       '[data-testid="pit-camera-control"]',
       '[data-testid="pit-submit"]',

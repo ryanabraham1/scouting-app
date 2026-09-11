@@ -84,6 +84,35 @@ function pit(overrides: Partial<TeamPit>): TeamPit {
     robotWidthIn: 28,
     robotHeightIn: 24,
     trenchCapable: true,
+    questionnaire: {
+      robotWeightLb: 112,
+      swerveType: 'SDS MK4i',
+      shooterType: 'turret',
+      shooterTypeOther: '',
+      shooterFixedAngle: 'no',
+      intakeLocations: ['ground'],
+      estimatedBallsPerSecond: 4,
+      estimatedBallCapacity: 18,
+      shootingRange: 'anywhere_including_trench',
+      shootingRangeOther: '',
+      generalAccuracy: '75_90',
+      shootOnMoveAccuracy: '50_75',
+      intakeWhileShooting: 'yes',
+      totalCapabilities: ['shooting', 'defense'],
+      capabilityOther: '',
+      rebuildChanges: 'new intake',
+      concerns: 'N/A',
+      additionalComments: 'Fast and reliable robot',
+    },
+    autoRoutines: [{
+      id: 'auto-1',
+      description: 'Scores preload and collects from neutral',
+      startPosition: { x: 0.2, y: 0.5 },
+      path: [{ x: 0.2, y: 0.5 }, { x: 0.6, y: 0.5 }],
+      underTrench: false,
+      overBump: true,
+      estimatedPoints: 24,
+    }],
     photoPath: null,
     notes: 'Fast and reliable robot',
     authorScoutId: 's1',
@@ -427,9 +456,10 @@ describe('TeamView', () => {
     const panel = getByTestId('team-pit');
     const scope = within(panel);
     expect(scope.getByText('Swerve')).toBeTruthy();
-    expect(scope.getByText('Elevator')).toBeTruthy();
-    expect(scope.getByText('L3 climb')).toBeTruthy();
-    expect(scope.getByText('Corral')).toBeTruthy();
+    expect(scope.getByText('Turret')).toBeTruthy();
+    expect(scope.getByText('Ground')).toBeTruthy();
+    expect(scope.getByText('24 pts')).toBeTruthy();
+    expect(scope.getByText(/Scores preload/)).toBeTruthy();
     expect(scope.getByText(/Fast and reliable/)).toBeTruthy();
     expect(scope.getByTestId('team-pit-author').textContent).toContain('Scouted by Ada');
   });

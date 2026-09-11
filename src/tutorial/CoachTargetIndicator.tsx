@@ -196,7 +196,7 @@ export function CoachTargetIndicator({
       data-testid="tutorial-target-indicator"
       data-target-selector={targetSelector}
       aria-hidden="true"
-      className="pointer-events-none fixed z-50 rounded-xl border-2 border-warning ring-2 ring-black/70 motion-safe:transition-[top,left,width,height] motion-safe:duration-150 motion-reduce:transition-none"
+      className="pointer-events-none fixed z-[130] rounded-xl border-2 border-warning ring-2 ring-black/70 motion-safe:transition-[top,left,width,height] motion-safe:duration-150 motion-reduce:transition-none"
       style={{
         top,
         left,

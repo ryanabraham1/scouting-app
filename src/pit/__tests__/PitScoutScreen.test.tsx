@@ -9,11 +9,16 @@ const fetchPitReportForEdit = vi.fn().mockResolvedValue(null);
 const enqueuePitReport = vi.fn().mockResolvedValue(undefined);
 const signedPitPhotoUrl = vi.fn().mockResolvedValue('https://signed/a.jpg');
 
-vi.mock('../pitStore', () => ({
+vi.mock('../pitStore', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../pitStore')>(),
   PIT_NUMERIC_LIMITS: {
     batteryCount: 99,
     chargerCount: 99,
     dimensionIn: 120,
+    robotWeightLb: 300,
+    ballsPerSecond: 100,
+    ballCapacity: 500,
+    autoPoints: 500,
     teamNumber: 99_999,
   },
   savePitDraft: (...a: unknown[]) => savePitDraft(...a),
@@ -309,6 +314,38 @@ describe('PitScoutScreen', () => {
     expect(enqueuePitReport.mock.calls.at(-1)?.[2]).toBe(250);
   });
 
+  it('stores a separate description, drawing metadata, and estimated points for every auto', async () => {
+    await renderReady();
+    fireEvent.change(screen.getByRole('combobox', { name: /pit section/i }), {
+      target: { value: '3' },
+    });
+
+    fireEvent.change(screen.getByTestId('pit-auto-description'), {
+      target: { value: 'Bump-side preload and neutral pickup' },
+    });
+    fireEvent.change(screen.getByTestId('pit-auto-points'), { target: { value: '24' } });
+    fireEvent.change(screen.getByTestId('pit-auto-underTrench'), { target: { value: 'no' } });
+    fireEvent.change(screen.getByTestId('pit-auto-overBump'), { target: { value: 'yes' } });
+
+    fireEvent.click(screen.getByTestId('pit-auto-add'));
+    fireEvent.change(screen.getByTestId('pit-auto-description'), {
+      target: { value: 'Trench-side two pickup' },
+    });
+    fireEvent.change(screen.getByTestId('pit-auto-points'), { target: { value: '31' } });
+    fireEvent.click(screen.getByTestId('pit-submit'));
+
+    await waitFor(() => expect(enqueuePitReport).toHaveBeenCalled());
+    expect(enqueuePitReport.mock.calls.at(-1)?.[0].autoRoutines).toMatchObject([
+      {
+        description: 'Bump-side preload and neutral pickup',
+        estimatedPoints: 24,
+        underTrench: false,
+        overBump: true,
+      },
+      { description: 'Trench-side two pickup', estimatedPoints: 31 },
+    ]);
+  });
+
   it('adds multiple library photos in one selection', async () => {
     await renderReady();
     fireEvent.change(screen.getByTestId('pit-photo'), {
@@ -325,7 +362,7 @@ describe('PitScoutScreen', () => {
     expect(enqueuePitReport.mock.calls.at(-1)?.[0].photos).toHaveLength(2);
   });
 
-  it('uses the wide field editor on desktop-sized viewports', async () => {
+  it('opens the cropped field editor full screen and keeps it upright on desktop', async () => {
     vi.stubGlobal(
       'matchMedia',
       vi.fn((query: string) => ({
@@ -343,7 +380,17 @@ describe('PitScoutScreen', () => {
     await renderReady();
 
     expect(screen.getByTestId('pit-screen')).toHaveClass('max-w-5xl');
-    expect(screen.getByTestId('pit-auto-field-shell')).toHaveClass('max-w-4xl');
+    fireEvent.change(screen.getByRole('combobox', { name: /pit section/i }), {
+      target: { value: '3' },
+    });
+    expect(screen.getByTestId('pit-auto-field-preview-viewport')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('pit-auto-open-drawing'));
+    expect(screen.getByTestId('pit-auto-drawing-dialog')).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByTestId('pit-auto-field')).toHaveAttribute('data-rotated', 'false');
+    expect(screen.getByTestId('pit-auto-field-viewport')).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('pit-auto-drawing-dialog')).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe('');
   });
 });

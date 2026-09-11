@@ -271,6 +271,7 @@ function PracticeFrame(props: {
   onNextControl?: () => void;
 }): JSX.Element {
   const coachTarget = useCoachTarget(props.target, props.stepKey);
+  const coachingFullscreenField = props.target === '[data-testid="pit-auto-field"]';
   const mobileCoachRef = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     if (mobileCoachRef.current) mobileCoachRef.current.open = false;
@@ -284,9 +285,11 @@ function PracticeFrame(props: {
       <div
         data-testid="tutorial-mobile-coach"
         data-placement={coachTarget.mobilePlacement}
-        className={`pointer-events-none fixed inset-x-2 z-40 mx-auto flex w-[calc(100vw-1rem)] max-w-md items-start gap-2 lg:hidden ${
+        className={`pointer-events-none fixed inset-x-2 z-[140] mx-auto flex w-[calc(100vw-1rem)] max-w-md items-start gap-2 lg:hidden ${
           coachTarget.mobilePlacement === 'top'
-            ? 'top-[calc(env(safe-area-inset-top)+8px)]'
+            ? coachingFullscreenField
+              ? 'top-[calc(env(safe-area-inset-top)+84px)]'
+              : 'top-[calc(env(safe-area-inset-top)+8px)]'
             : 'bottom-[calc(env(safe-area-inset-bottom)+8px)]'
         }`}
       >
@@ -322,7 +325,7 @@ function PracticeFrame(props: {
         <div className="min-w-0 overflow-x-clip">{props.content}</div>
         <aside
           data-testid="tutorial-desktop-coach"
-          className="sticky top-0 hidden max-h-dvh overflow-y-auto border-l border-warning/35 bg-card p-5 lg:block"
+          className="sticky top-0 z-[140] hidden max-h-dvh overflow-y-auto border-l border-warning/35 bg-card p-5 lg:block"
           aria-label="Tutorial coach"
         >
           <CoachCard
