@@ -27,7 +27,6 @@ import AutoHistoryPicker from '@/capture/AutoHistoryPicker';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
 const CLIMB_LEVELS: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3];
-const INTAKE = ['neutral', 'depot', 'human_feed'];
 
 const STEPS = [
   { title: 'Climb & robot performance', icon: Mountain },
@@ -41,11 +40,6 @@ export type ReviewObservedAction =
   | 'climb_level'
   | 'climb_attempted'
   | 'climb_success'
-  | 'intake_sources'
-  | 'defense_seconds'
-  | 'defended_seconds'
-  | 'pins'
-  | 'max_capacity'
   | 'defense_rating'
   | 'driver_rating'
   | 'agility_rating'
@@ -135,12 +129,6 @@ export function ReviewScreen(props: {
     autoClimbLevel1: s.autoClimbLevel1,
     noShow: s.noShow,
   });
-
-  const toggleIntake = (src: string) => {
-    const has = s.intakeSources.includes(src);
-    s.setIntakeSources(has ? s.intakeSources.filter((x) => x !== src) : [...s.intakeSources, src]);
-    props.onAction?.('intake_sources');
-  };
 
   const foulReasons = s.foulReasons ?? [];
   const toggleFoulReason = (key: string) => {
@@ -299,108 +287,9 @@ export function ReviewScreen(props: {
           </section>
         )}
 
-        {/* Step 2: Defense & handling */}
+        {/* Step 2: Ratings */}
         {step === 0 && (
           <section className="flex flex-col gap-3 landscape:gap-4">
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
-              <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
-                <Shield className="size-5 text-brand" />
-                Intake sources
-              </p>
-              <div
-                data-testid="review-intake-sources"
-                className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3"
-              >
-                {INTAKE.map((src) => {
-                  const selected = s.intakeSources.includes(src);
-                  // Tone by meaning, echoing the live slider colors: human_feed →
-                  // brand (cyan, the FEED slider) / depot · neutral → energy (orange,
-                  // the FUEL slider).
-                  const activeTone =
-                    src === 'human_feed'
-                      ? 'bg-brand text-brand-foreground hover:bg-brand'
-                      : 'bg-energy text-energy-foreground hover:bg-energy';
-                  return (
-                    <Button
-                      key={src}
-                      size="big"
-                      variant={selected ? 'default' : 'outline'}
-                      aria-pressed={selected}
-                      className={`truncate px-2 text-sm landscape:px-6 ${selected ? activeTone : ''}`}
-                      onClick={() => toggleIntake(src)}
-                    >
-                      {selected && <Check />}
-                      <span className="truncate">{src}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-            <details className="rounded-2xl border border-border p-3"><summary className="min-h-12 cursor-pointer content-center font-semibold">Correct timers & add handling details</summary>
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
-              <div className="grid grid-cols-2 gap-2 landscape:grid-cols-4 landscape:gap-3">
-                <label className={labelClass}>
-                  Defense played (s)
-                  <NumberField
-                    data-testid="review-defense-seconds"
-                    min={0}
-                    step={0.1}
-                    value={s.defenseDurationMs / 1000}
-                    format={(v) => v.toFixed(1)}
-                    onCommit={(v) => {
-                      s.setDefenseDurationMs(Math.round(v * 1000));
-                      props.onAction?.('defense_seconds');
-                    }}
-                    className={`${inputClass} ${s.defenseDurationMs > 0 ? 'border-warning bg-warning/10 text-foreground' : ''}`}
-                  />
-                </label>
-                <label className={labelClass}>
-                  Being defended (s)
-                  <NumberField
-                    data-testid="review-defended-seconds"
-                    min={0}
-                    step={0.1}
-                    value={s.defendedDurationMs / 1000}
-                    format={(v) => v.toFixed(1)}
-                    onCommit={(v) => {
-                      s.setDefendedDurationMs(Math.round(v * 1000));
-                      props.onAction?.('defended_seconds');
-                    }}
-                    className={`${inputClass} ${s.defendedDurationMs > 0 ? 'border-destructive bg-destructive/10 text-foreground' : ''}`}
-                  />
-                </label>
-                <label className={labelClass}>
-                  Pins
-                  <NumberField
-                    data-testid="review-pins"
-                    min={0}
-                    value={s.pins}
-                    onCommit={(v) => {
-                      s.setPins(v);
-                      props.onAction?.('pins');
-                    }}
-                    className={inputClass}
-                  />
-                </label>
-                <label className={labelClass}>
-                  Max capacity
-                  <NumberField
-                    data-testid="review-max-capacity"
-                    min={0}
-                    value={s.maxFuelCapacityObserved}
-                    onCommit={(v) => {
-                      s.setMaxFuelCapacityObserved(v);
-                      props.onAction?.('max_capacity');
-                    }}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
-            </div>
-            {/* Subjective super-scout ratings (0 = not rated). Advisory only — they
-                never feed the scored fuel/climb points, just the dashboard's
-                qualitative read of a robot. */}
-            </details>
             <div
               data-testid="review-ratings"
               className="rounded-2xl border border-border bg-card p-3 landscape:p-4"

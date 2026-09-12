@@ -70,6 +70,18 @@ describe('ReviewScreen', () => {
     expect(reports).toHaveLength(1);
   });
 
+  it('does not show intake sources or the timer correction section', () => {
+    render(<Host onSaved={vi.fn()} initInactiveFirst={false} />);
+
+    expect(screen.queryByText('Intake sources')).toBeNull();
+    expect(screen.queryByText('Correct timers & add handling details')).toBeNull();
+    expect(screen.queryByTestId('review-intake-sources')).toBeNull();
+    expect(screen.queryByTestId('review-defense-seconds')).toBeNull();
+    expect(screen.queryByTestId('review-defended-seconds')).toBeNull();
+    expect(screen.queryByTestId('review-pins')).toBeNull();
+    expect(screen.queryByTestId('review-max-capacity')).toBeNull();
+  });
+
   it('navigates forward and back between steps', async () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);
