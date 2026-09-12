@@ -17,6 +17,7 @@ import {
   listDeadLetters,
   requeueReport,
   requeueAuthClassDeadLetters,
+  autoRepairValidationDeadLetters,
   saveDraft,
   getDraft,
   listDrafts,
@@ -258,6 +259,46 @@ describe('STORE sync queue helpers', () => {
 
     // Idempotent: a second pass finds nothing left to requeue.
     expect(await requeueAuthClassDeadLetters()).toBe(0);
+  });
+
+  it('auto-repairs known payload validation dead-letters once without touching identity errors', async () => {
+    await saveReport(
+      makeReport({
+        id: 'repairable',
+        syncState: 'error',
+        syncAttempts: 2,
+        lastSyncError: 'fuel burst value is outside its range',
+        fuelBursts: [{ startMs: -2.4, endMs: 200_001.7, rate: 40, window: 'shift1' }],
+        autoPath: Array.from({ length: 300 }, (_, x) => ({ x, y: -x })),
+      }),
+    );
+    await saveReport(
+      makeReport({
+        id: 'wrong-seat',
+        syncState: 'error',
+        lastSyncError: 'match report seat is invalid',
+      }),
+    );
+
+    expect(await autoRepairValidationDeadLetters()).toBe(1);
+    const repaired = (await listReports()).find((r) => r.id === 'repairable');
+    expect(repaired?.syncState).toBe('dirty');
+    expect(repaired?.syncAttempts).toBe(0);
+    expect(repaired?.lastSyncError).toBeNull();
+    expect(repaired?.fuelBursts[0]).toEqual({
+      startMs: 0,
+      endMs: 140_000,
+      rate: 30,
+      window: 'shift1',
+    });
+    expect(repaired?.autoPath).toHaveLength(256);
+    expect(repaired?.autoRepairVersion).toBe(1);
+    expect((await listReports()).find((r) => r.id === 'wrong-seat')?.syncState).toBe('error');
+
+    // Even if the same validator message comes back, this recipe cannot loop.
+    await markSyncError('repairable', 'fuel burst value is outside its range');
+    expect(await autoRepairValidationDeadLetters()).toBe(0);
+    expect((await listReports()).find((r) => r.id === 'repairable')?.syncState).toBe('error');
   });
 
   it('reads default missing rowRevision/syncAttempts/lastSyncError', async () => {

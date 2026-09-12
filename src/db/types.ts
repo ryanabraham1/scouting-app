@@ -81,6 +81,12 @@ export interface LocalMatchReport {
   lastSyncError: string | null;
   /** Persisted retry schedule; omitted on legacy rows and cleared after success/edit. */
   nextSyncAt?: number | null;
+  /**
+   * Last client repair recipe applied to a terminal validation failure. This is
+   * deliberately persisted (without a Dexie index/schema bump) so an invalid
+   * report gets one automatic repair attempt per recipe, never an upload loop.
+   */
+  autoRepairVersion?: number;
 }
 
 export interface CaptureDraft {

@@ -5,6 +5,7 @@ import {
   isAuthClassError,
   isSupersedeRecoverable,
   isOrphanedScoutRecoverable,
+  isAutoRepairableReportValidationError,
 } from '../classifyError';
 
 describe('classifySyncError', () => {
@@ -162,5 +163,28 @@ describe('isAuthClassError', () => {
     expect(isAuthClassError(null)).toBe(false);
     expect(isAuthClassError(undefined)).toBe(false);
     expect(isAuthClassError('')).toBe(false);
+  });
+});
+
+describe('isAutoRepairableReportValidationError', () => {
+  it.each([
+    'fuel burst value is outside its range',
+    'auto_path is malformed',
+    'defense_intervals contains a malformed interval',
+    'climb_level must be a JSON number',
+    'inactive_first_source is invalid',
+  ])('accepts sanitizer-covered validator failure: %s', (message) => {
+    expect(isAutoRepairableReportValidationError(message)).toBe(true);
+  });
+
+  it.each([
+    'match report identity fields are required',
+    'match report seat is invalid',
+    'unsupported match report schema_version: 99',
+    'violates foreign key constraint match_scouting_report_match_key_fkey',
+    'Match report upload conflicted with server revision 7',
+    'Failed to fetch',
+  ])('keeps unsafe or non-validation recovery manual: %s', (message) => {
+    expect(isAutoRepairableReportValidationError(message)).toBe(false);
   });
 });

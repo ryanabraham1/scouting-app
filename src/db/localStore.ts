@@ -14,9 +14,14 @@ import type {
 } from './types';
 import {
   isAuthClassError,
+  isAutoRepairableReportValidationError,
   isSupersedeRecoverable,
   isOrphanedScoutRecoverable,
 } from '@/sync/classifyError';
+import {
+  MATCH_REPORT_AUTO_REPAIR_VERSION,
+  sanitizeMatchReport,
+} from '@/sync/sanitizeReport';
 import { normalizeStoredRating } from '@/ratings';
 
 export class ScoutingDb extends Dexie {
@@ -261,6 +266,36 @@ export async function requeueAuthClassDeadLetters(): Promise<number> {
     await requeueReport(r.id);
   }
   return targets.length;
+}
+
+/**
+ * Repair validator-class dead letters in place and return them to the queue.
+ * The persisted recipe version makes this safe to invoke before every drain:
+ * each report is repaired/retried once, while unrepairable identity, FK, seat,
+ * and conflict errors remain available for explicit recovery.
+ */
+export async function autoRepairValidationDeadLetters(): Promise<number> {
+  return db.transaction('rw', db.reports, async () => {
+    const dead = (await db.reports.toArray()).filter(
+      (r) =>
+        r.syncState === 'error' &&
+        (r.autoRepairVersion ?? 0) < MATCH_REPORT_AUTO_REPAIR_VERSION &&
+        isAutoRepairableReportValidationError(r.lastSyncError),
+    );
+
+    for (const stored of dead) {
+      const repaired = sanitizeMatchReport(withSyncDefaults(stored));
+      await db.reports.put({
+        ...repaired,
+        syncState: 'dirty',
+        syncAttempts: 0,
+        lastSyncError: null,
+        nextSyncAt: null,
+        autoRepairVersion: MATCH_REPORT_AUTO_REPAIR_VERSION,
+      });
+    }
+    return dead.length;
+  });
 }
 
 // Reset a dead-letter to 'dirty' for a manual retry.

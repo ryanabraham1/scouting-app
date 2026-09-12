@@ -3,6 +3,8 @@ import type { LocalMatchReport } from '@/db/types';
 
 const AUTO_MS = 20_000;
 const TELEOP_MS = 140_000;
+/** Bump only when the repair recipe changes, allowing one new recovery pass. */
+export const MATCH_REPORT_AUTO_REPAIR_VERSION = 1;
 const BURST_WINDOWS = new Set<MatchWindow>([
   'auto',
   'transition',

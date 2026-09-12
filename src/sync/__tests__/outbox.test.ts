@@ -320,4 +320,33 @@ describe('syncOnce', () => {
     expect(rpc).not.toHaveBeenCalled();
     expect((await getReport('dead'))?.syncState).toBe('error');
   });
+
+  it('repairs and uploads a legacy validation dead-letter in the same drain', async () => {
+    await saveReport(
+      makeReport({
+        id: 'legacy-invalid',
+        syncState: 'error',
+        syncAttempts: 3,
+        lastSyncError: 'auto_path is malformed',
+        autoPath: Array.from({ length: 300 }, (_, index) => ({
+          x: index - 20,
+          y: 20 - index,
+        })),
+      }),
+    );
+    const rpc = vi.fn().mockResolvedValue(successResult());
+
+    expect(await syncOnce(rpc)).toEqual({
+      attempted: 1,
+      synced: 1,
+      retried: 0,
+      deadLettered: 0,
+    });
+    const payload = rpc.mock.calls[0]?.[1]?.p as Record<string, unknown>;
+    expect(payload.auto_path).toHaveLength(256);
+    expect(await getReport('legacy-invalid')).toMatchObject({
+      syncState: 'synced',
+      autoRepairVersion: 1,
+    });
+  });
 });

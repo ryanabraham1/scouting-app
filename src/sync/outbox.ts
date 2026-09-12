@@ -11,6 +11,7 @@ import {
   markSynced,
   markDirtyRetry,
   markSyncError,
+  autoRepairValidationDeadLetters,
 } from '@/db/localStore';
 import { toUpsertPayload } from '@/sync/mapReport';
 import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
@@ -90,6 +91,10 @@ function errorMessage(err: unknown): string {
 export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
   const summary: SyncSummary = { attempted: 0, synced: 0, retried: 0, deadLettered: 0 };
   if (isSyncCircuitOpen()) return summary;
+  // New captures are sanitized before save/upload. This pass self-heals reports
+  // that an older app version already dead-lettered, then retries them during
+  // this same drain. A persisted recipe marker prevents retry loops.
+  await autoRepairValidationDeadLetters();
   const queue = await getDueSyncQueue();
 
   for (const report of queue) {

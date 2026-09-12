@@ -268,7 +268,8 @@ export function useSync(): UseSyncResult {
   // Once per session, the first time we are online: requeue any auth/RLS-class
   // dead-letters (the wrongly-terminal 42501-class failures the server fix in
   // migration 0012 now accepts) and drain. Guarded by a ref so it can never loop;
-  // validation-class dead-letters are left untouched by requeueAuthClassDeadLetters.
+  // repairable validation dead-letters are handled independently inside every
+  // match-report syncOnce drain, with a persisted recipe version preventing loops.
   useEffect(() => {
     if (!online || authRequeuePromise) return;
     authRequeuePromise = (async () => {

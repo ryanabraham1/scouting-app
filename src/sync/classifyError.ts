@@ -171,3 +171,37 @@ export function isOrphanedScoutRecoverable(message: string | null | undefined): 
   if (!message) return false;
   return ORPHANED_SCOUT_RECOVERABLE.test(message);
 }
+
+/**
+ * Validator failures whose underlying fields are fully covered by
+ * sanitizeMatchReport. Identity, seat/FK, schema-version, and revision-conflict
+ * failures are intentionally excluded: guessing those could attach a report to
+ * the wrong match or overwrite newer scouting data.
+ */
+const AUTO_REPAIRABLE_REPORT_VALIDATION = new RegExp(
+  [
+    'fuel_bursts must be an array',
+    'fuel burst (?:is malformed|value is outside its range)',
+    'feeding_bursts must be an array',
+    'feeding burst (?:is malformed|value is outside its range)',
+    'auto_start_position is malformed',
+    'auto_path is malformed',
+    'intake_sources is malformed',
+    'foul_reasons is malformed',
+    '(?:defense_intervals|defended_intervals) (?:must be an array|contains a malformed interval|interval is outside its range)',
+    'integer-valued match report field is fractional',
+    'bounded match report field is outside its range',
+    'inactive_first must be a JSON boolean or null',
+    'inactive_first_source is invalid',
+    'row_revision is outside the supported integer range',
+    '(?:row_revision|climb_level|max_fuel_capacity_observed|defense_rating|driver_skill|agility|pins|fouls_minor|fouls_major|defense_duration_ms|defended_duration_ms) must be a JSON number',
+    '(?:deleted|teleop_clock_unconfirmed|climb_attempted|climb_success|auto_left_starting_line|auto_climb_level1|no_show|died|tipped|dropped_fuel|fed_corral) must be a JSON boolean',
+  ].join('|'),
+  'i',
+);
+
+export function isAutoRepairableReportValidationError(
+  message: string | null | undefined,
+): boolean {
+  return Boolean(message && AUTO_REPAIRABLE_REPORT_VALIDATION.test(message));
+}
