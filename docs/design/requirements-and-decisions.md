@@ -39,12 +39,14 @@ _Last updated: 2026-06-23_
 
 Game twist: each alliance's HUB is **inactive during 2 of the 4 ALLIANCE SHIFTS** (FUEL scored
 then = 0 pts), and the **AUTO FUEL leader is penalized first** (HUB inactive in SHIFT 1).
-Therefore scoring must be **attributed to the active/inactive time window**, not just the phase.
+For scouting estimates, however, the team intentionally assumes that every observed shooting
+burst scores. Scouts do not record the AUTO winner or try to distinguish active/inactive HUB
+windows; this favors consistent robot-output estimates over fragile across-field state reads.
 
 - **FUEL capture:** **timed hold-to-shoot + rate slider.** App runs an **in-app match timer**
   (scout taps START at match start); scout holds a button while the robot is scoring and sets a
   FUEL/sec rate. App integrates rate × time and **auto-attributes each burst to AUTO / SHIFT 1–4 /
-  ENDGAME**, computing active-vs-inactive scoring automatically.
+  ENDGAME**, counting every observed shooting burst as scored.
 - **Climb (endgame):** final **level (none/1/2/3)** + **success/fail** (attempted-but-failed). No timing.
 - **Also tracked per robot:**
   - Intake source (NEUTRAL floor / DEPOT / human feed) + max FUEL capacity observed.

@@ -584,11 +584,10 @@ export const F_DEFAULT: ComponentFraction = { fAuto: 0.15, fFuel: 0.55, fClimb: 
 export function aggregateTeamComponentSplit(agg: TeamAgg): ComponentSplit {
   const fp = SCORING.FUEL_POINTS;
   const rawAuto = agg.meanAutoFuel * fp;
-  // ONLY point-scoring fuel: `meanFuelPoints` (the basis being split) counts
-  // active windows exclusively, so inactive-shift fuel must not enter the
-  // ratio — it earned zero of the points being attributed, and including it
-  // skewed the auto share low for every feed-heavy team.
-  const rawFuel = (agg.meanTeleopFuelActive + agg.meanEndgameFuel) * fp;
+  // Every observed shooting burst is treated as scored. Include the legacy
+  // inactive bucket so cached pre-migration rows still decompose correctly.
+  const rawFuel =
+    (agg.meanTeleopFuelActive + agg.meanTeleopFuelInactive + agg.meanEndgameFuel) * fp;
   const fuelTot = rawAuto + rawFuel;
   const fuelBasis = agg.meanFuelPoints;
   // Guard a zero FUEL total: route all fuel points to the fuel bucket so we

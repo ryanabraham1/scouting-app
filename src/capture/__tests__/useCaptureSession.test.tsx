@@ -86,6 +86,8 @@ describe('useCaptureSession.save', () => {
     const r = reports[0];
     expect(r.syncState).toBe('dirty');
     expect(r.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(r.inactiveFirst).toBeNull();
+    expect(r.inactiveFirstSource).toBeNull();
 
     const expected = computeAggregates({
       schemaVersion: SCHEMA_VERSION,
@@ -170,6 +172,54 @@ describe('useCaptureSession.save', () => {
     releaseWrite();
     await drain;
     expect(drained).toBe(true);
+  });
+
+  it('surfaces a draft write failure without losing the in-memory capture', async () => {
+    const storage: CaptureSessionStorage = {
+      getDraft: async () => undefined,
+      saveDraft: async () => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      },
+      deleteDraft: async () => undefined,
+      getReport: async () => undefined,
+      saveReport: async () => undefined,
+    };
+    const { result } = renderHook(() => useCaptureSession(target, { storage }));
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('ready'));
+
+    act(() => result.current.setFoulsMinor(3));
+
+    await waitFor(() => expect(result.current.storageError).toMatch(/not saved/i));
+    expect(result.current.foulsMinor).toBe(3);
+  });
+
+  it('allows submit to be retried after an atomic finalize failure', async () => {
+    let attempts = 0;
+    const finalizeReport = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    };
+    const storage: CaptureSessionStorage = {
+      getDraft: async () => undefined,
+      saveDraft: async () => undefined,
+      deleteDraft: async () => undefined,
+      getReport: async () => undefined,
+      saveReport: async () => undefined,
+      finalizeReport,
+    };
+    const { result } = renderHook(() => useCaptureSession(target, { storage }));
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('ready'));
+
+    await act(async () => {
+      await expect(result.current.save()).rejects.toThrow(/quota/i);
+    });
+    let id = '';
+    await act(async () => {
+      id = await result.current.save();
+    });
+
+    expect(id).toBeTruthy();
+    expect(attempts).toBe(2);
   });
 });
 
@@ -300,6 +350,62 @@ describe('useCaptureSession draft resume', () => {
     expect((await listDrafts()).some((draft) => draft.draftKey.startsWith('quarantine:'))).toBe(
       true,
     );
+  });
+
+  it.each([
+    ['non-object payload', 'corrupt'],
+    ['future report schema', { schemaVersion: SCHEMA_VERSION + 1 }],
+    ['fuel bursts are not an array', { bursts: {} }],
+    ['feeding bursts are not an array', { feedingBursts: 'bad' }],
+    ['fuel burst entry is malformed', { bursts: [null] }],
+    [
+      'fuel burst window is unknown',
+      { bursts: [{ startMs: 0, endMs: 1, rate: 1, window: 'pause' }] },
+    ],
+    [
+      'feeding burst number is non-finite',
+      { feedingBursts: [{ startMs: 0, endMs: 1, rate: Number.NaN, window: 'auto' }] },
+    ],
+    ['inactive-first is not tri-state', { inactiveFirst: 'false' }],
+    ['fuel rate is non-finite', { rate: Number.POSITIVE_INFINITY }],
+    ['review data is not an object', { deferred: [] }],
+    ['review numeric data is malformed', { deferred: { foulsMinor: '2' } }],
+    ['review boolean data is malformed', { deferred: { noShow: 1 } }],
+    ['review string-array data is malformed', { deferred: { foulReasons: [null] } }],
+    [
+      'review interval data is malformed',
+      { deferred: { defenseIntervals: [{ startMs: 0, endMs: 1, phase: 'pause' }] } },
+    ],
+    ['Auto start point is malformed', { deferred: { autoStartPosition: { x: 1 } } }],
+    ['Auto path contains malformed points', { deferred: { autoPath: [{ x: 1, y: Number.NaN }] } }],
+    [
+      'capture navigation/clock is malformed',
+      {
+        captureSession: {
+          version: 1,
+          stage: 'live',
+          reviewStep: 99,
+          placementComplete: false,
+          showGo: false,
+          clock: {},
+        },
+      },
+    ],
+  ])('quarantines %s instead of resuming or overwriting it', async (_label, state) => {
+    await saveDraft('qm1:scout-1:254', state);
+
+    const { result } = renderHook(() => useCaptureSession(target));
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('ready'));
+
+    expect(result.current.draftResumed).toBe(false);
+    expect(result.current.storageError).toMatch(/quarantined/i);
+    expect(await getDraft('qm1:scout-1:254')).toBeUndefined();
+    const quarantined = (await listDrafts()).find((draft) =>
+      draft.draftKey.startsWith('quarantine:'),
+    );
+    expect(quarantined).toBeDefined();
+    expect((quarantined?.state as { originalDraft?: { state?: unknown } }).originalDraft?.state)
+      .toEqual(state);
   });
 });
 

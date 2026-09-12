@@ -38,23 +38,11 @@ function splitInt(total: number, count: number): number[] {
 
 export function canonicalDemoFuelBursts(
   autoFuel: number,
-  teleopActive: number,
-  teleopInactive: number,
+  teleopFuel: number,
   endgameFuel: number,
-  inactiveFirst: boolean,
 ): DemoFuelBurst[] {
   const shiftWindows = ["shift1", "shift2", "shift3", "shift4"] as const;
-  const active = shiftWindows.filter(
-    (_, index) => (((index + 1) % 2) === 1) !== inactiveFirst,
-  );
-  const inactive = shiftWindows.filter(
-    (_, index) => (((index + 1) % 2) === 1) === inactiveFirst,
-  );
-  const amounts = new Map<string, number>();
-  const activeAmounts = splitInt(teleopActive, active.length);
-  const inactiveAmounts = splitInt(teleopInactive, inactive.length);
-  active.forEach((window, index) => amounts.set(window, activeAmounts[index]));
-  inactive.forEach((window, index) => amounts.set(window, inactiveAmounts[index]));
+  const teleopAmounts = splitInt(teleopFuel, shiftWindows.length);
 
   const bursts: DemoFuelBurst[] = [];
   const add = (
@@ -74,9 +62,9 @@ export function canonicalDemoFuelBursts(
     });
   };
   add("auto", autoFuel, 3000);
-  for (const window of shiftWindows) {
-    add(window, amounts.get(window) ?? 0, DEMO_SHIFT_BOUNDS[window].start + 1000);
-  }
+  shiftWindows.forEach((window, index) => {
+    add(window, teleopAmounts[index], DEMO_SHIFT_BOUNDS[window].start + 1000);
+  });
   add("endgame", endgameFuel, DEMO_SHIFT_BOUNDS.endgame.start + 1000);
   return bursts;
 }

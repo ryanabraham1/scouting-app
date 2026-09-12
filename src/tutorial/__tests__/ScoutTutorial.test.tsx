@@ -404,7 +404,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
   });
 
   it('defines the concise production workflow with exact step counts', () => {
-    expect(MATCH_STEP_COUNT).toBe(19);
+    expect(MATCH_STEP_COUNT).toBe(18);
     expect(PIT_STEP_COUNT).toBe(12);
 
     const matchTargets = MATCH_COACH_STEPS.map((step) => step.target);
@@ -413,7 +413,6 @@ describe('ScoutTutorial module hub and production coaching', () => {
       '[data-testid="capture-start"]',
       '[data-testid="capture-hold"]',
       '[data-testid="capture-left-line"]',
-      '[data-testid="capture-go-interstitial"]',
       '[data-testid="capture-feed"]',
       '[data-testid="capture-defense"]',
       '[data-testid="capture-defended"]',

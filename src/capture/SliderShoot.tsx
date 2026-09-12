@@ -86,6 +86,8 @@ export interface SliderShootProps {
   activeLabel?: string;
   /** Hint shown while idle (e.g. "Hold + slide →"). */
   idleLabel?: string;
+  /** Advisory rate from pit scouting. Never changes or preselects the captured rate. */
+  suggestedRate?: number | null;
   /** ARIA label for the slider role. */
   ['aria-label']?: string;
   /** Extra classes merged onto the track (e.g. `h-full` to fill a flex cell). */
@@ -104,6 +106,7 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
     unitLabel = 'BPS',
     activeLabel,
     idleLabel = 'Hold + slide →',
+    suggestedRate,
   } = props;
   const testid = props['data-testid'] ?? 'slider-shoot';
   const ariaLabel = props['aria-label'] ?? 'Shooting rate (BPS)';
@@ -219,6 +222,20 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
   const THUMB_INSET = '2.25rem';
   const thumbLeft = `calc(${THUMB_INSET} + (100% - 2 * ${THUMB_INSET}) * ${trackFraction})`;
   const landmarks = [10, 20].filter((landmark) => landmark < max);
+  const validSuggestedRate =
+    typeof suggestedRate === 'number' &&
+    Number.isFinite(suggestedRate) &&
+    suggestedRate >= 0
+      ? suggestedRate
+      : null;
+  // Keep showing an entered estimate above this control's range, but do not
+  // draw a misleading marker at a rate the scout cannot select.
+  const markerSuggestedRate =
+    validSuggestedRate != null && validSuggestedRate <= max ? validSuggestedRate : null;
+  const suggestedLeft =
+    markerSuggestedRate == null
+      ? null
+      : `calc(${THUMB_INSET} + (100% - 2 * ${THUMB_INSET}) * ${trackFractionFromRate(markerSuggestedRate, max)})`;
 
   return (
     <div
@@ -232,8 +249,14 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
       aria-valuemin={0}
       aria-valuemax={max}
       aria-valuenow={rate}
+      aria-valuetext={
+        validSuggestedRate != null
+          ? `${rate} ${unitLabel}. Suggested: ${validSuggestedRate} ${unitLabel}`
+          : `${rate} ${unitLabel}`
+      }
       aria-orientation="horizontal"
       aria-disabled={disabled || undefined}
+      aria-describedby={validSuggestedRate != null ? `${testid}-suggested-description` : undefined}
       tabIndex={disabled ? -1 : 0}
       onKeyDown={onKeyDown}
       onKeyUp={end}
@@ -267,6 +290,13 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
           </span>
         </div>
       ))}
+      {validSuggestedRate != null && suggestedLeft ? (
+        <div
+          data-testid={`${testid}-suggested-marker`}
+          className="pointer-events-none absolute inset-y-1 z-[6] border-l-2 border-dashed border-foreground/50"
+          style={{ left: suggestedLeft }}
+        />
+      ) : null}
       {/* thumb — inset so the icon is never clipped at rate 0 or rate max */}
       <div
         data-testid={`${testid}-thumb`}
@@ -293,6 +323,15 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
         >
           {active ? activeText : idleLabel}
         </span>
+        {validSuggestedRate != null ? (
+          <span
+            id={`${testid}-suggested-description`}
+            data-testid={`${testid}-suggested-label`}
+            className="text-xs font-semibold tabular-nums text-foreground/75"
+          >
+            Suggested: {validSuggestedRate} {unitLabel}
+          </span>
+        ) : null}
       </div>
     </div>
   );

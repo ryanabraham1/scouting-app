@@ -96,7 +96,6 @@ function enterLiveMatch() {
   submitPlacement();
   fireEvent.click(screen.getByTestId('capture-start'));
   fireEvent.click(screen.getByTestId('capture-go'));
-  fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
 }
 
 describe('CaptureScreen placement step', () => {
@@ -165,28 +164,15 @@ describe('CaptureScreen placement step', () => {
 });
 
 describe('CaptureScreen', () => {
-  it('asks which alliance won Auto after GO and maps that alliance to inactive-first', async () => {
+  it('starts Teleop immediately without asking which alliance won Auto', () => {
     render(<Host />);
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
-    expect(screen.getByText('Which alliance won Auto?')).toBeTruthy();
-    expect(screen.getByTestId('capture-auto-winner-red').textContent).toBe('Red');
-    expect(screen.getByTestId('capture-auto-winner-blue').textContent).toBe('Blue');
-    fireEvent.click(screen.getByTestId('capture-auto-winner-red'));
-    expect(capturedSession?.inactiveFirst).toBe(true);
-    await waitFor(() => {
-      expect(screen.queryByTestId('capture-auto-winner-red')).toBeNull();
-    });
-  });
-
-  it('maps a Blue Auto win to inactive-first for a Blue scouted team', () => {
-    render(<Host allianceColor="blue" />);
-    submitPlacement();
-    fireEvent.click(screen.getByTestId('capture-start'));
-    fireEvent.click(screen.getByTestId('capture-go'));
-    fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
-    expect(capturedSession?.inactiveFirst).toBe(true);
+    expect(screen.queryByText('Which alliance won Auto?')).toBeNull();
+    expect(screen.queryByTestId('capture-go')).toBeNull();
+    expect(screen.getByTestId('capture-reanchor')).toBeTruthy();
+    expect(capturedSession?.inactiveFirst).toBeNull();
   });
 });
 
@@ -231,7 +217,6 @@ describe('CaptureScreen hold-to-shoot', () => {
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
-    fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
     const hold = await screen.findByTestId('capture-hold');
     // Press, drag to the top (max BPS = 30), hold ~1s, release.
     fireEvent.pointerDown(hold, { clientY: 0, pointerId: 1 });
@@ -259,7 +244,6 @@ describe('CaptureScreen live ball count from BPS', () => {
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
-    fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
     await waitFor(() => {
       expect(screen.getByTestId('capture-running-fuel').textContent).toBe('26');
     });
@@ -310,8 +294,6 @@ describe('CaptureScreen Teleop-ready signal', () => {
     expect(go.className).toContain('bg-success');
 
     fireEvent.click(go);
-    expect(screen.getByTestId('capture-go-interstitial')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
     expect(screen.queryByTestId('capture-go')).toBeNull();
     expect(screen.getByTestId('capture-reanchor')).toBeTruthy();
   });
@@ -323,7 +305,6 @@ describe('CaptureScreen defense tap timers', () => {
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
-    fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
     const button = screen.getByTestId(testid);
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-pressed', 'true');
@@ -353,6 +334,21 @@ describe('CaptureScreen feeding slider', () => {
     expect(screen.getByTestId('capture-running-feed').textContent).toBe('0');
   });
 
+  it('shows the same pit-scout suggestion on the scoring and feeding sliders', async () => {
+    function SuggestedHost() {
+      const capture = useCaptureSession(target);
+      return <CaptureScreen session={capture} suggestedBps={8} onToReview={() => {}} />;
+    }
+    render(<SuggestedHost />);
+    enterLiveMatch();
+    expect(await screen.findByTestId('capture-hold-suggested-label')).toHaveTextContent(
+      'Suggested: 8 BPS',
+    );
+    expect(screen.getByTestId('capture-feed-suggested-label')).toHaveTextContent(
+      'Suggested: 8 BPS',
+    );
+  });
+
   it('a feeding gesture drives the session feed hold (start/end) lifecycle', async () => {
     render(<Host />);
     enterLiveMatch();
@@ -374,7 +370,6 @@ describe('CaptureScreen reAnchor cue', () => {
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
-    fireEvent.click(screen.getByTestId('capture-auto-winner-blue'));
     const cue = await screen.findByTestId('capture-reanchor');
     fireEvent.click(cue);
     await waitFor(() => {

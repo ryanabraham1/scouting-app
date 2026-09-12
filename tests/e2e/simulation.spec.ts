@@ -113,8 +113,6 @@ async function capture(page: Page, matchKey: string, team: number, climb = 3): P
 
   await page.getByTestId('capture-start').click();
   await page.getByTestId('capture-go').click();
-  await expect(page.getByTestId('capture-go-interstitial')).toBeVisible();
-  await page.getByTestId('capture-auto-winner-blue').click();
 
   // Slider-shoot: press + drag right + hold so the rate integrates to a real
   // non-zero fuel burst (mirrors capture.spec).

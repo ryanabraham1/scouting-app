@@ -58,6 +58,7 @@ import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
 import { cn } from '@/lib/utils';
 import { reportMatchesScoutScope } from '@/scout/reportScope';
 import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt';
+import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -140,10 +141,35 @@ export function deadLetterNeedsTargetCorrection(error: string | null): boolean {
   );
 }
 
+/** Treat IndexedDB draft metadata as untrusted; malformed targets must not open a broken capture. */
+export function captureTargetFromDraftState(state: unknown): CaptureTarget | null {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return null;
+  const target = (state as { target?: unknown }).target;
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return null;
+  const candidate = target as Partial<CaptureTarget>;
+  if (
+    typeof candidate.eventKey !== 'string' ||
+    candidate.eventKey.length === 0 ||
+    typeof candidate.matchKey !== 'string' ||
+    candidate.matchKey.length === 0 ||
+    typeof candidate.scoutId !== 'string' ||
+    candidate.scoutId.length === 0 ||
+    !Number.isSafeInteger(candidate.targetTeamNumber) ||
+    (candidate.targetTeamNumber ?? 0) < 1 ||
+    (candidate.allianceColor !== 'red' && candidate.allianceColor !== 'blue') ||
+    ![1, 2, 3].includes(candidate.station ?? 0) ||
+    (candidate.scoutName !== undefined && typeof candidate.scoutName !== 'string') ||
+    (candidate.editingReportId !== undefined && typeof candidate.editingReportId !== 'string')
+  ) {
+    return null;
+  }
+  return candidate as CaptureTarget;
+}
+
 // A readable label for a saved draft (e.g. "Qualification 9 · Team 111") instead
 // of the raw "matchKey:scoutId:team" draft key.
 function draftTitle(d: CaptureDraft): string {
-  const target = (d.state as { target?: CaptureTarget } | null)?.target;
+  const target = captureTargetFromDraftState(d.state);
   const matchKey = target?.matchKey ?? d.draftKey.split(':')[0];
   const teamNum = target?.targetTeamNumber ?? Number(d.draftKey.split(':')[2]);
   const label = matchLabelFromKey(matchKey);
@@ -151,7 +177,7 @@ function draftTitle(d: CaptureDraft): string {
 }
 
 function draftEventKey(d: CaptureDraft): string | null {
-  const target = (d.state as { target?: CaptureTarget } | null)?.target;
+  const target = captureTargetFromDraftState(d.state);
   if (target?.eventKey) return target.eventKey;
   const matchKey = target?.matchKey ?? d.draftKey.split(':')[0];
   const separator = matchKey.indexOf('_');
@@ -314,6 +340,10 @@ export default function ScoutHome() {
   const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
   const [reports, setReports] = useState<LocalMatchReport[]>([]);
   const [active, setActive] = useState<CaptureTarget | null>(null);
+  const suggestedBps = usePitBpsSuggestion(
+    active?.eventKey,
+    active?.targetTeamNumber,
+  );
   // Loaded revision of the report being corrected (drives the Review edit banner).
   const [editingRev, setEditingRev] = useState<number | undefined>(undefined);
 
@@ -343,7 +373,7 @@ export default function ScoutHome() {
     const [allDrafts, allReports] = await Promise.all([listDrafts(), listReports()]);
     const currentDrafts = allDrafts.filter((draft) => {
       const draftEvent = draftEventKey(draft);
-      const storedTarget = (draft.state as { target?: CaptureTarget } | null)?.target;
+      const storedTarget = captureTargetFromDraftState(draft.state);
       const keyScout = draft.draftKey.split(':')[1] ?? '';
       const draftScout = storedTarget?.scoutId || keyScout;
       return draftScout === scoutId && (!draftEvent || draftEvent === scope);
@@ -680,6 +710,7 @@ export default function ScoutHome() {
     return (
       <CaptureFlow
         target={active}
+        suggestedBps={suggestedBps}
         startStage={isEdit ? 'review' : 'live'}
         editingRevision={isEdit ? editingRev : undefined}
         onDone={isEdit ? leaveEdit : () => { setSavedNotice(true); leaveFresh(); }}
@@ -930,7 +961,7 @@ export default function ScoutHome() {
                         variant="outline"
                         className="min-h-[52px] w-full justify-start gap-2 rounded-xl border-warning/40 text-sm text-warning"
                         onClick={() => {
-                          const stored = (d.state as { target?: CaptureTarget } | null)?.target;
+                          const stored = captureTargetFromDraftState(d.state);
                           if (stored) {
                             setActive(stored);
                             return;

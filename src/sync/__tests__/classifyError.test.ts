@@ -187,4 +187,14 @@ describe('isAutoRepairableReportValidationError', () => {
   ])('keeps unsafe or non-validation recovery manual: %s', (message) => {
     expect(isAutoRepairableReportValidationError(message)).toBe(false);
   });
+
+  it.each([
+    'match report string field exceeds its limit',
+    'invalid input syntax for type uuid: id',
+    'invalid input syntax for type uuid: scout_id',
+    'violates foreign key constraint match_scouting_report_target_team_number_fkey',
+    'Match report upload stale with server revision 9',
+  ])('never guesses identity or concurrency data for: %s', (message) => {
+    expect(isAutoRepairableReportValidationError(message)).toBe(false);
+  });
 });

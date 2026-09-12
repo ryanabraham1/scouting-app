@@ -1,7 +1,6 @@
 // src/scoring/compute.ts
 import type { MatchReportInputs, MatchReportAggregates, MatchWindow } from './types';
 import { SCORING } from './constants';
-import { isWindowActive } from './windows';
 
 const RATE_SCALE_DIGITS = 9;
 const WINDOW_DIVISOR = 1_000_000_000_000n;
@@ -85,25 +84,16 @@ export function computeAggregates(input: MatchReportInputs): MatchReportAggregat
     roundedByWindow.shift4,
   ];
 
-  let teleopFuelActive = roundedByWindow.transition; // transition is always active teleop
-  let teleopFuelInactive = 0;
-  for (const w of ['shift1', 'shift2', 'shift3', 'shift4'] as const) {
-    if (isWindowActive(w, input.inactiveFirst)) {
-      teleopFuelActive += roundedByWindow[w];
-    } else {
-      teleopFuelInactive += roundedByWindow[w];
-    }
-  }
-
-  // fuelPoints = sum of rounded fuel in ACTIVE windows * FUEL_POINTS.
-  // auto + transition + endgame always active; shiftN if active.
-  let activeFuel = roundedByWindow.auto + roundedByWindow.transition + roundedByWindow.endgame;
-  for (const w of ['shift1', 'shift2', 'shift3', 'shift4'] as const) {
-    if (isWindowActive(w, input.inactiveFirst)) {
-      activeFuel += roundedByWindow[w];
-    }
-  }
-  const fuelPoints = activeFuel * SCORING.FUEL_POINTS;
+  // Scouters record visible shooting, not HUB activation state. Treat every
+  // recorded burst as scored so a missed Auto-winner observation cannot erase
+  // real robot output. Keep the legacy active/inactive fields on the wire for
+  // backward compatibility, with all Teleop fuel in the active/scored bucket.
+  const teleopFuelActive =
+    roundedByWindow.transition + fuelByShift.reduce((sum, fuel) => sum + fuel, 0);
+  const teleopFuelInactive = 0;
+  const fuelPoints =
+    (roundedByWindow.auto + teleopFuelActive + roundedByWindow.endgame) *
+    SCORING.FUEL_POINTS;
 
   return {
     autoFuel: roundedByWindow.auto,

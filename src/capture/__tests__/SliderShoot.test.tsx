@@ -175,4 +175,41 @@ describe('SliderShoot tone variant', () => {
     expect(Number.parseFloat(screen.getByTestId('ss-landmark-10').style.left)).toBeCloseTo(57.735, 3);
     expect(Number.parseFloat(screen.getByTestId('ss-landmark-20').style.left)).toBeCloseTo(81.65, 2);
   });
+
+  it('shows an advisory pit estimate without changing the captured rate', () => {
+    render(
+      <SliderShoot
+        data-testid="ss"
+        suggestedRate={8.5}
+        onShootStart={vi.fn()}
+        onShootEnd={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('ss-suggested-label')).toHaveTextContent('Suggested: 8.5 BPS');
+    expect(screen.getByTestId('ss-suggested-marker').style.left).toContain(
+      String(trackFractionFromRate(8.5, 30)),
+    );
+    expect(screen.getByTestId('ss')).toHaveAttribute('data-rate', '0');
+    expect(screen.getByTestId('ss')).toHaveAttribute(
+      'aria-describedby',
+      'ss-suggested-description',
+    );
+    expect(screen.getByTestId('ss')).toHaveAttribute(
+      'aria-valuetext',
+      '0 BPS. Suggested: 8.5 BPS',
+    );
+  });
+
+  it('shows an above-range estimate as text without a misleading marker', () => {
+    render(
+      <SliderShoot
+        data-testid="ss"
+        suggestedRate={31}
+        onShootStart={vi.fn()}
+        onShootEnd={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('ss-suggested-label')).toHaveTextContent('Suggested: 31 BPS');
+    expect(screen.queryByTestId('ss-suggested-marker')).not.toBeInTheDocument();
+  });
 });

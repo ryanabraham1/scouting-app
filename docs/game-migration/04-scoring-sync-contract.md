@@ -9,7 +9,7 @@ inconsistent data. This is the single most important invariant in a season migra
 | # | Implementation | Language | Role |
 |---|---|---|---|
 | 1 | `src/scoring/` (`constants.ts`, `windows.ts`, `compute.ts`) | TypeScript | Client preview shown to the scout during/after capture. |
-| 2 | The recompute block inside the `upsert_match_report` RPC (helpers `msr_is_inactive`, `msr_round_half_up`) | PL/pgSQL | **Source of truth for stored aggregates.** Recomputes from the raw inputs the client uploads. |
+| 2 | `recompute_match_report_aggregates` called by the `upsert_match_report` RPC | PL/pgSQL | **Source of truth for stored aggregates.** Recomputes from the raw inputs the client uploads. |
 | 3 | `supabase/functions/seed-demo/index.ts` (`CLIMB_TELEOP_POINTS`, `SHIFT_BOUNDS`, burst/score generators) | TypeScript (Deno) | Generates synthetic demo data; must match so demo numbers are self-consistent. |
 
 ## Why three, and why the server wins
@@ -36,19 +36,17 @@ For the rate-burst model, all three do the same thing:
    accumulated as a float per window.
 3. **Round half-up ONCE per window** (`floor(x + 0.5)`) — *not* per burst. Rounding
    timing is a correctness detail; per-burst rounding gives different totals.
-4. **Classify** each teleop shift window active/inactive via `isInactive(shiftN,
-   inactiveFirst)` (= `((shiftN % 2) === 1) === inactiveFirst`). auto/transition/endgame
-   are always active.
-5. **Sum points**: `(auto + transition + endgame + Σ active shifts) × FUEL_POINTS`.
-   Inactive-shift fuel contributes 0.
-6. Emit `autoFuel`, `teleopFuelActive`, `teleopFuelInactive`, `endgameFuel`,
+4. **Treat every shooting burst as scored.** `inactiveFirst` remains in legacy report shapes
+   for compatibility but does not affect the aggregate.
+5. **Sum Teleop**: `transition + Σ shift1..shift4`. Store that in the legacy
+   `teleopFuelActive` / `teleop_fuel_active` field and store `0` in the legacy inactive field.
+6. **Sum points**: `(auto + all teleop + endgame) × FUEL_POINTS`.
+7. Emit `autoFuel`, `teleopFuelActive`, `teleopFuelInactive = 0`, `endgameFuel`,
    `fuelByShift[1..4]`, `fuelPoints`.
 
-The SQL helpers mirror the TS line-for-line:
+The SQL fixed-point rounding mirrors the TS line-for-line:
 
 ```sql
--- msr_is_inactive  ↔  src/scoring/windows.ts isInactive
-((p_shift % 2) = 1) = p_inactive_first
 -- msr_round_half_up  ↔  src/scoring/compute.ts roundHalfUp
 floor(p_val + 0.5)::int
 ```

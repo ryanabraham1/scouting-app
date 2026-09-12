@@ -171,8 +171,10 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
         <SectionHeading icon={<Flame />}>Fuel</SectionHeading>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <StatTile label="Auto fuel" value={fmt(r.auto_fuel)} />
-          <StatTile label="Teleop active" value={fmt(r.teleop_fuel_active)} />
-          <StatTile label="Teleop inactive" value={fmt(r.teleop_fuel_inactive)} />
+          <StatTile
+            label="Teleop fuel"
+            value={fmt(r.teleop_fuel_active + r.teleop_fuel_inactive)}
+          />
           <StatTile label="Endgame fuel" value={fmt(r.endgame_fuel)} />
           <StatTile label="Fuel points" value={fmt(r.fuel_points)} tone="energy" />
           <StatTile

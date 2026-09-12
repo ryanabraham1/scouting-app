@@ -638,10 +638,10 @@ export function ReviewScreen(props: {
               <div className="grid grid-cols-2 gap-y-1.5 landscape:gap-y-2">
                 <span className="text-muted-foreground">Auto fuel</span>
                 <span className="text-right tabular-nums text-energy">{agg.autoFuel}</span>
-                <span className="text-muted-foreground">Teleop active</span>
-                <span className="text-right tabular-nums text-energy">{agg.teleopFuelActive}</span>
-                <span className="text-muted-foreground">Teleop inactive</span>
-                <span className="text-right tabular-nums text-energy/70">{agg.teleopFuelInactive}</span>
+                <span className="text-muted-foreground">Teleop fuel</span>
+                <span className="text-right tabular-nums text-energy">
+                  {agg.teleopFuelActive + agg.teleopFuelInactive}
+                </span>
                 <span className="text-muted-foreground">Endgame fuel</span>
                 <span className="text-right tabular-nums text-energy">{agg.endgameFuel}</span>
                 <span className="text-muted-foreground">By shift</span>

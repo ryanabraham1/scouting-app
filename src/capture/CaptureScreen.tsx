@@ -85,7 +85,6 @@ export type CaptureObservedAction =
   | 'placement_submitted'
   | 'match_started'
   | 'go_pressed'
-  | 'inactive_answered'
   | 'fuel_burst'
   | 'left_line'
   | 'auto_climb'
@@ -121,6 +120,8 @@ function DefenseTimerButton(props: {
 export function CaptureScreen(props: {
   session: ReturnType<typeof useCaptureSession>;
   onToReview: () => void;
+  /** Advisory pit-scout estimate shown on both BPS controls. */
+  suggestedBps?: number | null;
   /** Read-only action observation for wrappers such as training/coaching UI. */
   onAction?: (action: CaptureObservedAction) => void;
   /**
@@ -131,7 +132,6 @@ export function CaptureScreen(props: {
   onExit?: () => void;
 }) {
   const s = props.session;
-  const showGo = s.showGo;
   // Pre-match placement step gates the live match screen and persists across reload.
   const placed = s.placementComplete;
   const isPortrait = useIsPortrait();
@@ -383,48 +383,6 @@ export function CaptureScreen(props: {
     );
   }
 
-  if (showGo) {
-    return (
-      <div
-        data-testid="capture-go-interstitial"
-        className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-6 text-foreground"
-      >
-        <p className="text-xl font-semibold">Which alliance won Auto?</p>
-        <div className="flex w-full max-w-lg flex-col gap-4">
-          <Button
-            data-testid="capture-auto-winner-red"
-            size="big"
-            className="flex-1 border-red-700 bg-red-600 text-white hover:bg-red-700"
-            onClick={() => {
-              // The AUTO FUEL winner's HUB is inactive during Shift 1.
-              s.setInactiveFirst(s.allianceColor === 'red');
-              s.clock.markGo();
-              props.onAction?.('inactive_answered');
-              buzz(25);
-              s.setShowGo(false);
-            }}
-          >
-            Red
-          </Button>
-          <Button
-            data-testid="capture-auto-winner-blue"
-            size="big"
-            className="flex-1 border-blue-800 bg-blue-600 text-white hover:bg-blue-700"
-            onClick={() => {
-              s.setInactiveFirst(s.allianceColor === 'blue');
-              s.clock.markGo();
-              props.onAction?.('inactive_answered');
-              buzz(25);
-              s.setShowGo(false);
-            }}
-          >
-            Blue
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   if (s.clock.resumeRequired) {
     const savedElapsed =
       phase === 'teleop' ? s.clock.teleopElapsedMs : s.clock.autoElapsedMs;
@@ -614,14 +572,13 @@ export function CaptureScreen(props: {
                 : 'Start teleop'
             }
             onClick={() => {
-              // Commit any in-flight slider hold NOW: the interstitial swap
-              // unmounts the sliders, so onShootEnd would never fire — the
-              // integrated balls would be dropped and the live readout would
-              // keep ghost-integrating against the stale hold refs.
+              // Commit any in-flight Auto holds before re-anchoring the clock
+              // into Teleop so their durations stay in the Auto window.
               s.holdEnd();
               s.feedHoldEnd();
+              s.clock.markGo();
               props.onAction?.('go_pressed');
-              s.setShowGo(true);
+              buzz(25);
             }}
           >
             <FastForward />
@@ -673,6 +630,7 @@ export function CaptureScreen(props: {
               activeLabel="SHOOTING"
               idleLabel="FUEL · hold + slide →"
               aria-label="Scoring rate (BPS)"
+              suggestedRate={props.suggestedBps}
               className="h-full"
               onShootStart={() => { s.holdStart(); buzz(); }}
               onShootRate={(r) => s.holdSample(r)}
@@ -687,6 +645,7 @@ export function CaptureScreen(props: {
               activeLabel="FEEDING"
               idleLabel="FEED · hold + slide →"
               aria-label="Feeding rate (BPS)"
+              suggestedRate={props.suggestedBps}
               className="h-full"
               onShootStart={() => { s.feedHoldStart(); buzz(); }}
               onShootRate={(r) => s.feedHoldSample(r)}

@@ -464,30 +464,24 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         fuelTotal = 0;
       }
 
-      // Split fuel across phases: auto ~15% / teleop_active ~60% /
-      // teleop_inactive ~15% / endgame ~10%, with per-row noise.
+      // Split fuel across phases: auto ~15% / teleop ~75% / endgame ~10%,
+      // with per-row noise. Every generated shooting burst is scored.
       let autoFuel = 0;
-      let teleopActive = 0;
-      let teleopInactive = 0;
+      let teleopFuel = 0;
       let endgameFuel = 0;
       if (fuelTotal > 0) {
         autoFuel = fuelTotal * 0.15 * (0.7 + rng() * 0.6);
-        teleopActive = fuelTotal * 0.6 * (0.7 + rng() * 0.6);
-        teleopInactive = fuelTotal * 0.15 * (0.7 + rng() * 0.6);
+        teleopFuel = fuelTotal * 0.75 * (0.7 + rng() * 0.6);
         endgameFuel = fuelTotal * 0.1 * (0.7 + rng() * 0.6);
         if (died) {
           // Robot died: cut teleop short, no endgame.
-          teleopActive *= 0.4;
-          teleopInactive *= 0.4;
+          teleopFuel *= 0.4;
           endgameFuel = 0;
         }
       }
       const vAuto = clampInt(autoFuel, 0, 500);
-      const vTeleAct = clampInt(teleopActive, 0, 500);
-      const vTeleInact = clampInt(teleopInactive, 0, 500);
+      const vTeleop = clampInt(teleopFuel, 0, 500);
       const vEndgame = clampInt(endgameFuel, 0, 500);
-
-      const inactiveFirst = vTeleInact > 0 && rng() < 0.4;
 
       // Defense: lower-skill teams play more defense.
       const defenseRating = noShow
@@ -514,13 +508,7 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       const r2 = (v: number) => Math.round(v * 100) / 100;
       const bursts = noShow
         ? []
-        : canonicalDemoFuelBursts(
-          vAuto,
-          vTeleAct,
-          vTeleInact,
-          vEndgame,
-          inactiveFirst,
-        );
+        : canonicalDemoFuelBursts(vAuto, vTeleop, vEndgame);
 
       const intakeSources = defenseRating > 0 ? ["ground", "station"] : ["ground"];
       const maxFuelObserved = clampInt(fuelTotal * 0.25 * (0.5 + rng()), 0, 600);
@@ -583,8 +571,8 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         target_team_number: team,
         alliance_color: seat.color,
         station: seat.station,
-        inactive_first: inactiveFirst,
-        inactive_first_source: inactiveFirst ? "derived" : null,
+        inactive_first: null,
+        inactive_first_source: null,
         fuel_bursts: bursts,
         climb_level: climbLevel,
         climb_attempted: climbAttempted,

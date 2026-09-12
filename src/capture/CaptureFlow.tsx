@@ -36,6 +36,8 @@ export interface CaptureFlowProps {
   storage?: CaptureSessionStorage;
   now?: () => number;
   autoHistory?: TeamAutoHistory;
+  /** Advisory pit-scout estimate shown on the live Score and Feed controls. */
+  suggestedBps?: number | null;
   onAction?: (action: CaptureObservedAction) => void;
   onReviewStepChange?: (step: number) => void;
   onReviewAction?: (action: ReviewObservedAction) => void;
@@ -89,6 +91,7 @@ export function CaptureFlow(props: CaptureFlowProps): JSX.Element {
     ) : (
       <CaptureScreen
         session={session}
+        suggestedBps={props.suggestedBps}
         onToReview={() => session.setFlowStage('review')}
         onExit={props.onExit}
         onAction={props.onAction}

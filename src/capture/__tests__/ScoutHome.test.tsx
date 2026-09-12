@@ -151,6 +151,7 @@ import ScoutHome, {
   normalizeManualMatchKey,
   deriveSlotForTeam,
   deadLetterNeedsTargetCorrection,
+  captureTargetFromDraftState,
 } from '@/capture/ScoutHome';
 import { db, saveDraft, saveReport } from '@/db/localStore';
 import type { CachedMatch, LocalMatchReport } from '@/db/types';
@@ -462,6 +463,38 @@ describe('deriveSlotForTeam', () => {
     expect(
       deriveSlotForTeam({ red1: null, red2: null, red3: null, blue1: null, blue2: null, blue3: null }, 254),
     ).toBeNull();
+  });
+});
+
+describe('saved draft target corruption guard', () => {
+  const validTarget = {
+    eventKey: '2026demo',
+    matchKey: '2026demo_qm1',
+    scoutId: 'scout-1',
+    scoutName: 'Scout',
+    targetTeamNumber: 254,
+    allianceColor: 'red',
+    station: 1,
+  } as const;
+
+  it('accepts a complete runtime-valid capture target', () => {
+    expect(captureTargetFromDraftState({ target: validTarget })).toEqual(validTarget);
+  });
+
+  it.each([
+    null,
+    'corrupt',
+    { target: 'corrupt' },
+    { target: { ...validTarget, eventKey: '' } },
+    { target: { ...validTarget, matchKey: null } },
+    { target: { ...validTarget, scoutId: '' } },
+    { target: { ...validTarget, targetTeamNumber: Number.NaN } },
+    { target: { ...validTarget, targetTeamNumber: 0 } },
+    { target: { ...validTarget, allianceColor: 'green' } },
+    { target: { ...validTarget, station: 4 } },
+    { target: { ...validTarget, scoutName: 42 } },
+  ])('rejects malformed draft target metadata: %j', (state) => {
+    expect(captureTargetFromDraftState(state)).toBeNull();
   });
 });
 

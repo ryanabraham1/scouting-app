@@ -74,14 +74,13 @@ afterAll(async () => {
   await device?.auth.signOut();
 });
 
-it('recompute mirrors TS fuel-by-window math; inactiveFirst parity + boundary + rounding', async () => {
-  // inactive_first = true => shift1,shift3 inactive; shift2,shift4 active.
+it('recompute mirrors all-shooting-scores TS math, including boundaries and rounding', async () => {
   // Bursts attributed by their declared window field (recompute mirrors TS by-window sum):
-  //  auto: 20s @ rate 1.0     -> 20 fuel (active)
-  //  transition: 10s @ 0.5    -> 5 fuel (active)
-  //  shift1 (inactive): 25s @ 2 -> 50 fuel (NOT counted in points; in teleop_fuel_inactive)
-  //  shift2 (active): 25s @ 2 -> 50 fuel
-  //  burst straddling 1:45 endgame boundary: start 105000 end 115000 @ 1.0 -> 10 fuel; startMs=105000 is shift4 (active)
+  //  auto: 20s @ rate 1.0     -> 20 fuel
+  //  transition: 10s @ 0.5    -> 5 fuel
+  //  shift1: 25s @ 2 -> 50 fuel
+  //  shift2: 25s @ 2 -> 50 fuel
+  //  burst straddling 1:45 endgame boundary: start 105000 end 115000 @ 1.0 -> 10 fuel; declared as shift4
   //  rounding: 3s @ 0.5 = 1.5 -> rounds half-up to 2 (its own window)
   const bursts = [
     { startMs: 0, endMs: 20000, rate: 1.0, window: 'auto' },
@@ -122,12 +121,11 @@ it('recompute mirrors TS fuel-by-window math; inactiveFirst parity + boundary + 
   expect(out!.fuel_by_shift).toEqual([50, 50, 2, 10]);
   // endgame_fuel: no burst with window 'endgame' -> 0
   expect(out!.endgame_fuel).toBe(0);
-  // teleop_fuel_active = transition(5) + active shifts(shift2=50, shift4=10) = 65
-  expect(out!.teleop_fuel_active).toBe(65);
-  // teleop_fuel_inactive = inactive shifts shift1(50)+shift3(2) = 52
-  expect(out!.teleop_fuel_inactive).toBe(52);
-  // fuel_points = active windows: auto(20)+transition(5)+endgame(0)+shift2(50)+shift4(10) = 85, *1
-  expect(out!.fuel_points).toBe(85);
+  // teleop_fuel_active stores every observed Teleop shooting burst.
+  expect(out!.teleop_fuel_active).toBe(117);
+  expect(out!.teleop_fuel_inactive).toBe(0);
+  // fuel_points = auto(20) + all Teleop(117) + endgame(0), *1.
+  expect(out!.fuel_points).toBe(137);
 
   // REFRAMED revision/timestamp guard: the BEFORE UPDATE trigger's auto-bump is
   // only reachable through a direct table UPDATE, which no client can issue.
@@ -222,12 +220,10 @@ it('recompute matches the B3 TS computeAggregates golden case (declared-window a
   expect(out!.auto_fuel).toBe(5);
   expect(out!.fuel_by_shift).toEqual([6, 4, 3, 2]);
   expect(out!.endgame_fuel).toBe(7);
-  // teleop_fuel_active = transition(3) + active shifts shift2(4)+shift4(2) = 9
-  expect(out!.teleop_fuel_active).toBe(9);
-  // teleop_fuel_inactive = inactive shifts shift1(6)+shift3(3) = 9
-  expect(out!.teleop_fuel_inactive).toBe(9);
-  // fuel_points = auto(5)+transition(3)+endgame(7)+shift2(4)+shift4(2) = 21, *1
-  expect(out!.fuel_points).toBe(21);
+  expect(out!.teleop_fuel_active).toBe(18);
+  expect(out!.teleop_fuel_inactive).toBe(0);
+  // fuel_points = auto(5) + all Teleop(18) + endgame(7), *1.
+  expect(out!.fuel_points).toBe(30);
 }, 30_000);
 
 it('rejects a negative-duration burst at ingress (0040 clamp moved to write validation)', async () => {

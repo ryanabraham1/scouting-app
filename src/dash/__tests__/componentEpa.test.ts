@@ -105,23 +105,21 @@ describe('aggregateTeamComponentSplit', () => {
     expect(s.auto + s.fuel + s.climb).toBeCloseTo(agg.scoutingExpectedPoints, 9);
   });
 
-  it('ignores INACTIVE teleop fuel — it scores zero of the points being split', () => {
-    // meanFuelPoints counts active windows only (scoring/compute.ts), so
-    // inactive-shift fuel must not dilute the ratio. Feed-heavy team: auto 10,
-    // active 20, inactive 40. Basis 30 pts → auto keeps its true 10, not
-    // 30·(10/70) ≈ 4.3 as the pre-fix inactive-inclusive ratio gave.
+  it('includes legacy inactive-bucket fuel because every observed shot scores', () => {
+    // A pre-migration-shaped aggregate may still carry 40 Teleop FUEL in the
+    // inactive column. It remains part of the point-scoring Teleop proportion.
     const agg = makeAgg({
       matchesScouted: 3,
       meanAutoFuel: 10,
       meanTeleopFuelActive: 20,
       meanTeleopFuelInactive: 40,
       meanEndgameFuel: 0,
-      meanFuelPoints: 30,
+      meanFuelPoints: 70,
       meanClimbPoints: 0,
     });
     const s = aggregateTeamComponentSplit(agg);
     expect(s.auto).toBeCloseTo(10, 9);
-    expect(s.fuel).toBeCloseTo(20, 9);
+    expect(s.fuel).toBeCloseTo(60, 9);
     expect(s.auto + s.fuel + s.climb).toBeCloseTo(agg.scoutingExpectedPoints, 9);
   });
 

@@ -108,4 +108,17 @@
     padding-left: max(0.75rem, env(safe-area-inset-left));
     padding-right: max(0.75rem, env(safe-area-inset-right));
   }
+
+  /* iPad-sized screens benefit from a little more breathing room than phones.
+     Keep the compact phone and wide desktop rhythm unchanged. */
+  @media (min-width: 768px) and (max-width: 1180px) {
+    .px-safe {
+      padding-left: max(1.5rem, env(safe-area-inset-left));
+      padding-right: max(1.5rem, env(safe-area-inset-right));
+    }
+    .px-safe-tight {
+      padding-left: max(1rem, env(safe-area-inset-left));
+      padding-right: max(1rem, env(safe-area-inset-right));
+    }
+  }
 }

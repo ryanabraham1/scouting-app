@@ -174,6 +174,128 @@ function isFiniteInRange(value: unknown, min: number, max: number): value is num
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 }
 
+const DRAFT_BURST_WINDOWS = new Set([
+  'auto',
+  'transition',
+  'shift1',
+  'shift2',
+  'shift3',
+  'shift4',
+  'endgame',
+]);
+
+function isDraftPoint(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.x === 'number' &&
+    Number.isFinite(value.x) &&
+    typeof value.y === 'number' &&
+    Number.isFinite(value.y)
+  );
+}
+
+function isDraftBurst(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.startMs === 'number' &&
+    Number.isFinite(value.startMs) &&
+    typeof value.endMs === 'number' &&
+    Number.isFinite(value.endMs) &&
+    typeof value.rate === 'number' &&
+    Number.isFinite(value.rate) &&
+    DRAFT_BURST_WINDOWS.has(String(value.window))
+  );
+}
+
+function isDraftInterval(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.startMs === 'number' &&
+    Number.isFinite(value.startMs) &&
+    typeof value.endMs === 'number' &&
+    Number.isFinite(value.endMs) &&
+    (value.phase === 'auto' || value.phase === 'teleop')
+  );
+}
+
+function deferredValidationError(value: Record<string, unknown>): string | null {
+  const numericFields = [
+    'climbLevel',
+    'maxFuelCapacityObserved',
+    'defenseRating',
+    'driverSkill',
+    'agility',
+    'defenseDurationMs',
+    'defendedDurationMs',
+    'pins',
+    'foulsMinor',
+    'foulsMajor',
+  ];
+  if (
+    numericFields.some(
+      (field) =>
+        value[field] !== undefined &&
+        (typeof value[field] !== 'number' || !Number.isFinite(value[field] as number)),
+    )
+  ) {
+    return 'Draft review numeric data is malformed.';
+  }
+
+  const booleanFields = [
+    'climbAttempted',
+    'climbSuccess',
+    'noShow',
+    'died',
+    'tipped',
+    'droppedFuel',
+    'fedCorral',
+    'autoLeftStartingLine',
+    'autoClimbLevel1',
+  ];
+  if (
+    booleanFields.some(
+      (field) => value[field] !== undefined && typeof value[field] !== 'boolean',
+    )
+  ) {
+    return 'Draft review boolean data is malformed.';
+  }
+
+  if (value.notes !== undefined && typeof value.notes !== 'string') {
+    return 'Draft notes are malformed.';
+  }
+  for (const field of ['intakeSources', 'foulReasons']) {
+    if (
+      value[field] !== undefined &&
+      (!Array.isArray(value[field]) || !(value[field] as unknown[]).every((item) => typeof item === 'string'))
+    ) {
+      return `Draft ${field} data is malformed.`;
+    }
+  }
+  for (const field of ['defenseIntervals', 'defendedIntervals']) {
+    if (
+      value[field] !== undefined &&
+      (!Array.isArray(value[field]) || !(value[field] as unknown[]).every(isDraftInterval))
+    ) {
+      return `Draft ${field} data is malformed.`;
+    }
+  }
+  if (
+    value.autoStartPosition !== undefined &&
+    value.autoStartPosition !== null &&
+    !isDraftPoint(value.autoStartPosition)
+  ) {
+    return 'Draft Auto start position is malformed.';
+  }
+  if (
+    value.autoPath !== undefined &&
+    value.autoPath !== null &&
+    (!Array.isArray(value.autoPath) || !value.autoPath.every(isDraftPoint))
+  ) {
+    return 'Draft Auto path is malformed.';
+  }
+  return null;
+}
+
 function parseCaptureEnvelope(value: unknown): CaptureSessionEnvelope | null {
   if (!isRecord(value) || value.version !== CAPTURE_SESSION_VERSION) return null;
   const clock = value.clock;
@@ -205,11 +327,34 @@ function draftValidationError(value: unknown): string | null {
   if (value.bursts !== undefined && !Array.isArray(value.bursts)) {
     return 'Draft fuel bursts are malformed.';
   }
+  if (Array.isArray(value.bursts) && !value.bursts.every(isDraftBurst)) {
+    return 'Draft fuel bursts contain malformed data.';
+  }
   if (value.feedingBursts !== undefined && !Array.isArray(value.feedingBursts)) {
     return 'Draft feeding bursts are malformed.';
   }
+  if (Array.isArray(value.feedingBursts) && !value.feedingBursts.every(isDraftBurst)) {
+    return 'Draft feeding bursts contain malformed data.';
+  }
+  if (
+    value.inactiveFirst !== undefined &&
+    value.inactiveFirst !== null &&
+    typeof value.inactiveFirst !== 'boolean'
+  ) {
+    return 'Draft inactive-first data is malformed.';
+  }
+  if (
+    value.rate !== undefined &&
+    (typeof value.rate !== 'number' || !Number.isFinite(value.rate))
+  ) {
+    return 'Draft fuel rate is malformed.';
+  }
   if (value.deferred !== undefined && !isRecord(value.deferred)) {
     return 'Draft review data is malformed.';
+  }
+  if (isRecord(value.deferred)) {
+    const error = deferredValidationError(value.deferred);
+    if (error) return error;
   }
   if (value.captureSession !== undefined) {
     if (
@@ -1035,7 +1180,9 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
   const save = useCallback(async (): Promise<string> => {
     const inputs: MatchReportInputs = {
       schemaVersion: SCHEMA_VERSION,
-      inactiveFirst: inactiveFirst === null ? false : inactiveFirst,
+      // Retained in MatchReportInputs for schema compatibility; scoring no
+      // longer depends on which alliance won Auto.
+      inactiveFirst: false,
       fuelBursts: bursts,
       climbLevel: deferred.climbLevel,
       autoClimbLevel1: deferred.autoClimbLevel1,
@@ -1059,8 +1206,8 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       targetTeamNumber: target.targetTeamNumber,
       allianceColor: target.allianceColor,
       station: target.station,
-      inactiveFirst,
-      inactiveFirstSource: inactiveFirst === null ? null : 'scout',
+      inactiveFirst: null,
+      inactiveFirstSource: null,
       teleopClockUnconfirmed: editing
         ? editTeleopUnconfirmedRef.current
         : clock.state.teleopClockUnconfirmed,

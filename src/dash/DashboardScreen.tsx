@@ -212,7 +212,6 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         ariaLabel="Lead Dashboard sections"
         value={tab}
         onChange={selectTab}
-        className="!gap-1.5 [&>button]:!min-h-16 [&>button]:!min-w-[3.25rem] [&>button]:!w-[3.25rem] [&>button]:!basis-[3.25rem] [&>button]:!flex-col [&>button]:!gap-0.5 [&>button]:!px-0.5 sm:grid-cols-5 sm:!gap-2 sm:[&>button]:!min-w-0 sm:[&>button]:!w-auto sm:[&>button]:!basis-auto sm:[&>button]:!px-2"
         tabs={TABS.map((item) => {
           const Icon = item.icon;
           return { value: item.key, label: item.label, icon: <Icon /> };

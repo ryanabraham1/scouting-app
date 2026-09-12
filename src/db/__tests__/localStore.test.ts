@@ -6,6 +6,7 @@ import {
   db,
   ScoutingDb,
   saveReport,
+  finalizeReport,
   listReports,
   getUnsynced,
   countUnsynced,
@@ -367,6 +368,19 @@ describe('STORE drafts', () => {
 });
 
 describe('STORE persistence', () => {
+  it('rolls back report promotion if finalization fails, preserving the resumable draft', async () => {
+    await db.reports.clear();
+    await db.drafts.clear();
+    const draftKey = 'qm-atomic:scout-1:254';
+    await saveDraft(draftKey, { kept: true });
+    const invalid = makeReport({ id: undefined as unknown as string });
+
+    await expect(finalizeReport(invalid, draftKey)).rejects.toBeTruthy();
+
+    expect(await getDraft(draftKey)).toMatchObject({ state: { kept: true } });
+    expect(await listReports()).toEqual([]);
+  });
+
   it('reports + drafts persist across a fresh ScoutingDb instance', async () => {
     await db.reports.clear();
     await db.drafts.clear();

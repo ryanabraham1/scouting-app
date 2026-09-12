@@ -67,6 +67,11 @@ function asText(p: Record<string, unknown>, key: string): string | null {
   return String(v);
 }
 
+/** PostgreSQL length(text) counts Unicode characters, not UTF-16 code units. */
+function sqlTextLength(value: string): number {
+  return Array.from(value).length;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BURST_WINDOWS = new Set([
   'auto',
@@ -120,10 +125,10 @@ export function validateMatchReportPayload(p: unknown): void {
   }
 
   const strLimit = (key: string, max: number): boolean =>
-    (asText(o, key) ?? '').length > max;
+    sqlTextLength(asText(o, key) ?? '') > max;
   if (
-    (asText(o, 'event_key') ?? '').length > 64 ||
-    (asText(o, 'match_key') ?? '').length > 128 ||
+    sqlTextLength(asText(o, 'event_key') ?? '') > 64 ||
+    sqlTextLength(asText(o, 'match_key') ?? '') > 128 ||
     strLimit('app_version', 64) ||
     strLimit('device_id', 128) ||
     strLimit('scout_name', 128) ||
@@ -340,7 +345,7 @@ function validateStringArray(
     throw new Error(message);
   }
   for (const item of arr as unknown[]) {
-    if (jsonType(item) !== 'string' || (item as string).length > maxItemLen) {
+    if (jsonType(item) !== 'string' || sqlTextLength(item as string) > maxItemLen) {
       throw new Error(message);
     }
   }
@@ -550,6 +555,194 @@ describe('mapReport wire shape passes the server validate_match_report_payload c
     expect(p.pins).toBe(1_000);
     expect((p.notes as string).length).toBe(10_000);
     expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
+  it('repairs every sanitizer-controlled scalar type/range before upload', () => {
+    const corrupted = makeReport() as LocalMatchReport & Record<string, unknown>;
+    Object.assign(corrupted, {
+      appVersion: 42,
+      deviceId: { unexpected: true },
+      scoutName: ['not', 'a', 'name'],
+      inactiveFirst: 'false',
+      inactiveFirstSource: 'guessed',
+      teleopClockUnconfirmed: 1,
+      climbLevel: Number.POSITIVE_INFINITY,
+      climbAttempted: 'yes',
+      climbSuccess: null,
+      autoLeftStartingLine: 1,
+      autoClimbLevel1: 'true',
+      maxFuelCapacityObserved: -100,
+      defenseRating: 99.9,
+      driverSkill: Number.NaN,
+      agility: -2.4,
+      defenseDurationMs: 140_000.9,
+      defendedDurationMs: '1000',
+      pins: 1_000.8,
+      foulsMinor: -1,
+      foulsMajor: null,
+      noShow: 'false',
+      died: 1,
+      tipped: {},
+      droppedFuel: 'yes',
+      fedCorral: [],
+      notes: { unexpected: true },
+      rowRevision: 0,
+    });
+
+    const p = wire(corrupted);
+    expect(p).toMatchObject({
+      app_version: '',
+      device_id: '',
+      scout_name: '',
+      inactive_first: null,
+      inactive_first_source: null,
+      teleop_clock_unconfirmed: false,
+      climb_level: 0,
+      climb_attempted: false,
+      climb_success: false,
+      auto_left_starting_line: false,
+      auto_climb_level1: false,
+      max_fuel_capacity_observed: 0,
+      defense_rating: 10,
+      driver_skill: 0,
+      agility: 0,
+      defense_duration_ms: 140_000,
+      defended_duration_ms: 0,
+      pins: 1_000,
+      fouls_minor: 0,
+      fouls_major: 0,
+      no_show: false,
+      died: false,
+      tipped: false,
+      dropped_fuel: false,
+      fed_corral: false,
+      notes: '',
+      row_revision: 1,
+    });
+    expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
+  it('filters malformed collection entries, caps lengths, and repairs every time range', () => {
+    const badBurstItems = [
+      null,
+      'burst',
+      { startMs: Number.NaN, endMs: 1, rate: 1, window: 'auto' },
+      { startMs: 0, endMs: Number.POSITIVE_INFINITY, rate: 1, window: 'auto' },
+      { startMs: 0, endMs: 1, rate: '30', window: 'auto' },
+      { startMs: 0, endMs: 1, rate: 1, window: 'pause' },
+    ] as unknown as FuelBurst[];
+    const manyFuel = Array.from({ length: 600 }, (_, i) => ({
+      startMs: -10.6,
+      endMs: 200_000.4,
+      rate: i % 2 === 0 ? -5 : 35,
+      window: 'shift1' as const,
+    }));
+    const manyFeeds = Array.from({ length: 300 }, () => ({
+      startMs: 50.7,
+      endMs: 10.2,
+      rate: 2,
+      window: 'auto' as const,
+    }));
+    const manyIntervals = Array.from({ length: 80 }, (_, i) => ({
+      startMs: i + 0.7,
+      endMs: i - 20.2,
+      phase: 'teleop' as const,
+    }));
+    const p = wire(
+      makeReport({
+        fuelBursts: [...badBurstItems, ...manyFuel],
+        feedingBursts: manyFeeds,
+        intakeSources: [null, 1, ...Array.from({ length: 20 }, () => '🤖'.repeat(80))] as unknown as string[],
+        foulReasons: [{}, ...Array.from({ length: 40 }, () => 'x'.repeat(80))] as unknown as string[],
+        defenseIntervals: [
+          null,
+          { startMs: 0, endMs: 1, phase: 'pause' },
+          ...manyIntervals,
+        ] as unknown as TimeInterval[],
+        defendedIntervals: 'not-an-array' as unknown as TimeInterval[],
+      }),
+    );
+
+    expect(p.fuel_bursts).toHaveLength(512);
+    expect(p.feeding_bursts).toHaveLength(256);
+    expect(p.intake_sources).toHaveLength(16);
+    expect(Array.from((p.intake_sources as string[])[0])).toHaveLength(64);
+    expect(p.foul_reasons).toHaveLength(32);
+    expect(p.defense_intervals).toHaveLength(64);
+    expect(p.defended_intervals).toEqual([]);
+    expect((p.fuel_bursts as FuelBurst[])[0]).toEqual({
+      startMs: 0,
+      endMs: 140_000,
+      rate: 0,
+      window: 'shift1',
+    });
+    expect((p.feeding_bursts as FuelBurst[])[0]).toEqual({
+      startMs: 51,
+      endMs: 51,
+      rate: 2,
+      window: 'auto',
+    });
+    expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
+  it('keeps the largest valid sanitized payload below the server 256 KiB cap', () => {
+    const p = wire(
+      makeReport({
+        appVersion: '🤖'.repeat(100),
+        deviceId: '🤖'.repeat(200),
+        scoutName: '🤖'.repeat(200),
+        fuelBursts: Array.from({ length: 600 }, () => ({
+          startMs: 0,
+          endMs: 140_000,
+          rate: 29.999999999999996,
+          window: 'shift4' as const,
+        })),
+        feedingBursts: Array.from({ length: 300 }, () => ({
+          startMs: 0,
+          endMs: 140_000,
+          rate: 29.999999999999996,
+          window: 'endgame' as const,
+        })),
+        autoPath: Array.from({ length: 600 }, (_, i) => ({ x: i / 7, y: -i / 7 })),
+        intakeSources: Array.from({ length: 30 }, () => '🤖'.repeat(100)),
+        foulReasons: Array.from({ length: 50 }, () => '🤖'.repeat(100)),
+        defenseIntervals: Array.from({ length: 100 }, () => ({
+          startMs: 0,
+          endMs: 140_000,
+          phase: 'teleop' as const,
+        })),
+        defendedIntervals: Array.from({ length: 100 }, () => ({
+          startMs: 0,
+          endMs: 140_000,
+          phase: 'teleop' as const,
+        })),
+        notes: '🤖'.repeat(20_000),
+      }),
+    );
+    const bytes = new TextEncoder().encode(JSON.stringify(p)).length;
+    expect(bytes).toBeLessThanOrEqual(262_144);
+    expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
+  it('sanitization is deterministic, idempotent, JSON-safe, and does not mutate the local row', () => {
+    const report = makeReport({
+      fuelBursts: [{ startMs: -1.6, endMs: 200_001.2, rate: 40, window: 'auto' }],
+      autoPath: [{ x: 11, y: -11 }],
+      notes: 'x'.repeat(10_001),
+    });
+    const original = structuredClone(report);
+    const once = wire(report);
+    const twice = wire({
+      ...report,
+      fuelBursts: once.fuel_bursts as FuelBurst[],
+      autoPath: once.auto_path as Array<{ x: number; y: number }>,
+      notes: once.notes as string,
+    });
+
+    expect(report).toEqual(original);
+    expect(twice).toEqual(once);
+    expect(JSON.stringify(once)).not.toMatch(/NaN|Infinity|undefined/);
+    expect(() => validateMatchReportPayload(once)).not.toThrow();
   });
 
   it('every declared upsert key is either validated or explicitly ignored (no silent drift)', () => {

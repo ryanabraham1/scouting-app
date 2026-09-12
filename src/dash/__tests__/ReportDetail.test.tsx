@@ -65,8 +65,8 @@ describe('ReportDetail', () => {
     const detail = getByTestId('report-detail');
     const text = detail.textContent ?? '';
     expect(text).toContain('Auto fuel');
-    expect(text).toContain('Teleop active');
-    expect(text).toContain('Teleop inactive');
+    expect(text).toContain('Teleop fuel');
+    expect(text).not.toContain('Teleop inactive');
     expect(text).toContain('Endgame fuel');
     expect(text).toContain('Fuel points');
     // confidence 0.3 -> 30%

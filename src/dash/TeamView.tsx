@@ -1083,14 +1083,9 @@ function TeamDetail(props: {
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat label="Auto fuel" value={fmt(agg.meanAutoFuel)} testid="team-mean-auto-fuel" />
           <Stat
-            label="Teleop active"
-            value={fmt(agg.meanTeleopFuelActive)}
-            testid="team-mean-teleop-active"
-          />
-          <Stat
-            label="Teleop inactive"
-            value={fmt(agg.meanTeleopFuelInactive)}
-            testid="team-mean-teleop-inactive"
+            label="Teleop fuel"
+            value={fmt(agg.meanTeleopFuelActive + agg.meanTeleopFuelInactive)}
+            testid="team-mean-teleop-fuel"
           />
           <Stat label="Endgame fuel" value={fmt(agg.meanEndgameFuel)} testid="team-mean-endgame-fuel" />
           <Stat
@@ -1371,10 +1366,9 @@ function TeamDetail(props: {
                           </span>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-zinc-400 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-zinc-400 sm:grid-cols-3">
                         <span>auto {fmt(m.auto_fuel)}</span>
-                        <span>tele+ {fmt(m.teleop_fuel_active)}</span>
-                        <span>tele− {fmt(m.teleop_fuel_inactive)}</span>
+                        <span>tele {fmt(m.teleop_fuel_active + m.teleop_fuel_inactive)}</span>
                         <span>end {fmt(m.endgame_fuel)}</span>
                         <span>defense {m.defense_rating}</span>
                         <span>pins {m.pins}</span>

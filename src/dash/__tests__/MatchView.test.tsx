@@ -282,7 +282,7 @@ describe('MatchView', () => {
     const scope = within(detail);
     // Full report detail surfaces the friendly match label and fuel breakdown.
     expect(getByTestId('report-match-label').textContent).toBe('Qual 1');
-    expect(scope.getByText(/Teleop active/i)).toBeTruthy();
+    expect(scope.getByText(/Teleop fuel/i)).toBeTruthy();
     expect(scope.getByText(/Fuel points/i)).toBeTruthy();
   });
 

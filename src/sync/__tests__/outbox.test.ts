@@ -211,6 +211,41 @@ describe('syncOnce', () => {
     expect(got?.lastSyncError).toBeTruthy();
   });
 
+  it('preserves the report when a nominal success has a missing or malformed verdict', async () => {
+    await saveReport(makeReport({ id: 'bad-verdict', notes: 'must survive' }));
+    const rpc = vi.fn().mockResolvedValue({ data: { status: 'ok' }, error: null });
+
+    expect(await syncOnce(rpc)).toEqual({
+      attempted: 1,
+      synced: 0,
+      retried: 0,
+      deadLettered: 1,
+    });
+    expect(await getReport('bad-verdict')).toMatchObject({
+      syncState: 'error',
+      notes: 'must survive',
+      lastSyncError: expect.stringMatching(/invalid sync status/i),
+    });
+  });
+
+  it('a terminal payload failure does not block later valid reports in the queue', async () => {
+    await saveReport(makeReport({ id: 'bad-row', createdAt: '2026-06-23T00:00:00.000Z' }));
+    await saveReport(makeReport({ id: 'good-row', createdAt: '2026-06-23T00:00:01.000Z' }));
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ error: { code: '22023', message: 'auto_path is malformed' } })
+      .mockResolvedValueOnce(successResult());
+
+    expect(await syncOnce(rpc)).toEqual({
+      attempted: 2,
+      synced: 1,
+      retried: 0,
+      deadLettered: 1,
+    });
+    expect((await getReport('bad-row'))?.syncState).toBe('error');
+    expect((await getReport('good-row'))?.syncState).toBe('synced');
+  });
+
   it('keeps infrastructure failures queued even after the legacy attempt cap', async () => {
     await saveReport(makeReport({ id: 'cap1', syncAttempts: SYNC_MAX_ATTEMPTS }));
     const rpc = vi.fn().mockResolvedValue({
