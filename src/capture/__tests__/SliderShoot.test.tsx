@@ -170,10 +170,10 @@ describe('SliderShoot tone variant', () => {
     expect(screen.getByTestId('ss').getAttribute('data-rate')).toBe('0');
   });
 
-  it('shows uneven 10 and 20 BPS landmarks', () => {
+  it('does not render fixed BPS landmarks', () => {
     render(<SliderShoot data-testid="ss" onShootStart={vi.fn()} onShootEnd={vi.fn()} />);
-    expect(Number.parseFloat(screen.getByTestId('ss-landmark-10').style.left)).toBeCloseTo(57.735, 3);
-    expect(Number.parseFloat(screen.getByTestId('ss-landmark-20').style.left)).toBeCloseTo(81.65, 2);
+    expect(screen.queryByTestId('ss-landmark-10')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ss-landmark-20')).not.toBeInTheDocument();
   });
 
   it('shows an advisory pit estimate without changing the captured rate', () => {

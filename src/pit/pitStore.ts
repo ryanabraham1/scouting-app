@@ -21,6 +21,8 @@ export interface PitAutoRoutine {
   underTrench: boolean | null;
   overBump: boolean | null;
   estimatedPoints: number | null;
+  /** Alliance end inferred from the absolute-field starting position. */
+  recordedAlliance?: 'red' | 'blue' | null;
 }
 
 export interface PitQuestionnaire {
@@ -271,6 +273,11 @@ function persistedReportProblem(value: unknown): string | null {
           auto.estimatedPoints < 0 ||
           auto.estimatedPoints > PIT_NUMERIC_LIMITS.autoPoints)
       ) return 'Stored auto routine points are outside their safe range.';
+      if (
+        auto.recordedAlliance != null &&
+        auto.recordedAlliance !== 'red' &&
+        auto.recordedAlliance !== 'blue'
+      ) return 'Stored auto routine alliance is malformed.';
     }
   }
   return null;
@@ -644,17 +651,28 @@ export function normalizeAutoRoutines(
     const points = candidate.map(point).filter((item): item is { x: number; y: number } => Boolean(item));
     return points.length > 0 ? points : null;
   };
+  const inferredAlliance = (
+    start: { x: number; y: number } | null,
+  ): 'red' | 'blue' | null => {
+    if (!start || start.x === 0.5) return null;
+    return start.x < 0.5 ? 'red' : 'blue';
+  };
   if (Array.isArray(raw) && raw.length > 0) {
     return raw.slice(0, 12).map((candidate, index) => {
       const value = objectValue(candidate);
+      const startPosition = point(value.startPosition);
       return {
         id: typeof value.id === 'string' && value.id ? value.id : `auto-${index + 1}`,
         description: typeof value.description === 'string' ? value.description : '',
-        startPosition: point(value.startPosition),
+        startPosition,
         path: path(value.path),
         underTrench: typeof value.underTrench === 'boolean' ? value.underTrench : null,
         overBump: typeof value.overBump === 'boolean' ? value.overBump : null,
         estimatedPoints: finiteOrNull(value.estimatedPoints),
+        recordedAlliance:
+          value.recordedAlliance === 'red' || value.recordedAlliance === 'blue'
+            ? value.recordedAlliance
+            : inferredAlliance(startPosition),
       };
     });
   }
@@ -669,6 +687,7 @@ export function normalizeAutoRoutines(
         underTrench: null,
         overBump: null,
         estimatedPoints: null,
+        recordedAlliance: inferredAlliance(startPosition),
       }]
     : [];
 }

@@ -221,7 +221,6 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
   // clipped by the container's overflow-hidden.
   const THUMB_INSET = '2.25rem';
   const thumbLeft = `calc(${THUMB_INSET} + (100% - 2 * ${THUMB_INSET}) * ${trackFraction})`;
-  const landmarks = [10, 20].filter((landmark) => landmark < max);
   const validSuggestedRate =
     typeof suggestedRate === 'number' &&
     Number.isFinite(suggestedRate) &&
@@ -277,19 +276,6 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
         className={`pointer-events-none absolute inset-y-0 left-0 ${toneCls.fill} transition-[width]`}
         style={{ width: thumbLeft }}
       />
-      {/* Uneven landmarks make the expanded low-rate scale legible at a glance. */}
-      {landmarks.map((landmark) => (
-        <div
-          key={landmark}
-          data-testid={`${testid}-landmark-${landmark}`}
-          className="pointer-events-none absolute inset-y-1 z-[5] border-l border-foreground/20"
-          style={{ left: `${trackFractionFromRate(landmark, max) * 100}%` }}
-        >
-          <span className="absolute left-1 top-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/80">
-            {landmark}
-          </span>
-        </div>
-      ))}
       {validSuggestedRate != null && suggestedLeft ? (
         <div
           data-testid={`${testid}-suggested-marker`}

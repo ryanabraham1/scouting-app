@@ -726,8 +726,10 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
   const [autoSel, setAutoSel] = useState<Record<number, number>>({});
   const teamAutos = useMemo(
     () =>
-      showAutos && phase === 'auto' ? matchupTeamAutos(redTeams, blueTeams, reports) : [],
-    [showAutos, phase, redTeams, blueTeams, reports],
+      showAutos && phase === 'auto'
+        ? matchupTeamAutos(redTeams, blueTeams, reports, pitByTeam)
+        : [],
+    [showAutos, phase, redTeams, blueTeams, reports, pitByTeam],
   );
   const underlays = useMemo(() => {
     const seedColor = new Map(robotSeeds.map((seed) => [seed.key, seed.color]));

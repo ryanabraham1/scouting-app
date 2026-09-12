@@ -22,6 +22,7 @@ import {
   enqueuePitReport,
   getPitReport,
   markPitPending,
+  normalizeAutoRoutines,
   pitDb,
   setPitUploadedPhoto,
   submitPit,
@@ -98,6 +99,33 @@ describe('pit draft', () => {
 
     await deletePitQuarantine(quarantined[0].id);
     expect(await pitDb.pitQuarantine.count()).toBe(0);
+  });
+});
+
+describe('pit auto alliance normalization', () => {
+  it('backfills the recorded side from legacy start positions', () => {
+    const [red] = normalizeAutoRoutines([{
+      id: 'legacy-red',
+      description: '',
+      startPosition: { x: 0.2, y: 0.4 },
+      path: [{ x: 0.2, y: 0.4 }, { x: 0.45, y: 0.5 }],
+    }]);
+    const [blue] = normalizeAutoRoutines([{
+      id: 'legacy-blue',
+      description: '',
+      startPosition: { x: 0.8, y: 0.6 },
+      path: null,
+    }]);
+    const [midfield] = normalizeAutoRoutines([{
+      id: 'midfield',
+      description: '',
+      startPosition: { x: 0.5, y: 0.6 },
+      path: null,
+    }]);
+
+    expect(red.recordedAlliance).toBe('red');
+    expect(blue.recordedAlliance).toBe('blue');
+    expect(midfield.recordedAlliance).toBeNull();
   });
 });
 

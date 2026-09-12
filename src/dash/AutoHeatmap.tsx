@@ -42,7 +42,7 @@ export interface AutoPath {
   path: FieldPoint[] | null;
   /** Alliance the routine was RECORDED on (absolute-frame coords); lets consumers
    *  re-frame it to the other alliance via the 180° field rotation. */
-  alliance: AllianceColor;
+  alliance: AllianceColor | null;
 }
 
 interface CollectedPoints {

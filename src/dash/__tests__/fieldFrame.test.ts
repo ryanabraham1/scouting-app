@@ -1,6 +1,6 @@
 // src/dash/__tests__/fieldFrame.test.ts
 import { describe, it, expect } from 'vitest';
-import { rotate180, pointToFrame } from '@/dash/fieldFrame';
+import { inferAllianceFromStart, rotate180, pointToFrame } from '@/dash/fieldFrame';
 import { autoPathToFrame } from '@/dash/autoGrouping';
 import type { AutoPath } from '@/dash/AutoHeatmap';
 
@@ -27,6 +27,18 @@ describe('pointToFrame', () => {
   });
 });
 
+describe('inferAllianceFromStart', () => {
+  it('uses the field image orientation: red left and blue right', () => {
+    expect(inferAllianceFromStart({ x: 0.2, y: 0.5 })).toBe('red');
+    expect(inferAllianceFromStart({ x: 0.8, y: 0.5 })).toBe('blue');
+  });
+
+  it('does not guess for an exact-midfield or missing start', () => {
+    expect(inferAllianceFromStart({ x: 0.5, y: 0.2 })).toBeNull();
+    expect(inferAllianceFromStart(null)).toBeNull();
+  });
+});
+
 describe('autoPathToFrame', () => {
   const redAuto: AutoPath = {
     matchKey: 'e_qm1',
@@ -47,5 +59,10 @@ describe('autoPathToFrame', () => {
 
   it('returns the same routine unchanged when already on the target side', () => {
     expect(autoPathToFrame(redAuto, 'red')).toBe(redAuto);
+  });
+
+  it('does not rotate a routine whose side cannot be inferred', () => {
+    const unknown = { ...redAuto, alliance: null };
+    expect(autoPathToFrame(unknown, 'blue')).toBe(unknown);
   });
 });

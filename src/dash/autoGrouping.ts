@@ -37,7 +37,9 @@ const dist = (a: FieldPoint, b: FieldPoint): number => Math.hypot(a.x - b.x, a.y
  * auto and its blue mirror-equivalent be compared/grouped in one shared frame.
  */
 export function autoPathToFrame(ap: AutoPath, to: AllianceColor): AutoPath {
-  if (ap.alliance === to) return ap;
+  // A start exactly on midfield cannot identify an alliance safely. Preserve
+  // that rare drawing as entered instead of guessing and rotating it wrongly.
+  if (ap.alliance == null || ap.alliance === to) return ap;
   return {
     ...ap,
     alliance: to,

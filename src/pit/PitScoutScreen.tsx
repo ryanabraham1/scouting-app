@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
+import { inferAllianceFromStart } from '@/fieldFrame';
 import { useIsPhonePortrait } from '@/components/useIsPortrait';
 import { cn } from '@/lib/utils';
 import type { TeamPit } from '@/dash/useTeamPit';
@@ -191,6 +192,7 @@ function emptyReport(p: PitScoutScreenProps): PitReport {
       underTrench: null,
       overBump: null,
       estimatedPoints: null,
+      recordedAlliance: null,
     }],
     photos: [],
     photoPath: null,
@@ -258,7 +260,6 @@ const STEPS: { title: string; icon: LucideIcon }[] = [
   { title: 'Photos & comments', icon: StickyNote },
 ];
 const LAST_STEP = STEPS.length - 1;
-const PIT_AUTO_VISIBLE_X_RANGE = [0.25, 1] as const;
 
 // One step's panel. ALL panels stay mounted (so field state survives navigation
 // and every control is reachable for tests); the inactive ones are display:none.
@@ -590,6 +591,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
       underTrench: null,
       overBump: null,
       estimatedPoints: null,
+      recordedAlliance: null,
     };
     update({ autoRoutines: [...(reportRef.current.autoRoutines ?? []), routine] });
     setActiveAutoId(routine.id);
@@ -1300,7 +1302,6 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                   <div className="pointer-events-none">
                     <FieldDiagram
                       mode="view"
-                      visibleXRange={PIT_AUTO_VISIBLE_X_RANGE}
                       startPosition={activeAuto.startPosition}
                       path={activeAuto.path}
                       data-testid="pit-auto-field-preview"
@@ -1314,7 +1315,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                   </span>
                 </button>
                 <p className="text-xs text-muted-foreground">
-                  Shows the blue side through the neutral zone. The red scoring end is intentionally cropped out.
+                  Draw the routine on either alliance end. The starting position identifies the side automatically.
                 </p>
               </div>
 
@@ -1332,7 +1333,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                         Auto {autoRoutines.findIndex((routine) => routine.id === activeAuto.id) + 1}
                       </p>
                       <h2 id="pit-auto-drawing-title" className="truncate text-lg font-semibold">
-                        Draw the blue-side route
+                        Draw the autonomous route
                       </h2>
                     </div>
                     <Button
@@ -1379,7 +1380,11 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                       size="sm"
                       className="ml-auto gap-1.5"
                       onClick={() => {
-                        updateAuto(activeAuto.id, { startPosition: null, path: null });
+                        updateAuto(activeAuto.id, {
+                          startPosition: null,
+                          path: null,
+                          recordedAlliance: null,
+                        });
                         props.onAction?.('auto_clear');
                       }}
                     >
@@ -1389,6 +1394,18 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                       {autoMode === 'pick-start'
                         ? 'Tap where the robot starts.'
                         : 'Drag from the start through the full route.'}
+                      {activeAuto.recordedAlliance ? (
+                        <span
+                          className="ml-1 font-semibold text-foreground"
+                          data-testid="pit-auto-detected-side"
+                        >
+                          Detected {activeAuto.recordedAlliance} side.
+                        </span>
+                      ) : activeAuto.startPosition ? (
+                        <span className="ml-1 font-semibold text-energy">
+                          Start is on midfield; move it left or right so its side can be detected.
+                        </span>
+                      ) : null}
                     </p>
                   </div>
 
@@ -1400,11 +1417,13 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
                       mode={autoMode}
                       rotate={isPhonePortrait}
                       fillHeight
-                      visibleXRange={PIT_AUTO_VISIBLE_X_RANGE}
                       startPosition={activeAuto.startPosition}
                       path={activeAuto.path}
                       onStartChange={(point: FieldPoint) => {
-                        updateAuto(activeAuto.id, { startPosition: point });
+                        updateAuto(activeAuto.id, {
+                          startPosition: point,
+                          recordedAlliance: inferAllianceFromStart(point),
+                        });
                         props.onAction?.('auto_start');
                       }}
                       onPathChange={(points: FieldPoint[]) => {

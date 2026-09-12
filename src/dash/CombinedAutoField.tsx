@@ -18,12 +18,16 @@ import { collectPoints } from '@/dash/AutoHeatmap';
 import { groupAutoPaths, autoPathToFrame, type AutoGroup } from '@/dash/autoGrouping';
 import { type AllianceColor } from '@/dash/fieldFrame';
 import type { MsrRow } from '@/dash/types';
+import type { TeamPit } from '@/dash/useTeamPit';
+import { inferAllianceFromStart } from '@/fieldFrame';
 
 export interface CombinedAutoFieldProps {
   redTeams: number[];
   blueTeams: number[];
   /** All reports for the matchup's teams (filtered per-team here). */
   reports: MsrRow[];
+  /** Pit autos are a fallback only when a team has no match-scouted routine. */
+  pitByTeam?: ReadonlyMap<number, TeamPit>;
 }
 
 // Distinct hues within each alliance so three same-side teams stay legible.
@@ -50,8 +54,31 @@ export interface TeamAuto {
  * A team's auto options (the same shape-clustered groups the Team tab shows) plus
  * the index of the group containing its most-recent auto — null when it has none.
  */
-function teamAuto(team: number, side: AllianceColor, color: string, reports: MsrRow[]): TeamAuto | null {
-  const { paths: rawPaths } = collectPoints(reports, team);
+function pitAutoPaths(team: number, pitByTeam?: ReadonlyMap<number, TeamPit>) {
+  const routines = pitByTeam?.get(team)?.autoRoutines ?? [];
+  return routines
+    .filter((routine) => routine.startPosition != null || routine.path != null)
+    .map((routine, index) => ({
+      matchKey: `pit:${routine.id}`,
+      label: `Pit auto ${index + 1}`,
+      start: routine.startPosition,
+      path: routine.path,
+      // The starting position is authoritative. The stored value mainly makes
+      // the inference explicit in synced JSON and covers a missing start.
+      alliance: inferAllianceFromStart(routine.startPosition) ?? routine.recordedAlliance ?? null,
+    }));
+}
+
+function teamAuto(
+  team: number,
+  side: AllianceColor,
+  color: string,
+  reports: MsrRow[],
+  pitByTeam?: ReadonlyMap<number, TeamPit>,
+): TeamAuto | null {
+  const { paths: scoutedPaths } = collectPoints(reports, team);
+  const usingPit = scoutedPaths.length === 0;
+  const rawPaths = usingPit ? pitAutoPaths(team, pitByTeam) : scoutedPaths;
   if (rawPaths.length === 0) return null;
   // Canonicalize to the BLUE frame before grouping (mirror of AutoOptions) so a
   // routine run on red folds together with its blue-side equivalent.
@@ -61,19 +88,29 @@ function teamAuto(team: number, side: AllianceColor, color: string, reports: Msr
   // The group containing the most-recent (largest server_received_at) auto — the
   // type the team last ran is what we default the selector to.
   const withAuto = reports.filter((r) => r.target_team_number === team && hasAutoData(r));
-  const latest = withAuto.reduce((best, r) =>
-    r.server_received_at > best.server_received_at ? r : best,
-  );
-  const found = groups.findIndex((g) => g.members.some((m) => m.matchKey === latest.match_key));
+  const latest = usingPit
+    ? null
+    : withAuto.reduce((best, r) =>
+        r.server_received_at > best.server_received_at ? r : best,
+      );
+  const found = latest
+    ? groups.findIndex((g) => g.members.some((m) => m.matchKey === latest.match_key))
+    : 0;
 
   return { team, color, side, groups, defaultIdx: found < 0 ? 0 : found };
 }
 
 /** Build each alliance's teams that have auto data, assigning palette by position. */
-function buildSide(teams: number[], side: AllianceColor, reports: MsrRow[], palette: string[]): TeamAuto[] {
+function buildSide(
+  teams: number[],
+  side: AllianceColor,
+  reports: MsrRow[],
+  palette: string[],
+  pitByTeam?: ReadonlyMap<number, TeamPit>,
+): TeamAuto[] {
   const out: TeamAuto[] = [];
   for (const team of teams) {
-    const t = teamAuto(team, side, palette[out.length % palette.length], reports);
+    const t = teamAuto(team, side, palette[out.length % palette.length], reports, pitByTeam);
     if (t) out.push(t);
   }
   return out;
@@ -88,10 +125,11 @@ export function matchupTeamAutos(
   redTeams: number[],
   blueTeams: number[],
   reports: MsrRow[],
+  pitByTeam?: ReadonlyMap<number, TeamPit>,
 ): TeamAuto[] {
   return [
-    ...buildSide(redTeams, 'red', reports, RED_PALETTE),
-    ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
+    ...buildSide(redTeams, 'red', reports, RED_PALETTE, pitByTeam),
+    ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE, pitByTeam),
   ];
 }
 
@@ -112,21 +150,22 @@ export function defaultMatchupOverlays(
   redTeams: number[],
   blueTeams: number[],
   reports: MsrRow[],
+  pitByTeam?: ReadonlyMap<number, TeamPit>,
 ): RoutineOverlay[] {
-  return matchupTeamAutos(redTeams, blueTeams, reports).map((t) =>
+  return matchupTeamAutos(redTeams, blueTeams, reports, pitByTeam).map((t) =>
     overlayForAutoOption(t, t.defaultIdx),
   );
 }
 
 export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.Element {
-  const { redTeams, blueTeams, reports } = props;
+  const { redTeams, blueTeams, reports, pitByTeam } = props;
 
   const teams = useMemo<TeamAuto[]>(
     () => [
-      ...buildSide(redTeams, 'red', reports, RED_PALETTE),
-      ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE),
+      ...buildSide(redTeams, 'red', reports, RED_PALETTE, pitByTeam),
+      ...buildSide(blueTeams, 'blue', reports, BLUE_PALETTE, pitByTeam),
     ],
-    [redTeams, blueTeams, reports],
+    [redTeams, blueTeams, reports, pitByTeam],
   );
 
   // Per-team selected option index (team number → group index). Absent → default.
