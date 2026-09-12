@@ -122,6 +122,24 @@ export function deriveSlotForTeam(
   return null;
 }
 
+/**
+ * Only schedule/target foreign-key failures need the manual match/team form.
+ * Payload validation failures (fuel bursts, auto paths, timers, etc.) can be
+ * repaired by the normal edit-save boundary and should open Review directly.
+ */
+export function deadLetterNeedsTargetCorrection(error: string | null): boolean {
+  if (!error) return false;
+  const message = error.toLowerCase();
+  return (
+    message.includes('msr_event_match_fkey') ||
+    message.includes('match_scouting_report_match_key_fkey') ||
+    message.includes('match_scouting_report_target_team_number_fkey') ||
+    (message.includes('foreign key') &&
+      (message.includes('match_key') || message.includes('target_team_number'))) ||
+    message.includes('match report seat is invalid')
+  );
+}
+
 // A readable label for a saved draft (e.g. "Qualification 9 · Team 111") instead
 // of the raw "matchKey:scoutId:team" draft key.
 function draftTitle(d: CaptureDraft): string {
@@ -540,7 +558,7 @@ export default function ScoutHome() {
         return;
       }
       setEditingRev(r.rowRevision ?? 1);
-      if (r.syncState === 'error') {
+      if (r.syncState === 'error' && deadLetterNeedsTargetCorrection(r.lastSyncError)) {
         // A dead-lettered report is most likely stuck on a bad match/team FK
         // (BUG-1). The capture/review flow can't change the target match/team, so
         // route the correction through the manual-pick form pre-filled with the
@@ -554,6 +572,9 @@ export default function ScoutHome() {
         setManualWarning('This report failed to sync — fix the match/team below, then Start to re-save.');
         return;
       }
+      // Validation-class failures such as malformed fuel bursts/auto paths do
+      // not require the scout to re-enter the match and team. Open Review
+      // directly; save() sanitizes the stored report and re-queues it in place.
       setActive({
         eventKey: r.eventKey,
         matchKey: r.matchKey,

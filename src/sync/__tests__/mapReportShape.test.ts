@@ -498,6 +498,60 @@ describe('mapReport wire shape passes the server validate_match_report_payload c
     expect(() => validateMatchReportPayload(p)).not.toThrow();
   });
 
+  it('repairs fractional/late gesture timestamps before upload (live fuel range bug)', () => {
+    const p = wire(
+      makeReport({
+        fuelBursts: [
+          { startMs: 19_999.6, endMs: 20_143.2, rate: 31.4, window: 'auto' },
+          { startMs: 139_999.7, endMs: 140_020.1, rate: 6, window: 'endgame' },
+        ],
+      }),
+    );
+
+    expect(p.fuel_bursts).toEqual([
+      { startMs: 20_000, endMs: 20_000, rate: 30, window: 'auto' },
+      { startMs: 140_000, endMs: 140_000, rate: 6, window: 'endgame' },
+    ]);
+    expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
+  it('caps a long drawn auto path while preserving both endpoints', () => {
+    const autoPath = Array.from({ length: 600 }, (_, index) => ({
+      x: index / 599,
+      y: 1 - index / 599,
+    }));
+    const p = wire(makeReport({ autoPath }));
+    const safePath = p.auto_path as Array<{ x: number; y: number }>;
+
+    expect(safePath).toHaveLength(256);
+    expect(safePath[0]).toEqual(autoPath[0]);
+    expect(safePath.at(-1)).toEqual(autoPath.at(-1));
+    expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
+  it('filters non-finite path points and repairs adjacent bounded capture fields', () => {
+    const p = wire(
+      makeReport({
+        autoStartPosition: { x: Number.NaN, y: 0.5 },
+        autoPath: [
+          { x: 0.2, y: 0.3 },
+          { x: Number.NaN, y: 0.4 },
+          { x: 12, y: -12 },
+        ],
+        defenseDurationMs: 140_001.8,
+        pins: 1_001,
+        notes: 'x'.repeat(10_001),
+      }),
+    );
+
+    expect(p.auto_start_position).toBeNull();
+    expect(p.auto_path).toEqual([{ x: 0.2, y: 0.3 }, { x: 10, y: -10 }]);
+    expect(p.defense_duration_ms).toBe(140_000);
+    expect(p.pins).toBe(1_000);
+    expect((p.notes as string).length).toBe(10_000);
+    expect(() => validateMatchReportPayload(p)).not.toThrow();
+  });
+
   it('every declared upsert key is either validated or explicitly ignored (no silent drift)', () => {
     // If mapReport adds a NEW key, this reminds the author to teach the server
     // validator (and this mirror) about it. Keys the server ignores are listed.
@@ -569,7 +623,10 @@ describe('the wire-shape validator has teeth (rejects payloads the server would 
   });
 
   it('rejects a fuel burst whose endMs exceeds the auto window bound', () => {
-    const p = wire(makeReport({ fuelBursts: [{ startMs: 0, endMs: 20001, rate: 1, window: 'auto' }] }));
+    // Mutate the already-sanitized wire object so this remains a direct test of
+    // the validator mirror (toUpsertPayload intentionally repairs this value).
+    const p = wire(makeReport());
+    p.fuel_bursts = [{ startMs: 0, endMs: 20001, rate: 1, window: 'auto' }];
     expect(() => validateMatchReportPayload(p)).toThrow(/fuel burst value is outside its range/);
   });
 

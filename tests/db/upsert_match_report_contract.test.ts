@@ -286,4 +286,29 @@ describe('upsert_match_report live client<->server contract', () => {
     expect((row as { auto_fuel: number }).auto_fuel).toBe(expected.autoFuel);
     expect((row as { fuel_points: number }).fuel_points).toBe(expected.fuelPoints);
   }, 60_000);
+
+  it('accepts a client-repaired late fuel burst and oversized auto path', async () => {
+    const report = buildReport({
+      inactiveFirst: false,
+      feedingBursts: [],
+      fuelBursts: [
+        { startMs: 19_999.6, endMs: 20_120.4, rate: 31, window: 'auto' },
+      ],
+    });
+    report.autoPath = Array.from({ length: 400 }, (_, index) => ({
+      x: index / 399,
+      y: 1 - index / 399,
+    }));
+    createdReportIds.push(report.id);
+
+    const payload = toUpsertPayload(report);
+    expect(payload.fuel_bursts).toEqual([
+      { startMs: 20_000, endMs: 20_000, rate: 30, window: 'auto' },
+    ]);
+    expect(payload.auto_path).toHaveLength(256);
+
+    const { data, error } = await anon.rpc('upsert_match_report', { p: payload });
+    expect(error, `server rejected the repaired payload: ${error?.message}`).toBeNull();
+    expect((data as { status?: string })?.status).toBe('applied');
+  }, 60_000);
 });

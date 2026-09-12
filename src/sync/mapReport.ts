@@ -1,4 +1,5 @@
 import type { LocalMatchReport } from '@/db/types';
+import { sanitizeMatchReport } from '@/sync/sanitizeReport';
 
 /**
  * The SINGLE source of the upsert wire shape. Produces EXACTLY the snake_case
@@ -7,54 +8,58 @@ import type { LocalMatchReport } from '@/db/types';
  * recomputes aggregates from these.
  */
 export function toUpsertPayload(r: LocalMatchReport): Record<string, unknown> {
+  // Re-sanitize here even though new captures are normalized before persistence:
+  // reports saved by older app versions remain in IndexedDB and must be
+  // recoverable with Retry all instead of re-dead-lettering forever.
+  const safe = sanitizeMatchReport(r);
   return {
-    id: r.id,
-    schema_version: r.schemaVersion,
-    app_version: r.appVersion,
-    device_id: r.deviceId,
-    event_key: r.eventKey,
-    match_key: r.matchKey,
-    scout_id: r.scoutId,
+    id: safe.id,
+    schema_version: safe.schemaVersion,
+    app_version: safe.appVersion,
+    device_id: safe.deviceId,
+    event_key: safe.eventKey,
+    match_key: safe.matchKey,
+    scout_id: safe.scoutId,
     // Name fallback so the server can re-resolve an orphaned scout_id (see
     // upsert_match_report, migration 0030) instead of dead-lettering. Omitted-safe.
-    scout_name: r.scoutName,
-    target_team_number: r.targetTeamNumber,
-    alliance_color: r.allianceColor,
-    station: r.station,
-    inactive_first: r.inactiveFirst,
-    inactive_first_source: r.inactiveFirstSource,
-    teleop_clock_unconfirmed: r.teleopClockUnconfirmed,
-    fuel_bursts: r.fuelBursts,
-    feeding_bursts: r.feedingBursts ?? [],
-    climb_level: r.climbLevel,
-    climb_attempted: r.climbAttempted,
-    climb_success: r.climbSuccess,
-    auto_start_position: r.autoStartPosition,
-    auto_path: r.autoPath,
-    auto_left_starting_line: r.autoLeftStartingLine,
-    auto_climb_level1: r.autoClimbLevel1,
-    intake_sources: r.intakeSources,
-    max_fuel_capacity_observed: r.maxFuelCapacityObserved,
-    defense_rating: r.defenseRating,
+    scout_name: safe.scoutName,
+    target_team_number: safe.targetTeamNumber,
+    alliance_color: safe.allianceColor,
+    station: safe.station,
+    inactive_first: safe.inactiveFirst,
+    inactive_first_source: safe.inactiveFirstSource,
+    teleop_clock_unconfirmed: safe.teleopClockUnconfirmed,
+    fuel_bursts: safe.fuelBursts,
+    feeding_bursts: safe.feedingBursts,
+    climb_level: safe.climbLevel,
+    climb_attempted: safe.climbAttempted,
+    climb_success: safe.climbSuccess,
+    auto_start_position: safe.autoStartPosition,
+    auto_path: safe.autoPath,
+    auto_left_starting_line: safe.autoLeftStartingLine,
+    auto_climb_level1: safe.autoClimbLevel1,
+    intake_sources: safe.intakeSources,
+    max_fuel_capacity_observed: safe.maxFuelCapacityObserved,
+    defense_rating: safe.defenseRating,
     // Subjective super-scout ratings (1–10; 0 = not rated; raw stored, never scored). Omitted-safe
     // via the server's coalesce-to-0 for reports captured before migration 0039.
-    driver_skill: r.driverSkill ?? 0,
-    agility: r.agility ?? 0,
-    defense_duration_ms: r.defenseDurationMs ?? 0,
-    defended_duration_ms: r.defendedDurationMs ?? 0,
-    defense_intervals: r.defenseIntervals ?? [],
-    defended_intervals: r.defendedIntervals ?? [],
-    pins: r.pins,
-    fouls_minor: r.foulsMinor,
-    fouls_major: r.foulsMajor,
-    foul_reasons: r.foulReasons ?? [],
-    no_show: r.noShow,
-    died: r.died,
-    tipped: r.tipped,
-    dropped_fuel: r.droppedFuel,
-    fed_corral: r.fedCorral,
-    notes: r.notes,
-    row_revision: r.rowRevision ?? 1,
-    deleted: (r as { deleted?: boolean }).deleted ?? false,
+    driver_skill: safe.driverSkill ?? 0,
+    agility: safe.agility ?? 0,
+    defense_duration_ms: safe.defenseDurationMs,
+    defended_duration_ms: safe.defendedDurationMs,
+    defense_intervals: safe.defenseIntervals,
+    defended_intervals: safe.defendedIntervals,
+    pins: safe.pins,
+    fouls_minor: safe.foulsMinor,
+    fouls_major: safe.foulsMajor,
+    foul_reasons: safe.foulReasons ?? [],
+    no_show: safe.noShow,
+    died: safe.died,
+    tipped: safe.tipped,
+    dropped_fuel: safe.droppedFuel,
+    fed_corral: safe.fedCorral,
+    notes: safe.notes,
+    row_revision: safe.rowRevision,
+    deleted: (safe as { deleted?: boolean }).deleted === true,
   };
 }

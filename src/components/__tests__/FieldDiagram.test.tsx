@@ -181,6 +181,41 @@ describe('FieldDiagram draw-path', () => {
       expect(pt.y).toBeLessThanOrEqual(1);
     }
   });
+
+  it('caps long pointer trails at the server limit and preserves the endpoint', () => {
+    const onPathChange = vi.fn();
+    const { getByTestId } = render(
+      <FieldDiagram mode="draw-path" onPathChange={onPathChange} />
+    );
+    const el = getByTestId('field-diagram');
+    fireEvent.pointerDown(el, { clientX: 0, clientY: 0, pointerId: 1 });
+    for (let index = 1; index <= 300; index += 1) {
+      fireEvent.pointerMove(el, {
+        clientX: Math.min(index, 199),
+        clientY: Math.min(index / 2, 99),
+        pointerId: 1,
+      });
+    }
+    fireEvent.pointerUp(el, { clientX: 200, clientY: 100, pointerId: 1 });
+
+    const points = onPathChange.mock.calls.at(-1)?.[0] as Array<{ x: number; y: number }>;
+    expect(points).toHaveLength(256);
+    expect(points[0]).toEqual({ x: 0, y: 0 });
+    expect(points.at(-1)).toEqual({ x: 1, y: 1 });
+  });
+
+  it('turns missing/non-finite pointer coordinates into safe finite points', () => {
+    const onPathChange = vi.fn();
+    const { getByTestId } = render(
+      <FieldDiagram mode="draw-path" onPathChange={onPathChange} />
+    );
+    const el = getByTestId('field-diagram');
+    fireEvent.pointerDown(el, { pointerId: 1 });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+
+    const points = onPathChange.mock.calls.at(-1)?.[0] as Array<{ x: number; y: number }>;
+    expect(points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+  });
 });
 
 describe('FieldDiagram view', () => {

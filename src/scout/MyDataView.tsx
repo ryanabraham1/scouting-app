@@ -180,6 +180,13 @@ export default function MyDataView(): JSX.Element {
                 >
                   failed to sync — fix &amp; re-save
                 </p>
+              ) : r.syncState === "dirty" || r.syncState === "pending" ? (
+                <p
+                  data-testid={`my-data-uploading-${r.id}`}
+                  className="mt-2 text-xs font-medium text-warning"
+                >
+                  saved on this device — queued to upload
+                </p>
               ) : null}
               <div className="mt-3 flex items-end justify-between gap-3">
                 <dl className="grid flex-1 grid-cols-4 gap-x-3">

@@ -59,9 +59,20 @@ export interface FieldDiagramProps {
 }
 
 function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
   if (n < 0) return 0;
   if (n > 1) return 1;
   return n;
+}
+
+// Matches validate_match_report_payload's auto_path limit. Reserve the last
+// slot for the newest pointer/end position so a long trace preserves both the
+// start and the actual destination instead of dead-lettering at upload time.
+const MAX_PATH_POINTS = 256;
+
+function appendPathPoint(points: FieldPoint[], point: FieldPoint): void {
+  if (points.length < MAX_PATH_POINTS) points.push(point);
+  else points[MAX_PATH_POINTS - 1] = point;
 }
 
 // Auto-start markers render as ROBOT-SIZED squares (a bumpered-robot footprint),
@@ -161,7 +172,7 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (mode === 'draw-path' && drawingRef.current) {
-      drawingRef.current.push(toNormalized(e.clientX, e.clientY));
+      appendPathPoint(drawingRef.current, toNormalized(e.clientX, e.clientY));
     }
   };
 
@@ -171,7 +182,7 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
       return;
     }
     if (mode === 'draw-path' && drawingRef.current) {
-      drawingRef.current.push(toNormalized(e.clientX, e.clientY));
+      appendPathPoint(drawingRef.current, toNormalized(e.clientX, e.clientY));
       // Guarantee >= 2 points: if the trail somehow collapsed (e.g. a tap with
       // no intervening move), duplicate the last point so the path is valid.
       if (drawingRef.current.length < 2) {

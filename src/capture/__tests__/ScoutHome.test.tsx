@@ -147,9 +147,72 @@ vi.mock('@/sync/useSync', () => ({
   useSync: () => ({ online: true, queued: 0, deadLetters: 0, syncing: false, syncNow: () => {} }),
 }));
 
-import ScoutHome, { normalizeManualMatchKey, deriveSlotForTeam } from '@/capture/ScoutHome';
-import { db, saveDraft } from '@/db/localStore';
-import type { CachedMatch } from '@/db/types';
+import ScoutHome, {
+  normalizeManualMatchKey,
+  deriveSlotForTeam,
+  deadLetterNeedsTargetCorrection,
+} from '@/capture/ScoutHome';
+import { db, saveDraft, saveReport } from '@/db/localStore';
+import type { CachedMatch, LocalMatchReport } from '@/db/types';
+
+function makeDeadLetter(lastSyncError: string): LocalMatchReport {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    schemaVersion: 2,
+    appVersion: '2.0.0',
+    deviceId: 'device-local',
+    createdAt: '2026-09-11T12:00:00.000Z',
+    eventKey: '2026demo',
+    matchKey: '2026demo_qm5',
+    scoutId: 'scout-1',
+    scoutName: 'Casey',
+    targetTeamNumber: 254,
+    allianceColor: 'red',
+    station: 1,
+    inactiveFirst: false,
+    inactiveFirstSource: 'scout',
+    teleopClockUnconfirmed: false,
+    fuelBursts: [{ startMs: 0, endMs: 20_001, rate: 1, window: 'auto' }],
+    feedingBursts: [],
+    autoFuel: 0,
+    teleopFuelActive: 0,
+    teleopFuelInactive: 0,
+    endgameFuel: 0,
+    fuelByShift: [0, 0, 0, 0],
+    fuelPoints: 0,
+    fuelEstimateConfidence: 0.3,
+    climbLevel: 0,
+    climbAttempted: false,
+    climbSuccess: false,
+    autoStartPosition: null,
+    autoPath: null,
+    autoLeftStartingLine: false,
+    autoClimbLevel1: false,
+    intakeSources: [],
+    maxFuelCapacityObserved: 0,
+    defenseRating: 0,
+    driverSkill: 0,
+    agility: 0,
+    defenseDurationMs: 0,
+    defendedDurationMs: 0,
+    defenseIntervals: [],
+    defendedIntervals: [],
+    pins: 0,
+    foulsMinor: 0,
+    foulsMajor: 0,
+    foulReasons: [],
+    noShow: false,
+    died: false,
+    tipped: false,
+    droppedFuel: false,
+    fedCorral: false,
+    notes: '',
+    syncState: 'error',
+    rowRevision: 1,
+    syncAttempts: 1,
+    lastSyncError,
+  };
+}
 
 describe('normalizeManualMatchKey (BUG-1)', () => {
   const ev = '2026txhou1';
@@ -399,6 +462,30 @@ describe('deriveSlotForTeam', () => {
     expect(
       deriveSlotForTeam({ red1: null, red2: null, red3: null, blue1: null, blue2: null, blue3: null }, 254),
     ).toBeNull();
+  });
+});
+
+describe('dead-letter correction routing', () => {
+  it('opens payload validation failures directly in Review', async () => {
+    await saveReport(makeDeadLetter('fuel burst value is outside its range'));
+    renderHome('/scout?edit=11111111-1111-4111-8111-111111111111');
+
+    expect(await screen.findByTestId('review-editing-banner')).toHaveTextContent('Editing');
+    expect(screen.queryByTestId('scout-manual-warning')).toBeNull();
+  });
+
+  it('keeps match/team foreign-key failures on the prefilled correction form', async () => {
+    const error = 'insert violates foreign key constraint msr_event_match_fkey';
+    expect(deadLetterNeedsTargetCorrection(error)).toBe(true);
+    expect(deadLetterNeedsTargetCorrection('auto_path is malformed')).toBe(false);
+    await saveReport(makeDeadLetter(error));
+    renderHome('/scout?edit=11111111-1111-4111-8111-111111111111');
+
+    expect(await screen.findByTestId('scout-manual-warning')).toHaveTextContent(
+      /fix the match\/team/i,
+    );
+    expect(screen.getByLabelText('Match')).toHaveValue('2026demo_qm5');
+    expect(screen.getByLabelText('Target team')).toHaveValue(254);
   });
 });
 

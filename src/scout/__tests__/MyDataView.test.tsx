@@ -44,6 +44,7 @@ function mkReport(over: Partial<LocalMatchReport>): LocalMatchReport {
     defendedDurationMs: over.defendedDurationMs ?? 0,
     notes: over.notes ?? '',
     createdAt: over.createdAt ?? '2026-06-23T00:00:00.000Z',
+    syncState: over.syncState ?? 'synced',
   } as unknown as LocalMatchReport;
 }
 
@@ -132,5 +133,18 @@ describe('MyDataView', () => {
     const row = screen.getByTestId('my-data-row');
     expect(row.textContent).toContain('4.2s');
     expect(row.textContent).toContain('1.5s');
+  });
+
+  it('shows that a corrected report is saved locally and queued to upload', async () => {
+    listReportsMock.mockResolvedValue([mkReport({ id: 'queued', syncState: 'dirty' })]);
+    render(
+      <MemoryRouter>
+        <MyDataView />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('my-data-uploading-queued')).toHaveTextContent(
+      'saved on this device — queued to upload',
+    );
   });
 });

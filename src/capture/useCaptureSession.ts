@@ -19,6 +19,7 @@ import {
   productionCaptureSessionStorage,
   type CaptureSessionStorage,
 } from '@/capture/captureSessionStorage';
+import { sanitizeMatchReport } from '@/sync/sanitizeReport';
 
 export interface CaptureTarget {
   eventKey: string;
@@ -1045,7 +1046,7 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     // the original createdAt (stable local sort only; NOT sent over the wire), and
     // bump rowRevision so the revision-guarded upsert UPDATEs instead of no-opping.
     const editing = editIdRef.current !== null;
-    const report: LocalMatchReport = {
+    const report = sanitizeMatchReport({
       id: editing ? editIdRef.current! : crypto.randomUUID(),
       schemaVersion: SCHEMA_VERSION,
       appVersion: '2.0.0',
@@ -1103,7 +1104,7 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       rowRevision: editing ? editRevRef.current + 1 : 1,
       syncAttempts: 0,
       lastSyncError: null,
-    };
+    });
     sessionFinalizedRef.current = true;
     await draftWriteChainRef.current;
     try {

@@ -163,6 +163,37 @@ describe('revision bump on save (cases 3 + 4)', () => {
     expect(r.syncAttempts).toBe(0);
     expect(r.lastSyncError).toBeNull();
   });
+
+  it('normalizes a dead-lettered legacy payload while re-saving it in place', async () => {
+    const longPath = Array.from({ length: 400 }, (_, index) => ({
+      x: index / 399,
+      y: 0.5,
+    }));
+    await saveReport(
+      makeSavedReport({
+        syncState: 'error',
+        lastSyncError: 'fuel burst value is outside its range',
+        fuelBursts: [{ startMs: 100.2, endMs: 20_050.9, rate: 31, window: 'auto' }],
+        autoPath: longPath,
+      }),
+    );
+    const { result } = renderHook(() =>
+      useCaptureSession({ ...target, editingReportId: 'report-edit-1' }),
+    );
+    await waitFor(() => expect(result.current.bursts).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.save();
+    });
+
+    const saved = (await getReport('report-edit-1'))!;
+    expect(saved.syncState).toBe('dirty');
+    expect(saved.lastSyncError).toBeNull();
+    expect(saved.fuelBursts).toEqual([
+      { startMs: 100, endMs: 20_000, rate: 30, window: 'auto' },
+    ]);
+    expect(saved.autoPath).toHaveLength(256);
+  });
 });
 
 describe('no-show scoring parity on save', () => {
