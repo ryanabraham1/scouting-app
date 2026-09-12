@@ -1,6 +1,8 @@
 // src/capture/SliderShoot.tsx
 // Combined press-drag "slider-shoot" control — HORIZONTAL. Press anywhere on the
 // full-width bar and drag SIDEWAYS to set the BPS rate (left = 0, right = max).
+// The squared response curve gives the common sub-10 BPS range most of the
+// physical track while preserving access to uncommon rates up to 30 BPS.
 // While held above 0 the robot is "shooting"; on release the thumb SPRINGS BACK
 // TO 0 and a fuel burst is committed at the dragged rate.
 //
@@ -12,7 +14,9 @@ export const DEFAULT_MAX_BPS = 30;
 
 /**
  * Map a pointer X to a rate in [0, max]. Left edge of the track = 0, right = max.
- * Pure + exported so the gesture math is unit-testable without a real layout.
+ * A squared curve expands the low end: with a 30 BPS maximum, 10 BPS lands at
+ * ~58% of the track and 20 BPS at ~82%. Pure + exported so the gesture math is
+ * unit-testable without a real layout.
  */
 export function rateFromPointer(
   clientX: number,
@@ -23,7 +27,14 @@ export function rateFromPointer(
   const fromLeft = clientX - rect.left;
   const frac = fromLeft / rect.width; // 0 at left, 1 at right
   const clamped = Math.max(0, Math.min(1, frac));
-  return Math.round(clamped * max);
+  return Math.round(clamped ** 2 * max);
+}
+
+/** Inverse of the pointer response curve, used to place the thumb and landmarks. */
+export function trackFractionFromRate(rate: number, max: number = DEFAULT_MAX_BPS): number {
+  if (max <= 0) return 0;
+  const clamped = Math.max(0, Math.min(max, rate));
+  return Math.sqrt(clamped / max);
 }
 
 /**
@@ -200,13 +211,14 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
   endRef.current = end;
   useEffect(() => () => endRef.current(), []);
 
-  const pct = max > 0 ? (rate / max) * 100 : 0;
+  const trackFraction = trackFractionFromRate(rate, max);
   // The thumb is half its own width (size-16 = 4rem → 2rem radius). Inset its
   // travel by THUMB_INSET on both sides so at rate 0 (left) and rate max (right)
   // the whole thumb — including the icon — stays fully on-screen instead of being
   // clipped by the container's overflow-hidden.
   const THUMB_INSET = '2.25rem';
-  const thumbLeft = `calc(${THUMB_INSET} + (100% - 2 * ${THUMB_INSET}) * ${pct / 100})`;
+  const thumbLeft = `calc(${THUMB_INSET} + (100% - 2 * ${THUMB_INSET}) * ${trackFraction})`;
+  const landmarks = [10, 20].filter((landmark) => landmark < max);
 
   return (
     <div
@@ -242,6 +254,19 @@ export function SliderShoot(props: SliderShootProps): JSX.Element {
         className={`pointer-events-none absolute inset-y-0 left-0 ${toneCls.fill} transition-[width]`}
         style={{ width: thumbLeft }}
       />
+      {/* Uneven landmarks make the expanded low-rate scale legible at a glance. */}
+      {landmarks.map((landmark) => (
+        <div
+          key={landmark}
+          data-testid={`${testid}-landmark-${landmark}`}
+          className="pointer-events-none absolute inset-y-1 z-[5] border-l border-foreground/20"
+          style={{ left: `${trackFractionFromRate(landmark, max) * 100}%` }}
+        >
+          <span className="absolute left-1 top-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/80">
+            {landmark}
+          </span>
+        </div>
+      ))}
       {/* thumb — inset so the icon is never clipped at rate 0 or rate max */}
       <div
         data-testid={`${testid}-thumb`}

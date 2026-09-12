@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SliderShoot, rateFromPointer } from '@/capture/SliderShoot';
+import { SliderShoot, rateFromPointer, trackFractionFromRate } from '@/capture/SliderShoot';
 
 describe('rateFromPointer (horizontal: left=0, right=max)', () => {
   const rect = { left: 0, width: 200 };
@@ -10,18 +10,34 @@ describe('rateFromPointer (horizontal: left=0, right=max)', () => {
   it('returns max at the right edge of the track', () => {
     expect(rateFromPointer(200, rect, 30)).toBe(30);
   });
-  it('returns ~half at the middle', () => {
-    expect(rateFromPointer(100, rect, 30)).toBe(15);
+  it('expands the common low-rate range across most of the track', () => {
+    expect(rateFromPointer(100, rect, 30)).toBe(8);
+    expect(rateFromPointer(116, rect, 30)).toBe(10);
+    expect(rateFromPointer(163, rect, 30)).toBe(20);
   });
   it('clamps left/right of the track', () => {
     expect(rateFromPointer(-50, rect, 30)).toBe(0);
     expect(rateFromPointer(999, rect, 30)).toBe(30);
   });
   it('honors a non-zero left offset', () => {
-    expect(rateFromPointer(150, { left: 100, width: 200 }, 30)).toBe(8);
+    expect(rateFromPointer(150, { left: 100, width: 200 }, 30)).toBe(2);
   });
   it('returns 0 for a zero-width track', () => {
     expect(rateFromPointer(0, { left: 0, width: 0 }, 30)).toBe(0);
+  });
+});
+
+describe('trackFractionFromRate', () => {
+  it('places low-rate landmarks using the inverse response curve', () => {
+    expect(trackFractionFromRate(0, 30)).toBe(0);
+    expect(trackFractionFromRate(10, 30)).toBeCloseTo(0.577, 3);
+    expect(trackFractionFromRate(20, 30)).toBeCloseTo(0.816, 3);
+    expect(trackFractionFromRate(30, 30)).toBe(1);
+  });
+
+  it('clamps rates outside the slider range', () => {
+    expect(trackFractionFromRate(-1, 30)).toBe(0);
+    expect(trackFractionFromRate(31, 30)).toBe(1);
   });
 });
 
@@ -152,5 +168,11 @@ describe('SliderShoot tone variant', () => {
     expect(left).toContain('2.25rem'); // inset applied (calc(2.25rem + ...))
     // Value readout shows 0.
     expect(screen.getByTestId('ss').getAttribute('data-rate')).toBe('0');
+  });
+
+  it('shows uneven 10 and 20 BPS landmarks', () => {
+    render(<SliderShoot data-testid="ss" onShootStart={vi.fn()} onShootEnd={vi.fn()} />);
+    expect(Number.parseFloat(screen.getByTestId('ss-landmark-10').style.left)).toBeCloseTo(57.735, 3);
+    expect(Number.parseFloat(screen.getByTestId('ss-landmark-20').style.left)).toBeCloseTo(81.65, 2);
   });
 });
