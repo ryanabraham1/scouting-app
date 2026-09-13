@@ -16,7 +16,11 @@ import PitScoutScreen from './PitScoutScreen';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { getCachedPitAssignmentsForEvent, getCachedTeams } from '@/db/preloadClient';
+import {
+  getCachedPitAssignmentsForEvent,
+  getCachedTeams,
+  replaceCachedPitAssignmentsForEvent,
+} from '@/db/preloadClient';
 import { supabase } from '@/lib/supabase';
 import {
   deletePitQuarantine,
@@ -144,7 +148,7 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
       try {
         const { data, error } = await supabase
           .from('pit_assignment')
-          .select('team_number,scout_id,scout:scout(display_name)')
+          .select('team_number,scout_id,source,scout:scout(display_name)')
           .eq('event_key', eventKey)
           .order('team_number', { ascending: true });
         if (error) throw error;
@@ -152,6 +156,7 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
           const rows = ((data ?? []) as unknown as Array<{
             team_number: number;
             scout_id: string;
+            source: 'manual' | 'auto';
             scout: { display_name: string | null } | null;
           }>).map((row) => ({
             teamNumber: row.team_number,
@@ -159,6 +164,22 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
             scoutName: row.scout?.display_name ?? null,
           }));
           setAssignments(assignmentsForScout(rows, scoutId));
+          await replaceCachedPitAssignmentsForEvent(
+            eventKey,
+            ((data ?? []) as unknown as Array<{
+              team_number: number;
+              scout_id: string;
+              source: 'manual' | 'auto';
+              scout: { display_name: string | null } | null;
+            }>).map((row) => ({
+              id: `${eventKey}:${row.team_number}:${row.scout_id}`,
+              event_key: eventKey,
+              team_number: row.team_number,
+              scout_id: row.scout_id,
+              scout_name: row.scout?.display_name ?? null,
+              source: row.source,
+            })),
+          );
         }
       } catch {
         /* keep cached assignments while offline */

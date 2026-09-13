@@ -138,9 +138,17 @@ export function useSession(): UseSessionResult {
           writeCachedScout(null);
         }
       } else {
-        // Genuine sign-out / no user.
-        setScout(null);
-        writeCachedScout(null);
+        // A cold offline start can have no readable auth session even though
+        // this device has a server-confirmed scout identity cached from an
+        // earlier online visit. Keep that identity so the scout can still see
+        // their schedule and capture locally. An explicit Change scouter action
+        // is still authoritative and clears the cache before this hook mounts.
+        const offline =
+          typeof navigator !== 'undefined' && navigator.onLine === false;
+        if (!offline || isScouterLoggedOut()) {
+          setScout(null);
+          writeCachedScout(null);
+        }
       }
 
       // Only the FIRST resolve clears the initial loading state. Later auth

@@ -33,7 +33,7 @@ describe('registerPwa', () => {
     expect(persist).toHaveBeenCalledTimes(1);
   });
 
-  it('checks on launch and defers activation until editing is safe', async () => {
+  it('checks on launch and automatically activates after editing is safe', async () => {
     vi.useFakeTimers();
     const registrationUpdate = vi.fn().mockResolvedValue(undefined);
     try {
@@ -54,9 +54,33 @@ describe('registerPwa', () => {
 
       release();
       expect(getPwaUpdateState()).toEqual({ pending: true, blocked: false });
-      expect(await applyPendingPwaUpdate()).toBe(true);
+      await vi.advanceTimersByTimeAsync(300);
       expect(updateSWMock).toHaveBeenCalledWith(true);
+      expect(getPwaUpdateState()).toEqual({ pending: false, blocked: false });
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps an update pending offline and applies it after reconnect', async () => {
+    vi.useFakeTimers();
+    const originalOnline = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    try {
+      await registerPwa();
+      const options = vi.mocked(registerSW).mock.calls[0]?.[0];
+      options?.onNeedRefresh?.();
+      await vi.advanceTimersByTimeAsync(600);
+      expect(updateSWMock).not.toHaveBeenCalled();
+      expect(getPwaUpdateState()).toEqual({ pending: true, blocked: false });
+
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(updateSWMock).toHaveBeenCalledWith(true);
+      expect(getPwaUpdateState()).toEqual({ pending: false, blocked: false });
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: originalOnline });
       vi.useRealTimers();
     }
   });

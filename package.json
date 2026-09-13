@@ -11,6 +11,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:offline": "playwright test --config playwright.offline.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "clsx": "^2.1.1",
     "dexie": "^4.0.8",
     "idb-keyval": "^6.2.5",
+    "jszip": "3.10.1",
     "lucide-react": "^1.21.0",
     "perfect-freehand": "^1.2.3",
     "qrcode": "^1.5.4",

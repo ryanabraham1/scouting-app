@@ -34,7 +34,7 @@ export function OfflineReadyBadge(props: {
    *  errors) keep a small labeled button so the CTA stays visible. */
   compact?: boolean;
 }): JSX.Element | null {
-  const { status, lastPreloadAt, errors, refresh } = useOfflinePreload(
+  const { status, lastPreloadAt, counts, errors, refresh } = useOfflinePreload(
     props.eventKey,
     props.scoutId,
   );
@@ -51,13 +51,20 @@ export function OfflineReadyBadge(props: {
   const label = running
     ? 'Downloading…'
     : ready
-      ? `Offline data ready · ${relativeTime(lastPreloadAt)}`
+      ? `Schedule ready offline · ${counts?.assignments ?? 0} match · ${counts?.pitAssignments ?? 0} pit · ${relativeTime(lastPreloadAt)}`
       : hasErrors
-        ? 'Some data couldn’t download'
-        : 'Tap to download for offline';
+        ? 'Offline schedule needs attention'
+        : 'Schedule not saved offline';
 
   if (props.compact) {
     const needsAttention = !ready && !running;
+    const compactLabel = running
+      ? 'Saving schedule…'
+      : ready
+        ? 'Schedule saved'
+        : needsAttention
+          ? 'Save schedule'
+          : 'Schedule';
     return (
       <div
         data-testid="offline-ready-badge"
@@ -70,8 +77,7 @@ export function OfflineReadyBadge(props: {
           aria-label={`${label} — download event data for offline`}
           title={label}
           className={cn(
-            'min-h-0',
-            needsAttention ? 'h-9 gap-1.5 px-2.5' : 'size-10 p-0',
+            'h-9 min-h-0 gap-1.5 px-2.5',
             hasErrors && 'text-destructive',
           )}
           disabled={running}
@@ -81,7 +87,9 @@ export function OfflineReadyBadge(props: {
             className={cn('size-4 shrink-0', running && 'animate-spin', ready && 'text-emerald-500')}
             aria-hidden
           />
-          {needsAttention ? <span className="text-xs font-medium">Download</span> : null}
+          <span data-testid="offline-schedule-status" className="text-xs font-medium">
+            {compactLabel}
+          </span>
         </Button>
       </div>
     );

@@ -3,8 +3,9 @@
 // Drives the offline preload for the active event: seeds from the last-saved
 // PreloadMeta, auto-refreshes once whenever the device comes online, and exposes
 // a manual refresh() for the "Download for offline" button.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useOnline } from '@/sync/useOnline';
+import { supabase } from '@/lib/supabase';
 import {
   preloadEventData,
   getPreloadMeta,
@@ -24,6 +25,7 @@ export function useOfflinePreload(
   scoutId?: string,
 ): OfflinePreloadState {
   const online = useOnline();
+  const channelId = useId();
   const [status, setStatus] = useState<OfflinePreloadState['status']>('idle');
   const [lastPreloadAt, setLastPreloadAt] = useState<string | null>(null);
   const [counts, setCounts] = useState<PreloadResult['counts'] | null>(null);
@@ -142,6 +144,50 @@ export function useOfflinePreload(
       if (began) autoKeyDone.current = key;
     })();
   }, [eventKey, scoutId, online, run]);
+
+  // Keep the saved schedule current after the initial preload. Realtime handles
+  // lead publishes immediately; focus and a low-frequency poll cover venues
+  // where the tables are not in the Realtime publication.
+  useEffect(() => {
+    if (!eventKey || !scoutId || !online) return;
+    const refreshWhenVisible = (): void => {
+      if (document.visibilityState !== 'hidden') void run();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 5 * 60 * 1000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    type ScheduleChannel = {
+      on: (...args: unknown[]) => ScheduleChannel;
+      subscribe: () => unknown;
+    };
+    const realtimeClient = supabase as typeof supabase & {
+      channel?: (name: string) => ScheduleChannel;
+      removeChannel?: (channel: unknown) => Promise<unknown>;
+    };
+    const realtime = realtimeClient.channel?.(
+      `offline-schedule:${eventKey}:${scoutId}:${channelId}`,
+    );
+    realtime
+      ?.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assignment', filter: `event_key=eq.${eventKey}` },
+        refreshWhenVisible,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pit_assignment', filter: `event_key=eq.${eventKey}` },
+        refreshWhenVisible,
+      )
+      .subscribe();
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      if (realtime) void realtimeClient.removeChannel?.(realtime);
+    };
+  }, [channelId, eventKey, online, run, scoutId]);
 
   return { status, lastPreloadAt, counts, errors, refresh };
 }

@@ -32,6 +32,19 @@ function mockScoutTable() {
 }
 
 beforeEach(() => {
+  const values = new Map<string, string>();
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() { return values.size; },
+    } satisfies Storage,
+  });
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
   getSession.mockReset();
   onAuthStateChange.mockReset();
   unsubscribe.mockReset();
@@ -60,6 +73,17 @@ describe('useSession', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.session).toBeNull();
     expect(result.current.scout).toBeNull();
+  });
+
+  it('keeps a server-confirmed cached scout on a cold offline start without a session', async () => {
+    localStorage.setItem('cached_scout_row', JSON.stringify(scoutRow));
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    getSession.mockResolvedValue({ data: { session: null }, error: null });
+
+    const { result } = renderHook(() => useSession());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.session).toBeNull();
+    expect(result.current.scout).toEqual(scoutRow);
   });
 
   // Regression: the "selected event disappears" bug. A later auth event (e.g.

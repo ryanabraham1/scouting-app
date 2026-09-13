@@ -10,6 +10,7 @@ let pendingUpdate = false;
 let blockedActivities = 0;
 let activateUpdate: (() => Promise<void>) | null = null;
 let updatePoll: ReturnType<typeof setInterval> | null = null;
+let updateApplyTimer: ReturnType<typeof setTimeout> | null = null;
 const updateListeners = new Set<() => void>();
 const tabId =
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -47,7 +48,10 @@ function ensureUpdateChannel(): void {
     const wasBlocked = isBlocked();
     if (message.blocked) remoteBlockedTabs.add(message.tabId);
     else remoteBlockedTabs.delete(message.tabId);
-    if (wasBlocked !== isBlocked()) notifyUpdateState();
+    if (wasBlocked !== isBlocked()) {
+      notifyUpdateState();
+      schedulePendingPwaUpdate();
+    }
   });
   updateChannel.postMessage({ type: 'request-state', tabId } satisfies UpdateChannelMessage);
   if (typeof window !== 'undefined') {
@@ -66,6 +70,37 @@ function ensureUpdateChannel(): void {
 
 function notifyUpdateState(): void {
   for (const listener of updateListeners) listener();
+}
+
+function canApplyUpdate(): boolean {
+  return (
+    pendingUpdate &&
+    !isBlocked() &&
+    activateUpdate != null &&
+    (typeof navigator === 'undefined' || navigator.onLine !== false)
+  );
+}
+
+/**
+ * Apply silently once every open tab is outside a data-entry screen. The short
+ * delay gives other tabs time to answer the BroadcastChannel state request
+ * before activation can reload the shared app shell.
+ */
+function schedulePendingPwaUpdate(): void {
+  if (!canApplyUpdate() || updateApplyTimer) return;
+  updateApplyTimer = setTimeout(() => {
+    updateApplyTimer = null;
+    if (!canApplyUpdate() || !activateUpdate) return;
+    void activateUpdate()
+      .then(() => {
+        pendingUpdate = false;
+        notifyUpdateState();
+      })
+      .catch(() => {
+        // Keep the update pending. A reconnect, focus, or later update check
+        // will retry without making a scout intervene.
+      });
+  }, 300);
 }
 
 export function subscribePwaUpdate(listener: () => void): () => void {
@@ -92,6 +127,7 @@ export function beginPwaUpdateBlock(): () => void {
     blockedActivities = Math.max(0, blockedActivities - 1);
     if (blockedActivities === 0) publishBlockState();
     notifyUpdateState();
+    schedulePendingPwaUpdate();
   };
 }
 
@@ -109,10 +145,11 @@ export async function registerPwa(): Promise<void> {
   updateSW = registerSW({
     immediate: true,
     onNeedRefresh() {
-      // Never reload underneath live data entry. Keep the update pending until
-      // the global prompt is visible on a safe screen and the user activates it.
+      // Never reload underneath live data entry. Once every tab is safe and
+      // this device is online, activation happens automatically.
       pendingUpdate = true;
       notifyUpdateState();
+      schedulePendingPwaUpdate();
     },
     onRegisteredSW(_swScriptUrl, registration) {
       // Check immediately on every launch. Browser-managed update checks can be
@@ -140,6 +177,20 @@ export async function registerPwa(): Promise<void> {
     },
   });
   activateUpdate = () => updateSW(true);
+
+  const retryAutomaticUpdate = (): void => schedulePendingPwaUpdate();
+  window.addEventListener('online', retryAutomaticUpdate);
+  window.addEventListener('focus', retryAutomaticUpdate);
+  window.addEventListener(
+    'pagehide',
+    () => {
+      window.removeEventListener('online', retryAutomaticUpdate);
+      window.removeEventListener('focus', retryAutomaticUpdate);
+      if (updateApplyTimer) clearTimeout(updateApplyTimer);
+      updateApplyTimer = null;
+    },
+    { once: true },
+  );
 
   if (typeof fetch === 'function') {
     void fetch(FIELD_IMAGE_URL).catch(() => {

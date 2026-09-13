@@ -8,6 +8,18 @@ vi.mock('@/db/preloadClient', () => ({
   getPreloadMeta: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('@/sync/useOnline', () => ({ useOnline: () => true }));
+vi.mock('@/lib/supabase', () => {
+  const channel = {
+    on: vi.fn().mockReturnThis(),
+    subscribe: vi.fn().mockReturnThis(),
+  };
+  return {
+    supabase: {
+      channel: vi.fn(() => channel),
+      removeChannel: vi.fn().mockResolvedValue(undefined),
+    },
+  };
+});
 
 import { useOfflinePreload } from './useOfflinePreload';
 
