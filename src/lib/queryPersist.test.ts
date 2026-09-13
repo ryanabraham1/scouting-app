@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { dehydrate, QueryClient } from '@tanstack/react-query';
 import {
   createMergeSafePersister,
@@ -37,6 +37,23 @@ function persisted(
 }
 
 describe('query persistence policy', () => {
+  it('boots without a cache when the storage read never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = {
+        read: () => new Promise<string | undefined>(() => {}),
+        update: async () => {},
+        remove: async () => {},
+      };
+      const persister = createMergeSafePersister(hung, { restoreTimeoutMs: 50 });
+      const pending = persister.restoreClient();
+      await vi.advanceTimersByTimeAsync(60);
+      await expect(pending).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('never persists active-event authority but keeps normal successful data', () => {
     const client = new QueryClient();
     client.setQueryData(['active-event', 'server-authority-v2'], '2026casnv');

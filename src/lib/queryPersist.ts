@@ -180,6 +180,33 @@ export function mergePersistedQueryClients(
   };
 }
 
+/**
+ * Upper bound on the boot-time cache restore. `PersistQueryClientProvider`
+ * keeps EVERY query un-subscribed (no fetch, `fetchStatus: 'idle'`) until
+ * `restoreClient()` settles, so an IndexedDB read that never resolves —
+ * Firefox/Zen-class browsers with restricted or wedged site storage do this —
+ * froze the whole dashboard: the active event sat on "verifying" and each data
+ * tab rendered its empty state even with perfect connectivity. Past this bound
+ * the app boots as if there were no persisted cache and fetches live.
+ */
+export const QUERY_CACHE_RESTORE_TIMEOUT_MS = 4_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export function createMergeSafePersister(
   storage: AtomicQueryCacheStorage,
   options: {
@@ -187,11 +214,13 @@ export function createMergeSafePersister(
     maxAge?: number;
     buster?: string;
     onPersist?: () => void;
+    restoreTimeoutMs?: number;
   } = {},
 ): MergeSafePersister {
   const now = options.now ?? Date.now;
   const maxAge = options.maxAge ?? QUERY_CACHE_MAX_AGE;
   const buster = options.buster ?? QUERY_CACHE_SCHEMA;
+  const restoreTimeoutMs = options.restoreTimeoutMs ?? QUERY_CACHE_RESTORE_TIMEOUT_MS;
   return {
     async persistClient(client) {
       let materiallyChanged = false;
@@ -208,7 +237,9 @@ export function createMergeSafePersister(
       if (materiallyChanged) options.onPersist?.();
     },
     async restoreClient() {
-      const raw = await storage.read();
+      // A timed-out read is "no cache for this boot", NOT a reason to wipe
+      // storage — the data may be fine and the browser merely slow.
+      const raw = await withTimeout(storage.read(), restoreTimeoutMs, undefined);
       const restored = parsePersisted(raw);
       if (
         !restored ||
