@@ -25,7 +25,7 @@ describe('pit assignments', () => {
     eq.mockReset();
   });
 
-  it('balances sorted teams deterministically across sorted scouts', () => {
+  it('assigns sorted teams deterministically in consecutive crew blocks', () => {
     const result = autoAssignPits(
       [
         { teamNumber: 3, nickname: null },
@@ -39,32 +39,53 @@ describe('pit assignments', () => {
     );
     expect(result).toEqual([
       { teamNumber: 1, scoutId: 'a', source: 'auto' },
-      { teamNumber: 2, scoutId: 'b', source: 'auto' },
-      { teamNumber: 3, scoutId: 'a', source: 'auto' },
+      { teamNumber: 2, scoutId: 'a', source: 'auto' },
+      { teamNumber: 3, scoutId: 'b', source: 'auto' },
     ]);
   });
 
-  it('builds balanced shared crews without duplicating a scout on one team', () => {
+  it('keeps stable crews together and folds extra scouts into the final crew', () => {
     const result = autoAssignPits(
       [
-        { teamNumber: 3, nickname: null },
+        { teamNumber: 5, nickname: null },
         { teamNumber: 1, nickname: null },
+        { teamNumber: 8, nickname: null },
         { teamNumber: 2, nickname: null },
+        { teamNumber: 7, nickname: null },
+        { teamNumber: 4, nickname: null },
+        { teamNumber: 3, nickname: null },
+        { teamNumber: 6, nickname: null },
       ],
       [
-        { id: 'c', displayName: 'Cam' },
         { id: 'a', displayName: 'Alex' },
         { id: 'b', displayName: 'Blair' },
+        { id: 'c', displayName: 'Cam' },
+        { id: 'd', displayName: 'Drew' },
+        { id: 'e', displayName: 'Evan' },
       ],
       2,
     );
     expect(result).toEqual([
       { teamNumber: 1, scoutId: 'a', source: 'auto' },
       { teamNumber: 1, scoutId: 'b', source: 'auto' },
-      { teamNumber: 2, scoutId: 'c', source: 'auto' },
       { teamNumber: 2, scoutId: 'a', source: 'auto' },
+      { teamNumber: 2, scoutId: 'b', source: 'auto' },
+      { teamNumber: 3, scoutId: 'a', source: 'auto' },
       { teamNumber: 3, scoutId: 'b', source: 'auto' },
-      { teamNumber: 3, scoutId: 'c', source: 'auto' },
+      { teamNumber: 4, scoutId: 'a', source: 'auto' },
+      { teamNumber: 4, scoutId: 'b', source: 'auto' },
+      { teamNumber: 5, scoutId: 'c', source: 'auto' },
+      { teamNumber: 5, scoutId: 'd', source: 'auto' },
+      { teamNumber: 5, scoutId: 'e', source: 'auto' },
+      { teamNumber: 6, scoutId: 'c', source: 'auto' },
+      { teamNumber: 6, scoutId: 'd', source: 'auto' },
+      { teamNumber: 6, scoutId: 'e', source: 'auto' },
+      { teamNumber: 7, scoutId: 'c', source: 'auto' },
+      { teamNumber: 7, scoutId: 'd', source: 'auto' },
+      { teamNumber: 7, scoutId: 'e', source: 'auto' },
+      { teamNumber: 8, scoutId: 'c', source: 'auto' },
+      { teamNumber: 8, scoutId: 'd', source: 'auto' },
+      { teamNumber: 8, scoutId: 'e', source: 'auto' },
     ]);
 
     const capped = autoAssignPits(

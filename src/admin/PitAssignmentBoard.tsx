@@ -413,10 +413,10 @@ export function PitAssignmentBoard({
       <CardContent>
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-            Crew size
+            Base crew size
             <select
               data-testid="pit-crew-size"
-              aria-label="Scouts per pit crew"
+              aria-label="Base scouts per pit crew"
               value={crewSize}
               disabled={busy || !editorReady}
               onChange={(event) => setCrewSize(Number(event.target.value))}
@@ -482,7 +482,8 @@ export function PitAssignmentBoard({
           {!generated && publishedCount > 0 ? ' · live for scouts' : ''}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Auto-balance builds crews of the selected size. Add or remove members on any team
+          Auto-balance keeps each crew together and gives it a consecutive block of teams.
+          Extra scouts are folded into the final crew. Add or remove members on any team
           before publishing.
         </p>
         {message ? <p className="mt-2 text-sm text-success">{message}</p> : null}

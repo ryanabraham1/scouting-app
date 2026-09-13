@@ -94,20 +94,36 @@ export function autoAssignPits(
     a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }),
   );
   if (orderedScouts.length === 0) return [];
-  const membersPerTeam = Math.min(
+  const baseCrewSize = Math.min(
     orderedScouts.length,
-    Math.max(1, Math.floor(crewSize)),
+    Math.max(1, Math.floor(Number.isFinite(crewSize) ? crewSize : 1)),
   );
-  return orderedTeams.flatMap((team, teamIndex) =>
-    Array.from({ length: membersPerTeam }, (_, memberIndex) => ({
-      teamNumber: team.teamNumber,
-      scoutId:
-        orderedScouts[
-          (teamIndex * membersPerTeam + memberIndex) % orderedScouts.length
-        ].id,
-      source: 'auto' as const,
-    })),
+
+  // Build stable crews first, then assign each crew a contiguous block of
+  // teams. If the roster has a remainder, fold it into the final crew so no
+  // scout is left in a smaller one-person (or otherwise undersized) crew.
+  const fullCrewCount = Math.max(1, Math.floor(orderedScouts.length / baseCrewSize));
+  const crews = Array.from({ length: fullCrewCount }, (_, crewIndex) =>
+    orderedScouts.slice(crewIndex * baseCrewSize, (crewIndex + 1) * baseCrewSize),
   );
+  const remainder = orderedScouts.slice(fullCrewCount * baseCrewSize);
+  if (remainder.length > 0) crews[crews.length - 1].push(...remainder);
+
+  const teamsPerCrew = Math.floor(orderedTeams.length / crews.length);
+  const extraTeams = orderedTeams.length % crews.length;
+  let teamOffset = 0;
+  return crews.flatMap((crew, crewIndex) => {
+    const assignedTeamCount = teamsPerCrew + (crewIndex < extraTeams ? 1 : 0);
+    const crewTeams = orderedTeams.slice(teamOffset, teamOffset + assignedTeamCount);
+    teamOffset += assignedTeamCount;
+    return crewTeams.flatMap((team) =>
+      crew.map((scout) => ({
+        teamNumber: team.teamNumber,
+        scoutId: scout.id,
+        source: 'auto' as const,
+      })),
+    );
+  });
 }
 
 export async function publishPitAssignments(
