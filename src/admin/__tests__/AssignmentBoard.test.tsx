@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const autoAssign = vi.fn();
@@ -49,6 +49,23 @@ const SCOUTS: AssignScout[] = [
   { id: 's2', displayName: 'Bob' },
 ];
 
+// The jsdom-compat env ships a non-functional localStorage; install a minimal
+// in-memory polyfill so the real persistence logic is exercised.
+beforeAll(() => {
+  const mem = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => (mem.has(k) ? mem.get(k)! : null),
+    setItem: (k: string, v: string) => void mem.set(k, String(v)),
+    removeItem: (k: string) => void mem.delete(k),
+    clear: () => mem.clear(),
+    key: () => null,
+    get length() {
+      return mem.size;
+    },
+  };
+  Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+});
+
 describe('AssignmentBoard', () => {
   beforeEach(() => {
     autoAssign.mockReset();
@@ -60,6 +77,7 @@ describe('AssignmentBoard', () => {
     replaceCachedAssignmentsForEvent.mockReset();
     assignmentServers.clear();
     queryCache.clear();
+    localStorage.clear();
     getCachedAssignmentsForEvent.mockResolvedValue([]);
     replaceCachedAssignmentsForEvent.mockResolvedValue(undefined);
     loadMatchAssignmentSnapshot.mockImplementation(async (eventKey: string) => {
@@ -364,6 +382,44 @@ describe('AssignmentBoard', () => {
         rotatePositions: false,
       }),
     );
+  });
+
+  it('keeps a scouter off every match on an unchecked day', async () => {
+    const sat = new Date(2026, 2, 14, 12, 0).toISOString();
+    const sun = new Date(2026, 2, 15, 12, 0).toISOString();
+    const twoDays: AssignMatch[] = [
+      { ...MATCHES[0], matchKey: '2026casnv_qm1', scheduledTime: sat },
+      { ...MATCHES[0], matchKey: '2026casnv_qm2', scheduledTime: sun },
+      { ...MATCHES[0], matchKey: '2026casnv_qm3', scheduledTime: sun },
+    ];
+    autoAssign.mockReturnValue([]);
+    render(<AssignmentBoard eventKey="2026casnv" matches={twoDays} scouts={SCOUTS} />);
+    await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
+
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    const grid = screen.getByTestId('scouter-days');
+    expect(grid).toHaveTextContent('Saturday');
+    expect(grid).toHaveTextContent('Sunday');
+    // Alice: uncheck Sunday.
+    fireEvent.click(screen.getByLabelText('Alice available Sunday'));
+
+    fireEvent.click(screen.getByTestId('auto-generate-btn'));
+    await screen.findByTestId('assignment-grid');
+    const scoutsArg = autoAssign.mock.calls[0][1] as AssignScout[];
+    expect(new Set(scoutsArg[0].unavailableMatchKeys)).toEqual(
+      new Set(['2026casnv_qm2', '2026casnv_qm3']),
+    );
+    expect(scoutsArg[1]).toBe(SCOUTS[1]);
+
+    // The choice survives a remount (persisted per event on this device).
+    expect(localStorage.getItem('assignment_days_off:2026casnv')).toContain('s1');
+  });
+
+  it('hides the scouter-days grid for a single-day schedule', async () => {
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    expect(screen.queryByTestId('scouter-days')).toBeNull();
   });
 
   it('warns when full coverage requires relaxing a blocked schedule', async () => {

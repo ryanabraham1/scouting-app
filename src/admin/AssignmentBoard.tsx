@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { autoAssignPlan } from './autoAssign';
+import { applyDaysOff, loadDaysOff, matchDays, saveDaysOff, type ScoutDaysOff } from './matchDays';
 import {
   loadMatchAssignmentSnapshot,
   publishAssignments,
@@ -63,6 +64,9 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   const [restLength, setRestLength] = useState(3);
   const [rotatePositions, setRotatePositions] = useState(true);
   const [avoidBackToBack, setAvoidBackToBack] = useState(true);
+  // Per-scouter days off (e.g. Saturday-only scouters). Persisted per event on
+  // the lead's device so a regenerate after reload keeps the same plan.
+  const [daysOff, setDaysOff] = useState<ScoutDaysOff>(() => loadDaysOff(eventKey));
   const [generationWarning, setGenerationWarning] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   // Manual authoring aid: hide fully-covered matches so the lead can fill holes.
@@ -95,6 +99,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     setVerificationIssue(null);
     setGenerationWarning(null);
     setConfirmClearAll(false);
+    setDaysOff(loadDaysOff(eventKey));
   }, [eventKey]);
 
   const updatePublishedCaches = useCallback(
@@ -237,6 +242,33 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     [matches],
   );
 
+  // Calendar days of the qual schedule (needs TBA scheduled times). With only
+  // one day there is nothing to restrict, so the availability grid stays hidden.
+  const days = useMemo(() => matchDays(qualMatches), [qualMatches]);
+  const dayByMatch = useMemo(() => {
+    const map = new Map<string, { key: string; weekday: string }>();
+    for (const d of days) for (const k of d.matchKeys) map.set(k, { key: d.key, weekday: d.weekday });
+    return map;
+  }, [days]);
+  const isOffForMatch = (scoutId: string, matchKey: string): boolean => {
+    const day = dayByMatch.get(matchKey);
+    return day != null && (daysOff[scoutId] ?? []).includes(day.key);
+  };
+
+  function toggleDayOff(scoutId: string, dayKey: string, available: boolean): void {
+    setDaysOff((prev) => {
+      const current = prev[scoutId] ?? [];
+      const nextList = available
+        ? current.filter((k) => k !== dayKey)
+        : current.includes(dayKey)
+          ? current
+          : [...current, dayKey];
+      const next = { ...prev, [scoutId]: nextList };
+      saveDaysOff(eventKey, next);
+      return next;
+    });
+  }
+
   const slots = useMemo<Slot[]>(() => {
     const out: Slot[] = [];
     for (const m of qualMatches) {
@@ -301,7 +333,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   }, [generated, slots, picks, publishedMapped]);
 
   function generateFrom(activePool: AssignScout[]): void {
-    const plan = autoAssignPlan(qualMatches, activePool, {
+    const plan = autoAssignPlan(qualMatches, applyDaysOff(activePool, days, daysOff), {
       ownTeam,
       scheduleMode,
       blockAssignments,
@@ -771,6 +803,70 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                 <span>Avoid back-to-back matches when there are enough scouters</span>
               </label>
             ) : null}
+            {days.length > 1 ? (
+              <div
+                data-testid="scouter-days"
+                className="rounded-md border border-border bg-background/40 p-3"
+              >
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Scouter days
+                </p>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Uncheck a day to keep that scouter off every match scheduled for it.
+                </p>
+                {pool.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Scouters appear here once the pool is seeded from the roster.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-muted-foreground">
+                          <th scope="col" className="pb-2 pr-3 text-left font-medium">
+                            Scouter
+                          </th>
+                          {days.map((d) => (
+                            <th
+                              key={d.key}
+                              scope="col"
+                              className="pb-2 px-2 text-center font-medium"
+                            >
+                              {d.weekday}
+                              <span className="block font-normal">
+                                {d.date} · {d.matchKeys.length}
+                              </span>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pool.map((sc) => {
+                          const off = daysOff[sc.id] ?? [];
+                          return (
+                            <tr key={sc.id} className="border-t border-border/60">
+                              <td className="py-1.5 pr-3">{sc.displayName}</td>
+                              {days.map((d) => (
+                                <td key={d.key} className="px-2 py-1.5 text-center">
+                                  <input
+                                    type="checkbox"
+                                    data-testid="scouter-day-toggle"
+                                    checked={!off.includes(d.key)}
+                                    onChange={(e) => toggleDayOff(sc.id, d.key, e.target.checked)}
+                                    className="size-4 accent-brand"
+                                    aria-label={`${sc.displayName} available ${d.weekday}`}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -910,7 +1006,14 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                     }`}
                   >
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="font-semibold text-brand">{matchLabel(m.matchKey)}</span>
+                      <span className="flex items-baseline gap-2">
+                        <span className="font-semibold text-brand">{matchLabel(m.matchKey)}</span>
+                        {days.length > 1 && dayByMatch.has(m.matchKey) ? (
+                          <span className="text-xs text-muted-foreground">
+                            {dayByMatch.get(m.matchKey)?.weekday}
+                          </span>
+                        ) : null}
+                      </span>
                       <div className="flex items-center gap-2">
                         {m.gaps > 0 ? (
                           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
@@ -967,6 +1070,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                               {pool.map((sc) => (
                                 <option key={sc.id} value={sc.id}>
                                   {sc.displayName}
+                                  {isOffForMatch(sc.id, m.matchKey) ? ' (off this day)' : ''}
                                 </option>
                               ))}
                             </select>

@@ -30,6 +30,7 @@ import {
 interface MatchRow {
   match_key: string;
   match_number: number;
+  scheduled_time: string | null;
   red1: number;
   red2: number;
   red3: number;
@@ -130,7 +131,7 @@ export default function SetupTab(): JSX.Element {
     const [matchRes, scoutRes, teamRes] = await Promise.all([
       supabase
         .from('match')
-        .select('match_key,match_number,red1,red2,red3,blue1,blue2,blue3')
+        .select('match_key,match_number,scheduled_time,red1,red2,red3,blue1,blue2,blue3')
         .eq('event_key', key)
         .order('match_number', { ascending: true }),
       supabase.from('scout').select('id,display_name').eq('event_key', key),
@@ -144,6 +145,7 @@ export default function SetupTab(): JSX.Element {
     const matchRows = (matchRes.data as MatchRow[] | null) ?? [];
     const nextMatches: AssignMatch[] = matchRows.map((m) => ({
       matchKey: m.match_key,
+      scheduledTime: m.scheduled_time,
       redTeams: [m.red1, m.red2, m.red3] as [number, number, number],
       blueTeams: [m.blue1, m.blue2, m.blue3] as [number, number, number],
     }));

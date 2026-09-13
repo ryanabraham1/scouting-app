@@ -2,6 +2,8 @@ export interface AssignMatch {
   matchKey: string;
   redTeams: [number, number, number];
   blueTeams: [number, number, number];
+  /** TBA scheduled start (ISO). Drives per-day scouter availability. */
+  scheduledTime?: string | null;
 }
 
 export interface AssignScout {
