@@ -3,8 +3,7 @@
 // a call into the pure `seedPicklist`. No new dependency: a self-contained
 // centered overlay (Escape + backdrop close) mirroring the project's dialog
 // pattern. The seed order is byte-identical to the Ranking table because both
-// resolve EPA via `resolveRowEpa` (seedPicklist passes epaAvailable +
-// epaFromScouting through to it).
+// resolve EPA via `resolveRowEpa` (seedPicklist passes epaAvailable through).
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -26,8 +25,8 @@ export interface PicklistSeedDialogProps {
 }
 
 const METRIC_OPTIONS: Array<{ value: RankSortKey; label: string }> = [
-  { value: 'scoutingExpectedPoints', label: 'Expected Pts' },
   { value: 'epa', label: 'EPA' },
+  { value: 'scoutingExpectedPoints', label: 'Scouted Pts' },
   { value: 'climbSuccessRate', label: 'Climb %' },
   { value: 'avgDefenseRating', label: 'Defense' },
 ];
@@ -37,7 +36,7 @@ const TOUCH = 'min-h-[44px]';
 export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.Element | null {
   const { open, aggs, epaByTeam, epaAvailable, onSeed, onClose } = props;
 
-  const [metric, setMetric] = useState<RankSortKey>('scoutingExpectedPoints');
+  const [metric, setMetric] = useState<RankSortKey>('epa');
   const [topN, setTopN] = useState('24');
   const [minMatches, setMinMatches] = useState('0');
   const [mode, setMode] = useState<'replace' | 'append'>('replace');
@@ -50,7 +49,7 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
   // Reset the form each time the dialog opens so a prior session never lingers.
   useEffect(() => {
     if (open) {
-      setMetric('scoutingExpectedPoints');
+      setMetric('epa');
       setTopN('24');
       setMinMatches('0');
       setMode('replace');
@@ -101,12 +100,11 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
   if (typeof document === 'undefined') return null;
 
   const empty = aggs.length === 0;
-  // EPA chosen but no external source resolved → seed by in-house estimate.
+  // EPA chosen but no match-result EPA resolved → every row ties at "—".
   const epaFallback = metric === 'epa' && !epaAvailable;
 
   function onConfirm(): void {
     if (empty) return;
-    const epaFromScouting = !epaAvailable;
     const entries = seedPicklist({
       aggs,
       sortKey: metric,
@@ -114,7 +112,6 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
       minMatches: Math.max(0, Math.trunc(Number(minMatches) || 0)),
       epaByTeam,
       epaAvailable,
-      epaFromScouting,
     });
     onSeed(entries, mode);
   }
@@ -166,7 +163,7 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
 
             {epaFallback ? (
               <div data-testid="pick-seed-epa-note" className="text-xs text-warning">
-                EPA unavailable — seeding by in-house estimate.
+                EPA unavailable (no posted match results yet) — pick another metric or seed will be by team number.
               </div>
             ) : null}
 

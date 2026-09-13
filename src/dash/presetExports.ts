@@ -41,7 +41,7 @@ export interface PresetRow {
   defense: number | null; // agg.avgDefenseRating
   reliability: number | null; // agg.reliability (0..1)
   epa: number | null;
-  epaSource: 'statbotics' | 'local' | 'scouting' | 'none';
+  epaSource: 'statbotics' | 'local' | 'none';
 }
 
 /**
@@ -76,12 +76,12 @@ export async function fetchTeamMetadata(
 /**
  * Build the ordered preset rows. PURE — fully testable with plain Maps.
  *
- * EPA value precedence matches RankingView (external EPA when available for THIS
- * team, else the in-house scoutingExpectedPoints). The per-row source label uses
+ * EPA matches RankingView: match-results only (local model → Statbotics), never
+ * scouting — a team without one exports `epa: null` / `epaSource: 'none'`; the
+ * scouted expectation is its own `expPts` column. The per-row source label uses
  * the per-team `sourceByTeam` map (falling back to the event-wide source when a
  * caller passes a fixture without it). Unscouted teams (no agg) keep rank /
- * team / tier / note / identity but get null metrics — the in-house branch reads
- * `agg ? agg.scoutingExpectedPoints : null`, so it never derefs undefined.
+ * team / tier / note / identity but get null metrics.
  */
 export function buildPresetRows(
   entries: PicklistEntry[],
@@ -97,19 +97,9 @@ export function buildPresetRows(
     const agg = aggByTeam.get(team);
     const meta = metaByTeam.get(team);
 
-    const inHouseVal = agg ? agg.scoutingExpectedPoints : null;
-    const external = epaAvailable ? epaByTeam.get(team) ?? null : null;
-    const epaInHouse = external == null; // fell back to scouting for THIS team
-    const epa = epaInHouse ? inHouseVal : external;
-
-    let epaSource: PresetRow['epaSource'];
-    if (epa == null) {
-      epaSource = 'none';
-    } else if (epaInHouse) {
-      epaSource = 'scouting';
-    } else {
-      epaSource = sourceByTeam?.get(team) ?? eventSource;
-    }
+    const epa = epaAvailable ? epaByTeam.get(team) ?? null : null;
+    const epaSource: PresetRow['epaSource'] =
+      epa == null ? 'none' : sourceByTeam?.get(team) ?? eventSource;
 
     return {
       rank: i + 1,

@@ -122,7 +122,7 @@ describe('AllianceSimulatorView', () => {
     expect(teamNumbers).toContain(22);
   });
 
-  it('statboticsAvailable wiring: a local EPA source still blends (available === true)', () => {
+  it('statboticsAvailable wiring: a local EPA source drives the projection (available === true)', () => {
     // One scouted team + EPA available via LOCAL source.
     useEventReportsMock.mockReturnValue(
       dataResult<MsrRow[]>([
@@ -143,10 +143,10 @@ describe('AllianceSimulatorView', () => {
     fireEvent.click(getByTestId('alliance-pick-11'));
     fireEvent.click(getByTestId('alliance-pick-22'));
     fireEvent.click(getByTestId('alliance-pick-33'));
-    // Team 11 (scouted + EPA, 4 matches) blends → chip source reads "blend".
+    // Team 11 (scouted + EPA, 4 matches) → EPA wins outright; scouting never blends in.
     const chip = getByTestId('alliance-team-chip-11');
-    expect(chip.textContent).toMatch(/blend/);
-    expect(chip.textContent).not.toMatch(/scouting/);
+    expect(chip.textContent).toMatch(/EPA/i);
+    expect(chip.textContent).not.toMatch(/scouting|blend/);
   });
 
   it('EPA degradation banner: source local renders the in-house/local warning', () => {

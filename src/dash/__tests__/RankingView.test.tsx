@@ -181,12 +181,24 @@ describe('RankingView', () => {
     expect(getByTestId('epa-254').className).not.toContain('hidden');
   });
 
-  it('defaults to sorting by scoutingExpectedPoints descending (254 before 1678)', () => {
+  it('falls back to sorting by Scouted Pts descending when no EPA has resolved (254 before 1678)', () => {
     reportsReturn = { data: reports, isLoading: false };
     const { getAllByTestId } = render(<RankingView eventKey="2026casnv" />);
     const rows = getAllByTestId(/^ranking-row-/);
     expect(rows[0].getAttribute('data-testid')).toBe('ranking-row-254');
     expect(rows[1].getAttribute('data-testid')).toBe('ranking-row-1678');
+  });
+
+  it('defaults to sorting by EPA (not scouted pts) when EPA is available', () => {
+    reportsReturn = { data: reports, isLoading: false };
+    // 254 has the higher scouted pts; 1678 has the higher EPA → EPA order wins.
+    epaReturn = {
+      data: { epaByTeam: new Map([[254, 30], [1678, 70]]), available: true },
+    };
+    const { getAllByTestId } = render(<RankingView eventKey="2026casnv" />);
+    const rows = getAllByTestId(/^ranking-row-/);
+    expect(rows[0].getAttribute('data-testid')).toBe('ranking-row-1678');
+    expect(rows[1].getAttribute('data-testid')).toBe('ranking-row-254');
   });
 
   it('reorders rows when a column header is clicked', () => {
@@ -210,17 +222,15 @@ describe('RankingView', () => {
     expect(rows[1].getAttribute('data-testid')).toBe('ranking-row-1678');
   });
 
-  it('falls back to an in-house scouting EPA when no external EPA is available', () => {
+  it('shows "—" for EPA (never the scouted estimate) when no match-result EPA is available', () => {
     reportsReturn = { data: reports, isLoading: false };
     epaReturn = { data: { epaByTeam: new Map(), available: false, source: 'none' } };
-    const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
+    const { getByTestId, queryByTestId } = render(<RankingView eventKey="2026casnv" />);
     const row254 = getByTestId('ranking-row-254');
-    // No "—": the EPA cell shows our in-house scouting estimate (a number) + "est".
-    const cell = within(row254).getByTestId('epa-254');
-    expect(cell.textContent).not.toBe('—');
-    expect(cell.textContent).toMatch(/^\d+est$/);
-    // Banner explains the fallback source.
-    expect(getByTestId('dash-ranking-epa-banner').textContent).toMatch(/in-house/i);
+    expect(within(row254).getByTestId('epa-254').textContent).toBe('—');
+    // Scouted pts remain their own column, untouched.
+    expect(within(row254).getByTestId('exp-254').textContent).not.toBe('—');
+    expect(queryByTestId('dash-ranking-epa-banner')).toBeNull();
   });
 
   it('shows the EPA value when Statbotics is available', () => {
@@ -230,10 +240,8 @@ describe('RankingView', () => {
     };
     const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
     expect(within(getByTestId('ranking-row-254')).getByTestId('epa-254').textContent).toBe('55');
-    // Missing external EPA falls back per team to its scouting estimate.
-    expect(within(getByTestId('ranking-row-1678')).getByTestId('epa-1678').textContent).toMatch(
-      /^\d+est$/,
-    );
+    // A team missing from the EPA source shows "—" (no scouted-pts substitution).
+    expect(within(getByTestId('ranking-row-1678')).getByTestId('epa-1678').textContent).toBe('—');
   });
 
   it('shows "—" for TBA rank when rankings are unavailable', () => {

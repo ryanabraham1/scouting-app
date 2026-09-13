@@ -345,7 +345,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   // WHOLE field instead of only the handful of teams with scouting reports.
   // Scouting metrics read 0 for unscouted teams (they sink to the bottom); the
   // dialog's min-matches filter can exclude them outright. Distinct from
-  // `aggByTeam`, which stays scouted-only for the per-row export/EPA fallbacks.
+  // `aggByTeam`, which stays scouted-only for the per-row export columns.
   const aggs = useMemo<TeamAgg[]>(() => {
     const merged = new Map(aggByTeam);
     for (const t of allTeams) {
@@ -1039,7 +1039,6 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
       <PicklistEpaBoard
         teams={allTeams}
         epa={epaQuery.data}
-        aggByTeam={aggByTeam}
         inListTeams={activeListTeams}
         onAdd={addTeamNumber}
         dnpTeams={dnpTeams}

@@ -122,7 +122,7 @@ describe('simulateAlliance — score = sum of predictMatch expected', () => {
 });
 
 describe('source classification', () => {
-  it('blend when matchesScouted >= CONFIDENCE_N and EPA present', () => {
+  it('epa whenever EPA is present, even for well-scouted teams (scouting never blends)', () => {
     const a = new Map<number, TeamAgg>([
       [1, agg({ teamNumber: 1, matchesScouted: CONFIDENCE_N, scoutingExpectedPoints: 100 })],
       [2, agg({ teamNumber: 2, matchesScouted: CONFIDENCE_N, scoutingExpectedPoints: 90 })],
@@ -132,8 +132,8 @@ describe('source classification', () => {
     const sim = simulateAlliance(
       makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, statboticsAvailable: true }),
     );
-    expect(sim.teamReads.every((r) => r.source === 'blend')).toBe(true);
-    expect(sim.scoreSource).toBe('blend');
+    expect(sim.teamReads.every((r) => r.source === 'epa')).toBe(true);
+    expect(sim.scoreSource).toBe('epa');
   });
 
   it('scouting when EPA absent (statbotics unavailable)', () => {
@@ -150,11 +150,11 @@ describe('source classification', () => {
     expect(sim.scoreSource).toBe('scouting');
   });
 
-  it('mixed when sources differ (scouting + blend + epa)', () => {
+  it('mixed when sources differ (scouting fallback + epa)', () => {
     const a = new Map<number, TeamAgg>([
       // team 1: scouting only (no EPA value)
       [1, agg({ teamNumber: 1, matchesScouted: 3, scoutingExpectedPoints: 100 })],
-      // team 2: blend (scouting + EPA)
+      // team 2: scouted AND EPA -> EPA wins outright
       [2, agg({ teamNumber: 2, matchesScouted: CONFIDENCE_N, scoutingExpectedPoints: 90 })],
       // team 3: epa only (unscouted)
     ]);
@@ -163,7 +163,7 @@ describe('source classification', () => {
       makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, statboticsAvailable: true }),
     );
     expect(sim.teamReads[0].source).toBe('scouting');
-    expect(sim.teamReads[1].source).toBe('blend');
+    expect(sim.teamReads[1].source).toBe('epa');
     expect(sim.teamReads[2].source).toBe('epa');
     expect(sim.scoreSource).toBe('mixed');
   });

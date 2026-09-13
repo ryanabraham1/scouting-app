@@ -19,14 +19,12 @@ import type { TeamPit } from '@/dash/useTeamPit';
 import { QUALITATIVE_RATING_MAX } from '@/ratings';
 
 export const SOURCE_LABEL: Record<TeamPrediction['source'], string> = {
-  blend: 'blend',
   scouting: 'scouting',
   epa: 'epa',
   none: 'none',
 };
 
 export const SOURCE_CLASS: Record<TeamPrediction['source'], string> = {
-  blend: 'bg-brand/15 text-brand border-brand/40',
   scouting: 'bg-success/15 text-success border-success/40',
   epa: 'bg-energy/15 text-energy border-energy/40',
   none: 'bg-muted text-muted-foreground border-border',

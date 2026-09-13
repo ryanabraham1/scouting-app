@@ -384,12 +384,14 @@ describe('TeamView', () => {
     expect(useTeamEpaHistoryMock).toHaveBeenLastCalledWith(254, '2026casnv');
   });
 
-  it('uses the selected team scouting fallback when external EPA is unavailable', () => {
+  it('shows EPA unavailable (never the scouted estimate) when no match-result EPA exists', () => {
     useEventEpaMock.mockReturnValue(querySuccess(epaResult(null, false)));
     const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
     selectTeam(getByTestId, '254');
     const epa = getByTestId('team-epa');
-    expect(epa.textContent?.toLowerCase()).toContain('in-house estimate');
+    expect(epa.textContent?.toLowerCase()).toContain('epa unavailable');
+    // The scouted expectation is its own separate stat, still rendered.
+    expect(getByTestId('team-scouting-expected').textContent).not.toBe('—');
   });
 
   it('lists the team scouted matches with friendly labels', () => {

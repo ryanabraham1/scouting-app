@@ -154,7 +154,6 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   const epaQuery = useEventEpa(teamNumbers, eventKey, matchesQuery.data ?? []);
   const epaByTeam = epaQuery.data?.epaByTeam;
   const epaAvailable = epaQuery.data?.available === true;
-  const epaFromScouting = !epaAvailable;
   const componentQuery = useEventComponentEpas(teamNumbers, eventKey);
   const playedMatches = useMemo(
     () =>
@@ -294,7 +293,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       return {
         teamNumber: agg.teamNumber,
         nickname: nicknameByTeam.get(agg.teamNumber) ?? null,
-        epa: resolveRowEpa({ agg, epaByTeam, epaAvailable, epaFromScouting }),
+        epa: resolveRowEpa({ agg, epaByTeam, epaAvailable }),
         expectedPoints: agg.scoutingExpectedPoints,
         autoPoints: autoByTeam.get(agg.teamNumber)?.points ?? null,
         autoSource: autoByTeam.get(agg.teamNumber)?.source ?? 'none',
@@ -322,7 +321,6 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     aggs,
     epaByTeam,
     epaAvailable,
-    epaFromScouting,
     autoByTeam,
     picklistByTeam,
     activeRankByTeam,

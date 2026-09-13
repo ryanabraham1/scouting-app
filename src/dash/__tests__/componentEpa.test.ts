@@ -266,8 +266,8 @@ describe('resolveComponentBreakdown', () => {
       meanFuelConfidence: 1,
       meanClimbPoints: 10,
     });
-    // scouting basis = 50; blended expected = 80. Components must sum to 80.
-    const c = resolveComponentBreakdown(1, agg, 80, F, 'blend', 5);
+    // scouting basis = 50; EPA expected = 80. Components must sum to 80.
+    const c = resolveComponentBreakdown(1, agg, 80, F, 'epa', 5);
     expect(c.auto + c.fuel + (c.climb ?? 0)).toBeCloseTo(80, 6);
     // proportions preserved: auto 10/50 of 80 = 16.
     expect(c.auto).toBeCloseTo(16, 6);

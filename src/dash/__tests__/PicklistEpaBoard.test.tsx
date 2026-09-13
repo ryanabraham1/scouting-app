@@ -2,7 +2,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, cleanup, fireEvent, within } from '@testing-library/react';
 import PicklistEpaBoard from '@/dash/PicklistEpaBoard';
-import { emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
 import type { TeamRow, EventEpa } from '@/dash/useEventData';
 
 const TEAMS: TeamRow[] = [
@@ -41,7 +40,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -57,7 +55,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set()}
         onAdd={onAdd}
         onSelectTeam={onSelectTeam}
@@ -72,7 +69,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -95,7 +91,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -110,7 +105,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set([254])}
         onAdd={onAdd}
       />,
@@ -121,12 +115,7 @@ describe('PicklistEpaBoard', () => {
     expect(getByTestId('epa-board-add-1678')).toBeTruthy();
   });
 
-  it('falls back to the in-house scouting estimate (marked "est") when no external EPA', () => {
-    const agg: TeamAgg = {
-      ...emptyTeamAgg(254),
-      matchesScouted: 2,
-      scoutingExpectedPoints: 33,
-    };
+  it('shows "—" (never the scouted estimate) when no match-result EPA resolved', () => {
     const noEpa: EventEpa = {
       epaByTeam: new Map<number, number | null>([
         [254, null],
@@ -145,56 +134,41 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={noEpa}
-        aggByTeam={new Map<number, TeamAgg>([[254, agg]])}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
     );
-    // 254 has an in-house estimate → real number + "est" chip.
-    const epa254 = getByTestId('epa-board-epa-254');
-    expect(epa254.textContent).toContain('33');
-    expect(epa254.textContent).toContain('est');
-    // The in-house source note is shown.
-    expect(getByTestId('epa-board-source-note').textContent).toContain('in-house');
-    // 1678 has no agg and no external EPA → "—".
+    expect(getByTestId('epa-board-epa-254').textContent).toContain('—');
+    expect(getByTestId('epa-board-source-note').textContent).toMatch(/no match-result epa/i);
     expect(getByTestId('epa-board-epa-1678').textContent).toContain('—');
   });
 
   it('renders a non-empty strength bar for each ranked team even when all EPA <= 0 (BUG-13)', () => {
-    // All-zero in-house estimates: maxEpa would be 0, which previously zeroed
-    // EVERY bar. Each ranked team should still get a minimal (equal) bar.
-    const zeroAgg = (t: number): TeamAgg => ({
-      ...emptyTeamAgg(t),
-      matchesScouted: 1,
-      scoutingExpectedPoints: 0,
-    });
-    const noEpa: EventEpa = {
+    // All-zero EPAs: maxEpa would be 0, which previously zeroed EVERY bar. Each
+    // ranked team should still get a minimal (equal) bar.
+    const zeroEpa: EventEpa = {
       epaByTeam: new Map<number, number | null>([
-        [254, null],
-        [1678, null],
+        [254, 0],
+        [1678, 0],
         [9999, null],
       ]),
-      available: false,
-      source: 'none',
+      available: true,
+      source: 'local',
       sourceByTeam: new Map([
-        [254, 'none'],
-        [1678, 'none'],
+        [254, 'local'],
+        [1678, 'local'],
         [9999, 'none'],
       ]),
     };
     const { getByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={noEpa}
-        aggByTeam={new Map<number, TeamAgg>([
-          [254, zeroAgg(254)],
-          [1678, zeroAgg(1678)],
-        ])}
+        epa={zeroEpa}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
     );
-    // Teams with a (zero) in-house estimate get a visible, non-0% bar.
+    // Teams with a (zero) EPA get a visible, non-0% bar.
     const bar254 = getByTestId('epa-board-bar-254');
     expect(bar254.style.width).not.toBe('0%');
     expect(bar254.style.width).not.toBe('');
@@ -210,7 +184,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set([254])}
         dnpTeams={new Set([1678])}
         onToggleDnp={onToggleDnp}
@@ -232,7 +205,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={TEAMS}
         epa={statboticsEpa()}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -245,7 +217,6 @@ describe('PicklistEpaBoard', () => {
       <PicklistEpaBoard
         teams={[]}
         epa={undefined}
-        aggByTeam={new Map<number, TeamAgg>()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,

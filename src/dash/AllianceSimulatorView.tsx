@@ -1,6 +1,6 @@
 // src/dash/AllianceSimulatorView.tsx
 // Alliance Simulator — Lead Dashboard tab. Pick any 3 teams at the active event
-// and see a projected alliance score (blended exactly like Next Match), a win
+// and see a projected alliance score (computed exactly like Next Match), a win
 // probability vs a Top/Median/custom baseline, and a role-gap analysis table.
 // Read-only; pure client computation; degrades fully offline from the persisted
 // query cache. Dark theme, shadcn primitives, matching RankingView's language.
@@ -76,8 +76,6 @@ function roleClass(s: RoleStatus): string {
 
 function sourceLabel(s: string): string {
   switch (s) {
-    case 'blend':
-      return 'blend';
     case 'scouting':
       return 'scouting';
     case 'epa':
@@ -90,7 +88,7 @@ function sourceLabel(s: string): string {
 }
 
 // --- Scoring estimate (component-EPA, mirrors the Match tab's renderer) ------
-// Per-alliance auto/fuel/climb decomposition of the SAME blended `expected` the
+// Per-alliance auto/fuel/climb decomposition of the SAME `expected` the
 // simulator already shows, reusing predictMatch(components) + the event-wide
 // fitted `fraction` from useEventComponentEpas. Pure presentation — no new math.
 
@@ -319,7 +317,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
   const epaQuery = useEventEpa(epaTeamNumbers, eventKey, matchesQuery.data ?? []);
   const epaByTeam = epaQuery.data?.epaByTeam ?? new Map<number, number | null>();
   // Load-bearing: pass available === true (NOT source === 'statbotics') so a
-  // LOCAL match-result EPA still feeds the blend, matching NextMatchView.
+  // LOCAL match-result EPA drives the projection, matching NextMatchView.
   const statboticsAvailable = epaQuery.data?.available === true;
   const epaSource = epaQuery.data?.source ?? 'none';
   const pits = pitsQuery.data ?? new Map();

@@ -108,10 +108,8 @@ type SortDir = 'asc' | 'desc';
 /** A fully-resolved row: the pure agg plus the external (EPA/TBA) values. */
 interface Row {
   agg: TeamAgg;
-  /** Best-available EPA: local match-results → Statbotics → in-house scouting. */
+  /** Match-results EPA: local in-house model → Statbotics. Never from scouting. */
   epa: number | null;
-  /** True when `epa` is our in-house scouting estimate (no external EPA source). */
-  epaInHouse: boolean;
   /** TBA rank, or null when unavailable. */
   tbaRank: number | null;
 }
@@ -259,7 +257,7 @@ const COMPARE_ROWS: CompareRow[] = [
     better: 'higher',
   },
   {
-    label: 'Exp. Pts',
+    label: 'Scouted Pts',
     get: (r) => (hasScouting(r) ? fmt(r.agg.scoutingExpectedPoints) : EM_DASH),
     value: (r) => (hasScouting(r) ? r.agg.scoutingExpectedPoints : null),
     better: 'higher',
@@ -370,41 +368,21 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   const epaByTeam = epaQuery.data?.epaByTeam;
   const epaAvailable = epaQuery.data?.available === true;
   const epaSource = epaQuery.data?.source ?? 'none';
-  // When NO external EPA source is available (Statbotics down AND no played-match
-  // results to compute a local EPA from), fall back to OUR in-house scouting
-  // estimate (scoutingExpectedPoints) so the EPA column shows a real number
-  // instead of "—". This is literally our home-grown EPA from scouting data.
-  const epaFromScouting = !epaAvailable;
   const tbaRankByTeam = useMemo(() => buildTbaRankMap(tbaQuery.data), [tbaQuery.data]);
 
   const rows = useMemo<Row[]>(
     () =>
-      aggs.map((agg) => {
+      aggs.map((agg) => ({
+        agg,
         // Resolve the row's EPA via the SHARED helper so the table and the seed
-        // use byte-identical EPA resolution. `epaInHouse` is still derived here
-        // locally for the "est" suffix UI.
-        const external = epaAvailable ? epaByTeam?.get(agg.teamNumber) ?? null : null;
-        const epaInHouse = external == null && agg.matchesScouted > 0;
-        const resolvedEpa = resolveRowEpa({
-          agg,
-          epaByTeam,
-          epaAvailable,
-          epaFromScouting,
-        });
-        return {
-          agg,
-          epa:
-            resolvedEpa != null && Number.isFinite(resolvedEpa)
-              ? resolvedEpa
-              : null,
-          epaInHouse: epaInHouse && Number.isFinite(resolvedEpa),
-          tbaRank: tbaRankByTeam.get(agg.teamNumber) ?? null,
-        };
-      }),
-    [aggs, epaAvailable, epaFromScouting, epaByTeam, tbaRankByTeam],
+        // use byte-identical EPA resolution (match results only, never scouting).
+        epa: resolveRowEpa({ agg, epaByTeam, epaAvailable }),
+        tbaRank: tbaRankByTeam.get(agg.teamNumber) ?? null,
+      })),
+    [aggs, epaAvailable, epaByTeam, tbaRankByTeam],
   );
 
-  const [sortKey, setSortKey] = useState<SortKey>('scoutingExpectedPoints');
+  const [sortKey, setSortKey] = useState<SortKey>('epa');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selected, setSelected] = useState<number[]>([]);
 
@@ -452,15 +430,14 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     };
   }, [columnsOpen]);
 
-  // With zero scouting at the event, Exp. Pts is 0 for everyone — rank by EPA by
-  // default so the table is still a meaningful ranking. Only nudges the UNTOUCHED
-  // default; once the user picks a column (or scouting lands) it's left alone.
-  const anyScouted = useMemo(() => aggs.some((a) => a.matchesScouted > 0), [aggs]);
+  // EPA is the default ranking. With NO match-result EPA at all (nothing posted
+  // yet) every row ties at "—", so nudge the UNTOUCHED default to Scouted Pts;
+  // once the user picks a column (or EPA lands) it's left alone.
   useEffect(() => {
-    if (aggs.length > 0 && !anyScouted) {
-      setSortKey((k) => (k === 'scoutingExpectedPoints' ? 'epa' : k));
+    if (aggs.length > 0 && !epaAvailable) {
+      setSortKey((k) => (k === 'epa' ? 'scoutingExpectedPoints' : k));
     }
-  }, [aggs.length, anyScouted]);
+  }, [aggs.length, epaAvailable]);
 
   const sortedRows = useMemo(() => {
     const copy = [...rows];
@@ -505,7 +482,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   const columns: SortableColumn[] = [
     { key: 'teamNumber', label: 'Team' },
     { key: 'matchesScouted', label: 'Matches' },
-    { key: 'scoutingExpectedPoints', label: 'Exp. Pts' },
+    { key: 'scoutingExpectedPoints', label: 'Scouted Pts' },
     { key: 'climbSuccessRate', label: 'Climb %' },
     { key: 'avgDefenseRating', label: 'Defense' },
     { key: 'reliability', label: 'Reliability' },
@@ -641,13 +618,6 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
             >
               EPA column uses our live in-house calculator over TBA match results.
             </div>
-          ) : rows.some((row) => row.epaInHouse) ? (
-            <div
-              data-testid="dash-ranking-epa-banner"
-              className="text-xs text-warning"
-            >
-              Teams without external EPA use our in-house estimate from scouting data.
-            </div>
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
@@ -759,7 +729,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         <td className="px-2 py-2 font-mono tabular-nums">{r.agg.matchesScouted}</td>
                       )}
                       {isVisible('scoutingExpectedPoints') && (
-                        <td className="px-2 py-2 font-mono tabular-nums">
+                        <td data-testid={`exp-${t}`} className="px-2 py-2 font-mono tabular-nums">
                           {hasScouting(r) ? fmt(r.agg.scoutingExpectedPoints) : EM_DASH}
                         </td>
                       )}
@@ -818,16 +788,9 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                       {isVisible('epa') && (
                         <td
                           data-testid={`epa-${t}`}
-                          className={cn(
-                            'px-2 py-2 font-mono tabular-nums',
-                            r.epaInHouse && 'text-warning',
-                          )}
-                          title={r.epaInHouse ? 'In-house EPA estimated from scouting data' : undefined}
+                          className="px-2 py-2 font-mono tabular-nums"
                         >
                           {r.epa === null ? EM_DASH : fmt(r.epa, 0)}
-                          {r.epaInHouse && r.epa !== null ? (
-                            <span className="ml-1 text-[10px] text-warning">est</span>
-                          ) : null}
                         </td>
                       )}
                       {isVisible('tbaRank') && (

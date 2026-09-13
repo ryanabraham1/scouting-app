@@ -1,13 +1,13 @@
 // src/dash/predict.ts
-// Pure confidence-weighted next-match prediction (contracts §3).
-// Blends OUR scouting expectation with Statbotics EPA, degrading gracefully
-// when Statbotics is down or a team is unknown. Never throws on missing data.
+// Pure next-match prediction (contracts §3).
+// A team's expectation is its EPA (in-house, computed from posted match scores;
+// Statbotics when the local model has nothing). Scouting data does NOT feed the
+// expectation — it is only a fallback for a team with no match results at all
+// (rookie / first event) and is otherwise surfaced as a separate scouted metric.
+// Never throws on missing data.
 
 import {
   CONFIDENCE_N,
-  EPA_SANITY_TOLERANCE,
-  EPA_SANITY_SLOPE,
-  EPA_SANITY_SCALE_FLOOR,
   WINPROB_SIGMA_FRACTION,
   WINPROB_SIGMA_FLOOR,
   WINPROB_LOGIT_SCALE,
@@ -22,7 +22,7 @@ import {
 } from './aggregate';
 
 /**
- * Presentational decomposition of a team's blended `expected` into additive
+ * Presentational decomposition of a team's `expected` into additive
  * auto / teleop-fuel / climb points, plus a scouting-only defense figure. NOT a
  * new prediction so it can never disagree with the score the dashboard shows.
  *
@@ -52,16 +52,13 @@ export interface ComponentBreakdown {
 export interface TeamPrediction {
   teamNumber: number;
   expected: number;
-  w: number;
-  source: 'blend' | 'scouting' | 'epa' | 'none';
   /**
-   * EPA sanity guardrail (blend branch only): per-match trust retained after
-   * checking the scouted expectation against EPA. 1 = scouting is within the
-   * tolerated divergence of EPA (no damping); <1 = the scouted value diverges
-   * implausibly for its sample size, so `w` was shrunk toward EPA. Absent on
-   * non-blend sources (there is nothing to cross-check against).
+   * Trust in `expected`, 0..1: 1 for an EPA-backed team, `min(1, m/CONFIDENCE_N)`
+   * for the scouting-only fallback (m = matches scouted), 0 for `none`. Feeds
+   * the match-level `confidence`.
    */
-  epaAgreement?: number;
+  w: number;
+  source: 'scouting' | 'epa' | 'none';
   /**
    * OPTIONAL additive auto/fuel/climb decomposition of `expected` (+ scouting
    * defense). Present only when `predictMatch` is given a `fraction`; absent
@@ -119,37 +116,15 @@ function predictTeam(
   // Statbotics down -> EPA treated as null everywhere.
   const epa = statboticsAvailable ? epaByTeam.get(teamNumber) ?? null : null;
 
-  const hasScouting = scouting !== undefined && m > 0;
-  const hasEpa = epa !== null;
-
-  if (hasScouting && hasEpa) {
-    // EPA sanity guardrail (constants.ts): when the scouted expectation
-    // diverges implausibly from EPA for its sample size, shrink the per-match
-    // trust so one bad scouted match can't dominate the blend. Divergence
-    // within EPA_SANITY_TOLERANCE of EPA is fully trusted, and consistent
-    // evidence (m) linearly buys trust back.
-    const scale = Math.max(EPA_SANITY_SCALE_FLOOR, Math.abs(epa));
-    const rel = Math.abs(scouting - epa) / scale;
-    const gap = Math.max(0, rel - EPA_SANITY_TOLERANCE);
-    const agreement = 1 / (1 + (EPA_SANITY_SLOPE * gap) / m);
-    const w = Math.min(1, (m * agreement) / CONFIDENCE_N);
-    return {
-      teamNumber,
-      expected: w * scouting + (1 - w) * epa,
-      w,
-      source: 'blend',
-      epaAgreement: agreement,
-    };
+  if (epa !== null) {
+    // EPA is the expectation whenever it exists — scouting never blends in.
+    return { teamNumber, expected: epa, w: 1, source: 'epa' };
   }
-  if (hasScouting) {
-    // scouting only (no usable EPA)
-    return { teamNumber, expected: scouting, w: 1, source: 'scouting' };
+  if (scouting !== undefined && m > 0) {
+    // No match results for this team at all: fall back to our scouted
+    // expectation, trusted in proportion to its sample size.
+    return { teamNumber, expected: scouting, w: Math.min(1, m / CONFIDENCE_N), source: 'scouting' };
   }
-  if (hasEpa) {
-    // EPA only (unscouted team, m=0)
-    return { teamNumber, expected: epa, w: 0, source: 'epa' };
-  }
-  // neither
   return { teamNumber, expected: 0, w: 0, source: 'none' };
 }
 
@@ -171,7 +146,7 @@ function asEpaMap(epaByTeam: PredictInput['epaByTeam']): Map<number, number | nu
 }
 
 /**
- * Decompose a team's blended `expected` into additive auto/fuel (+ a real
+ * Decompose a team's `expected` into additive auto/fuel (+ a real
  * scouted climb and a scouting-only defense figure). PURE. Never throws; never
  * mutates inputs. Plan §6/§7.
  *

@@ -540,7 +540,7 @@ export function aggregateEvent(reports: MsrRow[]): Map<number, TeamAgg> {
 // Component split + scouting-defense (component-epa-estimation feature, §3A/§7).
 //
 // Pure helpers over already-aggregated `TeamAgg`. They feed `predict.ts`'s
-// `resolveComponentBreakdown`, which presentationally decomposes a team's blended
+// `resolveComponentBreakdown`, which presentationally decomposes a team's
 // `expected` into auto/fuel/climb. NO scoring magnitudes are re-implemented — the
 // split reuses `SCORING.FUEL_POINTS` + the existing `meanFuelPoints` /
 // `meanClimbPoints` already on `TeamAgg`. Defense is SCOUTING-ONLY (no
@@ -1238,4 +1238,108 @@ export function eventScoutCoverage(
     coverageByMatch.set(matchKey, coverageFromBucket(bucket, matchKey, scouts, stationCap));
   }
   return { coverageByMatch, lastReportAt: globalIso, scoutsTotal: distinctScouterCount(scouts) };
+}
+
+// ===========================================================================
+// Missed assignments (Scouters tab). Pure, display-only: cross the published
+// assignment rows with the live report stream and flag every seat whose match
+// has already happened but whose assigned scouter never filed the report. NO
+// scored quantity, NO wire-shape change — read-only over persisted columns.
+// ===========================================================================
+
+/** One assignment the scouter did not file a matching report for. */
+export interface MissedAssignment {
+  matchKey: string;
+  targetTeamNumber: number | null;
+  allianceColor: string;
+  station: number;
+  /**
+   * Teams this scouter DID report for in the same match (they scouted the wrong
+   * robot, or the target was re-picked after publish). Empty when they filed
+   * nothing for the match at all.
+   */
+  scoutedInstead: number[];
+}
+
+/** Per-scouter assignment tally. `key` is the caller's merge key (e.g. lower(name)). */
+export interface ScouterAssignmentAgg {
+  key: string;
+  /** all published seats for this scouter at the event */
+  assigned: number;
+  /** seats whose match is done and a matching report exists */
+  completed: number;
+  /** seats whose match is done with no matching report (play order) */
+  missed: MissedAssignment[];
+  /** seats whose match hasn't happened yet — not judged */
+  pending: number;
+}
+
+/**
+ * Which assignments each scouter missed. A seat is judged only once its match is
+ * "done": it has a posted TBA result (`playedMatchKeys`) OR at least one live
+ * report from ANY scouter (so a dead TBA feed doesn't hide misses). A seat is
+ * completed when one of the scouter's scout_ids filed a live report for that
+ * (match_key, target_team_number); with a null target only the match is
+ * checked. `scoutIdToKey` maps event `scout` rows onto the caller's merged
+ * identity (a person can own several scout rows). O(assignments + reports).
+ */
+export function aggregateMissedAssignments(
+  assignments: readonly {
+    match_key: string;
+    scout_id: string | null;
+    alliance_color: string;
+    station: number;
+    target_team_number: number | null;
+  }[],
+  reports: readonly MsrRow[],
+  scoutIdToKey: ReadonlyMap<string, string>,
+  playedMatchKeys: ReadonlySet<string> = new Set(),
+): Map<string, ScouterAssignmentAgg> {
+  // key::match -> teams reported, plus every match with any live report.
+  const reportedTeams = new Map<string, Set<number>>();
+  const doneMatches = new Set<string>(playedMatchKeys);
+  for (const r of reports) {
+    if (r.deleted === true) continue;
+    doneMatches.add(r.match_key);
+    if (r.scout_id == null) continue;
+    const key = scoutIdToKey.get(r.scout_id);
+    if (key == null) continue;
+    const k = `${key}::${r.match_key}`;
+    const set = reportedTeams.get(k);
+    if (set) set.add(r.target_team_number);
+    else reportedTeams.set(k, new Set([r.target_team_number]));
+  }
+
+  const out = new Map<string, ScouterAssignmentAgg>();
+  for (const a of assignments) {
+    if (a.scout_id == null) continue;
+    const key = scoutIdToKey.get(a.scout_id);
+    if (key == null) continue;
+    let agg = out.get(key);
+    if (!agg) {
+      agg = { key, assigned: 0, completed: 0, missed: [], pending: 0 };
+      out.set(key, agg);
+    }
+    agg.assigned += 1;
+    const teams = reportedTeams.get(`${key}::${a.match_key}`);
+    const filed =
+      teams != null && (a.target_team_number == null || teams.has(a.target_team_number));
+    if (filed) {
+      agg.completed += 1;
+    } else if (doneMatches.has(a.match_key)) {
+      agg.missed.push({
+        matchKey: a.match_key,
+        targetTeamNumber: a.target_team_number,
+        allianceColor: a.alliance_color,
+        station: a.station,
+        scoutedInstead: teams ? Array.from(teams).sort((x, y) => x - y) : [],
+      });
+    } else {
+      agg.pending += 1;
+    }
+  }
+  for (const agg of out.values()) {
+    agg.missed.sort((x, y) => compareMatchKeys(x.matchKey, y.matchKey));
+  }
+  return out;
 }

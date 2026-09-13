@@ -87,30 +87,27 @@ describe('resolveRowEpa', () => {
         agg: a,
         epaByTeam: new Map([[254, 60]]),
         epaAvailable: true,
-        epaFromScouting: false,
       }),
     ).toBe(60);
   });
 
-  it('falls back per team when the external source is missing that team', () => {
+  it('is null (never the scouted expectation) when the source is missing that team', () => {
     expect(
       resolveRowEpa({
         agg: a,
         epaByTeam: new Map([[254, null]]),
         epaAvailable: true,
-        epaFromScouting: false,
       }),
-    ).toBe(21);
+    ).toBeNull();
   });
 
-  it('falls back to in-house scoutingExpectedPoints when no external source', () => {
+  it('is null (never the scouted expectation) when no match-result EPA source resolved', () => {
     expect(
       resolveRowEpa({
         agg: a,
         epaByTeam: new Map(),
         epaAvailable: false,
-        epaFromScouting: true,
       }),
-    ).toBe(21);
+    ).toBeNull();
   });
 });

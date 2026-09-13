@@ -2,8 +2,8 @@
 // Cluster PICKLIST — Team EPA Board.
 // A Field-Control-Console leaderboard of EVERY event team ranked by EPA, with a
 // one-tap add-to-picklist control per row. Pure/presentational: it receives the
-// already-resolved per-team EPA (local → Statbotics → scouting 'est', mirroring
-// RankingView's resolution) and an `onAdd` callback that reuses PicklistView's
+// already-resolved per-team EPA (local match-result model → Statbotics, never
+// scouting; mirroring RankingView) and an `onAdd` callback that reuses PicklistView's
 // dedupe path, so a board add lands dirty exactly like a manual add.
 //
 // SIGNATURE element: a quiet horizontal "field-strength" bar behind each row,
@@ -15,7 +15,6 @@ import { Plus, Check, Ban } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { TeamRow, EventEpa } from '@/dash/useEventData';
-import type { TeamAgg } from '@/dash/aggregate';
 
 const EM_DASH = '—';
 
@@ -24,12 +23,6 @@ export interface PicklistEpaBoardProps {
   teams: TeamRow[];
   /** Season-wide EPA per team + per-team source, from useEventEpa. */
   epa: EventEpa | undefined;
-  /**
-   * Per-team scouting aggregate (keyed by team number) — the in-house
-   * `scoutingExpectedPoints` fallback when NO external EPA source resolved,
-   * exactly like RankingView's `epaFromScouting` path.
-   */
-  aggByTeam: Map<number, TeamAgg>;
   /** Team numbers already in the picklist (drives the added/disabled state). */
   inListTeams: Set<number>;
   /** Add a team to the picklist (reuses PicklistView's dedupe path). */
@@ -52,10 +45,8 @@ export interface PicklistEpaBoardProps {
 interface BoardRow {
   teamNumber: number;
   nickname: string | null;
-  /** Best-available EPA: local → Statbotics → in-house scouting; null = none. */
+  /** Match-results EPA: local → Statbotics; null = none ("—"). */
   epa: number | null;
-  /** True when `epa` is our in-house scouting estimate (shows the "est" chip). */
-  inHouse: boolean;
 }
 
 function fmtEpa(n: number): string {
@@ -66,7 +57,6 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
   const {
     teams,
     epa,
-    aggByTeam,
     inListTeams,
     onAdd,
     dnpTeams,
@@ -76,29 +66,16 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
   } = props;
 
   const epaByTeam = epa?.epaByTeam;
-  const sourceByTeam = epa?.sourceByTeam;
   const epaAvailable = epa?.available === true;
   const epaSource = epa?.source ?? 'none';
 
   const rows = useMemo<BoardRow[]>(() => {
     const resolved = teams.map((t): BoardRow => {
-      const rawExternal = epaAvailable ? epaByTeam?.get(t.team_number) ?? null : null;
-      const external =
-        rawExternal != null && Number.isFinite(rawExternal) ? rawExternal : null;
-      const agg = aggByTeam.get(t.team_number);
-      const inHouse = external == null && (agg?.matchesScouted ?? 0) > 0;
-      const rawEpa = inHouse ? agg?.scoutingExpectedPoints ?? null : external;
-      const epaValue = rawEpa != null && Number.isFinite(rawEpa) ? rawEpa : null;
-      // A team's own source label: Statbotics/local from the map, else 'est' for
-      // the in-house fallback (only when we actually produced an estimate).
-      const externalSource = sourceByTeam?.get(t.team_number);
-      const inHouseLabelled =
-        epaValue != null && (inHouse || externalSource == null || externalSource === 'none');
+      const raw = epaAvailable ? epaByTeam?.get(t.team_number) ?? null : null;
       return {
         teamNumber: t.team_number,
         nickname: t.nickname,
-        epa: epaValue,
-        inHouse: inHouseLabelled,
+        epa: raw != null && Number.isFinite(raw) ? raw : null,
       };
     });
     // Sort by EPA desc; teams with no EPA (null) sink to the bottom. Ascending
@@ -110,7 +87,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
       return bv - av;
     });
     return resolved;
-  }, [teams, epaByTeam, sourceByTeam, epaAvailable, aggByTeam]);
+  }, [teams, epaByTeam, epaAvailable]);
 
   // Field max EPA for the strength bar (positive only — a non-positive max means
   // there's nothing to scale against, so every bar is empty).
@@ -127,7 +104,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
       ? 'Live in-house EPA computed from TBA match results.'
       : epaSource === 'statbotics'
         ? 'TBA match-result EPA unavailable — using the Statbotics fallback.'
-        : 'Match-result EPA and Statbotics unavailable — using in-house scouting estimates where possible.';
+        : 'No match-result EPA yet (nothing posted) and Statbotics unavailable.';
 
   return (
     <Card data-testid="picklist-epa-board" className="bg-card">
@@ -260,14 +237,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                     {r.epa == null ? (
                       <span className="text-muted-foreground">{EM_DASH}</span>
                     ) : (
-                      <>
-                        {fmtEpa(r.epa)}
-                        {r.inHouse ? (
-                          <span className="ml-1 align-middle text-[10px] font-medium text-warning">
-                            est
-                          </span>
-                        ) : null}
-                      </>
+                      fmtEpa(r.epa)
                     )}
                   </span>
                   {/* Right-side controls: when on the picklist, just the ✓. When

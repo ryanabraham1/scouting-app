@@ -1,6 +1,6 @@
 // src/dash/allianceSimulator.ts
 // Pure, deterministic alliance simulation for the Lead Dashboard's Alliance tab.
-// Delegates the projected-score / win-prob blend to predictMatch (src/dash/predict.ts)
+// Delegates the projected-score / win-prob math to predictMatch (src/dash/predict.ts)
 // so the alliance score is consistent with the Next Match tab to the penny.
 // Role classification + gap summary are local heuristics over match aggregates and
 // (when present) pit capability/strategy. No React, no I/O — never throws on missing data.
@@ -11,7 +11,7 @@ import type { TeamAgg, ComponentFraction } from './aggregate';
 import type { TeamPit } from './useTeamPit';
 
 export type RoleStatus = 'strong' | 'partial' | 'none' | 'unknown';
-export type SourceTag = 'blend' | 'scouting' | 'epa' | 'none';
+export type SourceTag = 'scouting' | 'epa' | 'none';
 
 export interface TeamRoleRead {
   teamNumber: number;
@@ -41,7 +41,7 @@ export interface AllianceSimulation {
   teamReads: TeamRoleRead[];
   /** sum of per-team expected */
   projectedScore: number;
-  scoreSource: 'blend' | 'scouting' | 'epa' | 'mixed' | 'none';
+  scoreSource: 'scouting' | 'epa' | 'mixed' | 'none';
   /** mean per-team w (predictMatch.confidence semantics) */
   confidence: number;
   /** vs the chosen baseline; null if no (3-team) baseline */

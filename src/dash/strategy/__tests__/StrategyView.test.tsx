@@ -291,7 +291,7 @@ describe('StrategyView', () => {
     const badges = getAllByTestId('dash-next-source-badge');
     expect(badges.length).toBe(6);
     const badgeText = badges.map((b) => b.textContent).join(' ');
-    expect(badgeText).toMatch(/blend|epa|scouting/);
+    expect(badgeText).toMatch(/epa|scouting/);
 
     expect(document.querySelector('[data-testid="epa-unavailable"]')).toBeNull();
   });
@@ -310,7 +310,6 @@ describe('StrategyView', () => {
     const badges = getAllByTestId('dash-next-source-badge');
     expect(badges.length).toBe(6);
     const badgeText = badges.map((b) => b.textContent).join(' ');
-    expect(badgeText).not.toMatch(/blend/);
     expect(badgeText).not.toMatch(/\bepa\b/);
   });
 

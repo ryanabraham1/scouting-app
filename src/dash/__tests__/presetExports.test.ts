@@ -118,7 +118,7 @@ describe('buildPresetRows', () => {
     expect(r.city).toBe('SF');
   });
 
-  it('in-house EPA: epaAvailable false → epa = scoutingExpectedPoints, source scouting', () => {
+  it('epaAvailable false → epa null / source none; scouted pts stay in expPts only', () => {
     const aggByTeam = new Map<number, TeamAgg>([
       [254, agg({ teamNumber: 254, scoutingExpectedPoints: 20.5 })],
     ]);
@@ -131,8 +131,9 @@ describe('buildPresetRows', () => {
       new Map(),
       new Map([[254, 'none']]),
     );
-    expect(rows[0].epa).toBe(20.5);
-    expect(rows[0].epaSource).toBe('scouting');
+    expect(rows[0].epa).toBeNull();
+    expect(rows[0].epaSource).toBe('none');
+    expect(rows[0].expPts).toBe(20.5);
   });
 
   it('per-team local EPA via sourceByTeam (NOT event-wide flag)', () => {
@@ -150,7 +151,7 @@ describe('buildPresetRows', () => {
     expect(rows[0].epaSource).toBe('local');
   });
 
-  it('event source statbotics but team has NO external → scouting (not mislabeled)', () => {
+  it('event source statbotics but team has NO EPA → null / none (never scouted pts)', () => {
     const aggByTeam = new Map<number, TeamAgg>([
       [254, agg({ teamNumber: 254, scoutingExpectedPoints: 18 })],
     ]);
@@ -163,8 +164,9 @@ describe('buildPresetRows', () => {
       new Map(),
       new Map([[254, 'none']]),
     );
-    expect(rows[0].epa).toBe(18);
-    expect(rows[0].epaSource).toBe('scouting');
+    expect(rows[0].epa).toBeNull();
+    expect(rows[0].epaSource).toBe('none');
+    expect(rows[0].expPts).toBe(18);
   });
 
   it('regression guard: unscouted team with NO EPA does not throw', () => {

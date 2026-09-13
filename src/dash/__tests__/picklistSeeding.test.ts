@@ -89,9 +89,9 @@ describe('seedPicklist', () => {
     expect(out.map((e) => e.teamNumber)).toEqual([2]);
   });
 
-  it('sortKey epa falls back per team when external EPA is missing', () => {
+  it('sortKey epa sinks a team with missing EPA to the bottom (scouted pts never substitute)', () => {
     const aggs = [
-      agg({ teamNumber: 1, scoutingExpectedPoints: 99 }), // null external → in-house fallback
+      agg({ teamNumber: 1, scoutingExpectedPoints: 99 }), // null EPA → last, despite high scouted pts
       agg({ teamNumber: 2, scoutingExpectedPoints: 1 }),
       agg({ teamNumber: 3, scoutingExpectedPoints: 1 }),
     ];
@@ -106,12 +106,11 @@ describe('seedPicklist', () => {
       topN: 10,
       epaByTeam,
       epaAvailable: true,
-      epaFromScouting: false,
     });
-    expect(out.map((e) => e.teamNumber)).toEqual([1, 2, 3]);
+    expect(out.map((e) => e.teamNumber)).toEqual([2, 3, 1]);
   });
 
-  it('sortKey epa with epaAvailable:false + epaFromScouting:true ranks by scoutingExpectedPoints', () => {
+  it('sortKey epa with epaAvailable:false falls to the team-number tiebreak (not scouted pts)', () => {
     const aggs = [
       agg({ teamNumber: 1, scoutingExpectedPoints: 10 }),
       agg({ teamNumber: 2, scoutingExpectedPoints: 40 }),
@@ -122,21 +121,20 @@ describe('seedPicklist', () => {
       topN: 10,
       epaByTeam: new Map(),
       epaAvailable: false,
-      epaFromScouting: true,
     });
-    expect(out.map((e) => e.teamNumber)).toEqual([2, 1]);
+    expect(out.map((e) => e.teamNumber)).toEqual([1, 2]);
   });
 
   it('divergence guard: seed uses the SAME resolveRowEpa value RankingView uses', () => {
     const a1 = agg({ teamNumber: 1, scoutingExpectedPoints: 5 });
     const a2 = agg({ teamNumber: 2, scoutingExpectedPoints: 5 });
     const epaByTeam = new Map<number, number | null>([
-      [1, null], // available but missing → in-house fallback
+      [1, null], // available but missing → null ("—"), sinks
       [2, 12],
     ]);
-    const params = { epaByTeam, epaAvailable: true, epaFromScouting: false } as const;
+    const params = { epaByTeam, epaAvailable: true } as const;
     // resolveRowEpa agrees per-team.
-    expect(resolveRowEpa({ agg: a1, ...params })).toBe(5);
+    expect(resolveRowEpa({ agg: a1, ...params })).toBeNull();
     expect(resolveRowEpa({ agg: a2, ...params })).toBe(12);
     // Seed order matches the EPA resolution (team 2 above team 1).
     const out = seedPicklist({ aggs: [a1, a2], sortKey: 'epa', topN: 10, ...params });

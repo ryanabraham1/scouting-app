@@ -137,12 +137,15 @@ math and `fouls.ts` for penalties. `migrations.ts`/`migrateUp` upgrades old repo
 is duplicated server-side (the RPC recomputes) — the client computation is for display/preview.
 `index.ts` is the public entry point.
 
-**Dashboard prediction** (`src/dash/`) — `predict.ts` is a pure confidence-weighted next-match
-prediction: blends our scouting expectation with EPA, weighted by how many matches we've
-scouted, degrading to scouting-only or EPA-only when a source is missing. `localEpa.ts` /
-`seasonEpa.ts` compute a cross-event (season carry-over) scalar EPA locally over TBA results
-when Statbotics is unavailable — `localEpa.ts` mirrors the live Statbotics repo math (not the
-2023 blog) and is fed by TBA matches since the local table has no scores. `demoEvent.ts` drives
+**Dashboard prediction** (`src/dash/`) — `predict.ts` is a pure next-match prediction driven by
+EPA only: a team's expectation is its in-house EPA (computed from posted match scores; Statbotics
+when the local model has nothing). Scouting data never blends into EPA or the prediction — it is
+only a fallback for a team with no match results at all, and is otherwise surfaced as a separate
+"Scouted Pts" metric (Ranking table column, Team tab stat). `sorting.ts`'s `resolveRowEpa` is the
+shared match-results-only EPA resolver for the ranking table / picklist seed / draft board.
+`localEpa.ts` / `seasonEpa.ts` compute the cross-event (season carry-over) scalar EPA locally over
+TBA results — `localEpa.ts` mirrors the live Statbotics repo math (not the 2023 blog) and is fed
+by TBA matches since the local table has no scores. `demoEvent.ts` drives
 demo mode. `proxies.ts` reads the Edge proxies' `{ available: false }` sentinel so an upstream
 outage degrades gracefully.
 

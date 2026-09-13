@@ -45,20 +45,19 @@ export function compareDesc(a: RankInput, b: RankInput, key: RankSortKey): numbe
 }
 
 /**
- * Single source of truth for per-row EPA resolution — copied EXACTLY from the
- * expression RankingView used inline so the ranking table and the seed cannot
- * drift. Best-available EPA: external (Statbotics/local) when present, else our
- * in-house scouting estimate when no external source resolved.
+ * Single source of truth for per-row EPA resolution, shared by the ranking
+ * table, the picklist seed and the draft board so they cannot drift. EPA is
+ * match-results-only (in-house model over posted scores, Statbotics when the
+ * local model has nothing) — scouting data NEVER substitutes for it; a team
+ * with no EPA resolves to `null` ("—"). Scouted expectation is its own metric
+ * (`scoutingExpectedPoints`).
  */
 export function resolveRowEpa(p: {
   agg: TeamAgg;
   epaByTeam?: Map<number, number | null>;
   epaAvailable: boolean;
-  epaFromScouting: boolean;
 }): number | null {
-  const external = p.epaAvailable ? p.epaByTeam?.get(p.agg.teamNumber) ?? null : null;
-  // Resolve fallback per team. One team having Statbotics/local EPA must not
-  // suppress a different, scouted team's usable in-house estimate.
-  const epaInHouse = external == null && p.agg.matchesScouted > 0;
-  return epaInHouse ? p.agg.scoutingExpectedPoints : external;
+  if (!p.epaAvailable) return null;
+  const epa = p.epaByTeam?.get(p.agg.teamNumber) ?? null;
+  return epa != null && Number.isFinite(epa) ? epa : null;
 }

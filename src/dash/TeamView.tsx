@@ -1219,9 +1219,10 @@ function TeamDetail(props: {
             }
           />
           <Stat
-            label="Scouting expected pts"
+            label="Scouted expected pts"
             value={fmt(agg.scoutingExpectedPoints)}
             testid="team-scouting-expected"
+            hint="From our scouting reports only (fuel + climb means) — separate from EPA, which uses posted match scores."
           />
           {/* Per-match incident trend (green clean / amber tipped / red died). */}
           <ReliabilityStrip matches={matches} />
@@ -1497,28 +1498,23 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     );
   }, [teamMatches]);
 
-  // EPA node: local match-result value, then Statbotics/scouting fallback.
+  // EPA node: match-results only (local in-house model, then Statbotics). The
+  // scouted expectation is deliberately NOT a fallback here — it is its own
+  // "Scouted expected pts" stat in the scouting card so the two never blur.
   const epa = epaQuery.data;
-  const externalEpa = selected != null ? epa?.epaByTeam.get(selected) ?? null : null;
-  const epaValue =
-    externalEpa ?? (agg && agg.matchesScouted > 0 ? agg.scoutingExpectedPoints : null);
+  const epaValue = selected != null ? epa?.epaByTeam.get(selected) ?? null : null;
   const epaAvailable = epaValue != null;
   const selectedEpaSource =
     selected != null
-      ? epa?.sourceByTeam?.get(selected) ?? (externalEpa != null ? epa?.source : undefined)
+      ? epa?.sourceByTeam?.get(selected) ?? (epaValue != null ? epa?.source : undefined)
       : undefined;
   const epaIsLocal = selectedEpaSource === 'local';
-  const epaIsScouting = externalEpa == null && epaValue != null;
   const epaNode = (
     <div data-testid="team-epa">
       {epaAvailable ? (
         <div className="flex flex-col items-start gap-2">
           <span className="text-2xl font-semibold text-energy">{fmt(epaValue as number)}</span>
-          {epaIsScouting ? (
-            <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-              In-house estimate from scouting data.
-            </span>
-          ) : epaIsLocal ? (
+          {epaIsLocal ? (
             <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
               Live in-house EPA (computed from TBA match results).
             </span>

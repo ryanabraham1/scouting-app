@@ -17,7 +17,6 @@ export interface SeedOptions {
   minMatches?: number; // default 0
   epaByTeam?: Map<number, number | null>;
   epaAvailable?: boolean; // mirror RankingView's epaQuery.data.available === true
-  epaFromScouting?: boolean; // mirror RankingView's !epaAvailable
 }
 
 export function seedPicklist(opts: SeedOptions): PicklistEntry[] {
@@ -28,7 +27,6 @@ export function seedPicklist(opts: SeedOptions): PicklistEntry[] {
     minMatches = 0,
     epaByTeam,
     epaAvailable = false,
-    epaFromScouting = false,
   } = opts;
 
   // Resolve the EPA each row sorts by via the SHARED helper so the seed order is
@@ -38,7 +36,7 @@ export function seedPicklist(opts: SeedOptions): PicklistEntry[] {
     .filter((agg) => agg.matchesScouted >= minMatches)
     .map((agg) => ({
       agg,
-      epa: resolveRowEpa({ agg, epaByTeam, epaAvailable, epaFromScouting }),
+      epa: resolveRowEpa({ agg, epaByTeam, epaAvailable }),
     }));
 
   inputs.sort((a, b) => compareDesc(a, b, sortKey)); // desc, tie → asc teamNumber
