@@ -4,8 +4,10 @@
 // "which match are we in, where do we go if we win, where do we go if we lose, and
 // who do we play?" The opponent in a future match is the winner/loser of another
 // match still to be decided, so it's shown as "Winner of M8" until that result
-// lands, then resolves to the real teams. Pure/presentational over already-fetched
-// schedule rows (see playoffModel.ts for the bracket graph).
+// lands, then resolves to the real teams. When our last set is decided but TBA
+// hasn't published the next row yet, the bracket graph PROJECTS it (double-elim is
+// fully determined) rather than saying "being set". Pure/presentational over
+// already-fetched schedule rows (see playoffModel.ts for the bracket graph).
 
 import { useMemo } from 'react';
 import { ArrowUp, ArrowDown, Trophy, Flag, CircleSlash } from 'lucide-react';
@@ -23,6 +25,7 @@ import {
   resolveFeedTeams,
   winDestination,
   loseDestination,
+  projectNextPlayoffMatch,
 } from '@/dash/playoffModel';
 
 export interface PlayoffPathProps {
@@ -135,10 +138,101 @@ function Branch(props: {
   );
 }
 
+/**
+ * The match we're in (or are projected into): our alliance, the opponent — real
+ * teams from the row, else the bracket feed that decides them — and the round.
+ */
+function CurrentCard(props: {
+  set: number;
+  ours: number[];
+  color: 'red' | 'blue';
+  opponent: number[] | Feed;
+  badge: 'next' | 'projected' | 'final';
+  bySet: Map<number, MatchRow>;
+  baseTeam: number;
+  testid: string;
+}) {
+  const { set, ours, color, opponent, badge, bySet, baseTeam, testid } = props;
+  const badgeText = badge === 'final' ? 'Final' : badge === 'projected' ? 'Projected next match' : 'Our next match';
+  return (
+    <div data-testid={testid} className="rounded-xl border border-brand/40 bg-card/70 p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold text-foreground">
+          M{set} <span className="font-medium text-muted-foreground">· {slotForSet(set)?.round ?? 'Playoffs'}</span>
+        </span>
+        <span
+          className={cn(
+            'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+            badge === 'final' ? 'bg-muted text-muted-foreground' : badge === 'projected' ? 'bg-amber-400/15 text-amber-300' : 'bg-brand/15 text-brand',
+          )}
+        >
+          {badgeText}
+        </span>
+      </div>
+      <div className="mt-2 flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <TeamLine teams={ours} color={color} baseTeam={baseTeam} />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-300/80">us</span>
+        </div>
+        <div className="flex items-baseline gap-1.5 text-xs text-muted-foreground">
+          <span className="font-semibold">vs</span>
+          {Array.isArray(opponent) ? (
+            opponent.length ? (
+              <TeamLine teams={opponent} color={color === 'red' ? 'blue' : 'red'} baseTeam={baseTeam} />
+            ) : (
+              <span className="italic">opponent to be decided</span>
+            )
+          ) : (
+            <Opponent feed={opponent} bySet={bySet} baseTeam={baseTeam} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Finals series card: our alliance vs the opponent (real teams or the feed). */
+function FinalsCard(props: {
+  ours: number[];
+  color: 'red' | 'blue';
+  opponent: number[] | Feed;
+  ourWins: number;
+  oppWins: number;
+  projected: boolean;
+  bySet: Map<number, MatchRow>;
+  baseTeam: number;
+  testid: string;
+}) {
+  const { ours, color, opponent, ourWins, oppWins, projected, bySet, baseTeam, testid } = props;
+  return (
+    <div data-testid={testid} className="rounded-xl border border-red-500/40 bg-card/70 p-3">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-sm font-bold"><Trophy className="size-4 text-red-400" /> Finals</span>
+        {projected ? (
+          <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">Projected</span>
+        ) : (
+          <span className="text-xs font-semibold tabular-nums text-muted-foreground">series {ourWins}–{oppWins} · best of 3</span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-col gap-1">
+        <TeamLine teams={ours} color={color} baseTeam={baseTeam} />
+        <div className="flex items-baseline gap-1.5 text-xs text-muted-foreground">
+          <span>vs</span>
+          {Array.isArray(opponent) ? (
+            <TeamLine teams={opponent} color={color === 'red' ? 'blue' : 'red'} baseTeam={baseTeam} />
+          ) : (
+            <Opponent feed={opponent} bySet={bySet} baseTeam={baseTeam} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
   const { matches, baseTeam, ['data-testid']: testid = 'playoff-path' } = props;
 
-  const { bySet, ourOrdered } = useMemo(() => {
+  const { bySet, ourOrdered, projected } = useMemo(() => {
     const map = new Map<number, MatchRow>();
     const sf: { set: number; row: MatchRow }[] = [];
     const finals: MatchRow[] = [];
@@ -161,13 +255,43 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
       ...sf.filter((s) => ourSide(s.row, baseTeam)).map((s) => ({ set: s.set, row: s.row, isFinal: false })),
       ...finals.filter((f) => ourSide(f, baseTeam)).map((f) => ({ set: 99, row: f, isFinal: true })),
     ];
-    return { bySet: map, ourOrdered: ours };
+    return { bySet: map, ourOrdered: ours, projected: projectNextPlayoffMatch(matches, baseTeam) };
   }, [matches, baseTeam]);
 
   const current = ourOrdered.find((o) => !isPlayed(o.row));
 
-  // ── Status when we have no upcoming match (eliminated / champions / waiting) ──
+  // ── No scheduled match for us: project from the bracket, else a status line ──
   if (!current) {
+    if (projected) {
+      // Our alliance color in the projected set isn't known until FIRST schedules
+      // it; keep the color we had in the set we came from (purely cosmetic).
+      const fromRow = bySet.get(projected.from.set);
+      const ourColor = (fromRow && ourSide(fromRow, baseTeam)?.color) ?? 'red';
+      const fromNote = `${projected.from.outcome === 'win' ? 'Won' : 'Lost'} M${projected.from.set}`;
+      if (projected.isFinal) {
+        return (
+          <div data-testid={testid} className="flex flex-col gap-2.5">
+            <FinalsCard ours={projected.ours} color={ourColor} opponent={projected.opponent} ourWins={0} oppWins={0} projected bySet={bySet} baseTeam={baseTeam} testid={`${testid}-current`} />
+            <Branch outcome="win" dest={{ kind: 'champion' }} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-win`} />
+            <p className="text-xs text-muted-foreground">{fromNote} — projected from the bracket until TBA publishes the finals.</p>
+          </div>
+        );
+      }
+      const set = projected.set!;
+      return (
+        <div data-testid={testid} className="flex flex-col gap-2.5">
+          <CurrentCard set={set} ours={projected.ours} color={ourColor} opponent={projected.opponent} badge="projected" bySet={bySet} baseTeam={baseTeam} testid={`${testid}-current`} />
+          <div className="flex flex-col gap-2">
+            <Branch outcome="win" dest={winDestination(set)} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-win`} />
+            <Branch outcome="lose" dest={loseDestination(set)} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-lose`} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {fromNote} — projected from the bracket until TBA publishes M{set}. “Winner/Loser of M#” fills in once that match is decided.
+          </p>
+        </div>
+      );
+    }
+
     const last = ourOrdered[ourOrdered.length - 1];
     let title = 'Your playoff matches haven’t been scheduled yet.';
     let tone = 'text-muted-foreground';
@@ -186,19 +310,13 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
           tone = 'text-foreground';
         }
       } else if (wonLast) {
+        // Only reachable when the bracket can't project (e.g. an unknown set).
         title = `Won ${last.row ? `M${sfSet(last.row)}` : 'your match'} — your next match is being set.`;
         tone = 'text-success';
       } else {
-        const set = sfSet(last.row);
-        const drop: Destination = set != null ? loseDestination(set) : { kind: 'eliminated' };
-        if (drop.kind === 'set') {
-          title = `Lost — dropped to ${drop.slot.tag} (${drop.slot.round}), awaiting schedule.`;
-          tone = 'text-amber-400';
-        } else {
-          title = 'Eliminated — your playoff run is over.';
-          tone = 'text-destructive';
-          icon = <CircleSlash className="size-4 text-destructive" />;
-        }
+        title = 'Eliminated — your playoff run is over.';
+        tone = 'text-destructive';
+        icon = <CircleSlash className="size-4 text-destructive" />;
       }
     }
     return (
@@ -229,19 +347,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
     }).length;
     return (
       <div data-testid={testid} className="flex flex-col gap-2.5">
-        <div data-testid={`${testid}-current`} className="rounded-xl border border-red-500/40 bg-card/70 p-3">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-sm font-bold"><Trophy className="size-4 text-red-400" /> Finals</span>
-            <span className="text-xs font-semibold tabular-nums text-muted-foreground">series {ourWins}–{oppWins} · best of 3</span>
-          </div>
-          <div className="mt-2 flex flex-col gap-1">
-            <TeamLine teams={side.ours} color={side.color} baseTeam={baseTeam} />
-            <div className="flex items-baseline gap-1.5 text-xs text-muted-foreground">
-              <span>vs</span>
-              <TeamLine teams={side.opp} color={side.color === 'red' ? 'blue' : 'red'} baseTeam={baseTeam} />
-            </div>
-          </div>
-        </div>
+        <FinalsCard ours={side.ours} color={side.color} opponent={side.opp} ourWins={ourWins} oppWins={oppWins} projected={false} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-current`} />
         <Branch outcome="win" dest={{ kind: 'champion' }} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-win`} />
         <p className="text-xs text-muted-foreground">Win two games to take the event.</p>
       </div>
@@ -254,30 +360,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
   return (
     <div data-testid={testid} className="flex flex-col gap-2.5">
       {/* The match we're in. */}
-      <div data-testid={`${testid}-current`} className="rounded-xl border border-brand/40 bg-card/70 p-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-bold text-foreground">
-            M{set} <span className="font-medium text-muted-foreground">· {slotForSet(set)?.round ?? 'Playoffs'}</span>
-          </span>
-          <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider', played ? 'bg-muted text-muted-foreground' : 'bg-brand/15 text-brand')}>
-            {played ? 'Final' : 'Our next match'}
-          </span>
-        </div>
-        <div className="mt-2 flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-2">
-            <TeamLine teams={side.ours} color={side.color} baseTeam={baseTeam} />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-300/80">us</span>
-          </div>
-          <div className="flex items-baseline gap-1.5 text-xs text-muted-foreground">
-            <span className="font-semibold">vs</span>
-            {side.opp.length ? (
-              <TeamLine teams={side.opp} color={side.color === 'red' ? 'blue' : 'red'} baseTeam={baseTeam} />
-            ) : (
-              <span className="italic">opponent to be decided</span>
-            )}
-          </div>
-        </div>
-      </div>
+      <CurrentCard set={set} ours={side.ours} color={side.color} opponent={side.opp} badge={played ? 'final' : 'next'} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-current`} />
 
       {/* Where each outcome takes us. */}
       <div className="flex flex-col gap-2">

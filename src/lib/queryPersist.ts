@@ -236,23 +236,30 @@ export function createMergeSafePersister(
       });
       if (materiallyChanged) options.onPersist?.();
     },
-    async restoreClient() {
-      // A timed-out read is "no cache for this boot", NOT a reason to wipe
+    restoreClient() {
+      // The ENTIRE restore (read + any cleanup delete) is bounded: the core
+      // restore awaits both, so either hanging would hold every query. A
+      // timed-out restore is "no cache for this boot", NOT a reason to wipe
       // storage — the data may be fine and the browser merely slow.
-      const raw = await withTimeout(storage.read(), restoreTimeoutMs, undefined);
-      const restored = parsePersisted(raw);
-      if (
-        !restored ||
-        restored.buster !== buster ||
-        restored.timestamp > now() ||
-        now() - restored.timestamp > maxAge
-      ) {
-        if (raw !== undefined) await storage.remove();
-        return undefined;
-      }
-      return restored;
+      const restore = async (): Promise<PersistedQueryClient | undefined> => {
+        const raw = await storage.read();
+        const restored = parsePersisted(raw);
+        if (
+          !restored ||
+          restored.buster !== buster ||
+          restored.timestamp > now() ||
+          now() - restored.timestamp > maxAge
+        ) {
+          if (raw !== undefined) await storage.remove();
+          return undefined;
+        }
+        return restored;
+      };
+      return withTimeout(restore(), restoreTimeoutMs, undefined);
     },
-    removeClient: () => storage.remove(),
+    // Bounded for the same reason: the core awaits removeClient on the
+    // expired/busted path before releasing the queries.
+    removeClient: () => withTimeout(storage.remove(), restoreTimeoutMs, undefined),
   };
 }
 

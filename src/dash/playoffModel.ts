@@ -124,3 +124,75 @@ export function resolveFeedTeams(feed: Feed, bySet: Map<number, MatchRow>): numb
   const losers = row.winner === 'red' ? blueTeams(row) : redTeams(row);
   return feed.kind === 'winner' ? winners : losers;
 }
+
+// ── Projection: our next match from the bracket when TBA hasn't published it ──
+/**
+ * OUR next playoff match, PROJECTED from the bracket graph rather than read from
+ * the schedule. Double-elim is fully determined: once our last set has a result,
+ * where we go next (and who feeds the other side) is fixed even though TBA only
+ * publishes the row once FIRST schedules it. The opponent is a `Feed` — resolve
+ * it with `resolveFeedTeams` (real teams once that match is decided). `row` is
+ * the schedule row for the destination set when TBA has already published it
+ * without our alliance (for its scheduled time).
+ */
+export interface ProjectedPlayoffMatch {
+  /** Destination semifinal set, or null for the finals. */
+  set: number | null;
+  slot: PlayoffSlot | null;
+  isFinal: boolean;
+  /** Our alliance (carried over from the set we just played). */
+  ours: number[];
+  opponent: Feed;
+  /** The set we came from and how we got here. */
+  from: { set: number; outcome: 'win' | 'lose' };
+  row: MatchRow | null;
+}
+
+/** Pick the alliance containing `team` from a row, or null if it's not in it. */
+function allianceOf(row: MatchRow, team: number): number[] | null {
+  const r = redTeams(row);
+  if (r.includes(team)) return r;
+  const b = blueTeams(row);
+  return b.includes(team) ? b : null;
+}
+
+export function projectNextPlayoffMatch(matches: MatchRow[], baseTeam: number): ProjectedPlayoffMatch | null {
+  const bySet = new Map<number, MatchRow>();
+  let last: { set: number; row: MatchRow } | null = null;
+  for (const m of matches) {
+    const lvl = m.comp_level.toLowerCase();
+    // Once we're in a finals row (played or not) the schedule already carries
+    // our path — nothing to project.
+    if (lvl === 'f' && allianceOf(m, baseTeam)) return null;
+    if (lvl !== 'sf') continue;
+    const set = sfSet(m);
+    if (set == null) continue;
+    bySet.set(set, m);
+    if (!allianceOf(m, baseTeam)) continue;
+    // An unplayed row of ours IS the next match; the schedule wins.
+    if (!isPlayed(m)) return null;
+    if (!last || set > last.set) last = { set, row: m };
+  }
+  if (!last) return null;
+  const ours = allianceOf(last.row, baseTeam)!;
+  const color = redTeams(last.row).includes(baseTeam) ? 'red' : 'blue';
+  // A played set without a definite winner (tie/replay pending) can't be projected.
+  if (last.row.winner !== 'red' && last.row.winner !== 'blue') return null;
+  const outcome = last.row.winner === color ? 'win' : 'lose';
+  const dest = outcome === 'win' ? winDestination(last.set) : loseDestination(last.set);
+  if (dest.kind === 'set') {
+    return {
+      set: dest.slot.set,
+      slot: dest.slot,
+      isFinal: false,
+      ours,
+      opponent: dest.opponent,
+      from: { set: last.set, outcome },
+      row: bySet.get(dest.slot.set) ?? null,
+    };
+  }
+  if (dest.kind === 'finals') {
+    return { set: null, slot: null, isFinal: true, ours, opponent: dest.opponent, from: { set: last.set, outcome }, row: null };
+  }
+  return null; // champion / eliminated — nothing next
+}
