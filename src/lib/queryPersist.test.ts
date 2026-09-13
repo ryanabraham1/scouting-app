@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { dehydrate, QueryClient } from '@tanstack/react-query';
 import {
   createMergeSafePersister,
+  enforceCacheBudget,
   QUERY_CACHE_SCHEMA,
   shouldPersistQuery,
   type AtomicQueryCacheStorage,
@@ -40,18 +41,65 @@ describe('query persistence policy', () => {
   it('boots without a cache when the storage read never settles', async () => {
     vi.useFakeTimers();
     try {
+      const remove = vi.fn(async () => {});
       const hung = {
         read: () => new Promise<string | undefined>(() => {}),
         update: async () => {},
-        remove: async () => {},
+        remove,
       };
       const persister = createMergeSafePersister(hung, { restoreTimeoutMs: 50 });
       const pending = persister.restoreClient();
       await vi.advanceTimersByTimeAsync(60);
       await expect(pending).resolves.toBeUndefined();
+      // The unreadable blob is discarded so the next boot does not pay again.
+      expect(remove).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('evicts raw TBA payloads first, then the oldest data, to stay under the byte budget', () => {
+    const big = 'x'.repeat(10_000);
+    const q = (key: unknown[], dataUpdatedAt: number, data: unknown) => ({
+      queryKey: key,
+      queryHash: JSON.stringify(key),
+      state: {
+        data,
+        dataUpdateCount: 1,
+        dataUpdatedAt,
+        error: null,
+        errorUpdateCount: 0,
+        errorUpdatedAt: 0,
+        fetchFailureCount: 0,
+        fetchFailureReason: null,
+        fetchMeta: null,
+        isInvalidated: false,
+        status: 'success' as const,
+        fetchStatus: 'idle' as const,
+      },
+    });
+    const client = {
+      timestamp: 1_000,
+      buster: 'b',
+      clientState: {
+        mutations: [],
+        queries: [
+          q(['matches', '2026casnv'], 900, big), // freshest app data: keep
+          q(['reports', '2026casnv'], 100, big), // oldest app data: evicted last
+          q(['tba', 'event-matches', '2026x'], 950, big), // raw fan-out: evicted first
+          q(['tba', 'event-matches', '2026y'], 50, big),
+        ],
+      },
+    };
+    const trimmed = enforceCacheBudget(client, 21_000);
+    expect(trimmed.clientState.queries.map((x) => x.queryKey)).toEqual([
+      ['matches', '2026casnv'],
+      ['reports', '2026casnv'],
+    ]);
+    const tighter = enforceCacheBudget(client, 11_000);
+    expect(tighter.clientState.queries.map((x) => x.queryKey)).toEqual([['matches', '2026casnv']]);
+    // Under budget: untouched (same reference).
+    expect(enforceCacheBudget(client, 1_000_000)).toBe(client);
   });
 
   it('never persists active-event authority but keeps normal successful data', () => {

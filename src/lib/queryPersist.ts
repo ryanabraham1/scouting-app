@@ -209,6 +209,57 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   });
 }
 
+/**
+ * Hard ceiling on the persisted blob. The whole cache is ONE IndexedDB value
+ * that every boot must read and JSON.parse before any query may run, so its
+ * size is directly the dashboard's cold-start latency (Firefox/Zen read a
+ * multi-MB value in seconds, not milliseconds). Compact live data for a full
+ * event sits well under this; anything beyond it is stale accumulation.
+ */
+export const QUERY_CACHE_MAX_BYTES = 3 * 1024 * 1024;
+
+/** Lower number = evicted first. Raw upstream fan-out is cheapest to refetch. */
+function evictionPriority(query: DehydratedState['queries'][number]): number {
+  return query.queryKey[0] === 'tba' ? 0 : 1;
+}
+
+/**
+ * Evict queries until the serialized cache fits `maxBytes`. Drops raw TBA
+ * payloads first, then everything else, oldest `dataUpdatedAt` first, so the
+ * active event's freshest data is the last thing to go. The persister applies
+ * this on every write, so the blob can never grow past the budget again — no
+ * manual "clear site data" is ever required to recover boot speed.
+ */
+export function enforceCacheBudget(
+  client: PersistedQueryClient,
+  maxBytes: number = QUERY_CACHE_MAX_BYTES,
+): PersistedQueryClient {
+  const sized = client.clientState.queries.map((query) => ({
+    query,
+    bytes: JSON.stringify(query, replacer).length,
+  }));
+  let total = sized.reduce((sum, entry) => sum + entry.bytes, 0);
+  if (total <= maxBytes) return client;
+  const order = [...sized].sort(
+    (a, b) =>
+      evictionPriority(a.query) - evictionPriority(b.query) ||
+      a.query.state.dataUpdatedAt - b.query.state.dataUpdatedAt,
+  );
+  const evicted = new Set<string>();
+  for (const entry of order) {
+    if (total <= maxBytes) break;
+    evicted.add(entry.query.queryHash);
+    total -= entry.bytes;
+  }
+  return {
+    ...client,
+    clientState: {
+      ...client.clientState,
+      queries: client.clientState.queries.filter((q) => !evicted.has(q.queryHash)),
+    },
+  };
+}
+
 export function createMergeSafePersister(
   storage: AtomicQueryCacheStorage,
   options: {
@@ -217,18 +268,20 @@ export function createMergeSafePersister(
     buster?: string;
     onPersist?: () => void;
     restoreTimeoutMs?: number;
+    maxBytes?: number;
   } = {},
 ): MergeSafePersister {
   const now = options.now ?? Date.now;
   const maxAge = options.maxAge ?? QUERY_CACHE_MAX_AGE;
   const buster = options.buster ?? QUERY_CACHE_SCHEMA;
   const restoreTimeoutMs = options.restoreTimeoutMs ?? QUERY_CACHE_RESTORE_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? QUERY_CACHE_MAX_BYTES;
   return {
     async persistClient(client) {
       let materiallyChanged = false;
       await storage.update((current) => {
         const stored = parsePersisted(current);
-        const merged = mergePersistedQueryClients(stored, client);
+        const merged = enforceCacheBudget(mergePersistedQueryClients(stored, client), maxBytes);
         materiallyChanged =
           !stored ||
           stored.buster !== merged.buster ||
@@ -255,9 +308,25 @@ export function createMergeSafePersister(
           if (raw !== undefined) await storage.remove();
           return undefined;
         }
-        return restored;
+        // Never hydrate more than the budget even from an older build's blob.
+        return enforceCacheBudget(restored, maxBytes);
       };
-      return withTimeout(restore(), restoreTimeoutMs, undefined);
+      let timedOut = true;
+      const bounded = withTimeout(
+        restore().finally(() => {
+          timedOut = false;
+        }),
+        restoreTimeoutMs,
+        undefined,
+      );
+      return bounded.then((result) => {
+        // A budgeted blob reads in milliseconds, so a timeout means a
+        // pathological value (e.g. an oversized blob from an older build).
+        // Discard it in the background so the NEXT boot is fast without the
+        // user ever clearing site data; the first persist rebuilds it.
+        if (timedOut) void storage.remove().catch(() => {});
+        return result;
+      });
     },
     // Bounded for the same reason: the core awaits removeClient on the
     // expired/busted path before releasing the queries.
