@@ -57,11 +57,30 @@ function TeamLine(props: { teams: number[]; color: 'red' | 'blue' | 'neutral'; b
   );
 }
 
-/** An opponent that may not be decided yet: real teams once known, else a feed. */
+/**
+ * An opponent that may not be decided yet: real teams once known; else the feed
+ * label PLUS both alliances in the match it points at when that match is already
+ * on the schedule ("Loser of M2 · 33 3668 910 vs 3175 1506 5193"), so leads can
+ * size up either possible opponent before the result is in.
+ */
 function Opponent(props: { feed: Feed; bySet: Map<number, MatchRow>; baseTeam: number }) {
-  const teams = resolveFeedTeams(props.feed, props.bySet);
-  if (teams && teams.length) return <TeamLine teams={teams} color="neutral" baseTeam={props.baseTeam} />;
-  return <span className="text-sm italic text-muted-foreground">{feedLabel(props.feed)}</span>;
+  const { feed, bySet, baseTeam } = props;
+  const teams = resolveFeedTeams(feed, bySet);
+  if (teams && teams.length) return <TeamLine teams={teams} color="neutral" baseTeam={baseTeam} />;
+  const src = feed.kind === 'seed' ? null : bySet.get(feed.set);
+  const red = src ? redTeams(src) : [];
+  const blue = src ? blueTeams(src) : [];
+  if (!red.length || !blue.length) {
+    return <span className="text-sm italic text-muted-foreground">{feedLabel(feed)}</span>;
+  }
+  return (
+    <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+      <span className="text-sm italic text-muted-foreground">{feedLabel(feed)} ·</span>
+      <TeamLine teams={red} color="red" baseTeam={baseTeam} />
+      <span className="text-xs text-muted-foreground">vs</span>
+      <TeamLine teams={blue} color="blue" baseTeam={baseTeam} />
+    </span>
+  );
 }
 
 /** Headline for where a branch leads. */

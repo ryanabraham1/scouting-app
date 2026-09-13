@@ -37,6 +37,20 @@ describe('PlayoffPath', () => {
     expect(getByTestId('playoff-path-lose').textContent).toContain('Winner of M6');
   });
 
+  it('lists both alliances of an undecided feed match when it is scheduled', () => {
+    const matches = [
+      m({ match_key: '2026evt_sf7m1', comp_level: 'sf', red1: 3256, red2: 1678, red3: 254, blue1: 195, blue2: 694, blue3: 2910 }),
+      // M8 scheduled but unplayed: show "Winner of M8" AND who is playing it.
+      m({ match_key: '2026evt_sf8m1', comp_level: 'sf', red1: 148, red2: 217, red3: 1114, blue1: 27, blue2: 469, blue3: 2046 }),
+    ];
+    const { getByTestId } = render(<PlayoffPath matches={matches} baseTeam={3256} />);
+    const win = getByTestId('playoff-path-win').textContent ?? '';
+    expect(win).toContain('Winner of M8');
+    expect(win).toContain('148');
+    expect(win).toContain('2046');
+    expect(win).toContain('vs');
+  });
+
   it('resolves a future opponent to real teams once their match is decided', () => {
     const matches = [
       m({ match_key: '2026evt_sf7m1', comp_level: 'sf', red1: 3256, red2: 1678, red3: 254, blue1: 195, blue2: 694, blue3: 2910 }),
