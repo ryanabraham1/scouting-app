@@ -107,10 +107,10 @@ describe('proxies — degrade-gracefully coverage', () => {
 
   describe('syncEventResults', () => {
     it('POSTs to sync-event-results with the event_key in the URL and body', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ written: 3 }));
       vi.stubGlobal('fetch', fetchMock);
 
-      await syncEventResults('2026casf');
+      await expect(syncEventResults('2026casf')).resolves.toEqual({ written: 3 });
 
       const [url, init] = fetchMock.mock.calls[0];
       expect(url).toBe(
@@ -123,6 +123,13 @@ describe('proxies — degrade-gracefully coverage', () => {
 
     it('is best-effort — swallows a thrown fetch without rejecting', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+      await expect(syncEventResults('2026casf')).resolves.toBeUndefined();
+    });
+
+    it('resolves undefined on the { available: false } sentinel and non-2xx', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ available: false })));
+      await expect(syncEventResults('2026casf')).resolves.toBeUndefined();
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'x' }, 500)));
       await expect(syncEventResults('2026casf')).resolves.toBeUndefined();
     });
   });

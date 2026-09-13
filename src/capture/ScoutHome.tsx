@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart3,
@@ -289,6 +289,9 @@ type ScoutMode = 'match' | 'pit';
 export default function ScoutHome() {
   const { scout } = useSession();
   const navigate = useNavigate();
+  // Per-instance realtime topic suffix: a fixed topic reused across an effect
+  // re-run returns the still-leaving old channel and the new subscribe no-ops.
+  const channelId = useId();
   // Match/Pit switch. Deep-linkable via ?mode=pit; the toggle keeps it in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const mode: ScoutMode = searchParams.get('mode') === 'pit' ? 'pit' : 'match';
@@ -503,7 +506,7 @@ export default function ScoutHome() {
       };
       removeChannel?: (channel: unknown) => Promise<unknown>;
     };
-    const realtime = realtimeClient.channel?.(`scout-assignments:${ev}:${scoutId}`);
+    const realtime = realtimeClient.channel?.(`scout-assignments:${ev}:${scoutId}:${channelId}`);
     realtime
       ?.on(
         'postgres_changes',
@@ -518,7 +521,7 @@ export default function ScoutHome() {
       window.removeEventListener('preload-cache-changed', refreshVisible);
       if (realtime) void realtimeClient.removeChannel?.(realtime);
     };
-  }, [scoutId, effective?.event_key, effective?.display_name, activeEvent]);
+  }, [scoutId, effective?.event_key, effective?.display_name, activeEvent, channelId]);
 
   // Load the cached event schedule + team list so a manual pick can be validated
   // against them before it's allowed to start (and thus before it can dead-letter

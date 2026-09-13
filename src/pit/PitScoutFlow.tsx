@@ -2,7 +2,7 @@
 // shared by the /scout?mode=pit toggle (ScoutHome) and the legacy PitRoute.
 // It takes an already-resolved scout identity + active event, so the user never
 // re-picks their name when switching into pit mode.
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
   ClipboardCheck,
   FileDown,
@@ -128,6 +128,8 @@ function assignmentsForScout(rows: PitCrewRow[], scoutId: string): MyPitAssignme
 
 function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment[] {
   const [assignments, setAssignments] = useState<MyPitAssignment[]>([]);
+  // Per-instance realtime topic suffix (see useEventLiveSync for why).
+  const channelId = useId();
   useEffect(() => {
     if (!eventKey || !scoutId) return;
     let cancelled = false;
@@ -199,7 +201,7 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
       };
       removeChannel?: (channel: unknown) => Promise<unknown>;
     };
-    const realtime = realtimeClient.channel?.(`pit-assignments:${eventKey}:${scoutId}`);
+    const realtime = realtimeClient.channel?.(`pit-assignments:${eventKey}:${scoutId}:${channelId}`);
     realtime
       ?.on(
         'postgres_changes',
@@ -214,7 +216,7 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
       window.removeEventListener('preload-cache-changed', refreshVisible);
       if (realtime) void realtimeClient.removeChannel?.(realtime);
     };
-  }, [eventKey, scoutId]);
+  }, [eventKey, scoutId, channelId]);
   return assignments;
 }
 

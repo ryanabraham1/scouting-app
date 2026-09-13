@@ -112,22 +112,38 @@ export async function nexusGet<T>(path: string): Promise<T | ProxyUnavailable> {
   }
 }
 
+/** Summary returned by a successful `sync-event-results` reconcile. */
+export interface SyncEventResultsSummary {
+  /** Number of `match` rows the reconcile actually wrote (0 = nothing changed). */
+  written: number;
+}
+
 /**
  * Trigger the server-side TBA match reconcile for an event. Best-effort and
  * never throws: lands current predicted/scheduled times plus real results into
  * our `match` table (service-role write), healing dropped webhooks. Safe to call
- * repeatedly (idempotent upsert).
+ * repeatedly (idempotent upsert). Resolves to the reconcile summary so a caller
+ * can refresh its match cache when rows changed; `undefined` on any failure
+ * (network, non-JSON, `{ available: false }` sentinel).
  */
-export async function syncEventResults(eventKey: string): Promise<void> {
+export async function syncEventResults(
+  eventKey: string,
+): Promise<SyncEventResultsSummary | undefined> {
   try {
     const url = `${env.SUPABASE_URL}/functions/v1/sync-event-results?event_key=${encodeURIComponent(eventKey)}`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
       body: JSON.stringify({ event_key: eventKey }),
     });
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as unknown;
+    if (isUnavailable(body)) return undefined;
+    const written = (body as { written?: unknown }).written;
+    return { written: typeof written === 'number' && written > 0 ? written : 0 };
   } catch {
     /* best-effort safety net — the webhook is the primary path */
+    return undefined;
   }
 }
 

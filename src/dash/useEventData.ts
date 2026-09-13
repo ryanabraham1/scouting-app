@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { tbaGet, statboticsGet, nexusGet, syncEventResults } from '@/dash/proxies';
@@ -883,24 +883,64 @@ export function useNexusEventStatus(
 }
 
 /**
+ * Query keys that a live screen must refresh when it may have MISSED realtime
+ * events (a websocket drop at a bad venue, a channel re-join). Nexus is excluded:
+ * it already polls on NEXUS_POLL_MS with staleTime 0.
+ */
+function liveQueryKeys(eventKey: string): unknown[][] {
+  return [
+    ['matches', eventKey],
+    ['tba', 'rankings', eventKey],
+    ['reports', eventKey],
+    ['matchup-notes', eventKey],
+    ['event-pits', eventKey],
+  ];
+}
+
+/**
  * Real-time glue for the live dashboard. For the active event it:
  *   - subscribes to `nexus_event_status` changes and pushes each new snapshot
  *     straight into the nexus query cache (instant On-Field / Queuing updates);
- *   - subscribes to `match` changes and invalidates the matches query so a freshly
- *     scored result advances the next-match selector immediately;
+ *   - subscribes to `match` changes and invalidates the matches query (and the
+ *     TBA rankings, which move with every posted score) so a freshly scored
+ *     result advances the next-match selector / playoff path immediately;
+ *   - on every (re)SUBSCRIBED after the first — i.e. after the websocket dropped
+ *     and Realtime re-joined — refetches the live queries so events missed while
+ *     disconnected are caught up instead of waiting for the next change;
  *   - kicks a TBA results reconcile on mount and on RESULTS_RECONCILE_MS as a
- *     safety net for any webhook that was dropped/delayed.
+ *     safety net for any webhook that was dropped/delayed, and refetches the
+ *     schedule after each tick so the Pit Display stays current even when the
+ *     realtime channel is silently dead.
+ *
+ * The channel topic is unique PER HOOK INSTANCE (`useId`). A fixed
+ * `live-${eventKey}` topic broke client-side navigation between the Lead
+ * Dashboard and the Pit Display: the outgoing screen's `removeChannel` leaves the
+ * channel asynchronously, so the incoming screen's `supabase.channel(sameTopic)`
+ * returned that still-registered, LEAVING channel — `.on()` piled bindings onto
+ * it and `.subscribe()` was a no-op (adapter not closed) — then the leave
+ * completed and the channel was torn down. Result: no live subscription at all
+ * until a hard reload (the "next match only updates on refresh" bug).
  * No-op (and harmless) when there's no event, or when the Supabase client lacks
  * Realtime (e.g. mocked in unit tests). Call once high in the dashboard tree.
  */
 export function useEventLiveSync(eventKey: string | null): void {
   const queryClient = useQueryClient();
+  const channelId = useId();
+  // The first SUBSCRIBED lands right after mount (queries just fetched); only a
+  // LATER one signals a re-join after a disconnect and warrants a catch-up.
+  const subscribedOnce = useRef(false);
 
   // Realtime subscriptions.
   useEffect(() => {
     if (!eventKey || typeof supabase.channel !== 'function') return;
+    subscribedOnce.current = false;
+    const invalidateLive = () => {
+      for (const queryKey of liveQueryKeys(eventKey)) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    };
     const channel = supabase
-      .channel(`live-${eventKey}`)
+      .channel(`live-${eventKey}-${channelId}`)
       .on(
         'postgres_changes',
         {
@@ -928,8 +968,19 @@ export function useEventLiveSync(eventKey: string | null): void {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'match', filter: `event_key=eq.${eventKey}` },
-        () => {
+        (payload: { new?: Record<string, unknown> }) => {
           queryClient.invalidateQueries({ queryKey: ['matches', eventKey] });
+          // A posted score moves the standings; TBA rankings have no realtime
+          // feed of their own, so piggy-back on the match change (60s proxy cache).
+          queryClient.invalidateQueries({ queryKey: ['tba', 'rankings', eventKey] });
+          // A RESULT (not a mere predicted-time nudge) also moves every EPA-derived
+          // number (season stats tile, event EPA, predictions). Those queries have
+          // a 5-min staleTime and nothing else ever re-triggers them on a kiosk, so
+          // refresh the TBA result feed they read from and the derived caches.
+          if (payload.new?.actual_red_score != null || payload.new?.actual_blue_score != null) {
+            queryClient.invalidateQueries({ queryKey: ['tba', 'event-matches', eventKey] });
+            queryClient.invalidateQueries({ queryKey: ['epa'] });
+          }
         },
       )
       .on(
@@ -1004,26 +1055,47 @@ export function useEventLiveSync(eventKey: string | null): void {
           }
         },
       )
-      .subscribe();
+      .subscribe((status: string, err?: Error) => {
+        if (status === 'SUBSCRIBED') {
+          // Phoenix re-fires the join ack on every re-join after a socket drop,
+          // so a second SUBSCRIBED means "we were disconnected": catch up now.
+          if (subscribedOnce.current) invalidateLive();
+          subscribedOnce.current = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // Surface (don't swallow) a dead live feed; the reconcile tick below
+          // keeps the schedule moving regardless.
+          console.warn(`[live-sync] realtime ${status} for ${eventKey}`, err?.message ?? '');
+        }
+      });
     return () => {
       if (typeof supabase.removeChannel === 'function') supabase.removeChannel(channel);
     };
-  }, [eventKey, queryClient]);
+  }, [eventKey, queryClient, channelId]);
 
-  // Results reconcile safety net (webhook is the primary path).
+  // Results reconcile safety net (webhook is the primary path). After each tick
+  // the schedule is refetched directly: a reconcile from THIS or ANY other device
+  // may have written rows, and if the realtime channel is down (venue wifi,
+  // backgrounded kiosk tab) nothing else would pull them in. One small select per
+  // minute is the price of a Pit Display that never needs a reload.
   useEffect(() => {
     if (!eventKey) return;
     let cancelled = false;
-    const run = () => {
-      if (!cancelled) void syncEventResults(eventKey);
+    const run = async () => {
+      if (cancelled) return;
+      const summary = await syncEventResults(eventKey);
+      if (cancelled) return;
+      void queryClient.invalidateQueries({ queryKey: ['matches', eventKey] });
+      if (summary && summary.written > 0) {
+        void queryClient.invalidateQueries({ queryKey: ['tba', 'rankings', eventKey] });
+      }
     };
-    run();
-    const id = setInterval(run, RESULTS_RECONCILE_MS);
+    void run();
+    const id = setInterval(() => void run(), RESULTS_RECONCILE_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [eventKey]);
+  }, [eventKey, queryClient]);
 }
 
 /** Parsed TBA event header info: display name + first usable webcast. */
