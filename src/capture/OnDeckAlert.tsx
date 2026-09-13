@@ -3,11 +3,12 @@
 // pure `selectOnDeck` selector flags an imminent assigned match (driven by live
 // Nexus status, else schedule time). Tapping it jumps straight into capture.
 //
-// Optionally fires ONE Web Notification per imminent match — but only when
+// Optionally fires ONE Web Notification per imminent match (ever — across urgency
+// changes, remounts, reloads and tabs) — but only when
 // permission is ALREADY granted. We never call requestPermission() here, so the
 // scout is never nagged; they opt in elsewhere (or via the browser) if they want it.
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { matchLabelFromKey } from '@/capture/UpcomingMatches';
@@ -20,16 +21,51 @@ interface OnDeckAlertProps<A extends OnDeckMatch> {
   onStart: (a: A) => void;
 }
 
-/** Notify once per (match + team + urgency) key while permission is already granted. */
-function useOnDeckNotification(assignment: OnDeckMatch, urgency: string) {
-  const notifiedRef = useRef<string | null>(null);
+// Notified-match ledger. One notification per (match + team), regardless of
+// how urgency escalates or flaps, and regardless of remounts/reloads/other tabs
+// (a useRef alone resets on every remount, which is how scouts got pinged 3-4
+// times for the same match). Persisted in localStorage, bounded so it never grows.
+const NOTIFIED_KEY = 'frc-scout-on-deck-notified';
+const NOTIFIED_MAX = 64;
+
+function readNotified(): string[] {
+  try {
+    const raw = window.localStorage.getItem(NOTIFIED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberNotified(key: string): void {
+  try {
+    const next = [...readNotified().filter((k) => k !== key), key].slice(-NOTIFIED_MAX);
+    window.localStorage.setItem(NOTIFIED_KEY, JSON.stringify(next));
+  } catch {
+    // Storage unavailable: the in-memory guard below still covers this tab's lifetime.
+  }
+}
+
+/** In-memory mirror so a storage failure still dedupes within the page lifetime. */
+const notifiedThisPage = new Set<string>();
+
+/** True if we have already notified for this key; records it otherwise. */
+function claimNotification(key: string): boolean {
+  if (notifiedThisPage.has(key) || readNotified().includes(key)) return false;
+  notifiedThisPage.add(key);
+  rememberNotified(key);
+  return true;
+}
+
+/** Notify once per (match + team) while permission is already granted. */
+function useOnDeckNotification(assignment: OnDeckMatch) {
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
     const a = assignment;
-    const key = `${a.match_key}:${a.target_team_number}:${urgency}`;
-    if (notifiedRef.current === key) return;
-    notifiedRef.current = key;
+    const key = `${a.match_key}:${a.target_team_number}`;
+    if (!claimNotification(key)) return;
     const title = "You're on deck — scout now";
     const options: NotificationOptions = {
       body: `${matchLabelFromKey(a.match_key)} · team #${a.target_team_number} · ${a.alliance_color} ${a.station}`,
@@ -47,12 +83,12 @@ function useOnDeckNotification(assignment: OnDeckMatch, urgency: string) {
         // Delivery remains best-effort; the visible on-deck banner is the fallback.
       }
     })();
-  }, [assignment, urgency]);
+  }, [assignment]);
 }
 
 export function OnDeckAlert<A extends OnDeckMatch>({ result, timing, onStart }: OnDeckAlertProps<A>) {
   const { assignment: a, urgency, liveStatus } = result;
-  useOnDeckNotification(a, urgency);
+  useOnDeckNotification(a);
 
   return (
     <button
