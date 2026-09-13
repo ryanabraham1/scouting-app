@@ -34,7 +34,9 @@ import { createStore, get, update, del } from 'idb-keyval';
 
 // 14 days. Used for both gcTime and the persister maxAge (see invariant above).
 export const QUERY_CACHE_MAX_AGE: number = 1000 * 60 * 60 * 24 * 14;
-export const QUERY_CACHE_SCHEMA = '2026-07-release-hardening-v1';
+// Bumped 2026-09-13: drops the pre-compaction persisted TBA payloads (multi-MB
+// single blob) from every device on next boot; see seasonEpa.compactTbaMatch.
+export const QUERY_CACHE_SCHEMA = '2026-09-compact-tba-v2';
 
 export const queryClient: QueryClient = new QueryClient({
   defaultOptions: {

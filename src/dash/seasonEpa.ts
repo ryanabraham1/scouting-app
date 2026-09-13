@@ -34,7 +34,65 @@ export const EPA_STALE_TIME = 5 * 60_000;
 // produced by an older, slower traversal cannot mask the new path.
 export const SEASON_EPA_CLOSURE_VERSION = 5;
 
-/** Full raw TBA match list for one event, shared across every team replay. */
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+function pick(src: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (src[k] !== undefined) out[k] = src[k];
+  return out;
+}
+
+const MATCH_KEYS = [
+  'key',
+  'event_key',
+  'comp_level',
+  'set_number',
+  'match_number',
+  'winning_alliance',
+  'actual_time',
+  'predicted_time',
+  'time',
+] as const;
+const ALLIANCE_KEYS = ['score', 'team_keys'] as const;
+// Tier-1 EPA only needs the foul/adjust fields off the breakdown. The dark
+// Tier-2 parser (`ENABLE_TBA_BREAKDOWN`, default off) would need this list
+// widened before it can be switched on — see localEpa.ts.
+const BREAKDOWN_KEYS = ['foulPoints', 'adjustPoints'] as const;
+
+/**
+ * Project a raw TBA match down to the fields the EPA model, W-L-T record and
+ * chronological sort actually read. A raw match is ~5-10 KB (full
+ * `score_breakdown`, videos, surrogate/dq lists); the season fan-out caches one
+ * list per event ANY roster team attended, so an event ran to 50+ raw payloads
+ * (~7 MB) inside the single persisted React Query blob. Firefox-family
+ * browsers took seconds to read/parse that on every boot (the "verifying
+ * server authority" stall) and every persist re-serialized all of it.
+ */
+export function compactTbaMatch(raw: unknown): unknown {
+  if (!isObj(raw)) return raw;
+  const out = pick(raw, MATCH_KEYS);
+  if (isObj(raw.alliances)) {
+    const alliances: Record<string, unknown> = {};
+    for (const color of ['red', 'blue'] as const) {
+      const a = raw.alliances[color];
+      if (isObj(a)) alliances[color] = pick(a, ALLIANCE_KEYS);
+    }
+    out.alliances = alliances;
+  }
+  if (isObj(raw.score_breakdown)) {
+    const sb: Record<string, unknown> = {};
+    for (const color of ['red', 'blue'] as const) {
+      const a = raw.score_breakdown[color];
+      if (isObj(a)) sb[color] = pick(a, BREAKDOWN_KEYS);
+    }
+    out.score_breakdown = sb;
+  }
+  return out;
+}
+
+/** Full (compacted) TBA match list for one event, shared across every team replay. */
 export async function fetchEventMatchesCached(eventKey: string): Promise<unknown[]> {
   const queryKey = ['tba', 'event-matches', eventKey] as const;
   try {
@@ -45,7 +103,7 @@ export async function fetchEventMatchesCached(eventKey: string): Promise<unknown
       queryFn: async (): Promise<unknown[]> => {
         const data = await tbaGet<unknown>(`/event/${eventKey}/matches`);
         if (!Array.isArray(data)) throw new Error('TBA event matches unavailable');
-        return data;
+        return data.map(compactTbaMatch);
       },
     });
     return Array.isArray(json) ? json : [];
@@ -101,7 +159,7 @@ export async function fetchTeamSeasonMatchesCached(
       queryFn: async (): Promise<unknown[]> => {
         const data = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
         if (!Array.isArray(data)) throw new Error('TBA season matches unavailable');
-        return data;
+        return data.map(compactTbaMatch);
       },
     });
     return Array.isArray(json) ? json : [];
