@@ -479,11 +479,11 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       {/* Best remaining pick — the headline of the board. */}
       <Card className="border-brand/40 bg-card">
         <CardHeader className="gap-1 space-y-0">
-          <div className="flex flex-row items-center justify-between gap-2">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
             <CardTitle className="flex items-center gap-2">
-              <Gavel className="size-5 text-brand" /> Best remaining
+              <Gavel className="size-5 shrink-0 text-brand" /> Best remaining
             </CardTitle>
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span className="text-xs tabular-nums text-muted-foreground sm:text-right">
               {counts.available} available · {counts.taken} taken · {counts.ours} ours
             </span>
           </div>
@@ -543,7 +543,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     data-testid={`draft-best-${r.teamNumber}`}
                     className="flex flex-col gap-2 rounded-xl border-2 border-brand bg-brand/15 px-4 py-3"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex min-w-0 flex-col gap-1">
                         <span className="eyebrow flex items-center gap-1.5 text-brand">
                           <Star className="size-3.5 shrink-0" /> Pick next
@@ -566,11 +566,12 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           <span>{fmt(r.expectedPoints, 1)} pts</span>
                         </span>
                       </div>
-                      <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                      <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-col sm:items-stretch sm:gap-1.5">
                         <Button
                           type="button"
                           size="sm"
                           variant="default"
+                          className="h-11 sm:h-8"
                           data-testid={`draft-pick-ours-${r.teamNumber}`}
                           onClick={() => toggle(r.teamNumber, 'ours')}
                         >
@@ -580,6 +581,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           type="button"
                           size="sm"
                           variant="ghost"
+                          className="h-11 sm:h-8"
                           data-testid={`draft-pick-taken-${r.teamNumber}`}
                           onClick={() => toggle(r.teamNumber, 'taken')}
                         >
@@ -606,7 +608,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     data-testid={`draft-best-${r.teamNumber}`}
                     className="flex flex-col gap-1 rounded-lg border border-border bg-muted/30 px-3 py-1.5"
                   >
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="eyebrow shrink-0 text-muted-foreground">#{i + 1}</span>
                         <TeamNumber
@@ -622,26 +624,32 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         ) : null}
                       </span>
                       <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
-                        <span>EPA {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
-                        <span className="hidden sm:inline">{fmt(r.expectedPoints, 1)} pts</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          data-testid={`draft-pick-ours-${r.teamNumber}`}
-                          onClick={() => toggle(r.teamNumber, 'ours')}
-                        >
-                          <Star /> Pick
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          data-testid={`draft-pick-taken-${r.teamNumber}`}
-                          onClick={() => toggle(r.teamNumber, 'taken')}
-                        >
-                          <X /> Taken
-                        </Button>
+                        <span className="whitespace-nowrap">
+                          EPA {r.epa == null ? EM_DASH : fmt(r.epa)}
+                        </span>
+                        <span className="whitespace-nowrap">{fmt(r.expectedPoints, 1)} pts</span>
+                        <span className="grid flex-1 grid-cols-2 gap-2 sm:flex sm:flex-none sm:gap-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-10 sm:h-8"
+                            data-testid={`draft-pick-ours-${r.teamNumber}`}
+                            onClick={() => toggle(r.teamNumber, 'ours')}
+                          >
+                            <Star /> Pick
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-10 sm:h-8"
+                            data-testid={`draft-pick-taken-${r.teamNumber}`}
+                            onClick={() => toggle(r.teamNumber, 'taken')}
+                          >
+                            <X /> Taken
+                          </Button>
+                        </span>
                       </span>
                     </div>
                     {r.note ? (
@@ -686,7 +694,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
               data-testid="draft-pickedby"
               value={pickedBy ?? ''}
               onChange={(e) => setPickedBy(e.target.value === '' ? null : Number(e.target.value))}
-              className="min-h-9 rounded-md border border-border bg-muted/30 px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="min-h-9 w-full min-w-0 max-w-full rounded-md border border-border bg-muted/30 px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-auto"
             >
               <option value="">— we&apos;re the captain —</option>
               {pickedByCandidates.map((r) => (
@@ -909,7 +917,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   {/* Three fixed metric lanes scan vertically during a live draft. */}
                   <div
                     data-testid={`draft-metrics-${r.teamNumber}`}
-                    className="col-start-2 grid grid-cols-3 gap-1.5 sm:col-span-1 lg:col-start-3 lg:row-start-1 lg:gap-3"
+                    className="col-span-2 grid grid-cols-3 gap-1.5 sm:col-span-1 sm:col-start-2 lg:col-start-3 lg:row-start-1 lg:gap-3"
                   >
                     <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 first:border-l-0 first:pl-0 lg:items-end">
                       <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
@@ -964,7 +972,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   {/* Picklist and availability context stay separate from metrics. */}
                   <div
                     data-testid={`draft-badges-${r.teamNumber}`}
-                    className="col-start-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:col-start-4 lg:row-start-1"
+                    className="col-span-2 flex min-w-0 flex-wrap items-center gap-1.5 sm:col-span-1 sm:col-start-2 lg:col-start-4 lg:row-start-1"
                   >
                     {r.picklistRank != null ? (
                       <span
@@ -1028,7 +1036,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       on desktop. Labels stay visible at every breakpoint. */}
                   <div
                     data-testid={`draft-actions-${r.teamNumber}`}
-                    className="col-start-2 grid grid-cols-2 gap-2 sm:col-start-3 sm:row-start-1 sm:w-[10.5rem] lg:col-start-5 lg:row-start-1"
+                    className="col-span-2 grid grid-cols-2 gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-[10.5rem] lg:col-start-5 lg:row-start-1"
                   >
                     <Button
                       type="button"
