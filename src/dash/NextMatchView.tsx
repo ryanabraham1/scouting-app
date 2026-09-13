@@ -293,7 +293,9 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           data-testid="dash-next-no-match"
           className="rounded-md border border-border bg-card/40 p-6 text-sm text-muted-foreground"
         >
-          No matches found for this event.
+          {matchesQ.isError
+            ? "Can't reach the server and no schedule is cached on this device yet."
+            : 'No matches found for this event.'}
         </div>
       </div>
     );

@@ -27,8 +27,19 @@ const ACTIVE_EVENT_POLL_MS = 30_000;
 export interface ActiveEvent {
   eventKey: string | null;
   loading: boolean;
-  /** True once this browser has resolved the server, or when it is offline. */
+  /**
+   * True once this browser has resolved the server, when it is offline, or when
+   * the server check FAILED. A browser that reports `navigator.onLine` but cannot
+   * reach Supabase (venue wifi with no upstream, captive portal, blocked host) is
+   * operationally offline: it keeps the stored fallback exactly like a true
+   * offline start instead of sitting in "verifying" forever with edits paused.
+   */
   authoritative: boolean;
+  /**
+   * True while online but the last server check failed. The stored event is in
+   * use; a background poll keeps re-checking and swaps atomically on success.
+   */
+  serverUnreachable: boolean;
 }
 
 interface EventRow {
@@ -59,7 +70,11 @@ export function useActiveEvent(): ActiveEvent {
     // always verifies it immediately.
     placeholderData: () => getStoredActiveEvent() ?? undefined,
     enabled: online,
-    staleTime: 0,
+    // Every mount still re-verifies (no data → fetch), but a short window stops
+    // the N sibling mounts (DashboardScreen + SetupTab + …) and the burst of
+    // realtime invalidations after set_active_event (which rewrites EVERY event
+    // row) from each firing their own /event request.
+    staleTime: 2_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: online ? ACTIVE_EVENT_POLL_MS : false,
@@ -119,6 +134,9 @@ export function useActiveEvent(): ActiveEvent {
     };
   }, [queryClient, channelId]);
 
+  const resolved = !query.isPlaceholderData && query.dataUpdatedAt > 0;
+  const serverUnreachable = online && !resolved && query.isError;
+
   return {
     eventKey: query.data !== undefined ? query.data : getStoredActiveEvent(),
     // Gate only the first online authority check. Background poll/focus refreshes
@@ -128,6 +146,7 @@ export function useActiveEvent(): ActiveEvent {
       query.isFetching &&
       query.dataUpdatedAt === 0 &&
       query.failureCount === 0,
-    authoritative: !online || (!query.isPlaceholderData && query.dataUpdatedAt > 0),
+    authoritative: !online || resolved || serverUnreachable,
+    serverUnreachable,
   };
 }

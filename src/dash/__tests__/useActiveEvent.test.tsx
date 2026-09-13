@@ -91,13 +91,35 @@ describe('useActiveEvent', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
-  it('retains the stored event when the online request fails', async () => {
+  it('treats a failed online request like offline: stored event, no edit lock', async () => {
     stored = '2026casnv';
     eventError = new Error('Failed to fetch');
     const { result } = renderHook(() => useActiveEvent(), { wrapper });
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    // The hook retries once (with backoff) before settling as unreachable.
+    await waitFor(() => expect(result.current.serverUnreachable).toBe(true), { timeout: 4_000 });
+    expect(result.current.loading).toBe(false);
     expect(result.current.eventKey).toBe('2026casnv');
-    expect(result.current.authoritative).toBe(false);
+    expect(result.current.authoritative).toBe(true);
+  });
+
+  it('clears the unreachable flag once a retry reaches the server', async () => {
+    stored = '2026casnv';
+    eventError = new Error('Failed to fetch');
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrap = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useActiveEvent(), { wrapper: wrap });
+    await waitFor(() => expect(result.current.serverUnreachable).toBe(true), { timeout: 4_000 });
+
+    eventError = null;
+    eventRows = [{ event_key: '2026demo', is_active: true }];
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ACTIVE_EVENT_KEY });
+    });
+    await waitFor(() => expect(result.current.eventKey).toBe('2026demo'));
+    expect(result.current.serverUnreachable).toBe(false);
+    expect(result.current.authoritative).toBe(true);
   });
 
   it('resolves from the server when nothing is stored', async () => {

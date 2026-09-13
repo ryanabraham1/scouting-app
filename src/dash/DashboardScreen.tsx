@@ -154,7 +154,7 @@ function LeadGate({ children }: { children: (lockDashboard: () => void) => React
 }
 
 function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.Element {
-  const { eventKey, loading, authoritative } = useActiveEvent();
+  const { eventKey, loading, authoritative, serverUnreachable } = useActiveEvent();
   useEventLiveSync(eventKey);
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -226,6 +226,15 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         >
           Showing cached event {eventKey} while server authority is being verified. Destructive
           event-scoped edits are paused.
+        </div>
+      ) : serverUnreachable && eventKey ? (
+        <div
+          role="status"
+          data-testid="dashboard-server-unreachable"
+          className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+        >
+          Can&apos;t reach the server. Showing cached event {eventKey}; retrying in the
+          background.
         </div>
       ) : null}
 

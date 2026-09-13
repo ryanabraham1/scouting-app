@@ -32,8 +32,11 @@ import { listMatchupNotesForEvent } from '@/db/localStore';
 import type { LocalMatchupNote, MatchupNoteRow } from '@/db/types';
 import {
   getCachedAssignmentsForEvent,
+  getCachedMatches,
   getCachedPitAssignmentsForEvent,
+  replaceCachedMatchesForEvent,
 } from '@/db/preloadClient';
+import type { CachedMatch } from '@/db/types';
 import {
   NEXUS_POLL_MS,
   NEXUS_STALE_MS,
@@ -229,15 +232,27 @@ export function useEventMatches(eventKey: string | null): UseQueryResult<MatchRo
     enabled: !!eventKey,
     staleTime: STALE_TIME,
     queryFn: async (): Promise<MatchRow[]> => {
+      const key = eventKey as string;
       const { data, error } = await supabase
         .from('match')
         .select('*')
-        .eq('event_key', eventKey as string)
+        .eq('event_key', key)
         .order('match_number', { ascending: true });
       if (error) {
+        // The dashboard has no explicit preload step, so a lead/pit-display
+        // device whose React Query cache is empty (fresh install, busted
+        // persister) used to render "No matches" whenever the venue network
+        // dropped. Fall back to the scout-side Dexie schedule cache (which the
+        // success path below also fills) so the schedule survives the outage.
+        const cached = await getCachedMatches(key).catch(() => []);
+        if (cached.length) return cached as MatchRow[];
         throw error;
       }
-      return (data ?? []) as MatchRow[];
+      const rows = (data ?? []) as MatchRow[];
+      // Write-through (best effort) so this device can serve the schedule
+      // from Dexie the next time the server is unreachable.
+      void replaceCachedMatchesForEvent(key, rows as CachedMatch[]).catch(() => {});
+      return rows;
     },
   });
 }

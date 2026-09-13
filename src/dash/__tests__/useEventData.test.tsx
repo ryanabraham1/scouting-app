@@ -210,6 +210,40 @@ describe('useEventData', () => {
     expect(fromMock).toHaveBeenCalledWith('match');
   });
 
+  it('useEventMatches serves the Dexie schedule cache when the server is unreachable', async () => {
+    const { replaceCachedMatchesForEvent } = await import('@/db/preloadClient');
+    const cached = {
+      match_key: '2026casnv_qm7',
+      event_key: '2026casnv',
+      comp_level: 'qm',
+      match_number: 7,
+      scheduled_time: null,
+      predicted_time: null,
+      red1: 1,
+      red2: 2,
+      red3: 3,
+      blue1: 4,
+      blue2: 5,
+      blue3: 6,
+      actual_red_score: null,
+      actual_blue_score: null,
+      winner: null,
+      result_synced_at: null,
+    };
+    await replaceCachedMatchesForEvent('2026casnv', [cached]);
+    tableResults['match'] = { data: null, error: new Error('Failed to fetch') };
+
+    const { result } = renderHook(() => useEventMatches('2026casnv'), { wrapper: wrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([cached]);
+  });
+
+  it('useEventMatches surfaces the error when unreachable with no cached schedule', async () => {
+    tableResults['match'] = { data: null, error: new Error('Failed to fetch') };
+    const { result } = renderHook(() => useEventMatches('2026nocache'), { wrapper: wrapper() });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
   it('useEventTeams resolves teams for the event', async () => {
     tableResults['event_team'] = {
       data: [{ team: { team_number: 254, nickname: 'Cheesy' } }],

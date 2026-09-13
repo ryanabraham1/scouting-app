@@ -96,7 +96,10 @@ export function classifySyncError(err: unknown): SyncErrorKind {
 }
 
 function isNetworkMessage(message: string): boolean {
-  return /failed to fetch|network|load failed|fetch/i.test(message);
+  // "AbortError: …" / "TimeoutError: …" is the client-side request timeout
+  // (`db.timeout` in lib/supabase.ts) firing on a stalled link — a transport
+  // gap with no server verdict, same as a thrown fetch TypeError.
+  return /failed to fetch|network|load failed|fetch|abort|timed? ?out/i.test(message);
 }
 
 /**
