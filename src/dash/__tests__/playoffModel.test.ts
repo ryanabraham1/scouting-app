@@ -5,6 +5,7 @@ import {
   resolveFeedTeams,
   sfSet,
   feedLabel,
+  projectNextPlayoffMatch,
 } from '@/dash/playoffModel';
 import type { MatchRow } from '@/dash/useEventData';
 
@@ -64,5 +65,55 @@ describe('playoffModel destinations (FRC 8-alliance double elim)', () => {
     expect(feedLabel({ kind: 'winner', set: 8 })).toBe('Winner of M8');
     expect(feedLabel({ kind: 'loser', set: 11 })).toBe('Loser of M11');
     expect(feedLabel({ kind: 'seed', n: 3 })).toBe('Alliance 3');
+  });
+});
+
+describe('projectNextPlayoffMatch (bracket projection before TBA publishes)', () => {
+  const us = { red1: 3256, red2: 1678, red3: 254 };
+  const won = (key: string, extra: Partial<MatchRow> = {}) =>
+    m({ match_key: key, comp_level: 'sf', ...us, blue1: 118, blue2: 973, blue3: 5940, actual_red_score: 90, actual_blue_score: 70, winner: 'red', ...extra });
+
+  it('projects the upper-bracket set after a win, opponent as the feeding winner', () => {
+    const p = projectNextPlayoffMatch([won('2026evt_sf1m1')], 3256);
+    expect(p).not.toBeNull();
+    expect(p!.set).toBe(7);
+    expect(p!.slot?.round).toBe('Upper Round 2');
+    expect(p!.ours).toEqual([3256, 1678, 254]);
+    expect(p!.opponent).toEqual({ kind: 'winner', set: 2 });
+    expect(p!.from).toEqual({ set: 1, outcome: 'win' });
+  });
+
+  it('projects the lower-bracket drop after a loss', () => {
+    const lost = m({ match_key: '2026evt_sf7m1', comp_level: 'sf', ...us, blue1: 118, blue2: 973, blue3: 5940, actual_red_score: 60, actual_blue_score: 90, winner: 'blue' });
+    const p = projectNextPlayoffMatch([lost], 3256);
+    expect(p!.set).toBe(9);
+    expect(p!.opponent).toEqual({ kind: 'winner', set: 6 });
+    expect(p!.from).toEqual({ set: 7, outcome: 'lose' });
+  });
+
+  it('projects the finals after winning the upper final (M11)', () => {
+    const p = projectNextPlayoffMatch([won('2026evt_sf11m1')], 3256);
+    expect(p!.isFinal).toBe(true);
+    expect(p!.set).toBeNull();
+    expect(p!.opponent).toEqual({ kind: 'winner', set: 13 });
+  });
+
+  it('returns null when the schedule already has our next (unplayed) row', () => {
+    const rows = [won('2026evt_sf1m1'), m({ match_key: '2026evt_sf7m1', comp_level: 'sf', ...us, blue1: 1, blue2: 2, blue3: 3 })];
+    expect(projectNextPlayoffMatch(rows, 3256)).toBeNull();
+  });
+
+  it('returns null once eliminated, before any playoff result, and for a tied set', () => {
+    const out = m({ match_key: '2026evt_sf9m1', comp_level: 'sf', ...us, blue1: 1, blue2: 2, blue3: 3, actual_red_score: 1, actual_blue_score: 9, winner: 'blue' });
+    expect(projectNextPlayoffMatch([out], 3256)).toBeNull();
+    expect(projectNextPlayoffMatch([m({ match_key: '2026evt_qm1' })], 3256)).toBeNull();
+    expect(projectNextPlayoffMatch([won('2026evt_sf1m1', { winner: null })], 3256)).toBeNull();
+  });
+
+  it('uses the latest decided set and picks up a published-but-empty destination row', () => {
+    const empty = m({ match_key: '2026evt_sf11m1', comp_level: 'sf', scheduled_time: '2026-03-14T20:00:00Z' });
+    const p = projectNextPlayoffMatch([won('2026evt_sf1m1'), won('2026evt_sf7m1'), empty], 3256);
+    expect(p!.set).toBe(11);
+    expect(p!.row?.scheduled_time).toBe('2026-03-14T20:00:00Z');
   });
 });

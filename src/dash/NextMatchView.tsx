@@ -23,6 +23,7 @@ import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
 import { formatMatchKeyRaw, formatMatchShort, isQualLevel } from '@/lib/formatMatch';
 import { redTeamsOf, blueTeamsOf, byPlay, shortTime } from '@/dash/matchOrder';
 import PlayoffPath from '@/dash/PlayoffPath';
+import { projectNextPlayoffMatch, resolveFeedTeams, sfSet, feedLabel } from '@/dash/playoffModel';
 import EventStream from '@/dash/EventStream';
 import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
@@ -259,14 +260,25 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // when the event is over with nothing left for us, the most recent match we
   // played; finally the event's last match. So a completed event shows the last
   // match instead of an empty state.
+  const nextTracked = useMemo(
+    () => (allMatches.length ? trackedNextMatch(allMatches, baseTeam, liveStatus) : null),
+    [allMatches, baseTeam, liveStatus],
+  );
+  // During playoffs TBA publishes each set only once FIRST schedules it, so
+  // between our last result and that publish the schedule has nothing for us.
+  // The double-elim bracket is fully determined, so PROJECT the next set (and
+  // its opponent feed) from playoffModel instead of showing our last match.
+  const projected = useMemo(
+    () => (!nextTracked && hasPlayoffs ? projectNextPlayoffMatch(allMatches, baseTeam) : null),
+    [nextTracked, hasPlayoffs, allMatches, baseTeam],
+  );
   const trackedMatch = useMemo(
     () =>
-      allMatches.length
-        ? trackedNextMatch(allMatches, baseTeam, liveStatus) ??
-          lastMatchForTeam(allMatches, baseTeam) ??
-          lastMatchOverall(allMatches)
-        : null,
-    [allMatches, baseTeam, liveStatus],
+      nextTracked ??
+      (projected || !allMatches.length
+        ? null
+        : (lastMatchForTeam(allMatches, baseTeam) ?? lastMatchOverall(allMatches))),
+    [nextTracked, projected, allMatches, baseTeam],
   );
 
   // Pit Display purely AUTO-TRACKS — the manual match selector (and the whole
@@ -286,7 +298,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
     );
   }
 
-  if (!match) {
+  if (!match && !projected) {
     return (
       <div data-testid="dash-next" className="text-foreground">
         <div
@@ -302,19 +314,24 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   }
 
   const status = nexusLive ? nexus.status : null;
-  const heroNexus = nexusMatchFor(status, match);
+  const heroNexus = match ? nexusMatchFor(status, match) : null;
   // For the compact hero number use the authoritative raw-key short label when we
   // have no Nexus label (set-correct for double-elim replays); else compress the
-  // Nexus label string.
+  // Nexus label string. A PROJECTED playoff match has no row: label it by set.
   const heroLabel = heroNexus?.label
     ? shortMatchLabel(heroNexus.label)
-    : formatMatchShort(match.match_key);
+    : match
+      ? formatMatchShort(match.match_key)
+      : projected?.isFinal
+        ? 'F1'
+        : `SF${projected?.set ?? ''}`;
   const heroTime =
-    shortTimeMs(heroNexus?.times.estimatedStartTime ?? null) ?? shortTime(match.scheduled_time);
+    shortTimeMs(heroNexus?.times.estimatedStartTime ?? null) ??
+    shortTime(match?.scheduled_time ?? projected?.row?.scheduled_time ?? null);
   // Status line under the hero match number. Prefer live Nexus ETAs ("Queues in
   // 7 min · on field in 12 min"); else the scheduled time; else, for a finished
   // match (completed event), the final score.
-  const heroPlayed = !isUnplayedMatch(match);
+  const heroPlayed = !!match && !isUnplayedMatch(match);
   const queueEta = untilLabel(heroNexus?.times.estimatedQueueTime, now);
   const onFieldEta = untilLabel(heroNexus?.times.estimatedOnFieldTime, now);
   // Live claims come from the STALENESS-GATED frontier (status.onField /
@@ -322,15 +339,28 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // match flagged "On field" indefinitely, so reading the string directly said
   // "On field now" for a match the tiles (correctly) no longer showed and the DB
   // already had a final score for. A posted score always wins over a Nexus claim.
-  const heroOnField = !heroPlayed && !!status?.onField && nexusMatchesRow(status.onField, match);
-  const heroQueuing = !heroPlayed && !!status?.queuing && nexusMatchesRow(status.queuing, match);
+  const heroOnField = !!match && !heroPlayed && !!status?.onField && nexusMatchesRow(status.onField, match);
+  const heroQueuing = !!match && !heroPlayed && !!status?.queuing && nexusMatchesRow(status.queuing, match);
   let heroStatus: string;
-  if (heroOnField) {
+  if (!match && projected) {
+    // Projected from the bracket: say the round and who we'd face ("Winner of
+    // M8" until that match is decided, then the real teams).
+    const bySet = new Map<number, MatchRow>();
+    for (const m of allMatches) {
+      if (m.comp_level.toLowerCase() !== 'sf') continue;
+      const set = sfSet(m);
+      if (set != null) bySet.set(set, m);
+    }
+    const oppTeams = resolveFeedTeams(projected.opponent, bySet);
+    const opp = oppTeams?.length ? oppTeams.join(' ') : feedLabel(projected.opponent);
+    const round = projected.isFinal ? 'Finals' : projected.slot?.round ?? 'Playoffs';
+    heroStatus = `Projected · ${round} · vs ${opp}${heroTime ? ` · ${heroTime}` : ''}`;
+  } else if (heroOnField) {
     heroStatus = 'On field now';
   } else if (heroQueuing) {
     heroStatus =
       onFieldEta && onFieldEta !== 'now' ? `Queuing now · on field ${onFieldEta}` : 'Queuing now';
-  } else if (heroPlayed) {
+  } else if (heroPlayed && match) {
     // Before the ETA branch: past ETAs read 'now', which would label a finished
     // match "Queues now · on field now".
     const r = match.actual_red_score;

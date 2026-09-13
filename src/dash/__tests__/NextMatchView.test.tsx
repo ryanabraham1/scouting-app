@@ -151,6 +151,28 @@ describe('NextMatchView (Pit Display)', () => {
     expect(getByTestId('dash-next-title').textContent).toMatch(/Q7/);
   });
 
+  it('projects OUR next playoff set in the hero when TBA has not published it', () => {
+    const sf = (key: string, over: Record<string, unknown>) => ({
+      match_key: key, event_key: '2026evt', comp_level: 'sf', match_number: 1, scheduled_time: null,
+      red1: null, red2: null, red3: null, blue1: null, blue2: null, blue3: null,
+      actual_red_score: null, actual_blue_score: null, winner: null, result_synced_at: null, ...over,
+    });
+    // We won M7; M11 isn't published. M8 is decided (148 alliance) → our M11 opponent.
+    useEventMatchesMock.mockReturnValue(
+      dataResult([
+        sf('2026evt_sf7m1', { red1: OUR_TEAM, red2: 111, red3: 222, blue1: 333, blue2: 444, blue3: 555, actual_red_score: 95, actual_blue_score: 80, winner: 'red' }),
+        sf('2026evt_sf8m1', { red1: 148, red2: 217, red3: 1114, blue1: 27, blue2: 469, blue3: 2046, actual_red_score: 90, actual_blue_score: 70, winner: 'red' }),
+      ]),
+    );
+    const { getByTestId } = render(<NextMatchView eventKey="2026evt" />);
+    // Not our last played match (SF7) — the projected upper final.
+    expect(getByTestId('dash-next-title').textContent).toMatch(/SF11/);
+    const hero = getByTestId('dash-next-title').parentElement?.textContent ?? '';
+    expect(hero).toMatch(/Projected/);
+    expect(hero).toMatch(/Upper Final/);
+    expect(hero).toMatch(/148 217 1114/);
+  });
+
   it('upcoming rail drops matches at/before the on-field match (removes already-played)', () => {
     const mk = (n: number) => ({
       match_key: `2026evt_qm${n}`,

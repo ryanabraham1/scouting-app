@@ -63,6 +63,37 @@ describe('PlayoffPath', () => {
     expect(win.textContent).not.toContain('Winner of M8');
   });
 
+  it('projects our next set from the bracket when TBA has not published it yet', () => {
+    // We won M7; M11 (upper final) isn't on the schedule. M8 is scheduled but undecided.
+    const matches = [
+      m({ match_key: '2026evt_sf7m1', comp_level: 'sf', red1: 3256, red2: 1678, red3: 254, blue1: 195, blue2: 694, blue3: 2910, actual_red_score: 95, actual_blue_score: 80, winner: 'red' }),
+      m({ match_key: '2026evt_sf8m1', comp_level: 'sf', red1: 148, red2: 217, red3: 1114, blue1: 27, blue2: 469, blue3: 2046 }),
+    ];
+    const { getByTestId, queryByTestId } = render(<PlayoffPath matches={matches} baseTeam={3256} />);
+    expect(queryByTestId('playoff-path-status')).toBeNull();
+    const current = getByTestId('playoff-path-current').textContent ?? '';
+    expect(current).toContain('M11');
+    expect(current).toContain('Upper Final');
+    expect(current).toMatch(/projected/i);
+    expect(current).toContain('3256');
+    expect(current).toContain('Winner of M8');
+    expect(current).toContain('148'); // both possible opponents listed
+    expect(current).toContain('2046');
+    expect(getByTestId('playoff-path-win').textContent).toContain('Finals');
+    expect(getByTestId('playoff-path-lose').textContent).toContain('M13');
+  });
+
+  it('projects the finals after winning the upper final', () => {
+    const matches = [
+      m({ match_key: '2026evt_sf11m1', comp_level: 'sf', red1: 3256, red2: 1678, red3: 254, blue1: 195, blue2: 694, blue3: 2910, actual_red_score: 95, actual_blue_score: 80, winner: 'red' }),
+    ];
+    const { getByTestId } = render(<PlayoffPath matches={matches} baseTeam={3256} />);
+    const current = getByTestId('playoff-path-current').textContent ?? '';
+    expect(current).toContain('Finals');
+    expect(current).toContain('Winner of M13');
+    expect(getByTestId('playoff-path-win').textContent).toContain('Champions');
+  });
+
   it('reports elimination when we lose with nowhere to drop', () => {
     const matches = [
       m({ match_key: '2026evt_sf9m1', comp_level: 'sf', red1: 3256, red2: 1678, red3: 254, blue1: 118, blue2: 973, blue3: 5940, actual_red_score: 60, actual_blue_score: 90, winner: 'blue' }),
