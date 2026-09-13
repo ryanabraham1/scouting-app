@@ -30,6 +30,7 @@ import {
   EyeOff,
   Gauge,
   Target,
+  CalendarX,
 } from 'lucide-react';
 import {
   listRoster,
@@ -44,7 +45,13 @@ import { StatTile } from '@/components/ui/StatTile';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
-import { useEventScouts, useEventReports } from '@/dash/useEventData';
+import {
+  useEventScouts,
+  useEventReports,
+  useEventAssignments,
+  useEventMatches,
+} from '@/dash/useEventData';
+import { isUnplayed } from '@/dash/matchOrder';
 import { useEventPits } from '@/dash/useTeamPit';
 import ReportDetail from '@/dash/ReportDetail';
 import type { MsrRow, MatchScoutCoverage } from '@/dash/types';
@@ -52,8 +59,11 @@ import {
   aggregateScouterLoad,
   aggregateScouterAccuracy,
   mergeAccuracy,
+  aggregateMissedAssignments,
   type EventScouterStats,
   type ScouterAccuracyAgg,
+  type ScouterAssignmentAgg,
+  type MissedAssignment,
 } from '@/dash/aggregate';
 import ScoutHeartbeat from '@/dash/ScoutHeartbeat';
 import { useEventScoutCoverage, emptyMatchCoverage } from '@/dash/useMatchScoutCoverage';
@@ -97,6 +107,8 @@ interface UnifiedScouter {
   pitCount: number;
   /** team numbers this scouter pit-scouted (ascending), for the profile. */
   pitTeams: number[];
+  /** published match assignments vs filed reports (null: no assignments). */
+  assignments: ScouterAssignmentAgg | null;
 }
 
 /** Render an agreement rate (0..1) as a whole-percent string, or — when null. */
@@ -202,14 +214,139 @@ function ScouterAccuracy(props: { agg: ScouterAccuracyAgg | null }): JSX.Element
   );
 }
 
+/** Short label for a missed seat: "Q12 · Team 254" (team omitted when unknown). */
+function missedLabel(m: MissedAssignment): string {
+  const match = formatMatchKeyRaw(m.matchKey);
+  return m.targetTeamNumber != null ? `${match} · Team ${m.targetTeamNumber}` : match;
+}
+
+/**
+ * Event-wide "who missed what" card: one row per scouter with at least one
+ * missed seat, worst first, each seat as a chip. Tapping a name opens the
+ * profile. Hidden entirely when nobody has missed anything.
+ */
+function MissedAssignmentsCard(props: {
+  scouters: UnifiedScouter[];
+  onOpen: (key: string) => void;
+}): JSX.Element | null {
+  const rows = props.scouters
+    .filter((u) => (u.assignments?.missed.length ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.assignments?.missed.length ?? 0) - (a.assignments?.missed.length ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
+  if (rows.length === 0) return null;
+  const total = rows.reduce((n, u) => n + (u.assignments?.missed.length ?? 0), 0);
+  return (
+    <Card data-testid="scouter-missed-card" className="border-destructive/40 bg-card">
+      <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+        <CalendarX className="size-5 text-destructive" />
+        <CardTitle className="text-foreground">
+          Missed assignments{' '}
+          <span data-testid="scouter-missed-total" className="tabular-nums text-destructive">
+            ({total})
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="flex flex-col gap-2">
+          {rows.map((u) => {
+            const missed = u.assignments?.missed ?? [];
+            return (
+              <li
+                key={u.key}
+                data-testid={`scouter-missed-row-${u.name}`}
+                className="flex flex-col gap-1 rounded-xl border border-border bg-muted/30 px-3 py-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => props.onOpen(u.key)}
+                  className="flex items-center justify-between gap-2 text-left text-sm font-semibold text-foreground"
+                >
+                  <span className="truncate">{u.name}</span>
+                  <span className="shrink-0 tabular-nums text-destructive">
+                    {missed.length} of {u.assignments?.assigned ?? 0}
+                  </span>
+                </button>
+                <div className="flex flex-wrap gap-1.5">
+                  {missed.map((m) => (
+                    <span
+                      key={`${m.matchKey}-${m.station}-${m.allianceColor}`}
+                      title={
+                        m.scoutedInstead.length
+                          ? `Scouted team ${m.scoutedInstead.join(', ')} instead`
+                          : 'No report filed'
+                      }
+                      className="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-xs font-medium tabular-nums text-destructive"
+                    >
+                      {missedLabel(m)}
+                    </span>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Profile section: assignment tally + the missed seats in play order. */
+function ScouterAssignments(props: { agg: ScouterAssignmentAgg | null }): JSX.Element {
+  const { agg } = props;
+  return (
+    <div
+      data-testid="scouter-assignments"
+      className="flex flex-col gap-2 rounded-xl border border-border bg-card/60 px-3 py-2 text-sm"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <CalendarX className={cn('size-4', agg?.missed.length ? 'text-destructive' : 'text-success')} />
+        <span className="font-semibold uppercase tracking-wide text-muted-foreground">
+          Assignments:
+        </span>
+        {agg == null ? (
+          <span className="text-muted-foreground">none published</span>
+        ) : (
+          <span className="tabular-nums text-foreground">
+            {agg.completed} done · {agg.pending} upcoming ·{' '}
+            <span className={agg.missed.length ? 'font-semibold text-destructive' : 'text-success'}>
+              {agg.missed.length} missed
+            </span>
+          </span>
+        )}
+      </div>
+      {agg && agg.missed.length > 0 ? (
+        <ul data-testid="scouter-missed-list" className="flex flex-col gap-1">
+          {agg.missed.map((m) => (
+            <li
+              key={`${m.matchKey}-${m.station}-${m.allianceColor}`}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-destructive/10 px-2 py-1 tabular-nums"
+            >
+              <span className="font-semibold text-destructive">{missedLabel(m)}</span>
+              <span className="text-xs text-muted-foreground">
+                {m.scoutedInstead.length
+                  ? `scouted ${m.scoutedInstead.join(', ')} instead`
+                  : 'no report filed'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /** Profile drill-down for a selected scouter's reports (event-scoped). */
 function ScouterProfile(props: {
   reports: MsrRow[];
   accuracy: ScouterAccuracyAgg | null;
   pitTeams: number[];
+  assignments: ScouterAssignmentAgg | null;
   onOpenReport: (r: MsrRow) => void;
 }): JSX.Element {
-  const { reports, accuracy, pitTeams, onOpenReport } = props;
+  const { reports, accuracy, pitTeams, assignments, onOpenReport } = props;
   const n = reports.length;
 
   const teams = new Set<number>();
@@ -271,6 +408,8 @@ function ScouterProfile(props: {
           <span className="text-muted-foreground">none</span>
         )}
       </div>
+
+      <ScouterAssignments agg={assignments} />
 
       <div
         data-testid="scouter-flags"
@@ -373,8 +512,12 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
   const scoutsQuery = useEventScouts(eventKey);
   const reportsQuery = useEventReports(eventKey);
   const pitsQuery = useEventPits(eventKey); // reused from TeamView/Alliance (shared cache)
+  const assignmentsQuery = useEventAssignments(eventKey); // shared with the assignment board
+  const matchesQuery = useEventMatches(eventKey); // shared cache; posted results mark matches done
   const scouts = scoutsQuery.data ?? [];
   const reports = reportsQuery.data ?? [];
+  const assignmentRows = assignmentsQuery.data ?? [];
+  const matches = matchesQuery.data ?? [];
   const eventLoading = !!eventKey && (scoutsQuery.isLoading || reportsQuery.isLoading);
 
   // Pit reports per scout_id: the team numbers each scouter pit-scouted (one pit
@@ -431,6 +574,18 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
     [eventKey, reports],
   );
 
+  // Assignments vs reports per merged identity. A person may own several scout
+  // rows (one per device), so map every scout_id onto lower(name) first; a
+  // match counts as done once TBA posted a score or anyone filed a report.
+  const missedByKey = useMemo<Map<string, ScouterAssignmentAgg>>(() => {
+    if (!eventKey || assignmentRows.length === 0) return new Map();
+    const idToKey = new Map<string, string>();
+    for (const s of scouts) idToKey.set(s.id, (s.display_name ?? '(unnamed)').trim().toLowerCase());
+    const played = new Set<string>();
+    for (const m of matches) if (!isUnplayed(m)) played.add(m.match_key);
+    return aggregateMissedAssignments(assignmentRows, reports, idToKey, played);
+  }, [eventKey, assignmentRows, reports, scouts, matches]);
+
   // Merge roster + event scouts into one list keyed by lower(name).
   const unified = useMemo<UnifiedScouter[]>(() => {
     const by = new Map<string, UnifiedScouter>();
@@ -447,6 +602,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
           reportCount: 0,
           pitCount: 0,
           pitTeams: [],
+          assignments: null,
         };
         by.set(key, entry);
       }
@@ -470,9 +626,10 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
     for (const e of by.values()) {
       e.pitTeams = Array.from(new Set(e.pitTeams)).sort((a, b) => a - b);
       e.pitCount = e.pitTeams.length;
+      e.assignments = missedByKey.get(e.key) ?? null;
     }
     return Array.from(by.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [roster, scouts, countByScout, pitTeamsByScout]);
+  }, [roster, scouts, countByScout, pitTeamsByScout, missedByKey]);
 
   const selectedEntry = unified.find((u) => u.key === selected) ?? null;
   const selectedReports = useMemo(() => {
@@ -566,6 +723,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
           heroLabel={heartbeatAnchor ? formatMatchKeyRaw(heartbeatAnchor.matchKey) : undefined}
         />
       ) : null}
+      {eventKey ? <MissedAssignmentsCard scouters={unified} onOpen={setSelected} /> : null}
       <Card data-testid="roster-tab" className="border-border bg-card">
         <CardHeader className="flex flex-row items-center gap-2 space-y-0">
           <Users className="size-5 text-brand" />
@@ -673,6 +831,15 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                                     {u.pitCount} pit
                                   </span>
                                 ) : null}
+                                {u.assignments && u.assignments.missed.length > 0 ? (
+                                  <span
+                                    data-testid={`scouter-missed-count-${u.name}`}
+                                    className="rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive"
+                                    title={`Missed ${u.assignments.missed.length} of ${u.assignments.assigned} assignments`}
+                                  >
+                                    {u.assignments.missed.length} missed
+                                  </span>
+                                ) : null}
                               </span>
                             ) : null}
                           </button>
@@ -767,7 +934,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                           data-testid={`scouter-details-${u.name}`}
                           className="p-2"
                         >
-                          {hasReports || u.reportCount > 0 ? (
+                          {hasReports || u.reportCount > 0 || u.assignments ? (
                             <ScouterProfile
                               reports={selectedReports}
                               accuracy={mergeAccuracy(
@@ -776,6 +943,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                                   .filter((a): a is ScouterAccuracyAgg => a != null),
                               )}
                               pitTeams={u.pitTeams}
+                              assignments={u.assignments}
                               onOpenReport={setOpenReport}
                             />
                           ) : (

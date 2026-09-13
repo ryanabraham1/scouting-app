@@ -22,9 +22,13 @@ vi.mock('@/roster/rosterClient', () => ({
 
 const useEventScoutsMock = vi.fn();
 const useEventReportsMock = vi.fn();
+const useEventAssignmentsMock = vi.fn();
+const useEventMatchesMock = vi.fn();
 vi.mock('@/dash/useEventData', () => ({
   useEventScouts: (eventKey: string | null) => useEventScoutsMock(eventKey),
   useEventReports: (eventKey: string | null) => useEventReportsMock(eventKey),
+  useEventAssignments: (eventKey: string | null) => useEventAssignmentsMock(eventKey),
+  useEventMatches: (eventKey: string | null) => useEventMatchesMock(eventKey),
 }));
 
 const useEventPitsMock = vi.fn();
@@ -102,9 +106,57 @@ beforeEach(() => {
   useEventScoutsMock.mockReset().mockReturnValue(querySuccess(scouts));
   useEventReportsMock.mockReset().mockReturnValue(querySuccess(reports));
   useEventPitsMock.mockReset().mockReturnValue(querySuccess(new Map()));
+  useEventAssignmentsMock.mockReset().mockReturnValue(querySuccess([]));
+  useEventMatchesMock.mockReset().mockReturnValue(querySuccess([]));
 });
 
 describe('ScoutersTab (unified)', () => {
+  it('flags missed assignments per scouter and lists them in the profile', async () => {
+    const seat = (match_key: string, scout_id: string, target_team_number: number) => ({
+      event_key: '2026demo',
+      match_key,
+      scout_id,
+      alliance_color: 'red',
+      station: 1,
+      target_team_number,
+    });
+    useEventAssignmentsMock.mockReturnValue(
+      querySuccess([
+        seat('2026demo_qm1', 's1', 254), // filed
+        seat('2026demo_qm2', 's1', 1678), // filed
+        seat('2026demo_qm1', 's2', 973), // Bob missed (match done: Alice reported it)
+        seat('2026demo_qm3', 's2', 973), // played per TBA, no report -> missed
+        seat('2026demo_qm9', 's2', 973), // unplayed -> pending, not missed
+      ]),
+    );
+    useEventMatchesMock.mockReturnValue(
+      querySuccess([
+        { match_key: '2026demo_qm3', comp_level: 'qm', actual_red_score: 10, actual_blue_score: 5 },
+        { match_key: '2026demo_qm9', comp_level: 'qm', actual_red_score: null, actual_blue_score: null },
+      ]),
+    );
+    renderTab();
+    const card = await screen.findByTestId('scouter-missed-card');
+    expect(within(card).getByTestId('scouter-missed-total').textContent).toBe('(2)');
+    expect(within(card).getByTestId('scouter-missed-row-Bob').textContent).toContain('2 of 3');
+    expect(within(card).queryByTestId('scouter-missed-row-Alice')).toBeNull();
+    expect(screen.getByTestId('scouter-missed-count-Bob').textContent).toBe('2 missed');
+    expect(screen.queryByTestId('scouter-missed-count-Alice')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('scouter-open-Bob'));
+    const list = await screen.findByTestId('scouter-missed-list');
+    expect(list.textContent).toContain('Qual 1 · Team 973');
+    expect(list.textContent).toContain('Qual 3 · Team 973');
+    expect(list.textContent).not.toContain('Qual 9');
+    expect(screen.getByTestId('scouter-assignments').textContent).toContain('1 upcoming');
+  });
+
+  it('hides the missed card when nothing has been missed', async () => {
+    renderTab();
+    await screen.findByText('Alice');
+    expect(screen.queryByTestId('scouter-missed-card')).toBeNull();
+  });
+
   it('merges roster names into a single list', async () => {
     renderTab();
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
