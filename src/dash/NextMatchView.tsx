@@ -315,22 +315,30 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   const heroPlayed = !isUnplayedMatch(match);
   const queueEta = untilLabel(heroNexus?.times.estimatedQueueTime, now);
   const onFieldEta = untilLabel(heroNexus?.times.estimatedOnFieldTime, now);
-  const nexState = heroNexus?.status?.toLowerCase();
+  // Live claims come from the STALENESS-GATED frontier (status.onField /
+  // status.queuing), not the raw per-match status string: Nexus leaves a finished
+  // match flagged "On field" indefinitely, so reading the string directly said
+  // "On field now" for a match the tiles (correctly) no longer showed and the DB
+  // already had a final score for. A posted score always wins over a Nexus claim.
+  const heroOnField = !heroPlayed && !!status?.onField && nexusMatchesRow(status.onField, match);
+  const heroQueuing = !heroPlayed && !!status?.queuing && nexusMatchesRow(status.queuing, match);
   let heroStatus: string;
-  if (nexState === 'on field') {
+  if (heroOnField) {
     heroStatus = 'On field now';
-  } else if (nexState === 'now queuing' || nexState === 'on deck') {
+  } else if (heroQueuing) {
     heroStatus =
       onFieldEta && onFieldEta !== 'now' ? `Queuing now · on field ${onFieldEta}` : 'Queuing now';
+  } else if (heroPlayed) {
+    // Before the ETA branch: past ETAs read 'now', which would label a finished
+    // match "Queues now · on field now".
+    const r = match.actual_red_score;
+    const b = match.actual_blue_score;
+    heroStatus = r != null && b != null ? `Final · ${r}–${b}` : 'Final';
   } else if (queueEta || onFieldEta) {
     const parts: string[] = [];
     if (queueEta) parts.push(`Queues ${queueEta}`);
     if (onFieldEta) parts.push(`on field ${onFieldEta}`);
     heroStatus = parts.join(' · ');
-  } else if (heroPlayed) {
-    const r = match.actual_red_score;
-    const b = match.actual_blue_score;
-    heroStatus = r != null && b != null ? `Final · ${r}–${b}` : 'Final';
   } else {
     heroStatus = heroTime ? `Scheduled ${heroTime}` : 'Upcoming';
   }
