@@ -25,6 +25,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -37,6 +38,7 @@ import type { RoutineOverlay } from '@/components/FieldDiagram';
 import {
   FIELD_W,
   FIELD_H,
+  FIELD_ASPECT,
   ROBOT_COLORS,
   INITIAL_WHITEBOARD,
   whiteboardReducer,
@@ -106,8 +108,28 @@ const ROBOT_PX = 0.095 * FIELD_H;
 
 const SAVE_DEBOUNCE_MS = 900;
 
+/** Drop live samples closer than this (fraction of field height) to the last
+ *  kept point — sensor jitter while the pen rests otherwise reads as fuzz. */
+const MIN_POINT_GAP = 0.0015;
+
+/** A tapped Clear stays armed this long waiting for the confirming second tap. */
+const CLEAR_CONFIRM_MS = 2500;
+
 function clamp01(n: number): number {
   return n < 0 ? 0 : n > 1 ? 1 : n;
+}
+
+/** Every sample the browser coalesced into one move event (pen/touch usually
+ *  report 2–4× the frame rate); falls back to the event itself. */
+function samplesOf(e: React.PointerEvent): PointerEvent[] {
+  const native = e.nativeEvent;
+  const coalesced =
+    typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
+  return coalesced.length > 0 ? coalesced : [native];
+}
+
+function pressureOf(e: { pointerType: string; pressure: number }): number {
+  return e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5;
 }
 
 export default function FieldWhiteboard({
@@ -124,6 +146,9 @@ export default function FieldWhiteboard({
   const [color, setColor] = useState(COLORS[0].value);
   const [size, setSize] = useState(SIZES[1].value);
   const [saveState, setSaveState] = useState<'idle' | 'pending' | 'saved'>('idle');
+  // Clear is a two-tap action on a tablet (the button sits next to Undo/Redo
+  // and a stray fat-finger would wipe the whole board): first tap arms it.
+  const [clearArmed, setClearArmed] = useState(false);
   // Field image failed to load (offline before it was ever cached): fall back
   // to an aspect-correct blank surface so the board stays fully drawable, and
   // retry automatically when the network returns.
@@ -143,6 +168,11 @@ export default function FieldWhiteboard({
   // the prefix it has already rendered.
   const renderedLivePointsRef = useRef(0);
   const activePointerRef = useRef<number | null>(null);
+  const activePointerTypeRef = useRef<string>('mouse');
+  // Last eraser position (normalized) — the drag hit-tests the SEGMENT since
+  // the previous sample so a fast swipe can't skip over thin strokes, and the
+  // live canvas draws the eraser ring here.
+  const eraserPosRef = useRef<[number, number] | null>(null);
   const rafRef = useRef<number | null>(null);
   // Ids collected by the current eraser drag (committed as ONE undoable op).
   const eraseDragRef = useRef<Set<string>>(new Set());
@@ -232,6 +262,12 @@ export default function FieldWhiteboard({
     return () => document.removeEventListener('visibilitychange', flush);
   }, [flushSave]);
 
+  useEffect(() => {
+    if (!clearArmed) return;
+    const t = setTimeout(() => setClearArmed(false), CLEAR_CONFIRM_MS);
+    return () => clearTimeout(t);
+  }, [clearArmed]);
+
   const toNormalized = useCallback((clientX: number, clientY: number): [number, number] => {
     const rect = containerRef.current!.getBoundingClientRect();
     const x = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
@@ -263,6 +299,23 @@ export default function FieldWhiteboard({
     if (!ctx) return;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
 
+    // Eraser mode: the overlay is just a cursor ring at the last touch.
+    if (toolRef.current.tool === 'erase') {
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      renderedLivePointsRef.current = 0;
+      const pos = eraserPosRef.current;
+      if (pos) {
+        ctx.beginPath();
+        ctx.arc(pos[0] * rect.width, pos[1] * rect.height, ERASE_RADIUS * rect.height, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.stroke();
+      }
+      return;
+    }
+
     const points = livePointsRef.current;
     if (!points || points.length === 0) {
       ctx.clearRect(0, 0, rect.width, rect.height);
@@ -274,31 +327,44 @@ export default function FieldWhiteboard({
     let start = renderedLivePointsRef.current;
     if (start >= points.length) return;
 
-    const baseWidth = Math.max(1, toolRef.current.size * rect.height);
+    const W = rect.width;
+    const H = rect.height;
+    const baseWidth = Math.max(1, toolRef.current.size * H);
     ctx.strokeStyle = toolRef.current.color;
     ctx.fillStyle = toolRef.current.color;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
     if (start === 0) {
-      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.clearRect(0, 0, W, H);
       const [x, y, pressure] = points[0];
       const pointWidth = baseWidth * (0.65 + 0.7 * pressure);
       ctx.beginPath();
-      ctx.arc(x * rect.width, y * rect.height, pointWidth / 2, 0, Math.PI * 2);
+      ctx.arc(x * W, y * H, pointWidth / 2, 0, Math.PI * 2);
       ctx.fill();
       start = 1;
     }
 
-    // Paint only the new tail. Segment-level widths preserve Pencil pressure;
-    // mouse/touch points all use the stable 0.5 fallback.
+    // Paint only the new tail, as quadratic curves through segment midpoints
+    // (the classic "smooth pen" trick): each new point extends the ink from
+    // mid(p[i-2],p[i-1]) to mid(p[i-1],p[i]) with p[i-1] as the control, so
+    // corners between raw samples never show as kinks. Segment-level widths
+    // preserve Pencil pressure; mouse/touch points all use the 0.5 fallback.
     for (let i = start; i < points.length; i += 1) {
-      const previous = points[i - 1];
-      const current = points[i];
-      ctx.lineWidth = baseWidth * (0.65 + 0.35 * (previous[2] + current[2]));
+      const prev = points[i - 1];
+      const cur = points[i];
+      const mx = ((prev[0] + cur[0]) / 2) * W;
+      const my = ((prev[1] + cur[1]) / 2) * H;
+      ctx.lineWidth = baseWidth * (0.65 + 0.35 * (prev[2] + cur[2]));
       ctx.beginPath();
-      ctx.moveTo(previous[0] * rect.width, previous[1] * rect.height);
-      ctx.lineTo(current[0] * rect.width, current[1] * rect.height);
+      if (i === 1) {
+        ctx.moveTo(prev[0] * W, prev[1] * H);
+        ctx.lineTo(mx, my);
+      } else {
+        const before = points[i - 2];
+        ctx.moveTo(((before[0] + prev[0]) / 2) * W, ((before[1] + prev[1]) / 2) * H);
+        ctx.quadraticCurveTo(prev[0] * W, prev[1] * H, mx, my);
+      }
       ctx.stroke();
     }
     renderedLivePointsRef.current = points.length;
@@ -320,24 +386,42 @@ export default function FieldWhiteboard({
     if (rafRef.current == null) rafRef.current = requestAnimationFrame(renderLive);
   }, [renderLive]);
 
-  const eraseAt = useCallback((x: number, y: number) => {
-    const hits = erasedIdsAt(stateRef.current.strokes, x, y, ERASE_RADIUS);
-    let added = false;
-    for (const id of hits) {
-      if (!eraseDragRef.current.has(id)) {
-        eraseDragRef.current.add(id);
-        added = true;
+  const eraseAt = useCallback(
+    (x: number, y: number) => {
+      // Sweep from the previous eraser position so a quick flick across a
+      // hairline stroke still catches it (samples alone can straddle it).
+      const from = eraserPosRef.current;
+      const samples: [number, number][] = [[x, y]];
+      if (from) {
+        const dx = (x - from[0]) * FIELD_ASPECT;
+        const dy = y - from[1];
+        const steps = Math.min(24, Math.ceil(Math.hypot(dx, dy) / ERASE_RADIUS));
+        for (let i = 1; i < steps; i += 1) {
+          const t = i / steps;
+          samples.push([from[0] + (x - from[0]) * t, from[1] + (y - from[1]) * t]);
+        }
       }
-    }
-    if (added) setPendingErase(new Set(eraseDragRef.current));
-  }, []);
+      eraserPosRef.current = [x, y];
+      let added = false;
+      for (const [sx, sy] of samples) {
+        for (const id of erasedIdsAt(stateRef.current.strokes, sx, sy, ERASE_RADIUS)) {
+          if (!eraseDragRef.current.has(id)) {
+            eraseDragRef.current.add(id);
+            added = true;
+          }
+        }
+      }
+      if (added) setPendingErase(new Set(eraseDragRef.current));
+      scheduleLive(); // eraser ring
+    },
+    [scheduleLive],
+  );
 
   const endStroke = useCallback(() => {
     const { tool: t } = toolRef.current;
     if (t === 'pen') {
       const pts = livePointsRef.current;
       livePointsRef.current = null;
-      scheduleLive(); // clears the live path
       if (pts && pts.length > 0) {
         const stroke: Stroke = {
           id: newStrokeId(),
@@ -346,52 +430,101 @@ export default function FieldWhiteboard({
           size: toolRef.current.size,
           points: pts,
         };
+        // The live canvas is cleared by the layout effect AFTER the committed
+        // SVG path is in the DOM (see below) so the ink never blinks out for
+        // a frame between the two layers.
         commit({ type: 'add', stroke });
+      } else {
+        scheduleLive(); // nothing committed — just clear the live path
       }
     } else {
       const ids = [...eraseDragRef.current];
       eraseDragRef.current = new Set();
+      eraserPosRef.current = null;
       setPendingErase(new Set());
+      scheduleLive(); // clears the eraser ring
       if (ids.length > 0) commit({ type: 'erase', ids });
     }
     activePointerRef.current = null;
     onDrawingActiveChange?.(false);
   }, [commit, scheduleLive, onDrawingActiveChange]);
 
-  const onPointerDown = useCallback(
+  // Live → committed handoff: once React has painted the new SVG stroke, drop
+  // the canvas copy in the same frame (no gap, no double-draw flash).
+  useLayoutEffect(() => {
+    if (livePointsRef.current == null && renderedLivePointsRef.current > 0) {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      renderLive();
+    }
+  }, [state.strokes, renderLive]);
+
+  const beginStroke = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      // Single-pointer policy: a second touch (palm, other hand) is ignored so
-      // it can't fork the stroke. A robot drag also claims the surface.
-      if (activePointerRef.current != null || robotDragRef.current != null) return;
       activePointerRef.current = e.pointerId;
+      activePointerTypeRef.current = e.pointerType;
       e.currentTarget.setPointerCapture(e.pointerId);
       onDrawingActiveChange?.(true);
       const [x, y] = toNormalized(e.clientX, e.clientY);
       if (toolRef.current.tool === 'pen') {
-        const pressure = e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5;
         // A pointer-up clear and the next pointer-down can land before the same
         // animation frame. Explicitly start a fresh incremental cursor so a
         // rapid second stroke never inherits the first stroke's point count.
         renderedLivePointsRef.current = 0;
-        livePointsRef.current = [[x, y, pressure]];
+        livePointsRef.current = [[x, y, pressureOf(e)]];
         scheduleLive();
       } else {
+        eraserPosRef.current = null;
         eraseAt(x, y);
       }
     },
     [toNormalized, scheduleLive, eraseAt, onDrawingActiveChange],
   );
 
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (robotDragRef.current != null) return; // a robot drag claims the surface
+      if (activePointerRef.current != null) {
+        // Single-pointer policy: a second touch (palm, other hand) is ignored
+        // so it can't fork the stroke — EXCEPT a pen arriving while a finger/
+        // palm holds the surface: the Pencil is what the user meant, so the
+        // touch stroke is discarded and the pen takes over (palm rejection).
+        if (e.pointerType !== 'pen' || activePointerTypeRef.current === 'pen') return;
+        livePointsRef.current = null;
+        eraseDragRef.current = new Set();
+        eraserPosRef.current = null;
+        setPendingErase(new Set());
+        activePointerRef.current = null;
+      }
+      beginStroke(e);
+    },
+    [beginStroke],
+  );
+
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (activePointerRef.current !== e.pointerId) return;
-      const [x, y] = toNormalized(e.clientX, e.clientY);
       if (toolRef.current.tool === 'pen') {
-        if (!livePointsRef.current) return;
-        const pressure = e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5;
-        livePointsRef.current.push([x, y, pressure]);
-        scheduleLive();
+        const pts = livePointsRef.current;
+        if (!pts) return;
+        // Coalesced samples give the curve 2–4× the points of the frame rate;
+        // the min-gap filter throws away the sub-pixel jitter among them.
+        let last = pts[pts.length - 1];
+        let pushed = false;
+        for (const sample of samplesOf(e)) {
+          const [x, y] = toNormalized(sample.clientX, sample.clientY);
+          const dx = (x - last[0]) * FIELD_ASPECT;
+          const dy = y - last[1];
+          if (dx * dx + dy * dy < MIN_POINT_GAP * MIN_POINT_GAP) continue;
+          last = [x, y, pressureOf(sample)];
+          pts.push(last);
+          pushed = true;
+        }
+        if (pushed) scheduleLive();
       } else {
+        const [x, y] = toNormalized(e.clientX, e.clientY);
         eraseAt(x, y);
       }
     },
@@ -478,6 +611,36 @@ export default function FieldWhiteboard({
     [],
   );
 
+  // Keyboard shortcuts for laptop use: P/E tools, [ ] size, Cmd/Ctrl+Z undo,
+  // Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y redo. Ignored while typing in a field.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+        return;
+      }
+      const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === 'z') {
+        e.preventDefault();
+        commit({ type: e.shiftKey ? 'redo' : 'undo' });
+      } else if (mod && k === 'y') {
+        e.preventDefault();
+        commit({ type: 'redo' });
+      } else if (!mod && !e.altKey) {
+        if (k === 'p') setTool('pen');
+        else if (k === 'e') setTool('erase');
+        else if (k === '[' || k === ']') {
+          const idx = SIZES.findIndex((sz) => sz.value === toolRef.current.size);
+          const next = SIZES[Math.max(0, Math.min(SIZES.length - 1, idx + (k === ']' ? 1 : -1)))];
+          setSize(next.value);
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [commit]);
+
   // Committed ink (memoized path tessellation — only recomputes on doc change).
   const committedPaths = useMemo(
     () =>
@@ -509,6 +672,8 @@ export default function FieldWhiteboard({
             type="button"
             data-testid="wb-tool-pen"
             aria-pressed={tool === 'pen'}
+            title="Pen (P)"
+            aria-label="Pen"
             className={toolBtn(tool === 'pen')}
             onClick={() => setTool('pen')}
           >
@@ -518,6 +683,8 @@ export default function FieldWhiteboard({
             type="button"
             data-testid="wb-tool-erase"
             aria-pressed={tool === 'erase'}
+            title="Eraser (E)"
+            aria-label="Eraser"
             className={toolBtn(tool === 'erase')}
             onClick={() => setTool('erase')}
           >
@@ -569,6 +736,7 @@ export default function FieldWhiteboard({
               type="button"
               data-testid={`wb-size-${s.label.toLowerCase()}`}
               aria-label={s.label}
+              title={`${s.label} ([ / ] to change)`}
               aria-pressed={size === s.value}
               onClick={() => setSize(s.value)}
               className={toolBtn(size === s.value)}
@@ -587,6 +755,7 @@ export default function FieldWhiteboard({
             type="button"
             data-testid="wb-undo"
             aria-label="Undo"
+            title="Undo (Cmd/Ctrl+Z)"
             disabled={state.undoStack.length === 0}
             className={cn(toolBtn(false), 'disabled:opacity-40')}
             onClick={() => commit({ type: 'undo' })}
@@ -597,6 +766,7 @@ export default function FieldWhiteboard({
             type="button"
             data-testid="wb-redo"
             aria-label="Redo"
+            title="Redo (Cmd/Ctrl+Shift+Z)"
             disabled={state.redoStack.length === 0}
             className={cn(toolBtn(false), 'disabled:opacity-40')}
             onClick={() => commit({ type: 'redo' })}
@@ -606,12 +776,25 @@ export default function FieldWhiteboard({
           <button
             type="button"
             data-testid="wb-clear"
-            aria-label="Clear drawing"
+            aria-label={clearArmed ? 'Confirm clear drawing' : 'Clear drawing'}
+            title={clearArmed ? 'Tap again to clear' : 'Clear drawing (tap twice)'}
             disabled={state.strokes.length === 0}
-            className={cn(toolBtn(false), 'disabled:opacity-40')}
-            onClick={() => commit({ type: 'clear' })}
+            className={cn(
+              toolBtn(false),
+              'gap-1.5 disabled:opacity-40',
+              clearArmed && 'border-destructive bg-destructive/20 text-destructive hover:bg-destructive/30',
+            )}
+            onClick={() => {
+              if (clearArmed) {
+                setClearArmed(false);
+                commit({ type: 'clear' });
+              } else {
+                setClearArmed(true);
+              }
+            }}
           >
             <Trash2 className="size-4" />
+            {clearArmed ? <span className="text-xs">Clear?</span> : null}
           </button>
         </div>
       </div>
@@ -624,6 +807,10 @@ export default function FieldWhiteboard({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
+        onLostPointerCapture={onPointerEnd}
+        // iPadOS long-press callout / desktop right-click would interrupt a
+        // stroke that pauses mid-air.
+        onContextMenu={(e) => e.preventDefault()}
         className={cn(
           'relative w-full overflow-hidden rounded-lg ring-1 ring-border',
           tool === 'erase' ? 'cursor-cell' : 'cursor-crosshair',

@@ -62,7 +62,8 @@ describe('FieldWhiteboard save boundaries', () => {
       />,
     );
     await waitFor(() => expect(view.getByTestId('wb-clear')).not.toBeDisabled());
-    fireEvent.click(view.getByTestId('wb-clear'));
+    fireEvent.click(view.getByTestId('wb-clear')); // arm
+    fireEvent.click(view.getByTestId('wb-clear')); // confirm
     view.unmount();
 
     await waitFor(() => expect(saveStrategyCanvasMock).toHaveBeenCalledTimes(1));
@@ -86,7 +87,8 @@ describe('FieldWhiteboard save boundaries', () => {
       />,
     );
     await waitFor(() => expect(view.getByTestId('wb-clear')).not.toBeDisabled());
-    fireEvent.click(view.getByTestId('wb-clear'));
+    fireEvent.click(view.getByTestId('wb-clear')); // arm
+    fireEvent.click(view.getByTestId('wb-clear')); // confirm
     view.rerender(
       <FieldWhiteboard
         eventKey="event-a"
@@ -107,6 +109,26 @@ describe('FieldWhiteboard save boundaries', () => {
   });
 });
 
+describe('FieldWhiteboard clear confirmation', () => {
+  it('arms on the first tap and only clears on the second', async () => {
+    const view = render(
+      <FieldWhiteboard
+        eventKey="event-a"
+        matchKey="event-a_qm1"
+        phase="auto"
+        remoteDoc={REMOTE_DOC}
+      />,
+    );
+    await waitFor(() => expect(view.getByTestId('wb-clear')).not.toBeDisabled());
+    fireEvent.click(view.getByTestId('wb-clear'));
+    expect(view.getByTestId('wb-clear')).toHaveTextContent('Clear?');
+    expect(view.queryByTestId('wb-stroke-remote-stroke')).not.toBeNull();
+    fireEvent.click(view.getByTestId('wb-clear'));
+    expect(view.queryByTestId('wb-stroke-remote-stroke')).toBeNull();
+    expect(view.getByTestId('wb-clear')).toBeDisabled();
+  });
+});
+
 describe('FieldWhiteboard live ink', () => {
   it('paints only newly received points on each animation frame', () => {
     const context = {
@@ -117,6 +139,7 @@ describe('FieldWhiteboard live ink', () => {
       fill: vi.fn(),
       moveTo: vi.fn(),
       lineTo: vi.fn(),
+      quadraticCurveTo: vi.fn(),
       stroke: vi.fn(),
       strokeStyle: '',
       fillStyle: '',
@@ -193,7 +216,10 @@ describe('FieldWhiteboard live ink', () => {
       clientY: 48,
     });
     flushFrame();
-    expect(context.lineTo).toHaveBeenCalledTimes(2);
+    // Third point onward extends the ink as a midpoint quadratic (smooth pen);
+    // only the NEW tail is painted.
+    expect(context.lineTo).toHaveBeenCalledTimes(1);
+    expect(context.quadraticCurveTo).toHaveBeenCalledTimes(1);
     // The already-painted prefix remains on the canvas; no full-stroke redraw.
     expect(context.clearRect).toHaveBeenCalledTimes(1);
   });
