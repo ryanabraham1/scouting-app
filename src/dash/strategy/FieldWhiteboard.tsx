@@ -31,7 +31,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Eraser, Pen, Redo2, Trash2, Undo2, Cloud, CloudOff } from 'lucide-react';
+import { Eraser, Pen, PenTool, Redo2, Trash2, Undo2, Cloud, CloudOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOnline } from '@/sync/useOnline';
 import type { RoutineOverlay } from '@/components/FieldDiagram';
@@ -116,6 +116,21 @@ const MIN_POINT_GAP = 0.0015;
 /** A tapped Clear stays armed this long waiting for the confirming second tap. */
 const CLEAR_CONFIRM_MS = 2500;
 
+/** Auto palm rejection: after Pencil input, finger/palm touches are ignored
+ *  for this long (a resting palm lands within a beat of the pen tip). */
+const PEN_PRIORITY_MS = 2500;
+
+/** Persisted "Pencil only" preference (per device). */
+const PEN_ONLY_KEY = 'wb:pen-only';
+
+function readPenOnly(): boolean {
+  try {
+    return localStorage.getItem(PEN_ONLY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function clamp01(n: number): number {
   return n < 0 ? 0 : n > 1 ? 1 : n;
 }
@@ -150,6 +165,14 @@ export default function FieldWhiteboard({
   // Clear is a two-tap action on a tablet (the button sits next to Undo/Redo
   // and a stray fat-finger would wipe the whole board): first tap arms it.
   const [clearArmed, setClearArmed] = useState(false);
+  // Pencil detection + the explicit "Pencil only" mode (touch never draws or
+  // drags). The toggle only appears once a pen has actually been seen so
+  // phone/mouse users never meet it.
+  const [penSeen, setPenSeen] = useState(false);
+  const [penOnly, setPenOnly] = useState(readPenOnly);
+  const penOnlyRef = useRef(penOnly);
+  penOnlyRef.current = penOnly;
+  const lastPenAtRef = useRef(Number.NEGATIVE_INFINITY);
   // Field image failed to load (offline before it was ever cached): fall back
   // to an aspect-correct blank surface so the board stays fully drawable, and
   // retry automatically when the network returns.
@@ -268,6 +291,20 @@ export default function FieldWhiteboard({
     const t = setTimeout(() => setClearArmed(false), CLEAR_CONFIRM_MS);
     return () => clearTimeout(t);
   }, [clearArmed]);
+
+  /** Palm rejection policy shared by the surface and the robot squares: a
+   *  touch is dropped in Pencil-only mode, or within PEN_PRIORITY_MS of the
+   *  last pen contact; secondary mouse buttons never draw. */
+  const rejectPointer = useCallback((e: React.PointerEvent): boolean => {
+    if (e.pointerType === 'pen') {
+      lastPenAtRef.current = performance.now();
+      if (!penSeen) setPenSeen(true);
+      return false;
+    }
+    if (e.pointerType === 'mouse') return e.button > 0; // secondary buttons never draw
+    if (penOnlyRef.current) return true;
+    return performance.now() - lastPenAtRef.current < PEN_PRIORITY_MS;
+  }, [penSeen]);
 
   const toNormalized = useCallback((clientX: number, clientY: number): [number, number] => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -487,6 +524,7 @@ export default function FieldWhiteboard({
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (robotDragRef.current != null) return; // a robot drag claims the surface
+      if (rejectPointer(e)) return;
       if (activePointerRef.current != null) {
         // Single-pointer policy: a second touch (palm, other hand) is ignored
         // so it can't fork the stroke — EXCEPT a pen arriving while a finger/
@@ -501,7 +539,7 @@ export default function FieldWhiteboard({
       }
       beginStroke(e);
     },
-    [beginStroke],
+    [beginStroke, rejectPointer],
   );
 
   const onPointerMove = useCallback(
@@ -557,6 +595,7 @@ export default function FieldWhiteboard({
     (seed: RobotSeed) => (e: React.PointerEvent<SVGGElement>) => {
       if (robotDragRef.current != null || activePointerRef.current != null) return;
       e.stopPropagation();
+      if (rejectPointer(e)) return;
       e.currentTarget.setPointerCapture(e.pointerId);
       onDrawingActiveChange?.(true);
       const [px, py] = toNormalized(e.clientX, e.clientY);
@@ -570,7 +609,7 @@ export default function FieldWhiteboard({
         y: pos.y,
       };
     },
-    [toNormalized, robotPosition, onDrawingActiveChange],
+    [toNormalized, robotPosition, onDrawingActiveChange, rejectPointer],
   );
 
   const onRobotPointerMove = useCallback(
@@ -752,6 +791,31 @@ export default function FieldWhiteboard({
         </div>
 
         <div className="ml-auto flex items-center gap-1">
+          {penSeen ? (
+            <button
+              type="button"
+              data-testid="wb-pen-only"
+              aria-pressed={penOnly}
+              aria-label="Pencil only"
+              title={
+                penOnly
+                  ? 'Pencil only: fingers and palms never draw (tap to allow touch)'
+                  : 'Allow touch drawing (tap for Pencil only)'
+              }
+              className={cn(toolBtn(penOnly), 'mr-1')}
+              onClick={() => {
+                const next = !penOnly;
+                setPenOnly(next);
+                try {
+                  localStorage.setItem(PEN_ONLY_KEY, next ? '1' : '0');
+                } catch {
+                  /* private mode — preference just won't persist */
+                }
+              }}
+            >
+              <PenTool className="size-4" />
+            </button>
+          ) : null}
           <button
             type="button"
             data-testid="wb-undo"
@@ -816,7 +880,12 @@ export default function FieldWhiteboard({
           'relative w-full overflow-hidden rounded-lg ring-1 ring-border',
           tool === 'erase' ? 'cursor-cell' : 'cursor-crosshair',
         )}
-        style={{ touchAction: 'none', userSelect: 'none' }}
+        style={{
+          touchAction: 'none',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
+        }}
       >
         {imgFailed ? (
           <div

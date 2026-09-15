@@ -129,6 +129,69 @@ describe('FieldWhiteboard clear confirmation', () => {
   });
 });
 
+describe('FieldWhiteboard palm rejection', () => {
+  // jsdom has no PointerEvent, so fireEvent.pointerDown drops pointerType /
+  // pressure. Polyfill the fields the whiteboard's palm-rejection reads.
+  class FakePointerEvent extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    pressure: number;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+      this.pointerType = init.pointerType ?? 'mouse';
+      this.pressure = init.pressure ?? 0;
+    }
+  }
+  beforeEach(() => {
+    vi.stubGlobal('PointerEvent', FakePointerEvent);
+  });
+
+  function mountSurface() {
+    const view = render(
+      <FieldWhiteboard
+        eventKey="event-a"
+        matchKey="event-a_qm1"
+        phase="auto"
+        remoteDoc={undefined}
+      />,
+    );
+    const surface = view.getByTestId('wb-surface');
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 390, bottom: 158, width: 390, height: 158,
+      toJSON: () => ({}),
+    });
+    Object.defineProperty(surface, 'setPointerCapture', { configurable: true, value: vi.fn() });
+    return { view, surface };
+  }
+
+  it('ignores a finger touch that lands right after Pencil input', () => {
+    const { view, surface } = mountSurface();
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: 'pen', clientX: 10, clientY: 10, pressure: 0.4 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: 'pen' });
+    expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
+
+    // Palm lands 100ms later — no second stroke.
+    fireEvent.pointerDown(surface, { pointerId: 2, pointerType: 'touch', clientX: 50, clientY: 50 });
+    fireEvent.pointerUp(surface, { pointerId: 2, pointerType: 'touch' });
+    expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
+    // The Pencil-only toggle appears once a pen has been seen.
+    expect(view.getByTestId('wb-pen-only').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('lets a Pencil take over from a finger that is already down', () => {
+    const { view, surface } = mountSurface();
+    fireEvent.pointerDown(surface, { pointerId: 2, pointerType: 'touch', clientX: 50, clientY: 50 });
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: 'pen', clientX: 10, clientY: 10, pressure: 0.4 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: 'pen', clientX: 40, clientY: 30, pressure: 0.4 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: 'pen' });
+    // Only the pen stroke committed; the abandoned touch is discarded.
+    expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
+    fireEvent.pointerUp(surface, { pointerId: 2, pointerType: 'touch' });
+    expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
+  });
+});
+
 describe('FieldWhiteboard live ink', () => {
   it('paints only newly received points on each animation frame', () => {
     const context = {
