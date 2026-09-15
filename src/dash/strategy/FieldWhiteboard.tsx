@@ -292,9 +292,9 @@ export default function FieldWhiteboard({
     return () => clearTimeout(t);
   }, [clearArmed]);
 
-  /** Palm rejection policy shared by the surface and the robot squares: a
-   *  touch is dropped in Pencil-only mode, or within PEN_PRIORITY_MS of the
-   *  last pen contact; secondary mouse buttons never draw. */
+  /** Palm rejection policy for INK: a touch is dropped in Pencil-only mode,
+   *  or within PEN_PRIORITY_MS of the last pen contact; secondary mouse
+   *  buttons never draw. Robot squares stay draggable by finger regardless. */
   const rejectPointer = useCallback((e: React.PointerEvent): boolean => {
     if (e.pointerType === 'pen') {
       lastPenAtRef.current = performance.now();
@@ -595,7 +595,11 @@ export default function FieldWhiteboard({
     (seed: RobotSeed) => (e: React.PointerEvent<SVGGElement>) => {
       if (robotDragRef.current != null || activePointerRef.current != null) return;
       e.stopPropagation();
-      if (rejectPointer(e)) return;
+      // Squares are deliberately EXEMPT from palm rejection: a finger must be
+      // able to drag a start position right after Pencil ink (and in
+      // Pencil-only mode) — a square is a big intentional target, not a stray
+      // palm stroke. Only secondary mouse buttons are refused.
+      if (e.pointerType === 'mouse' && e.button > 0) return;
       e.currentTarget.setPointerCapture(e.pointerId);
       onDrawingActiveChange?.(true);
       const [px, py] = toNormalized(e.clientX, e.clientY);
@@ -609,7 +613,7 @@ export default function FieldWhiteboard({
         y: pos.y,
       };
     },
-    [toNormalized, robotPosition, onDrawingActiveChange, rejectPointer],
+    [toNormalized, robotPosition, onDrawingActiveChange],
   );
 
   const onRobotPointerMove = useCallback(

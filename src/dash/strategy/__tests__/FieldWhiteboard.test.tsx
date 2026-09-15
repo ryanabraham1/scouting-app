@@ -190,6 +190,41 @@ describe('FieldWhiteboard palm rejection', () => {
     fireEvent.pointerUp(surface, { pointerId: 2, pointerType: 'touch' });
     expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
   });
+
+  it('still lets a finger drag a robot start square right after Pencil input', () => {
+    const view = render(
+      <FieldWhiteboard
+        eventKey="event-a"
+        matchKey="event-a_qm1"
+        phase="auto"
+        remoteDoc={undefined}
+        robotSeeds={[{ key: '3256', team: 3256, color: '#f59e0b', defaultX: 0.2, defaultY: 0.5 }]}
+      />,
+    );
+    const surface = view.getByTestId('wb-surface');
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 390, bottom: 158, width: 390, height: 158,
+      toJSON: () => ({}),
+    });
+    Object.defineProperty(surface, 'setPointerCapture', { configurable: true, value: vi.fn() });
+    const robot = view.getByTestId('wb-robot-3256');
+    Object.defineProperty(robot, 'setPointerCapture', { configurable: true, value: vi.fn() });
+    Object.defineProperty(robot, 'releasePointerCapture', { configurable: true, value: vi.fn() });
+    const before = robot.getAttribute('transform');
+
+    // Pencil ink, then a finger grabs the square within the pen-priority window.
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: 'pen', clientX: 10, clientY: 10, pressure: 0.4 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: 'pen' });
+    fireEvent.pointerDown(robot, { pointerId: 2, pointerType: 'touch', clientX: 78, clientY: 79 });
+    fireEvent.pointerMove(robot, { pointerId: 2, pointerType: 'touch', clientX: 200, clientY: 100 });
+    fireEvent.pointerUp(robot, { pointerId: 2, pointerType: 'touch' });
+
+    expect(view.getByTestId('wb-robot-3256').getAttribute('transform')).not.toBe(before);
+    // ...while the same finger still can't ink the surface.
+    fireEvent.pointerDown(surface, { pointerId: 3, pointerType: 'touch', clientX: 50, clientY: 50 });
+    fireEvent.pointerUp(surface, { pointerId: 3, pointerType: 'touch' });
+    expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
+  });
 });
 
 describe('FieldWhiteboard live ink', () => {
