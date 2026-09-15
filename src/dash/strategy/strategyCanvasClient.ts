@@ -55,7 +55,33 @@ export async function fetchStrategyCanvas(
  * The whiteboard doc for one (event, match, phase): server row merged with the
  * Dexie local doc (stroke-id union + tombstones + newer-robot-wins — the same
  * merge the RPC applies), so unsynced local ink always shows and a remote
- * device's changes fold in. Offline: Dexie-only fallback. queryKey
+ * device's changes fold in. Offline: Dexie-only fallback; online server error
+ * rethrows (callers keep their last good snapshot, mirroring useMatchupNotes).
+ * Shared by the `useStrategyCanvas` query and the Discord post (which needs
+ * every phase board, not just the one on screen).
+ */
+export async function loadStrategyCanvas(
+  eventKey: string,
+  matchKey: string,
+  phase: WhiteboardPhase,
+): Promise<CanvasDoc> {
+  const local = await getStrategyCanvasLocal(canvasKeyFor(eventKey, matchKey, phase));
+  const localDoc: CanvasDoc = local
+    ? { strokes: local.strokes, deletedIds: local.deletedIds, robots: local.robots ?? [] }
+    : EMPTY_DOC;
+  try {
+    const serverDoc = await fetchStrategyCanvas(eventKey, matchKey, phase);
+    return serverDoc ? mergeCanvasDocs(serverDoc, localDoc) : localDoc;
+  } catch (err) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return localDoc;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Query wrapper over `loadStrategyCanvas`. queryKey
  * `['strategy-canvas', eventKey, matchKey, phase]` — useEventLiveSync's
  * realtime branch invalidates it when another device saves.
  */
@@ -68,29 +94,7 @@ export function useStrategyCanvas(
     queryKey: ['strategy-canvas', eventKey, matchKey, phase],
     enabled: !!eventKey && !!matchKey,
     staleTime: 15_000,
-    queryFn: async (): Promise<CanvasDoc> => {
-      const local = await getStrategyCanvasLocal(
-        canvasKeyFor(eventKey as string, matchKey as string, phase),
-      );
-      const localDoc: CanvasDoc = local
-        ? { strokes: local.strokes, deletedIds: local.deletedIds, robots: local.robots ?? [] }
-        : EMPTY_DOC;
-      try {
-        const serverDoc = await fetchStrategyCanvas(
-          eventKey as string,
-          matchKey as string,
-          phase,
-        );
-        return serverDoc ? mergeCanvasDocs(serverDoc, localDoc) : localDoc;
-      } catch (err) {
-        // Offline: serve the local doc. Online server error: rethrow so the
-        // persisted snapshot is preserved (mirrors useMatchupNotes).
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          return localDoc;
-        }
-        throw err;
-      }
-    },
+    queryFn: () => loadStrategyCanvas(eventKey as string, matchKey as string, phase),
   });
 }
 

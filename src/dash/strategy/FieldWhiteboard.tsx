@@ -103,8 +103,9 @@ const SIZES = [
 /** Eraser touch radius (fraction of field height). */
 const ERASE_RADIUS = 0.035;
 
-/** Robot square side in viewBox px — roughly a bumpered-robot footprint. */
-const ROBOT_PX = 0.095 * FIELD_H;
+/** Robot square side in viewBox px — roughly a bumpered-robot footprint
+ *  (exported so the Discord renderer draws the same square). */
+export const ROBOT_PX = 0.095 * FIELD_H;
 
 const SAVE_DEBOUNCE_MS = 900;
 

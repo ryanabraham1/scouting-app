@@ -23,7 +23,7 @@
 // precached by the service worker — the whole tab works with zero wifi.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LocateFixed, Maximize2, Minimize2, Users } from 'lucide-react';
+import { LocateFixed, Maximize2, Minimize2, Send, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
@@ -60,9 +60,11 @@ import { useTeamEpaTrends } from '@/dash/strategy/useTeamEpaTrends';
 import { matchupTeamAutos, overlayForAutoOption } from '@/dash/CombinedAutoField';
 import MatchupNotesModal from '@/dash/MatchupNotesModal';
 import { useMatchupNotes } from '@/dash/useEventData';
-import { normalizeMatchup, keyFor, teamNoteKeyFor } from '@/dash/matchupNotesClient';
 import MatchupDashboard from '@/dash/strategy/MatchupDashboard';
 import FieldWhiteboard, { type RobotSeed } from '@/dash/strategy/FieldWhiteboard';
+
+/** How long after the last stroke/drag the tracked-match auto-snap stays held. */
+const INK_SETTLE_MS = 15_000;
 import {
   useStrategyCanvas,
   MANUAL_MATCH_KEY,
@@ -73,6 +75,11 @@ import {
   type WhiteboardPhase,
 } from '@/dash/strategy/strokes';
 import { WinProbBanner, AllianceColumn } from '@/dash/strategy/PredictionPanel';
+import {
+  PHASE_LABEL,
+  postStrategyToDiscord,
+  resolveTeamNote,
+} from '@/dash/strategy/discordPost';
 import type { MsrRow } from '@/dash/types';
 
 export interface StrategyViewProps {
@@ -81,14 +88,6 @@ export interface StrategyViewProps {
 }
 
 type SubView = 'board' | 'analytics';
-
-const PHASE_LABEL: Record<WhiteboardPhase, string> = {
-  auto: 'Auto',
-  transition: 'Transition',
-  active: 'Active',
-  inactive: 'Inactive',
-  endgame: 'Endgame',
-};
 
 /** One alliance's half of the matchup strip: big tappable-size team chips in
  *  alliance colors, the base team in amber, OUR side badged. Always visible —
@@ -221,8 +220,6 @@ function MatchupNoteCard({
 
   const ourTeams = ourSide === 'blue' ? blueTeams : redTeams;
   const oppTeams = ourSide === 'blue' ? redTeams : blueTeams;
-  const legacyPair = normalizeMatchup(ourTeams, oppTeams);
-  const legacyKey = keyFor(eventKey, legacyPair.ourTeam, legacyPair.oppTeam);
   const notes = notesQ?.data;
 
   const targets: TeamNoteTarget[] = [];
@@ -258,14 +255,10 @@ function MatchupNoteCard({
     ourSide === 'blue' ? 'Our partner' : ourSide ? 'Opponent' : 'Lineup team',
   );
 
-  const noteFor = (team: number): string => {
-    const currentKey = teamNoteKeyFor(eventKey, team);
-    if (notes?.has(currentKey)) return notes.get(currentKey) ?? '';
-    // Preserve the old one-note experience where it maps cleanly: surface the
-    // legacy alliance-pair note on its former opponent-lead team until edited.
-    if (team === legacyPair.oppTeam) return notes?.get(legacyKey) ?? '';
-    return '';
-  };
+  // Current per-team note, else the legacy alliance-pair note on its former
+  // opponent-lead team (shared with the Discord post so both read the same).
+  const noteFor = (team: number): string =>
+    resolveTeamNote(notes, eventKey, team, ourTeams, oppTeams);
   const allianceColumns = [
     { side: 'red' as const, label: 'Red alliance' },
     { side: 'blue' as const, label: 'Blue alliance' },
@@ -576,13 +569,25 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
   const [tracking, setTracking] = useState(true);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [drawingActive, setDrawingActive] = useState(false);
+  // ALSO hold the snap for a beat after the pen lifts: a strategist drawing a
+  // multi-stroke play would otherwise have the board swap out between two
+  // strokes and their next ink land on a different match.
+  const [inkSettled, setInkSettled] = useState(true);
+  useEffect(() => {
+    if (drawingActive) {
+      setInkSettled(false);
+      return;
+    }
+    const t = setTimeout(() => setInkSettled(true), INK_SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [drawingActive]);
   const trackedKey = trackedMatch?.match_key ?? null;
   useEffect(() => {
-    if (drawingActive) return; // defer the snap until the pen lifts
+    if (drawingActive || !inkSettled) return; // defer the snap until the ink settles
     if (tracking && trackedKey && trackedKey !== pinnedKey) {
       setPinnedKey(trackedKey);
     }
-  }, [tracking, trackedKey, pinnedKey, drawingActive]);
+  }, [tracking, trackedKey, pinnedKey, drawingActive, inkSettled]);
 
   const match: MatchRow | null = useMemo(() => {
     if (pinnedKey) {
@@ -724,20 +729,63 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
   // opponents keep the red-shade palette.
   const [showAutos, setShowAutos] = useState(true);
   const [autoSel, setAutoSel] = useState<Record<number, number>>({});
-  const teamAutos = useMemo(
-    () =>
-      showAutos && phase === 'auto'
-        ? matchupTeamAutos(redTeams, blueTeams, reports, pitByTeam)
-        : [],
-    [showAutos, phase, redTeams, blueTeams, reports, pitByTeam],
+  // Phase-independent so the Discord post can render the auto board from any
+  // phase; the on-screen board + switcher gate on `phase === 'auto'` below.
+  const autoTeamAutos = useMemo(
+    () => (showAutos ? matchupTeamAutos(redTeams, blueTeams, reports, pitByTeam) : []),
+    [showAutos, redTeams, blueTeams, reports, pitByTeam],
   );
-  const underlays = useMemo(() => {
+  const autoUnderlays = useMemo(() => {
     const seedColor = new Map(robotSeeds.map((seed) => [seed.key, seed.color]));
-    return teamAutos.map((t) => {
+    return autoTeamAutos.map((t) => {
       const o = overlayForAutoOption(t, autoSel[t.team] ?? t.defaultIdx);
       return o.label && seedColor.has(o.label) ? { ...o, color: seedColor.get(o.label)! } : o;
     });
-  }, [teamAutos, autoSel, robotSeeds]);
+  }, [autoTeamAutos, autoSel, robotSeeds]);
+  const teamAutos = phase === 'auto' ? autoTeamAutos : [];
+  const underlays = phase === 'auto' ? autoUnderlays : [];
+
+  // "Post to Discord": every inked phase board + the analytics embed, relayed
+  // through the discord-post Edge Function (webhook URL stays server-side).
+  const notesQ = useMatchupNotes?.(eventKey);
+  const [postState, setPostState] = useState<
+    { kind: 'idle' } | { kind: 'posting' } | { kind: 'done'; text: string } | { kind: 'error'; text: string }
+  >({ kind: 'idle' });
+  const postToDiscord = async (): Promise<void> => {
+    if (postState.kind === 'posting') return;
+    setPostState({ kind: 'posting' });
+    try {
+      const result = await postStrategyToDiscord({
+        eventKey,
+        boardMatchKey,
+        matchLabel: match ? formatMatchKeyRaw(match.match_key) : 'Manual matchup',
+        matchTime: match ? shortTime(match.scheduled_time) : null,
+        redTeams,
+        blueTeams,
+        baseTeam,
+        ourSide,
+        pred,
+        agg,
+        reportsByTeam,
+        epaFlagsByTeam,
+        notes: notesQ?.data,
+        robotSeeds,
+        underlays: autoUnderlays,
+      });
+      setPostState({
+        kind: 'done',
+        text: result.imageAttached
+          ? `Posted with ${result.postedPhases.length} board${result.postedPhases.length === 1 ? '' : 's'}`
+          : 'Posted (no drawings yet)',
+      });
+    } catch (err) {
+      setPostState({ kind: 'error', text: (err as Error).message || 'Post failed' });
+    }
+  };
+  // Clear the status once the coach moves to another match.
+  useEffect(() => {
+    setPostState({ kind: 'idle' });
+  }, [boardMatchKey]);
 
   const loading = matchesQ.isLoading || reportsQ.isLoading || teamsQ.isLoading;
 
@@ -860,6 +908,37 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
                 <span className="md:hidden">Track</span>
               </Button>
             ) : null}
+            <button
+              type="button"
+              data-testid="dash-strategy-post-discord"
+              onClick={() => void postToDiscord()}
+              disabled={postState.kind === 'posting'}
+              aria-busy={postState.kind === 'posting'}
+              title={
+                postState.kind === 'error'
+                  ? postState.text
+                  : 'Post the whiteboard and matchup analytics to Discord'
+              }
+              className={cn(
+                'inline-flex min-h-[44px] items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-60',
+                postState.kind === 'error'
+                  ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20'
+                  : postState.kind === 'done'
+                    ? 'border-success/50 bg-success/10 text-success'
+                    : 'border-border bg-card/60 text-foreground hover:bg-accent',
+              )}
+            >
+              <Send className="size-4" />
+              <span data-testid="dash-strategy-post-discord-label">
+                {postState.kind === 'posting'
+                  ? 'Posting…'
+                  : postState.kind === 'done'
+                    ? postState.text
+                    : postState.kind === 'error'
+                      ? 'Post failed — retry'
+                      : 'Post to Discord'}
+              </span>
+            </button>
             <button
               type="button"
               data-testid="dash-strategy-edit-teams"
