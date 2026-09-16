@@ -15,11 +15,13 @@ const fakeQueryClient = {
   getQueryData: (key: unknown[]) => queryCache.get(JSON.stringify(key)),
   setQueryData: (key: unknown[], value: unknown) => queryCache.set(JSON.stringify(key), value),
 };
-vi.mock('../autoAssign', () => ({
+vi.mock('../autoAssign', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../autoAssign')>()),
   autoAssignPlan: (...a: unknown[]) => ({
     assignments: autoAssign(...a),
     relaxedMatchKeys,
     skippedMatchKeys: [],
+    ownMatchKeys: [],
   }),
 }));
 vi.mock('../setAssignmentsClient', () => ({
@@ -370,6 +372,7 @@ describe('AssignmentBoard', () => {
     fireEvent.change(screen.getByTestId('opt-rest-length'), { target: { value: '4' } });
     fireEvent.click(screen.getByTestId('opt-rotate')); // default on -> off
     fireEvent.change(screen.getByTestId('opt-coverage-percent'), { target: { value: '60' } });
+    fireEvent.click(screen.getByTestId('opt-skip-own-matches')); // default off -> on
     await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
     fireEvent.click(screen.getByTestId('auto-generate-btn'));
     await waitFor(() => expect(autoAssign).toHaveBeenCalled());
@@ -383,7 +386,34 @@ describe('AssignmentBoard', () => {
         breakLength: 4,
         rotatePositions: false,
         coveragePercent: 60,
+        skipOwnMatches: true,
       }),
+    );
+  });
+
+  it('defaults skipOwnMatches off and previews coverage against the remaining matches', async () => {
+    autoAssign.mockReturnValue([]);
+    // 3 quals; the own team (3256 by default) plays in one of them.
+    const withOwn: AssignMatch[] = [
+      MATCHES[0],
+      { matchKey: '2026casnv_qm2', redTeams: [3256, 1678, 100], blueTeams: [200, 300, 400] },
+      { matchKey: '2026casnv_qm3', redTeams: [254, 1678, 100], blueTeams: [200, 300, 400] },
+    ];
+    render(<AssignmentBoard eventKey="2026casnv" matches={withOwn} scouts={SCOUTS} />);
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    const box = screen.getByTestId('opt-skip-own-matches') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(screen.getByTestId('opt-skip-own-count').textContent).toContain('1 match');
+    expect(screen.getByTestId('opt-coverage-preview').textContent).toBe('(3 of 3)');
+    fireEvent.click(box);
+    expect(screen.getByTestId('opt-coverage-preview').textContent).toBe('(2 of 3)');
+    await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('auto-generate-btn'));
+    await waitFor(() => expect(autoAssign).toHaveBeenCalled());
+    expect(autoAssign).toHaveBeenCalledWith(
+      withOwn,
+      SCOUTS,
+      expect.objectContaining({ skipOwnMatches: true, coveragePercent: 100 }),
     );
   });
 

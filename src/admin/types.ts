@@ -51,14 +51,26 @@ export interface AssignOptions {
    * means every match is assigned.
    */
   coveragePercent?: number;
+  /**
+   * Leave every match the own team plays in unassigned — the crew is busy
+   * watching (or in) that match. `coveragePercent` then applies to the
+   * remaining matches. Omitted / false assigns own-team matches like any other
+   * (the own team's own seat is always excluded either way).
+   */
+  skipOwnMatches?: boolean;
 }
 
 export interface AutoAssignmentPlan {
   assignments: Assignment[];
   /** Match keys where a spacing or break preference had to be relaxed. */
   relaxedMatchKeys: string[];
-  /** Qualification matches intentionally left unassigned by `coveragePercent`. */
+  /**
+   * Every qualification match intentionally left unassigned — by
+   * `coveragePercent` or by `skipOwnMatches` (a superset of `ownMatchKeys`).
+   */
   skippedMatchKeys: string[];
+  /** Qualification matches skipped because the own team plays in them. */
+  ownMatchKeys: string[];
 }
 
 export type AllianceColor = 'red' | 'blue';

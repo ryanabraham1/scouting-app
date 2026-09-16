@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { autoAssignPlan } from './autoAssign';
+import { autoAssignPlan, matchHasTeam } from './autoAssign';
 import { applyDaysOff, loadDaysOff, matchDays, saveDaysOff, type ScoutDaysOff } from './matchDays';
 import {
   loadMatchAssignmentSnapshot,
@@ -98,6 +98,8 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   // Share of qual matches the generator fills; the rest are left empty on
   // purpose (small crews scouting every other match, etc.).
   const [coveragePercent, setCoveragePercent] = useState(100);
+  // Leave the matches our own team plays in unassigned (the crew is watching).
+  const [skipOwnMatches, setSkipOwnMatches] = useState(false);
   // Per-scouter days off (e.g. Saturday-only scouters). Persisted per event on
   // the lead's device so a regenerate after reload keeps the same plan.
   const [daysOff, setDaysOff] = useState<ScoutDaysOff>(() => loadDaysOff(eventKey));
@@ -276,6 +278,15 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     () => matches.filter((m) => isQualMatchKey(m.matchKey)),
     [matches],
   );
+  // How many quals the own team plays in, and how many the generator can fill
+  // once those are (optionally) skipped — drives the coverage preview.
+  const ownMatchCount = useMemo(
+    () => qualMatches.filter((m) => matchHasTeam(m, ownTeam)).length,
+    [qualMatches, ownTeam],
+  );
+  const coverableMatchCount = skipOwnMatches
+    ? qualMatches.length - ownMatchCount
+    : qualMatches.length;
 
   // Calendar days of the qual schedule (needs TBA scheduled times). With only
   // one day there is nothing to restrict, so the availability grid stays hidden.
@@ -377,6 +388,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
       rotatePositions,
       avoidBackToBack,
       coveragePercent,
+      skipOwnMatches,
     });
     const next: Record<string, string> = {};
     for (const a of plan.assignments) {
@@ -388,12 +400,23 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
         : null,
     );
     const skipped = plan.skippedMatchKeys.length;
+    const own = plan.ownMatchKeys.length;
     const coveredCount = qualMatches.length - skipped;
-    setGenerationNote(
-      skipped > 0
-        ? `Covering ${coveredCount} of ${qualMatches.length} qualification matches (${coveragePercent}%). ${describeTeamCoverage(qualMatches, plan.skippedMatchKeys, ownTeam)} The other ${skipped} ${skipped === 1 ? 'match is' : 'matches are'} intentionally left open and will show as gaps in Coverage.`
-        : null,
-    );
+    const noteParts: string[] = [];
+    if (own > 0) {
+      noteParts.push(`Skipping the ${own} ${own === 1 ? 'match' : 'matches'} ${ownTeam} plays in.`);
+    }
+    if (skipped > own) {
+      noteParts.push(
+        `Covering ${coveredCount} of ${qualMatches.length - own} ${own > 0 ? 'other ' : ''}qualification matches (${coveragePercent}%). ${describeTeamCoverage(qualMatches, plan.skippedMatchKeys, ownTeam)}`,
+      );
+    }
+    if (skipped > 0) {
+      noteParts.push(
+        `${skipped === 1 ? 'That match is' : `Those ${skipped} matches are`} intentionally left open and will show as gaps in Coverage.`,
+      );
+    }
+    setGenerationNote(noteParts.length > 0 ? noteParts.join(' ') : null);
     setPicks(next);
     setGenerated(true);
     setPublished(null);
@@ -871,7 +894,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                 <span>% of qualification matches</span>
                 {qualMatches.length > 0 ? (
                   <span data-testid="opt-coverage-preview" className="text-xs text-muted-foreground">
-                    ({Math.round((qualMatches.length * coveragePercent) / 100)} of{' '}
+                    ({Math.round((coverableMatchCount * coveragePercent) / 100)} of{' '}
                     {qualMatches.length})
                   </span>
                 ) : null}
@@ -880,6 +903,24 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                 Below 100%, matches are picked so every team keeps the same share of its own
                 matches scouted; the rest are left with every seat open.
               </p>
+              <label className="mt-3 flex cursor-pointer items-center gap-2">
+                <input
+                  data-testid="opt-skip-own-matches"
+                  type="checkbox"
+                  checked={skipOwnMatches}
+                  onChange={(e) => setSkipOwnMatches(e.target.checked)}
+                  className="size-4 accent-brand"
+                />
+                <span>
+                  Don't scout the matches {ownTeam} plays in
+                  {ownMatchCount > 0 ? (
+                    <span data-testid="opt-skip-own-count" className="text-xs text-muted-foreground">
+                      {' '}
+                      ({ownMatchCount} {ownMatchCount === 1 ? 'match' : 'matches'})
+                    </span>
+                  ) : null}
+                </span>
+              </label>
             </div>
             {days.length > 1 ? (
               <div

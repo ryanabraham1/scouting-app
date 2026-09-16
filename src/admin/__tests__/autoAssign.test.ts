@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { slotsForMatch, autoAssign, autoAssignPlan, coveredMatchIndexes } from '../autoAssign';
+import {
+  slotsForMatch,
+  autoAssign,
+  autoAssignPlan,
+  coveredMatchIndexes,
+  matchHasTeam,
+} from '../autoAssign';
 import type { AssignMatch, AssignScout, AssignOptions, Assignment } from '../types';
 
 const m1: AssignMatch = {
@@ -373,5 +379,76 @@ describe('autoAssign partial coverage (coveragePercent)', () => {
     expect(plan.assignments).toHaveLength(12 * 6);
     const skipped = new Set(plan.skippedMatchKeys);
     expect(plan.assignments.every((a) => !skipped.has(a.matchKey))).toBe(true);
+  });
+});
+
+describe('autoAssign skipOwnMatches', () => {
+  // 10 quals; own team (3256) plays in qm2, qm5, qm8.
+  function buildMixedSchedule(): AssignMatch[] {
+    return Array.from({ length: 10 }, (_, i) => {
+      const own = [1, 4, 7].includes(i);
+      const base = 100 + i * 10;
+      return {
+        matchKey: `2026casnv_qm${i + 1}`,
+        redTeams: [own ? 3256 : base, base + 1, base + 2] as [number, number, number],
+        blueTeams: [base + 3, base + 4, base + 5] as [number, number, number],
+      };
+    });
+  }
+
+  it('matchHasTeam checks both alliances', () => {
+    expect(matchHasTeam(m1, 3256)).toBe(true);
+    expect(matchHasTeam(m1, 604)).toBe(true);
+    expect(matchHasTeam(m1, 1)).toBe(false);
+  });
+
+  it('leaves every own-team match unassigned and reports it', () => {
+    const matches = buildMixedSchedule();
+    const plan = autoAssignPlan(matches, buildScouts(6), { ...OPTS, skipOwnMatches: true });
+    expect(plan.ownMatchKeys).toEqual(['2026casnv_qm2', '2026casnv_qm5', '2026casnv_qm8']);
+    expect(plan.skippedMatchKeys).toEqual(plan.ownMatchKeys);
+    const own = new Set(plan.ownMatchKeys);
+    expect(plan.assignments.every((a) => !own.has(a.matchKey))).toBe(true);
+    // The other 7 matches are fully covered (6 seats each).
+    expect(plan.assignments).toHaveLength(7 * 6);
+  });
+
+  it('still assigns own-team matches (minus our seat) when the option is off', () => {
+    const matches = buildMixedSchedule();
+    for (const opts of [OPTS, { ...OPTS, skipOwnMatches: false }]) {
+      const plan = autoAssignPlan(matches, buildScouts(6), opts);
+      expect(plan.ownMatchKeys).toEqual([]);
+      expect(plan.skippedMatchKeys).toEqual([]);
+      expect(plan.assignments.filter((a) => a.matchKey === '2026casnv_qm2')).toHaveLength(5);
+      expect(plan.assignments.some((a) => a.targetTeamNumber === 3256)).toBe(false);
+    }
+  });
+
+  it('applies coveragePercent to the remaining matches, never the own-team ones', () => {
+    const matches = buildMixedSchedule();
+    const plan = autoAssignPlan(matches, buildScouts(6), {
+      ...OPTS,
+      skipOwnMatches: true,
+      coveragePercent: 50,
+    });
+    // round(7 * 0.5) = 4 of the 7 non-own matches are covered.
+    const assigned = new Set(plan.assignments.map((a) => a.matchKey));
+    expect(assigned.size).toBe(4);
+    expect(plan.ownMatchKeys).toHaveLength(3);
+    expect(plan.skippedMatchKeys).toHaveLength(6);
+    for (const k of plan.ownMatchKeys) {
+      expect(assigned.has(k)).toBe(false);
+      expect(plan.skippedMatchKeys).toContain(k);
+    }
+  });
+
+  it('is a no-op when the own team is not on the schedule', () => {
+    const matches = buildMixedSchedule().map((m) => ({
+      ...m,
+      redTeams: m.redTeams.map((t) => (t === 3256 ? 1 : t)) as [number, number, number],
+    }));
+    const plan = autoAssignPlan(matches, buildScouts(6), { ...OPTS, skipOwnMatches: true });
+    expect(plan.ownMatchKeys).toEqual([]);
+    expect(plan.assignments).toHaveLength(10 * 6);
   });
 });

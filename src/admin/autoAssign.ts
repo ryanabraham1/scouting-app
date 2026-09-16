@@ -33,6 +33,11 @@ export function slotsForMatch(m: AssignMatch, ownTeam: number): Slot[] {
   );
 }
 
+/** Whether `team` is on either alliance of the match. */
+export function matchHasTeam(m: AssignMatch, team: number): boolean {
+  return m.redTeams.includes(team) || m.blueTeams.includes(team);
+}
+
 /** Distinct scoutable teams in a match: drops own team and empty/NaN slots. */
 function scoutableTeams(m: AssignMatch, ownTeam: number): number[] {
   const out: number[] = [];
@@ -121,7 +126,21 @@ export function autoAssignPlan(
   const result: Assignment[] = [];
   const relaxedMatchKeys = new Set<string>();
   const skippedMatchKeys: string[] = [];
-  const covered = coveredMatchIndexes(matches, opts.coveragePercent ?? 100, opts.ownTeam);
+  // Own-team matches are dropped before coverage is chosen so the percentage
+  // (and its per-team fairness) applies to the matches that can be assigned.
+  const ownMatchKeys: string[] = [];
+  const eligibleIndexes: number[] = [];
+  matches.forEach((m, i) => {
+    if (opts.skipOwnMatches && matchHasTeam(m, opts.ownTeam)) ownMatchKeys.push(m.matchKey);
+    else eligibleIndexes.push(i);
+  });
+  const coveredEligible = coveredMatchIndexes(
+    eligibleIndexes.map((i) => matches[i]),
+    opts.coveragePercent ?? 100,
+    opts.ownTeam,
+  );
+  const covered = new Set<number>();
+  for (const j of coveredEligible) covered.add(eligibleIndexes[j]);
   const blocked = opts.scheduleMode === 'blocked';
   const blockAssignments = Math.max(1, opts.blockAssignments ?? 2);
   const spacingMatches = Math.max(0, opts.spacingMatches ?? 0);
@@ -143,9 +162,9 @@ export function autoAssignPlan(
   scouts.forEach((s, i) => scoutOrder.set(s.id, i));
 
   for (const [matchIndex, match] of matches.entries()) {
-    // Partial coverage: skipped matches keep their place in the schedule so
-    // blocked-mode spacing/rest (counted in event matches) stays meaningful.
-    // Which matches are skipped is decided per-team-fairly up front.
+    // Partial coverage / own-team matches: skipped matches keep their place in
+    // the schedule so blocked-mode spacing/rest (counted in event matches)
+    // stays meaningful. Which matches are skipped is decided up front.
     if (!covered.has(matchIndex)) {
       skippedMatchKeys.push(match.matchKey);
       continue;
@@ -238,7 +257,12 @@ export function autoAssignPlan(
     }
   }
 
-  return { assignments: result, relaxedMatchKeys: [...relaxedMatchKeys], skippedMatchKeys };
+  return {
+    assignments: result,
+    relaxedMatchKeys: [...relaxedMatchKeys],
+    skippedMatchKeys,
+    ownMatchKeys,
+  };
 }
 
 function prevMatchKey(matches: AssignMatch[], current: AssignMatch): string | null {
