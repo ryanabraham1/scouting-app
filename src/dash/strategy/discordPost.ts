@@ -1,6 +1,6 @@
 // src/dash/strategy/discordPost.ts
 // "Post to Discord" for the Strategy tab: renders every phase whiteboard that
-// has content into ONE stacked PNG (field image + committed ink + robot start
+// has content into ONE stacked PNG (field image + committed ink + robot
 // squares + auto underlays — the same geometry FieldWhiteboard draws, replayed
 // on an offscreen canvas) and pairs it with an analytics embed built from the
 // dashboard's own prediction/aggregate objects. The message goes through the
@@ -36,11 +36,11 @@ export const PHASE_LABEL: Record<WhiteboardPhase, string> = {
   endgame: 'Endgame',
 };
 
-/** A board is worth posting when it carries ink, or (auto) a placed robot. */
-export function boardHasContent(doc: CanvasDoc | null | undefined, phase: WhiteboardPhase): boolean {
+/** A board is worth posting when it carries ink or a placed robot. */
+export function boardHasContent(doc: CanvasDoc | null | undefined, _phase: WhiteboardPhase): boolean {
   if (!doc) return false;
   if (doc.strokes.length > 0) return true;
-  return phase === 'auto' && (doc.robots?.length ?? 0) > 0;
+  return (doc.robots?.length ?? 0) > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,30 +136,28 @@ function drawBoard(
     ctx.fill(new Path2D(d));
   }
 
-  if (board.phase === 'auto') {
-    const placed = new Map((board.doc.robots ?? []).map((r) => [r.key, r]));
-    for (const seed of robotSeeds) {
-      const pos = placed.get(seed.key) ?? { x: seed.defaultX, y: seed.defaultY };
-      const cx = pos.x * FIELD_W;
-      const cy = pos.y * FIELD_H;
-      ctx.save();
-      ctx.globalAlpha = 0.85;
-      ctx.fillStyle = seed.color;
-      ctx.beginPath();
-      ctx.roundRect(cx - ROBOT_PX / 2, cy - ROBOT_PX / 2, ROBOT_PX, ROBOT_PX, FIELD_H * 0.008);
-      ctx.fill();
-      ctx.restore();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = FIELD_H * 0.006;
-      ctx.beginPath();
-      ctx.roundRect(cx - ROBOT_PX / 2, cy - ROBOT_PX / 2, ROBOT_PX, ROBOT_PX, FIELD_H * 0.008);
-      ctx.stroke();
-      ctx.fillStyle = '#0b0f1a';
-      ctx.font = `700 ${ROBOT_PX * 0.34}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(seed.team), cx, cy);
-    }
+  const placed = new Map((board.doc.robots ?? []).map((r) => [r.key, r]));
+  for (const seed of robotSeeds) {
+    const pos = placed.get(seed.key) ?? { x: seed.defaultX, y: seed.defaultY };
+    const cx = pos.x * FIELD_W;
+    const cy = pos.y * FIELD_H;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = seed.color;
+    ctx.beginPath();
+    ctx.roundRect(cx - ROBOT_PX / 2, cy - ROBOT_PX / 2, ROBOT_PX, ROBOT_PX, FIELD_H * 0.008);
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = FIELD_H * 0.006;
+    ctx.beginPath();
+    ctx.roundRect(cx - ROBOT_PX / 2, cy - ROBOT_PX / 2, ROBOT_PX, ROBOT_PX, FIELD_H * 0.008);
+    ctx.stroke();
+    ctx.fillStyle = '#0b0f1a';
+    ctx.font = `700 ${ROBOT_PX * 0.34}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(seed.team), cx, cy);
   }
 }
 

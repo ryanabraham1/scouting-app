@@ -28,7 +28,7 @@ export interface Stroke {
 }
 
 /**
- * A draggable robot start square on the auto board. `key` is the merge key
+ * A draggable robot position square on one phase board. `key` is the merge key
  * (the team number as a string); `x`/`y` are the square's CENTER in normalized
  * [0,1] field coords; `movedAt` (epoch-ms) resolves concurrent drags — the
  * NEWER move wins per key, on the server (0043 RPC) and in mergeCanvasDocs.
@@ -165,7 +165,7 @@ export type CanvasOp =
 export interface WhiteboardState {
   strokes: Stroke[];
   deletedIds: string[];
-  /** Robot start squares (auto board). NOT on the undo stack — a drag is its
+  /** Robot position squares. NOT on the undo stack — a drag is its
    *  own direct manipulation; undo/redo applies to ink only. */
   robots: RobotPos[];
   undoStack: CanvasOp[];

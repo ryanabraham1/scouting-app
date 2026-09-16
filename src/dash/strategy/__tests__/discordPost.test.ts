@@ -44,12 +44,12 @@ const base = {
 };
 
 describe('boardHasContent', () => {
-  it('counts ink on any phase and placed robots on the auto board only', () => {
+  it('counts ink or placed robots on any phase', () => {
     expect(boardHasContent(EMPTY_DOC, 'auto')).toBe(false);
     expect(boardHasContent({ ...EMPTY_DOC, strokes: [stroke] }, 'active')).toBe(true);
     const robots: CanvasDoc = { ...EMPTY_DOC, robots: [{ key: '3256', team: 3256, x: 0.2, y: 0.5, movedAt: 1 }] };
     expect(boardHasContent(robots, 'auto')).toBe(true);
-    expect(boardHasContent(robots, 'endgame')).toBe(false);
+    expect(boardHasContent(robots, 'endgame')).toBe(true);
     expect(boardHasContent(null, 'auto')).toBe(false);
   });
 });

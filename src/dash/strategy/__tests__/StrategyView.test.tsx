@@ -565,23 +565,22 @@ describe('StrategyView', () => {
     expect(getByTestId('field-whiteboard').getAttribute('data-phase')).toBe('endgame');
   });
 
-  it('shows robot squares on the auto board only, but the color key on EVERY board', () => {
+  it('shows movable robot squares and their color key on EVERY phase board', () => {
     setupHappyPath(true);
-    const { getByTestId, getByRole, queryByTestId } = render(
+    const { getByTestId, getByRole } = render(
       <StrategyView eventKey="2026evt" />,
     );
 
-    // qm2: we're on RED with 111 and 222 — three squares + the color key.
-    for (const t of RED) expect(getByTestId(`wb-robot-${t}`)).toBeTruthy();
-    const key = getByTestId('wb-robot-key');
-    for (const t of RED) expect(key.textContent).toContain(String(t));
-
-    // Other phase boards: squares gone, but the team↔color key STAYS.
-    fireEvent.click(getByRole('tab', { name: 'Active' }));
-    expect(queryByTestId(`wb-robot-${OUR_TEAM}`)).toBeNull();
-    const keyOnActive = getByTestId('wb-robot-key');
-    for (const t of RED) expect(keyOnActive.textContent).toContain(String(t));
-    expect(keyOnActive.textContent).toMatch(/Robot colors/i);
+    // qm2: we're on RED. Each independently persisted phase board renders the
+    // same three alliance robots and tells the lead that they can be dragged.
+    for (const phase of ['Auto', 'Transition', 'Active', 'Inactive', 'Endgame']) {
+      fireEvent.click(getByRole('tab', { name: phase }));
+      for (const t of RED) expect(getByTestId(`wb-robot-${t}`)).toBeTruthy();
+      const key = getByTestId('wb-robot-key');
+      for (const t of RED) expect(key.textContent).toContain(String(t));
+      expect(key.textContent).toMatch(/Robot positions/i);
+      expect(key.textContent).toMatch(/drag a square to place each robot/i);
+    }
   });
 
   it('lists ONLY our matches in the selector', () => {

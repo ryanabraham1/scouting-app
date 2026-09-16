@@ -2,8 +2,8 @@
 // Client helpers for the per-match strategy whiteboards (Strategy tab).
 //
 // Since 0043 a match carries FIVE boards — one per game phase (auto /
-// transition / active / inactive / endgame) — and the auto board additionally
-// persists draggable robot start squares. `match_key` may also be the literal
+// transition / active / inactive / endgame) — and every board persists its own
+// draggable robot positions. `match_key` may also be the literal
 // '__manual__' for a schedule-less session (manually entered teams), which
 // still cloud-syncs (the match FK was dropped in 0043).
 //

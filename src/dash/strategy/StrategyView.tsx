@@ -705,9 +705,8 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
 
   // Robot color seeds: OUR alliance's teams, one stable color each — the same
   // assignment everywhere (draggable squares, pen palette, color key, and the
-  // scouted-auto previews below). Phase-INDEPENDENT so the color key stays
-  // visible on every board; FieldWhiteboard renders the draggable squares only
-  // on the auto board.
+  // scouted-auto previews below). Phase-INDEPENDENT so every board gets its own
+  // saved positions for the same three robots.
   const robotSeeds = useMemo<RobotSeed[]>(() => {
     if (!ourSide) return [];
     const teams = ourSide === 'red' ? redTeams : blueTeams;

@@ -191,12 +191,12 @@ describe('FieldWhiteboard palm rejection', () => {
     expect(view.getAllByTestId(/^wb-stroke-/)).toHaveLength(1);
   });
 
-  it('still lets a finger drag a robot start square right after Pencil input', () => {
+  it('still lets a finger drag a robot position right after Pencil input', () => {
     const view = render(
       <FieldWhiteboard
         eventKey="event-a"
         matchKey="event-a_qm1"
-        phase="auto"
+        phase="active"
         remoteDoc={undefined}
         robotSeeds={[{ key: '3256', team: 3256, color: '#f59e0b', defaultX: 0.2, defaultY: 0.5 }]}
       />,

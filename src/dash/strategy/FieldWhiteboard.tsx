@@ -4,10 +4,10 @@
 //
 // One board per game PHASE (auto / transition / active / inactive / endgame —
 // the parent passes `phase` and keys this component so each phase keeps its own
-// ink). The AUTO board additionally renders draggable robot-sized start squares
-// for OUR alliance (one color per team, echoing FieldDiagram's pick-start
-// square style), with a color key underneath. Robot drags merge per key with
-// the newer move winning (0043 RPC), so they never conflict across devices.
+// ink). Every board renders draggable robot-sized position squares for OUR
+// alliance (one color per team, echoing FieldDiagram's pick-start square
+// style), with a color key underneath. Robot drags merge per key with the newer
+// move winning (0043 RPC), so they never conflict across devices.
 //
 // Perf contract (this view re-renders every Nexus poll tick): the IN-PROGRESS
 // stroke and an in-flight robot drag never touch React state — they live in
@@ -73,7 +73,7 @@ export interface FieldWhiteboardProps {
   remoteDoc: CanvasDoc | undefined;
   /** Read-only auto-routine polylines rendered UNDER the ink. */
   underlays?: RoutineOverlay[];
-  /** Draggable robot start squares (auto board only) + their color key. */
+  /** Draggable robot position squares + their color key. */
   robotSeeds?: RobotSeed[];
   /** Fires when a stroke starts/ends — the parent defers match auto-switching
    *  while ink is mid-air so the board never swaps out under a moving pen. */
@@ -202,7 +202,7 @@ export default function FieldWhiteboard({
   const eraseDragRef = useRef<Set<string>>(new Set());
   // Visual-only: strokes hidden mid-eraser-drag before the op commits.
   const [pendingErase, setPendingErase] = useState<ReadonlySet<string>>(new Set());
-  // In-flight robot drag (auto board): live position in a ref + direct DOM
+  // In-flight robot drag: live position in a ref + direct DOM
   // transform via the node map; committed to the reducer on drop.
   const robotDragRef = useRef<{
     key: string;
@@ -579,7 +579,7 @@ export default function FieldWhiteboard({
   );
 
   // ------------------------------------------------------------------
-  // Robot square dragging (auto board). stopPropagation keeps the surface
+  // Robot square dragging. stopPropagation keeps the surface
   // from starting a stroke; capture goes to the robot's own <g>.
   // ------------------------------------------------------------------
 
@@ -983,10 +983,9 @@ export default function FieldWhiteboard({
               <path key={p.id} d={p.d} fill={p.color} data-testid={`wb-stroke-${p.id}`} />
             ),
           )}
-          {/* Robot start squares (AUTO board only) — the same square-with-white-
-              border language as FieldDiagram's pick-start marker, one color per
-              team. The color KEY below stays on every board. */}
-          {phase === 'auto' && robotSeeds?.map((seed) => {
+          {/* Robot position squares — the same square-with-white-border
+              language as FieldDiagram's pick-start marker, one color per team. */}
+          {robotSeeds?.map((seed) => {
             const pos = robotPosition(seed);
             return (
               <g
@@ -1045,16 +1044,14 @@ export default function FieldWhiteboard({
         />
       </div>
 
-      {/* Color key: which color is which of OUR alliance robots — visible on
-          EVERY phase board (colors also lead the pen palette). */}
+      {/* Color key: which color is which of OUR alliance robots (colors also
+          lead the pen palette). */}
       {robotSeeds && robotSeeds.length > 0 ? (
         <div
           data-testid="wb-robot-key"
           className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
         >
-          <span className="font-semibold uppercase tracking-wide">
-            {phase === 'auto' ? 'Start squares' : 'Robot colors'}
-          </span>
+          <span className="font-semibold uppercase tracking-wide">Robot positions</span>
           {robotSeeds.map((seed) => (
             <span key={seed.key} className="inline-flex items-center gap-1.5">
               <span
@@ -1065,9 +1062,7 @@ export default function FieldWhiteboard({
               <span className="tabular-nums font-medium text-foreground">{seed.team}</span>
             </span>
           ))}
-          {phase === 'auto' ? (
-            <span className="text-muted-foreground/70">drag a square to place its start</span>
-          ) : null}
+          <span className="text-muted-foreground/70">drag a square to place each robot</span>
         </div>
       ) : null}
 
