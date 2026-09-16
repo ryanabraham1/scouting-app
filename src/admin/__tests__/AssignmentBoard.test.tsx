@@ -19,6 +19,7 @@ vi.mock('../autoAssign', () => ({
   autoAssignPlan: (...a: unknown[]) => ({
     assignments: autoAssign(...a),
     relaxedMatchKeys,
+    skippedMatchKeys: [],
   }),
 }));
 vi.mock('../setAssignmentsClient', () => ({
@@ -368,6 +369,7 @@ describe('AssignmentBoard', () => {
     fireEvent.change(screen.getByTestId('opt-spacing-matches'), { target: { value: '2' } });
     fireEvent.change(screen.getByTestId('opt-rest-length'), { target: { value: '4' } });
     fireEvent.click(screen.getByTestId('opt-rotate')); // default on -> off
+    fireEvent.change(screen.getByTestId('opt-coverage-percent'), { target: { value: '60' } });
     await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
     fireEvent.click(screen.getByTestId('auto-generate-btn'));
     await waitFor(() => expect(autoAssign).toHaveBeenCalled());
@@ -380,8 +382,23 @@ describe('AssignmentBoard', () => {
         spacingMatches: 2,
         breakLength: 4,
         rotatePositions: false,
+        coveragePercent: 60,
       }),
     );
+  });
+
+  it('clamps the coverage percent to 0–100 and defaults to 100', async () => {
+    autoAssign.mockReturnValue([]);
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    const input = screen.getByTestId('opt-coverage-percent') as HTMLInputElement;
+    expect(input.value).toBe('100');
+    fireEvent.change(input, { target: { value: '250' } });
+    expect(input.value).toBe('100');
+    fireEvent.change(input, { target: { value: '-10' } });
+    expect(input.value).toBe('0');
+    fireEvent.change(input, { target: { value: '33.4' } });
+    expect(input.value).toBe('33');
   });
 
   it('keeps a scouter off every match on an unchecked day', async () => {

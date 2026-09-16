@@ -44,12 +44,20 @@ export interface AssignOptions {
    * the available scout pool cannot satisfy both.
    */
   breakLength?: number;
+  /**
+   * Share of qualification matches (0–100) the generator fills at all. Covered
+   * matches are spread evenly across the schedule; the rest are left with
+   * every seat empty. Omitted / 100 means every match is assigned.
+   */
+  coveragePercent?: number;
 }
 
 export interface AutoAssignmentPlan {
   assignments: Assignment[];
   /** Match keys where a spacing or break preference had to be relaxed. */
   relaxedMatchKeys: string[];
+  /** Qualification matches intentionally left unassigned by `coveragePercent`. */
+  skippedMatchKeys: string[];
 }
 
 export type AllianceColor = 'red' | 'blue';

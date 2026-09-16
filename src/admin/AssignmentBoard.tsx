@@ -64,10 +64,14 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   const [restLength, setRestLength] = useState(3);
   const [rotatePositions, setRotatePositions] = useState(true);
   const [avoidBackToBack, setAvoidBackToBack] = useState(true);
+  // Share of qual matches the generator fills; the rest are left empty on
+  // purpose (small crews scouting every other match, etc.).
+  const [coveragePercent, setCoveragePercent] = useState(100);
   // Per-scouter days off (e.g. Saturday-only scouters). Persisted per event on
   // the lead's device so a regenerate after reload keeps the same plan.
   const [daysOff, setDaysOff] = useState<ScoutDaysOff>(() => loadDaysOff(eventKey));
   const [generationWarning, setGenerationWarning] = useState<string | null>(null);
+  const [generationNote, setGenerationNote] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   // Manual authoring aid: hide fully-covered matches so the lead can fill holes.
   const [onlyGaps, setOnlyGaps] = useState(false);
@@ -341,6 +345,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
       breakLength: restLength,
       rotatePositions,
       avoidBackToBack,
+      coveragePercent,
     });
     const next: Record<string, string> = {};
     for (const a of plan.assignments) {
@@ -349,6 +354,13 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     setGenerationWarning(
       plan.relaxedMatchKeys.length > 0
         ? `Full coverage required relaxing the blocked schedule in ${plan.relaxedMatchKeys.length} match${plan.relaxedMatchKeys.length === 1 ? '' : 'es'}. Add more available scouters or reduce the spacing or break length to honor it exactly.`
+        : null,
+    );
+    const skipped = plan.skippedMatchKeys.length;
+    const coveredCount = qualMatches.length - skipped;
+    setGenerationNote(
+      skipped > 0
+        ? `Covering ${coveredCount} of ${qualMatches.length} qualification matches (${coveragePercent}%), spread evenly across the schedule. The other ${skipped} ${skipped === 1 ? 'match is' : 'matches are'} intentionally left open and will show as gaps in Coverage.`
         : null,
     );
     setPicks(next);
@@ -363,6 +375,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     const requestEventKey = eventKey;
     setError(null);
     setGenerationWarning(null);
+    setGenerationNote(null);
     // No per-event scouts checked in yet: seed the pool from the persistent
     // roster so the lead can assign before anyone has picked their name.
     if (pool.length === 0) {
@@ -803,6 +816,40 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                 <span>Avoid back-to-back matches when there are enough scouters</span>
               </label>
             ) : null}
+            <div className="rounded-md border border-border bg-background/40 p-3">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Match coverage
+              </p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-2 leading-9">
+                <span>Assign</span>
+                <Input
+                  data-testid="opt-coverage-percent"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={coveragePercent}
+                  onChange={(e) =>
+                    setCoveragePercent(
+                      Math.min(100, Math.max(0, Math.round(Number(e.target.value) || 0))),
+                    )
+                  }
+                  className="h-9 w-20 text-center font-mono"
+                  aria-label="Percent of qualification matches to assign"
+                />
+                <span>% of qualification matches</span>
+                {qualMatches.length > 0 ? (
+                  <span data-testid="opt-coverage-preview" className="text-xs text-muted-foreground">
+                    ({Math.round((qualMatches.length * coveragePercent) / 100)} of{' '}
+                    {qualMatches.length})
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Below 100%, covered matches are spread evenly across the schedule and the rest are
+                left with every seat open.
+              </p>
+            </div>
             {days.length > 1 ? (
               <div
                 data-testid="scouter-days"
@@ -890,6 +937,14 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             className="mt-4 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm text-warning"
           >
             {generationWarning}
+          </p>
+        ) : null}
+        {generationNote ? (
+          <p
+            data-testid="assignments-generation-note"
+            className="mt-4 rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground"
+          >
+            {generationNote}
           </p>
         ) : null}
         {authorityIssue || verificationIssue ? (

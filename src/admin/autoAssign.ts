@@ -33,6 +33,25 @@ export function slotsForMatch(m: AssignMatch, ownTeam: number): Slot[] {
   );
 }
 
+/**
+ * Indexes of the matches a partial-coverage plan fills, spread evenly across
+ * `matchCount` so a 50% plan lands on every other match rather than the first
+ * half of the day. 100 (or anything above) selects every match; 0 selects none.
+ */
+export function coveredMatchIndexes(matchCount: number, coveragePercent: number): Set<number> {
+  const pct = Number.isFinite(coveragePercent) ? Math.min(100, Math.max(0, coveragePercent)) : 100;
+  const target = Math.round((matchCount * pct) / 100);
+  const covered = new Set<number>();
+  if (target <= 0 || matchCount <= 0) return covered;
+  if (target >= matchCount) {
+    for (let i = 0; i < matchCount; i++) covered.add(i);
+    return covered;
+  }
+  // matchCount / target >= 1, so consecutive floors never collide.
+  for (let j = 0; j < target; j++) covered.add(Math.floor((j * matchCount) / target));
+  return covered;
+}
+
 export function autoAssign(
   rawMatches: AssignMatch[],
   scouts: AssignScout[],
@@ -52,6 +71,8 @@ export function autoAssignPlan(
   const matches = rawMatches.filter((m) => isQualMatchKey(m.matchKey));
   const result: Assignment[] = [];
   const relaxedMatchKeys = new Set<string>();
+  const skippedMatchKeys: string[] = [];
+  const covered = coveredMatchIndexes(matches.length, opts.coveragePercent ?? 100);
   const blocked = opts.scheduleMode === 'blocked';
   const blockAssignments = Math.max(1, opts.blockAssignments ?? 2);
   const spacingMatches = Math.max(0, opts.spacingMatches ?? 0);
@@ -73,6 +94,12 @@ export function autoAssignPlan(
   scouts.forEach((s, i) => scoutOrder.set(s.id, i));
 
   for (const [matchIndex, match] of matches.entries()) {
+    // Partial coverage: skipped matches keep their place in the schedule so
+    // blocked-mode spacing/rest (counted in event matches) stays meaningful.
+    if (!covered.has(matchIndex)) {
+      skippedMatchKeys.push(match.matchKey);
+      continue;
+    }
     const slots = slotsForMatch(match, opts.ownTeam);
     const usedThisMatch = new Set<string>();
 
@@ -161,7 +188,7 @@ export function autoAssignPlan(
     }
   }
 
-  return { assignments: result, relaxedMatchKeys: [...relaxedMatchKeys] };
+  return { assignments: result, relaxedMatchKeys: [...relaxedMatchKeys], skippedMatchKeys };
 }
 
 function prevMatchKey(matches: AssignMatch[], current: AssignMatch): string | null {

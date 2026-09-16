@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slotsForMatch, autoAssign, autoAssignPlan } from '../autoAssign';
+import { slotsForMatch, autoAssign, autoAssignPlan, coveredMatchIndexes } from '../autoAssign';
 import type { AssignMatch, AssignScout, AssignOptions, Assignment } from '../types';
 
 const m1: AssignMatch = {
@@ -244,5 +244,76 @@ describe('autoAssign work/rest blocks', () => {
     expect(plan.assignments).toHaveLength(60);
     expect(plan.relaxedMatchKeys.length).toBeGreaterThan(0);
     expect(plan.assignments.some((a) => a.targetTeamNumber === 3256)).toBe(false);
+  });
+});
+
+describe('autoAssign partial coverage (coveragePercent)', () => {
+  it('coveredMatchIndexes spreads the covered matches evenly and clamps the percent', () => {
+    expect([...coveredMatchIndexes(10, 50)]).toEqual([0, 2, 4, 6, 8]);
+    expect([...coveredMatchIndexes(10, 30)]).toEqual([0, 3, 6]);
+    expect([...coveredMatchIndexes(12, 25)]).toEqual([0, 4, 8]);
+    expect([...coveredMatchIndexes(10, 100)]).toHaveLength(10);
+    expect([...coveredMatchIndexes(10, 150)]).toHaveLength(10);
+    expect([...coveredMatchIndexes(10, 0)]).toHaveLength(0);
+    expect([...coveredMatchIndexes(10, -5)]).toHaveLength(0);
+    expect([...coveredMatchIndexes(10, NaN)]).toHaveLength(10);
+    expect([...coveredMatchIndexes(0, 50)]).toHaveLength(0);
+  });
+
+  it('fills every seat of the covered matches and none of the skipped ones', () => {
+    const matches = buildMatches(); // 12 quals, 5 seats each
+    const plan = autoAssignPlan(matches, buildScouts(5), { ...OPTS, coveragePercent: 50 });
+    const covered = ['qm1', 'qm3', 'qm5', 'qm7', 'qm9', 'qm11'].map((k) => `2026casnv_${k}`);
+    const skipped = ['qm2', 'qm4', 'qm6', 'qm8', 'qm10', 'qm12'].map((k) => `2026casnv_${k}`);
+    expect(plan.skippedMatchKeys).toEqual(skipped);
+    expect(plan.assignments).toHaveLength(6 * 5);
+    for (const key of covered) {
+      expect(plan.assignments.filter((a) => a.matchKey === key)).toHaveLength(5);
+    }
+    for (const key of skipped) {
+      expect(plan.assignments.some((a) => a.matchKey === key)).toBe(false);
+    }
+  });
+
+  it('still balances load across scouts within the covered matches', () => {
+    const plan = autoAssignPlan(buildMatches(), buildScouts(6), { ...OPTS, coveragePercent: 50 });
+    const counts = new Map<string, number>();
+    for (const a of plan.assignments) counts.set(a.scoutId, (counts.get(a.scoutId) ?? 0) + 1);
+    const values = [...counts.values()];
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(1);
+  });
+
+  it('defaults to full coverage when the option is omitted or 100', () => {
+    const matches = buildMatches();
+    const full = autoAssignPlan(matches, buildScouts(5), OPTS);
+    expect(full.skippedMatchKeys).toEqual([]);
+    expect(full.assignments).toHaveLength(60);
+    const explicit = autoAssignPlan(matches, buildScouts(5), { ...OPTS, coveragePercent: 100 });
+    expect(explicit).toEqual(full);
+  });
+
+  it('0% assigns nothing and reports every qual match as skipped', () => {
+    const matches = buildMatches();
+    const plan = autoAssignPlan(matches, buildScouts(5), { ...OPTS, coveragePercent: 0 });
+    expect(plan.assignments).toEqual([]);
+    expect(plan.skippedMatchKeys).toEqual(matches.map((m) => m.matchKey));
+  });
+
+  it('counts skipped matches toward blocked-mode spacing and rest', () => {
+    // 50% coverage = every other match. With spacing 1 (every other event
+    // match), a scout's work block lines up exactly with the covered matches,
+    // so nothing needs relaxing and the pattern stays intact.
+    const matches = buildMatches();
+    const plan = autoAssignPlan(matches, buildScouts(10), {
+      ...OPTS,
+      coveragePercent: 50,
+      scheduleMode: 'blocked',
+      blockAssignments: 2,
+      spacingMatches: 1,
+      breakLength: 1,
+    });
+    expect(plan.relaxedMatchKeys).toEqual([]);
+    expect(plan.assignments).toHaveLength(30);
+    expect(plan.assignments.every((a) => !plan.skippedMatchKeys.includes(a.matchKey))).toBe(true);
   });
 });
