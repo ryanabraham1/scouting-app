@@ -35,6 +35,37 @@ export interface AssignmentBoardProps {
   scouts: AssignScout[];
 }
 
+/**
+ * One sentence on how evenly a partial-coverage plan treats teams: the
+ * min–max count of scouted matches per team (own team excluded).
+ */
+function describeTeamCoverage(
+  quals: readonly AssignMatch[],
+  skippedMatchKeys: readonly string[],
+  ownTeam: number,
+): string {
+  const skipped = new Set(skippedMatchKeys);
+  const played = new Map<number, number>();
+  const scouted = new Map<number, number>();
+  for (const m of quals) {
+    for (const t of new Set([...m.redTeams, ...m.blueTeams])) {
+      if (t === ownTeam || t == null || !Number.isFinite(t)) continue;
+      played.set(t, (played.get(t) ?? 0) + 1);
+      if (!skipped.has(m.matchKey)) scouted.set(t, (scouted.get(t) ?? 0) + 1);
+    }
+  }
+  if (played.size === 0) return '';
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const t of played.keys()) {
+    const n = scouted.get(t) ?? 0;
+    lo = Math.min(lo, n);
+    hi = Math.max(hi, n);
+  }
+  const range = lo === hi ? `${lo}` : `${lo}–${hi}`;
+  return `Every team is scouted in ${range} of its matches.`;
+}
+
 export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardProps): JSX.Element {
   // The base/own team is never scouted (you don't scout yourself), so its slots
   // are excluded. Configurable in Setup; defaults to 3256.
@@ -360,7 +391,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     const coveredCount = qualMatches.length - skipped;
     setGenerationNote(
       skipped > 0
-        ? `Covering ${coveredCount} of ${qualMatches.length} qualification matches (${coveragePercent}%), spread evenly across the schedule. The other ${skipped} ${skipped === 1 ? 'match is' : 'matches are'} intentionally left open and will show as gaps in Coverage.`
+        ? `Covering ${coveredCount} of ${qualMatches.length} qualification matches (${coveragePercent}%). ${describeTeamCoverage(qualMatches, plan.skippedMatchKeys, ownTeam)} The other ${skipped} ${skipped === 1 ? 'match is' : 'matches are'} intentionally left open and will show as gaps in Coverage.`
         : null,
     );
     setPicks(next);
@@ -846,8 +877,8 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                 ) : null}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Below 100%, covered matches are spread evenly across the schedule and the rest are
-                left with every seat open.
+                Below 100%, matches are picked so every team keeps the same share of its own
+                matches scouted; the rest are left with every seat open.
               </p>
             </div>
             {days.length > 1 ? (

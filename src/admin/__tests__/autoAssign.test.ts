@@ -248,35 +248,94 @@ describe('autoAssign work/rest blocks', () => {
 });
 
 describe('autoAssign partial coverage (coveragePercent)', () => {
-  it('coveredMatchIndexes spreads the covered matches evenly and clamps the percent', () => {
-    expect([...coveredMatchIndexes(10, 50)]).toEqual([0, 2, 4, 6, 8]);
-    expect([...coveredMatchIndexes(10, 30)]).toEqual([0, 3, 6]);
-    expect([...coveredMatchIndexes(12, 25)]).toEqual([0, 4, 8]);
-    expect([...coveredMatchIndexes(10, 100)]).toHaveLength(10);
-    expect([...coveredMatchIndexes(10, 150)]).toHaveLength(10);
-    expect([...coveredMatchIndexes(10, 0)]).toHaveLength(0);
-    expect([...coveredMatchIndexes(10, -5)]).toHaveLength(0);
-    expect([...coveredMatchIndexes(10, NaN)]).toHaveLength(10);
-    expect([...coveredMatchIndexes(0, 50)]).toHaveLength(0);
+  // 12 teams, 24 matches, every team plays exactly 12 (a compressed version of
+  // a real qual schedule where each team repeats many times). Own team is
+  // absent so all 6 seats per match count.
+  function buildRepeatingSchedule(count = 24): AssignMatch[] {
+    const out: AssignMatch[] = [];
+    for (let i = 0; i < count; i++) {
+      const t = (k: number) => 1000 + ((i * 5 + k) % 12);
+      out.push({
+        matchKey: `2026casnv_qm${i + 1}`,
+        redTeams: [t(0), t(1), t(2)],
+        blueTeams: [t(6), t(7), t(8)],
+      });
+    }
+    return out;
+  }
+
+  function scoutedPerTeam(matches: AssignMatch[], covered: Set<number>): Map<number, number> {
+    const counts = new Map<number, number>();
+    matches.forEach((m, i) => {
+      if (!covered.has(i)) return;
+      for (const t of [...m.redTeams, ...m.blueTeams]) counts.set(t, (counts.get(t) ?? 0) + 1);
+    });
+    return counts;
+  }
+
+  it('coveredMatchIndexes selects round(n * pct / 100) matches and clamps the percent', () => {
+    const ms = buildRepeatingSchedule(10);
+    expect(coveredMatchIndexes(ms, 50, 3256).size).toBe(5);
+    expect(coveredMatchIndexes(ms, 30, 3256).size).toBe(3);
+    expect(coveredMatchIndexes(ms, 100, 3256).size).toBe(10);
+    expect(coveredMatchIndexes(ms, 150, 3256).size).toBe(10);
+    expect(coveredMatchIndexes(ms, 0, 3256).size).toBe(0);
+    expect(coveredMatchIndexes(ms, -5, 3256).size).toBe(0);
+    expect(coveredMatchIndexes(ms, NaN, 3256).size).toBe(10);
+    expect(coveredMatchIndexes([], 50, 3256).size).toBe(0);
+  });
+
+  it.each([25, 50, 75])(
+    'keeps every team\'s scouted-match count within ±1 at %i%% coverage',
+    (pct) => {
+      const ms = buildRepeatingSchedule();
+      const covered = coveredMatchIndexes(ms, pct, 3256);
+      const counts = [...scoutedPerTeam(ms, covered).values()];
+      expect(counts).toHaveLength(12);
+      // Each team plays 12, so the fair share is 12 * pct / 100.
+      const fair = (12 * pct) / 100;
+      for (const c of counts) expect(Math.abs(c - fair)).toBeLessThanOrEqual(1);
+      expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it('ignores the own team when balancing (its seat is never scouted anyway)', () => {
+    // Own team in every match: a naive balance would treat it as a 100%-played
+    // team and skew selection; it must simply be excluded.
+    const ms = buildRepeatingSchedule().map((m) => ({
+      ...m,
+      redTeams: [3256, m.redTeams[1], m.redTeams[2]] as [number, number, number],
+    }));
+    const covered = coveredMatchIndexes(ms, 50, 3256);
+    expect(covered.size).toBe(12);
+    const counts = scoutedPerTeam(ms, covered);
+    counts.delete(3256);
+    const values = [...counts.values()];
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(1);
+  });
+
+  it('is deterministic', () => {
+    const ms = buildRepeatingSchedule();
+    expect([...coveredMatchIndexes(ms, 40, 3256)]).toEqual([...coveredMatchIndexes(ms, 40, 3256)]);
   });
 
   it('fills every seat of the covered matches and none of the skipped ones', () => {
-    const matches = buildMatches(); // 12 quals, 5 seats each
-    const plan = autoAssignPlan(matches, buildScouts(5), { ...OPTS, coveragePercent: 50 });
-    const covered = ['qm1', 'qm3', 'qm5', 'qm7', 'qm9', 'qm11'].map((k) => `2026casnv_${k}`);
-    const skipped = ['qm2', 'qm4', 'qm6', 'qm8', 'qm10', 'qm12'].map((k) => `2026casnv_${k}`);
-    expect(plan.skippedMatchKeys).toEqual(skipped);
-    expect(plan.assignments).toHaveLength(6 * 5);
-    for (const key of covered) {
-      expect(plan.assignments.filter((a) => a.matchKey === key)).toHaveLength(5);
-    }
-    for (const key of skipped) {
-      expect(plan.assignments.some((a) => a.matchKey === key)).toBe(false);
+    const matches = buildRepeatingSchedule(); // 24 quals, 6 seats each
+    const plan = autoAssignPlan(matches, buildScouts(6), { ...OPTS, coveragePercent: 50 });
+    expect(plan.skippedMatchKeys).toHaveLength(12);
+    expect(plan.assignments).toHaveLength(12 * 6);
+    const skipped = new Set(plan.skippedMatchKeys);
+    for (const m of matches) {
+      const seats = plan.assignments.filter((a) => a.matchKey === m.matchKey).length;
+      expect(seats).toBe(skipped.has(m.matchKey) ? 0 : 6);
     }
   });
 
   it('still balances load across scouts within the covered matches', () => {
-    const plan = autoAssignPlan(buildMatches(), buildScouts(6), { ...OPTS, coveragePercent: 50 });
+    const plan = autoAssignPlan(buildRepeatingSchedule(), buildScouts(8), {
+      ...OPTS,
+      coveragePercent: 50,
+    });
     const counts = new Map<string, number>();
     for (const a of plan.assignments) counts.set(a.scoutId, (counts.get(a.scoutId) ?? 0) + 1);
     const values = [...counts.values()];
@@ -299,12 +358,11 @@ describe('autoAssign partial coverage (coveragePercent)', () => {
     expect(plan.skippedMatchKeys).toEqual(matches.map((m) => m.matchKey));
   });
 
-  it('counts skipped matches toward blocked-mode spacing and rest', () => {
-    // 50% coverage = every other match. With spacing 1 (every other event
-    // match), a scout's work block lines up exactly with the covered matches,
-    // so nothing needs relaxing and the pattern stays intact.
-    const matches = buildMatches();
-    const plan = autoAssignPlan(matches, buildScouts(10), {
+  it('skipped matches keep their schedule position for blocked-mode spacing', () => {
+    // Skipped matches are not removed from the index space, so a blocked plan
+    // never assigns into one and never relaxes because of one.
+    const matches = buildRepeatingSchedule();
+    const plan = autoAssignPlan(matches, buildScouts(12), {
       ...OPTS,
       coveragePercent: 50,
       scheduleMode: 'blocked',
@@ -312,8 +370,8 @@ describe('autoAssign partial coverage (coveragePercent)', () => {
       spacingMatches: 1,
       breakLength: 1,
     });
-    expect(plan.relaxedMatchKeys).toEqual([]);
-    expect(plan.assignments).toHaveLength(30);
-    expect(plan.assignments.every((a) => !plan.skippedMatchKeys.includes(a.matchKey))).toBe(true);
+    expect(plan.assignments).toHaveLength(12 * 6);
+    const skipped = new Set(plan.skippedMatchKeys);
+    expect(plan.assignments.every((a) => !skipped.has(a.matchKey))).toBe(true);
   });
 });

@@ -33,22 +33,71 @@ export function slotsForMatch(m: AssignMatch, ownTeam: number): Slot[] {
   );
 }
 
+/** Distinct scoutable teams in a match: drops own team and empty/NaN slots. */
+function scoutableTeams(m: AssignMatch, ownTeam: number): number[] {
+  const out: number[] = [];
+  for (const t of [...m.redTeams, ...m.blueTeams]) {
+    if (t === ownTeam || t == null || !Number.isFinite(t) || out.includes(t)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
 /**
- * Indexes of the matches a partial-coverage plan fills, spread evenly across
- * `matchCount` so a 50% plan lands on every other match rather than the first
- * half of the day. 100 (or anything above) selects every match; 0 selects none.
+ * Indexes of the matches a partial-coverage plan fills. The subset is chosen
+ * so every team keeps (as close as possible to) the same share of its own
+ * matches scouted — a 50% plan should never leave one team 80% unscouted
+ * while another is fully covered. Greedy: repeatedly take the match whose
+ * teams are furthest below their per-team target, breaking ties toward the
+ * match farthest from anything already chosen so picks still spread across
+ * the schedule. 100 (or anything above) selects every match; 0 selects none.
  */
-export function coveredMatchIndexes(matchCount: number, coveragePercent: number): Set<number> {
+export function coveredMatchIndexes(
+  matches: readonly AssignMatch[],
+  coveragePercent: number,
+  ownTeam: number,
+): Set<number> {
   const pct = Number.isFinite(coveragePercent) ? Math.min(100, Math.max(0, coveragePercent)) : 100;
-  const target = Math.round((matchCount * pct) / 100);
+  const n = matches.length;
+  const target = Math.round((n * pct) / 100);
   const covered = new Set<number>();
-  if (target <= 0 || matchCount <= 0) return covered;
-  if (target >= matchCount) {
-    for (let i = 0; i < matchCount; i++) covered.add(i);
+  if (target <= 0 || n <= 0) return covered;
+  if (target >= n) {
+    for (let i = 0; i < n; i++) covered.add(i);
     return covered;
   }
-  // matchCount / target >= 1, so consecutive floors never collide.
-  for (let j = 0; j < target; j++) covered.add(Math.floor((j * matchCount) / target));
+
+  const teamsByMatch = matches.map((m) => scoutableTeams(m, ownTeam));
+  const appearances = new Map<number, number>();
+  for (const teams of teamsByMatch) {
+    for (const t of teams) appearances.set(t, (appearances.get(t) ?? 0) + 1);
+  }
+  // Fractional per-team goal; the deficit below it drives selection.
+  const goal = new Map<number, number>();
+  for (const [t, count] of appearances) goal.set(t, (count * pct) / 100);
+  const scouted = new Map<number, number>();
+
+  const selected: number[] = [];
+  while (selected.length < target) {
+    let best = -1;
+    let bestScore = -Infinity;
+    let bestGap = -1;
+    for (let i = 0; i < n; i++) {
+      if (covered.has(i)) continue;
+      let score = 0;
+      for (const t of teamsByMatch[i]) score += (goal.get(t) ?? 0) - (scouted.get(t) ?? 0);
+      let gap = Infinity;
+      for (const j of selected) gap = Math.min(gap, Math.abs(i - j));
+      if (score > bestScore + 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && gap > bestGap)) {
+        best = i;
+        bestScore = score;
+        bestGap = gap;
+      }
+    }
+    covered.add(best);
+    selected.push(best);
+    for (const t of teamsByMatch[best]) scouted.set(t, (scouted.get(t) ?? 0) + 1);
+  }
   return covered;
 }
 
@@ -72,7 +121,7 @@ export function autoAssignPlan(
   const result: Assignment[] = [];
   const relaxedMatchKeys = new Set<string>();
   const skippedMatchKeys: string[] = [];
-  const covered = coveredMatchIndexes(matches.length, opts.coveragePercent ?? 100);
+  const covered = coveredMatchIndexes(matches, opts.coveragePercent ?? 100, opts.ownTeam);
   const blocked = opts.scheduleMode === 'blocked';
   const blockAssignments = Math.max(1, opts.blockAssignments ?? 2);
   const spacingMatches = Math.max(0, opts.spacingMatches ?? 0);
@@ -96,6 +145,7 @@ export function autoAssignPlan(
   for (const [matchIndex, match] of matches.entries()) {
     // Partial coverage: skipped matches keep their place in the schedule so
     // blocked-mode spacing/rest (counted in event matches) stays meaningful.
+    // Which matches are skipped is decided per-team-fairly up front.
     if (!covered.has(matchIndex)) {
       skippedMatchKeys.push(match.matchKey);
       continue;

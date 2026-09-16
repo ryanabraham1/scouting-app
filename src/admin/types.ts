@@ -45,9 +45,10 @@ export interface AssignOptions {
    */
   breakLength?: number;
   /**
-   * Share of qualification matches (0–100) the generator fills at all. Covered
-   * matches are spread evenly across the schedule; the rest are left with
-   * every seat empty. Omitted / 100 means every match is assigned.
+   * Share of qualification matches (0–100) the generator fills at all. The
+   * covered subset is chosen so every team keeps the same share of its own
+   * matches scouted; the rest are left with every seat empty. Omitted / 100
+   * means every match is assigned.
    */
   coveragePercent?: number;
 }
