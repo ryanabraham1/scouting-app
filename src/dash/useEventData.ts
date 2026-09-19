@@ -1119,29 +1119,56 @@ export interface EventInfo {
   webcast: EventWebcast | null;
 }
 
-/** Pull the first webcast (youtube/twitch first) off a TBA event object. */
-function firstWebcast(data: unknown): EventWebcast | null {
+/** Local calendar date as YYYY-MM-DD (TBA webcast `date` is the event-local day). */
+function localDateStr(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Pick the webcast to embed off a TBA event object. Multi-day events publish
+ * one youtube webcast per day, each tagged with a `date` (YYYY-MM-DD), plus
+ * undated all-event streams (typically twitch). Rank, best first:
+ *   1. embeddable (youtube/twitch) and dated *today*
+ *   2. embeddable and undated (covers the whole event)
+ *   3. embeddable and dated another day (better than nothing; still the event)
+ *   4. anything else
+ * Within a rank, TBA's order is kept. Exported for tests.
+ */
+export function pickWebcast(data: unknown, today: string = localDateStr()): EventWebcast | null {
   if (typeof data !== 'object' || data === null) return null;
   const raw = (data as { webcasts?: unknown }).webcasts;
   if (!Array.isArray(raw)) return null;
-  const parsed: EventWebcast[] = [];
+  let best: { rank: number; webcast: EventWebcast } | null = null;
   for (const w of raw) {
     if (typeof w !== 'object' || w === null) continue;
     const type = (w as { type?: unknown }).type;
     if (typeof type !== 'string' || !type) continue;
     const channel = (w as { channel?: unknown }).channel;
     const file = (w as { file?: unknown }).file;
-    parsed.push({
-      type,
-      channel: typeof channel === 'string' ? channel : null,
-      file: typeof file === 'string' ? file : null,
-    });
+    const date = (w as { date?: unknown }).date;
+    const embeddable = type === 'youtube' || type === 'twitch';
+    const dated = typeof date === 'string' && date.length > 0;
+    let rank: number;
+    if (!embeddable) rank = 3;
+    else if (!dated) rank = 1;
+    else if (date === today) rank = 0;
+    else rank = 2;
+    if (best === null || rank < best.rank) {
+      best = {
+        rank,
+        webcast: {
+          type,
+          channel: typeof channel === 'string' ? channel : null,
+          file: typeof file === 'string' ? file : null,
+        },
+      };
+      if (rank === 0) break;
+    }
   }
-  if (parsed.length === 0) return null;
-  // Prefer an embeddable youtube/twitch stream over other types.
-  return (
-    parsed.find((w) => w.type === 'youtube' || w.type === 'twitch') ?? parsed[0]
-  );
+  return best?.webcast ?? null;
 }
 
 /**
@@ -1150,14 +1177,16 @@ function firstWebcast(data: unknown): EventWebcast | null {
  */
 export function useEventInfo(eventKey: string | null): UseQueryResult<EventInfo> {
   return useQuery({
-    queryKey: ['tba', 'event-info', eventKey],
+    // Keyed by local date so a persisted cache from yesterday can't pin the
+    // dashboard to yesterday's per-day stream after midnight.
+    queryKey: ['tba', 'event-info', eventKey, localDateStr()],
     enabled: !!eventKey,
     staleTime: STALE_TIME,
     queryFn: async (): Promise<EventInfo> => {
       try {
         const data = await tbaGet<{ name?: string }>(`/event/${eventKey}`);
         const name = typeof data?.name === 'string' ? data.name : null;
-        return { name, webcast: firstWebcast(data) };
+        return { name, webcast: pickWebcast(data) };
       } catch {
         return { name: null, webcast: null };
       }
