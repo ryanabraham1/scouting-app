@@ -711,7 +711,10 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
     if (!ourSide) return [];
     const teams = ourSide === 'red' ? redTeams : blueTeams;
     const x = ourSide === 'red' ? 0.12 : 0.88;
-    const ys = [0.26, 0.5, 0.74];
+    // Station 1 is on the drivers' LEFT as they face the field. Red drives
+    // from the left edge (their left = top of the board); blue drives from
+    // the right edge, so its station order runs bottom-to-top.
+    const ys = ourSide === 'red' ? [0.26, 0.5, 0.74] : [0.74, 0.5, 0.26];
     return teams.slice(0, 3).map((team, i) => ({
       key: String(team),
       team,
