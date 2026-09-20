@@ -17,13 +17,14 @@ import {
   useEventInfo,
   useTbaRankings,
   useTeamSeasonStats,
+  useTbaEventAlliances,
   type MatchRow,
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
 import { formatMatchKeyRaw, formatMatchShort, isQualLevel } from '@/lib/formatMatch';
 import { redTeamsOf, blueTeamsOf, byPlay, shortTime } from '@/dash/matchOrder';
 import PlayoffPath from '@/dash/PlayoffPath';
-import { projectNextPlayoffMatch, resolveFeedTeams, sfSet, feedLabel } from '@/dash/playoffModel';
+import { projectNextPlayoffMatch, resolveFeedTeams, sfSet, feedLabel, ourAllianceTeams } from '@/dash/playoffModel';
 import EventStream from '@/dash/EventStream';
 import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
@@ -247,6 +248,16 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
     () => allMatches.some((m) => !isQualLevel(m.comp_level)),
     [allMatches],
   );
+  // Our playoff alliance's FULL roster. Schedule rows only list the 3 robots on
+  // the field, so when we're a 4th robot sitting a set out (every alliance at a
+  // 4-team event like Chezy Champs) the row still has to count as ours via our
+  // partners. Only needed once playoffs exist; `[baseTeam]` until then / if TBA
+  // is unreachable.
+  const alliancesQ = useTbaEventAlliances?.(hasPlayoffs ? eventKey : null);
+  const allianceTeams = useMemo(
+    () => ourAllianceTeams(alliancesQ?.data, baseTeam),
+    [alliancesQ?.data, baseTeam],
+  );
 
   // The live Nexus status (null when Nexus is unavailable) feeds match TRACKING:
   // while tracking, we follow OUR next match as Nexus sees it, falling back to the
@@ -261,24 +272,24 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // played; finally the event's last match. So a completed event shows the last
   // match instead of an empty state.
   const nextTracked = useMemo(
-    () => (allMatches.length ? trackedNextMatch(allMatches, baseTeam, liveStatus) : null),
-    [allMatches, baseTeam, liveStatus],
+    () => (allMatches.length ? trackedNextMatch(allMatches, baseTeam, liveStatus, allianceTeams) : null),
+    [allMatches, baseTeam, liveStatus, allianceTeams],
   );
   // During playoffs TBA publishes each set only once FIRST schedules it, so
   // between our last result and that publish the schedule has nothing for us.
   // The double-elim bracket is fully determined, so PROJECT the next set (and
   // its opponent feed) from playoffModel instead of showing our last match.
   const projected = useMemo(
-    () => (!nextTracked && hasPlayoffs ? projectNextPlayoffMatch(allMatches, baseTeam) : null),
-    [nextTracked, hasPlayoffs, allMatches, baseTeam],
+    () => (!nextTracked && hasPlayoffs ? projectNextPlayoffMatch(allMatches, baseTeam, allianceTeams) : null),
+    [nextTracked, hasPlayoffs, allMatches, baseTeam, allianceTeams],
   );
   const trackedMatch = useMemo(
     () =>
       nextTracked ??
       (projected || !allMatches.length
         ? null
-        : (lastMatchForTeam(allMatches, baseTeam) ?? lastMatchOverall(allMatches))),
-    [nextTracked, projected, allMatches, baseTeam],
+        : (lastMatchForTeam(allMatches, baseTeam, allianceTeams) ?? lastMatchOverall(allMatches))),
+    [nextTracked, projected, allMatches, baseTeam, allianceTeams],
   );
 
   // Pit Display purely AUTO-TRACKS — the manual match selector (and the whole
@@ -508,7 +519,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
               <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Our Playoff Path
               </div>
-              <PlayoffPath matches={allMatches} baseTeam={baseTeam} />
+              <PlayoffPath matches={allMatches} baseTeam={baseTeam} allianceTeams={allianceTeams} />
             </div>
           ) : (
             <div className="flex flex-col gap-2">

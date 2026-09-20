@@ -148,34 +148,55 @@ export interface ProjectedPlayoffMatch {
   row: MatchRow | null;
 }
 
-/** Pick the alliance containing `team` from a row, or null if it's not in it. */
-function allianceOf(row: MatchRow, team: number): number[] | null {
-  const r = redTeams(row);
-  if (r.includes(team)) return r;
-  const b = blueTeams(row);
-  return b.includes(team) ? b : null;
+/**
+ * The full roster of OUR playoff alliance (all picks, 4th robot included) from
+ * TBA's alliance list (see `useTbaEventAlliances`), or just `[baseTeam]` when
+ * alliances aren't known / we weren't picked. Membership checks against schedule
+ * rows should use this, not the base team alone, so a match our alliance plays
+ * WITHOUT us on the field still counts as ours.
+ */
+export function ourAllianceTeams(alliances: readonly number[][] | null | undefined, baseTeam: number): number[] {
+  const mine = alliances?.find((a) => a.includes(baseTeam));
+  return mine && mine.length ? mine : [baseTeam];
 }
 
-export function projectNextPlayoffMatch(matches: MatchRow[], baseTeam: number): ProjectedPlayoffMatch | null {
+/**
+ * Pick the alliance containing ANY of `teams` from a row, or null if none is in
+ * it. `teams` is our alliance's full roster (see `ourAllianceTeams`): a row only
+ * lists the 3 robots on the field, so when we're the 4th robot sitting a match
+ * out, membership has to go through our partners.
+ */
+export function allianceOf(row: MatchRow, teams: readonly number[]): number[] | null {
+  const r = redTeams(row);
+  if (teams.some((t) => r.includes(t))) return r;
+  const b = blueTeams(row);
+  return teams.some((t) => b.includes(t)) ? b : null;
+}
+
+export function projectNextPlayoffMatch(
+  matches: MatchRow[],
+  baseTeam: number,
+  allianceTeams: readonly number[] = [baseTeam],
+): ProjectedPlayoffMatch | null {
   const bySet = new Map<number, MatchRow>();
   let last: { set: number; row: MatchRow } | null = null;
   for (const m of matches) {
     const lvl = m.comp_level.toLowerCase();
     // Once we're in a finals row (played or not) the schedule already carries
     // our path — nothing to project.
-    if (lvl === 'f' && allianceOf(m, baseTeam)) return null;
+    if (lvl === 'f' && allianceOf(m, allianceTeams)) return null;
     if (lvl !== 'sf') continue;
     const set = sfSet(m);
     if (set == null) continue;
     bySet.set(set, m);
-    if (!allianceOf(m, baseTeam)) continue;
+    if (!allianceOf(m, allianceTeams)) continue;
     // An unplayed row of ours IS the next match; the schedule wins.
     if (!isPlayed(m)) return null;
     if (!last || set > last.set) last = { set, row: m };
   }
   if (!last) return null;
-  const ours = allianceOf(last.row, baseTeam)!;
-  const color = redTeams(last.row).includes(baseTeam) ? 'red' : 'blue';
+  const ours = allianceOf(last.row, allianceTeams)!;
+  const color = allianceTeams.some((t) => redTeams(last.row).includes(t)) ? 'red' : 'blue';
   // A played set without a definite winner (tie/replay pending) can't be projected.
   if (last.row.winner !== 'red' && last.row.winner !== 'blue') return null;
   const outcome = last.row.winner === color ? 'win' : 'lose';

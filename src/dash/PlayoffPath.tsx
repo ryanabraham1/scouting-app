@@ -31,15 +31,21 @@ import {
 export interface PlayoffPathProps {
   matches: MatchRow[];
   baseTeam: number;
+  /**
+   * Our alliance's full roster (all picks). A schedule row only carries the 3
+   * robots on the field, so when we're a 4th robot sitting a match out the row
+   * is still OURS via our partners. Defaults to just the base team.
+   */
+  allianceTeams?: readonly number[];
   ['data-testid']?: string;
 }
 
 /** Our alliance's teams + the opponent's, plus which color we are, for a row. */
-function ourSide(row: MatchRow, baseTeam: number): { ours: number[]; opp: number[]; color: 'red' | 'blue' } | null {
+function ourSide(row: MatchRow, teams: readonly number[]): { ours: number[]; opp: number[]; color: 'red' | 'blue' } | null {
   const r = redTeams(row);
   const b = blueTeams(row);
-  if (r.includes(baseTeam)) return { ours: r, opp: b, color: 'red' };
-  if (b.includes(baseTeam)) return { ours: b, opp: r, color: 'blue' };
+  if (teams.some((t) => r.includes(t))) return { ours: r, opp: b, color: 'red' };
+  if (teams.some((t) => b.includes(t))) return { ours: b, opp: r, color: 'blue' };
   return null;
 }
 
@@ -230,7 +236,9 @@ function FinalsCard(props: {
 }
 
 export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
-  const { matches, baseTeam, ['data-testid']: testid = 'playoff-path' } = props;
+  const { matches, baseTeam, allianceTeams, ['data-testid']: testid = 'playoff-path' } = props;
+  // Stable identity for the memo below when the caller passes no roster.
+  const teams = useMemo(() => (allianceTeams?.length ? allianceTeams : [baseTeam]), [allianceTeams, baseTeam]);
 
   const { bySet, ourOrdered, projected } = useMemo(() => {
     const map = new Map<number, MatchRow>();
@@ -252,11 +260,11 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
     finals.sort((a, b) => a.match_number - b.match_number);
     // Our matches in play order: semifinals (by set) then finals (by game).
     const ours = [
-      ...sf.filter((s) => ourSide(s.row, baseTeam)).map((s) => ({ set: s.set, row: s.row, isFinal: false })),
-      ...finals.filter((f) => ourSide(f, baseTeam)).map((f) => ({ set: 99, row: f, isFinal: true })),
+      ...sf.filter((s) => ourSide(s.row, teams)).map((s) => ({ set: s.set, row: s.row, isFinal: false })),
+      ...finals.filter((f) => ourSide(f, teams)).map((f) => ({ set: 99, row: f, isFinal: true })),
     ];
-    return { bySet: map, ourOrdered: ours, projected: projectNextPlayoffMatch(matches, baseTeam) };
-  }, [matches, baseTeam]);
+    return { bySet: map, ourOrdered: ours, projected: projectNextPlayoffMatch(matches, baseTeam, teams) };
+  }, [matches, baseTeam, teams]);
 
   const current = ourOrdered.find((o) => !isPlayed(o.row));
 
@@ -266,7 +274,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
       // Our alliance color in the projected set isn't known until FIRST schedules
       // it; keep the color we had in the set we came from (purely cosmetic).
       const fromRow = bySet.get(projected.from.set);
-      const ourColor = (fromRow && ourSide(fromRow, baseTeam)?.color) ?? 'red';
+      const ourColor = (fromRow && ourSide(fromRow, teams)?.color) ?? 'red';
       const fromNote = `${projected.from.outcome === 'win' ? 'Won' : 'Lost'} M${projected.from.set}`;
       if (projected.isFinal) {
         return (
@@ -297,10 +305,10 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
     let tone = 'text-muted-foreground';
     let icon = <Flag className="size-4" />;
     if (last) {
-      const side = ourSide(last.row, baseTeam);
+      const side = ourSide(last.row, teams);
       const wonLast = side && last.row.winner === side.color;
       if (last.isFinal) {
-        const ourWins = ourOrdered.filter((o) => o.isFinal && ourSide(o.row, baseTeam)?.color === o.row.winner).length;
+        const ourWins = ourOrdered.filter((o) => o.isFinal && ourSide(o.row, teams)?.color === o.row.winner).length;
         if (ourWins >= 2) {
           title = 'Champions — you won the event!';
           tone = 'text-success';
@@ -328,7 +336,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
   }
 
   // ── Focused current match + win/lose branches ────────────────────────────────
-  const side = ourSide(current.row, baseTeam)!;
+  const side = ourSide(current.row, teams)!;
   const played = isPlayed(current.row);
   const set = sfSet(current.row);
 
@@ -338,11 +346,11 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
     // for neither side (previously it was mis-counted as an opponent win because
     // `ourColor !== null` is always true).
     const ourWins = ourOrdered.filter(
-      (o) => o.isFinal && o.row.winner != null && ourSide(o.row, baseTeam)?.color === o.row.winner,
+      (o) => o.isFinal && o.row.winner != null && ourSide(o.row, teams)?.color === o.row.winner,
     ).length;
     const oppWins = ourOrdered.filter((o) => {
       if (!o.isFinal || o.row.winner == null) return false;
-      const ourColor = ourSide(o.row, baseTeam)?.color;
+      const ourColor = ourSide(o.row, teams)?.color;
       return ourColor != null && ourColor !== o.row.winner;
     }).length;
     return (

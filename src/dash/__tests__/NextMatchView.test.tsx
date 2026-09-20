@@ -15,6 +15,7 @@ vi.mock('@/dash/useEventData', () => ({
   // Broadcast-panel hooks: static safe defaults (their own units cover them).
   useEventInfo: () => ({ data: { name: null, webcast: null } }),
   useTbaRankings: () => ({ data: undefined }),
+  useTbaEventAlliances: () => ({ data: null }),
   useTeamSeasonStats: () => ({
     data: { worldRank: null, totalEpa: null, epaSource: 'none', seasonRecord: null },
   }),

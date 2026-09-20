@@ -38,8 +38,15 @@ export function isUnplayedMatch(m: MatchRow): boolean {
   );
 }
 
-function includesTeam(m: MatchRow, team: number): boolean {
-  return redTeamsOf(m).includes(team) || blueTeamsOf(m).includes(team);
+/**
+ * Is any of `teams` on either alliance? `teams` is our alliance's full playoff
+ * roster (see `ourAllianceTeams`) — a 4th robot sitting a match out isn't in the
+ * row, but the match is still ours.
+ */
+function includesTeam(m: MatchRow, teams: readonly number[]): boolean {
+  const r = redTeamsOf(m);
+  const b = blueTeamsOf(m);
+  return teams.some((t) => r.includes(t) || b.includes(t));
 }
 
 /**
@@ -58,9 +65,13 @@ function byPlayOrder(a: MatchRow, b: MatchRow): number {
   return lr !== 0 ? lr : compareMatchKeys(a.match_key, b.match_key);
 }
 
-export function nextMatchForTeam(matches: MatchRow[], teamNumber: number): MatchRow | null {
+export function nextMatchForTeam(
+  matches: MatchRow[],
+  teamNumber: number,
+  allianceTeams: readonly number[] = [teamNumber],
+): MatchRow | null {
   const ordered = matches
-    .filter((m) => isUnplayedMatch(m) && includesTeam(m, teamNumber))
+    .filter((m) => isUnplayedMatch(m) && includesTeam(m, allianceTeams))
     .sort(byPlayOrder);
   return ordered[0] ?? null;
 }
@@ -70,8 +81,12 @@ export function nextMatchForTeam(matches: MatchRow[], teamNumber: number): Match
  * has no unplayed match left for us — the dashboard shows our last match instead
  * of an empty state. Returns null when the team has no matches.
  */
-export function lastMatchForTeam(matches: MatchRow[], teamNumber: number): MatchRow | null {
-  const ours = matches.filter((m) => includesTeam(m, teamNumber)).sort(byPlayOrder);
+export function lastMatchForTeam(
+  matches: MatchRow[],
+  teamNumber: number,
+  allianceTeams: readonly number[] = [teamNumber],
+): MatchRow | null {
+  const ours = matches.filter((m) => includesTeam(m, allianceTeams)).sort(byPlayOrder);
   return ours.length ? ours[ours.length - 1] : null;
 }
 
@@ -82,8 +97,8 @@ export function lastMatchOverall(matches: MatchRow[]): MatchRow | null {
 }
 
 /** Does a Nexus match include `teamNumber` on either alliance? */
-function nexusIncludesTeam(nm: NexusMatch, teamNumber: number): boolean {
-  return nm.redTeams.includes(teamNumber) || nm.blueTeams.includes(teamNumber);
+function nexusIncludesTeam(nm: NexusMatch, teams: readonly number[]): boolean {
+  return teams.some((t) => nm.redTeams.includes(t) || nm.blueTeams.includes(t));
 }
 
 type LabelKind = 'qual' | 'ef' | 'qf' | 'sf' | 'final' | 'playoff' | 'practice' | 'other';
@@ -173,6 +188,7 @@ export function trackedNextMatch(
   matches: MatchRow[],
   teamNumber: number,
   status: NexusEventStatus | null,
+  allianceTeams: readonly number[] = [teamNumber],
 ): MatchRow | null {
   if (status) {
     // Live frontier: the match currently ON FIELD (else the one queuing). Mirrors
@@ -192,12 +208,12 @@ export function trackedNextMatch(
     // returned — so we fall through to the schedule only when Nexus offers nothing
     // live for us.
     for (const nm of status.upcoming) {
-      if (!nexusIncludesTeam(nm, teamNumber)) continue;
+      if (!nexusIncludesTeam(nm, allianceTeams)) continue;
       const row = matchRowForNexus(matches, nm);
       if (!row || !isUnplayedMatch(row)) continue;
       if (frontierRow && byPlayOrder(row, frontierRow) <= 0) continue;
       return row;
     }
   }
-  return nextMatchForTeam(matches, teamNumber);
+  return nextMatchForTeam(matches, teamNumber, allianceTeams);
 }

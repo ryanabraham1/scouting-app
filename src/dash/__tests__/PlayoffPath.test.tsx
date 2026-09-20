@@ -112,3 +112,23 @@ describe('PlayoffPath', () => {
     expect(within(getByTestId('playoff-path-win')).getByText('Champions')).toBeTruthy();
   });
 });
+
+describe('PlayoffPath with a 4-robot alliance roster', () => {
+  it('shows the match our partners play when we sit it out', () => {
+    // 3256 is the 4th robot of an alliance whose first set is M2 without us.
+    const matches = [
+      m({ match_key: '2026evt_sf2m1', comp_level: 'sf', red1: 6800, red2: 2813, red3: 1540, blue1: 1678, blue2: 5026, blue3: 6665 }),
+    ];
+    const roster = [2813, 6800, 1540, 3256];
+    const { getByTestId, queryByTestId } = render(
+      <PlayoffPath matches={matches} baseTeam={3256} allianceTeams={roster} />,
+    );
+    expect(queryByTestId('playoff-path-status')).toBeNull();
+    const current = getByTestId('playoff-path-current');
+    expect(current.textContent).toContain('M2');
+    expect(current.textContent).toContain('6800');
+    expect(current.textContent).toContain('1678'); // opponent
+    expect(getByTestId('playoff-path-win').textContent).toContain('M7');
+    expect(getByTestId('playoff-path-lose').textContent).toContain('M5');
+  });
+});

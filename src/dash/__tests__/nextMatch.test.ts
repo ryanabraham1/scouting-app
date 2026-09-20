@@ -249,3 +249,14 @@ describe('trackedNextMatch', () => {
     expect(trackedNextMatch(playedFrontier, OURS, st)?.match_key).toBe('qm4');
   });
 });
+
+describe('alliance roster (4th robot sitting a match out)', () => {
+  it('nextMatchForTeam / trackedNextMatch find the match via our partners', () => {
+    const sf2 = match({ match_key: '2026evt_sf2m1', comp_level: 'sf', match_number: 1, red1: 6800, red2: 2813, red3: 1540, blue1: 1678, blue2: 5026, blue3: 6665 });
+    const roster = [2813, 6800, 1540, 3256];
+    expect(nextMatchForTeam([sf2], 3256)).toBeNull();
+    expect(nextMatchForTeam([sf2], 3256, roster)).toBe(sf2);
+    expect(trackedNextMatch([sf2], 3256, null, roster)).toBe(sf2);
+    expect(lastMatchForTeam([sf2], 3256, roster)).toBe(sf2);
+  });
+});

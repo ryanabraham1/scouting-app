@@ -375,6 +375,35 @@ export function useTbaRankings<T = unknown>(eventKey: string | null): UseQueryRe
   });
 }
 
+/**
+ * TBA `/event/{key}/alliances`: each playoff alliance's full pick list, in seed
+ * order (index 0 = Alliance 1). Rosters can carry a 4th robot (backup pick, and
+ * every alliance at 4-team events like Chezy Champs) that the match rows can't
+ * express — a schedule row only lists the 3 robots on the field. Degrades to
+ * `null` (TBA down / alliances not selected yet).
+ */
+export function useTbaEventAlliances(eventKey: string | null): UseQueryResult<number[][] | null> {
+  return useQuery({
+    queryKey: ['tba', 'alliances', eventKey],
+    enabled: !!eventKey,
+    staleTime: STALE_TIME,
+    queryFn: async (): Promise<number[][] | null> => {
+      try {
+        const d = await tbaGet<unknown>(`/event/${eventKey}/alliances`);
+        if (!Array.isArray(d)) return null;
+        return d.map((a) => {
+          const picks = (a as { picks?: unknown })?.picks;
+          return Array.isArray(picks)
+            ? picks.map((k) => Number(String(k).replace(/^frc/i, ''))).filter((n) => Number.isFinite(n) && n > 0)
+            : [];
+        });
+      } catch {
+        return null;
+      }
+    },
+  });
+}
+
 function asString(v: unknown): string | null {
   return typeof v === 'string' && v ? v : null;
 }

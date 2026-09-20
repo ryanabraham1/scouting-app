@@ -6,6 +6,7 @@ import {
   sfSet,
   feedLabel,
   projectNextPlayoffMatch,
+  ourAllianceTeams,
 } from '@/dash/playoffModel';
 import type { MatchRow } from '@/dash/useEventData';
 
@@ -115,5 +116,26 @@ describe('projectNextPlayoffMatch (bracket projection before TBA publishes)', ()
     const p = projectNextPlayoffMatch([won('2026evt_sf1m1'), won('2026evt_sf7m1'), empty], 3256);
     expect(p!.set).toBe(11);
     expect(p!.row?.scheduled_time).toBe('2026-03-14T20:00:00Z');
+  });
+});
+
+describe('4-robot alliances (ourAllianceTeams / allianceTeams roster)', () => {
+  // Chezy Champs 2026: 3256 is the 4th robot of Alliance 4 and sits out M2 —
+  // the schedule row only lists the three robots on the field.
+  const alliances = [[4414, 2910, 2073, 9023], [9408, 5940, 9470, 9128], [254, 581, 694, 841], [2813, 6800, 1540, 3256]];
+
+  it('ourAllianceTeams returns the full roster, or [baseTeam] when unknown', () => {
+    expect(ourAllianceTeams(alliances, 3256)).toEqual([2813, 6800, 1540, 3256]);
+    expect(ourAllianceTeams(alliances, 1114)).toEqual([1114]);
+    expect(ourAllianceTeams(null, 3256)).toEqual([3256]);
+  });
+
+  it('projects our next set through our partners when we are not on the field', () => {
+    const wonM2 = m({ match_key: '2026evt_sf2m1', comp_level: 'sf', red1: 6800, red2: 2813, red3: 1540, blue1: 1678, blue2: 5026, blue3: 6665, actual_red_score: 90, actual_blue_score: 60, winner: 'red' });
+    expect(projectNextPlayoffMatch([wonM2], 3256)).toBeNull(); // base team alone can't see it
+    const p = projectNextPlayoffMatch([wonM2], 3256, ourAllianceTeams(alliances, 3256));
+    expect(p?.set).toBe(7);
+    expect(p?.from).toEqual({ set: 2, outcome: 'win' });
+    expect(p?.ours).toEqual([6800, 2813, 1540]);
   });
 });
