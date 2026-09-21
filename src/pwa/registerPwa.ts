@@ -1,11 +1,12 @@
 import { registerSW } from 'virtual:pwa-register';
 
-// The ~2.4 MB field image every capture/auto/review screen renders. Precached by
+// The field image every capture/auto/review screen renders (WebP, ~150 KB; it was
+// a 2.4 MB PNG until 2026-09). Precached by
 // the SW (vite.config globPatterns), but devices still running a STALE SW built
 // under the old 2 MB precache cap never got it — warming it on launch routes it
 // through that SW's /assets/ CacheFirst runtime rule so one online launch makes
 // it durably available offline.
-const FIELD_IMAGE_URL = '/assets/field/field.png';
+const FIELD_IMAGE_URL = '/assets/field/field.webp';
 let pendingUpdate = false;
 let blockedActivities = 0;
 let activateUpdate: (() => Promise<void>) | null = null;

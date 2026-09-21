@@ -1,5 +1,6 @@
 // src/dash/AnalysisScreen.tsx — unlocked match intelligence and team analysis.
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MonitorPlay, UserSearch, ListOrdered, Grid3x3, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { IconTabs } from '@/components/ui/IconTabs';
@@ -22,9 +23,9 @@ const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
   { key: 'alliance', label: 'Alliance', icon: Users },
 ];
 
-function readLocation(): { tab: Tab; team: number | null; match: string | null } {
+function readLocation(search: string): { tab: Tab; team: number | null; match: string | null } {
   try {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const requested = params.get('tab');
     const tab = requested && TABS.some((item) => item.key === requested) ? requested as Tab : 'next';
     const teamValue = Number(params.get('team'));
@@ -41,7 +42,9 @@ function readLocation(): { tab: Tab; team: number | null; match: string | null }
 export default function AnalysisScreen(): JSX.Element {
   const { eventKey, loading } = useActiveEvent();
   useEventLiveSync(eventKey);
-  const initial = readLocation();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const initial = readLocation(location.search);
   const [tab, setTab] = useState<Tab>(initial.tab);
   const [teamSelection, setTeamSelection] = useState<{
     eventKey: string | null;
@@ -56,39 +59,24 @@ export default function AnalysisScreen(): JSX.Element {
 
   function writeLocation(next: Tab, extras?: { team?: number; match?: string }): void {
     setTab(next);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', next);
-      url.searchParams.delete('team');
-      url.searchParams.delete('match');
-      if (extras?.team) url.searchParams.set('team', String(extras.team));
-      if (extras?.match) url.searchParams.set('match', extras.match);
-      window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
-    } catch {
-      // URL history is unavailable during non-browser rendering.
-    }
+    const params = new URLSearchParams(location.search);
+    params.set('tab', next);
+    params.delete('team');
+    params.delete('match');
+    if (extras?.team) params.set('team', String(extras.team));
+    if (extras?.match) params.set('match', extras.match);
+    navigate({ search: `?${params.toString()}` });
   }
 
+  // Router location is the source of truth: it changes on back/forward AND on
+  // any in-app <TeamLink> click (which lands on this same route), so a team
+  // link inside Analysis switches to that team without a remount.
   useEffect(() => {
-    const onPopState = () => {
-      const location = readLocation();
-      setTab(location.tab);
-      setTeamSelection({ eventKey, value: location.team });
-      setMatchSelection({ eventKey, value: location.match });
-    };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [eventKey]);
-
-  useEffect(() => {
-    setTeamSelection((current) => ({ eventKey, value: current.value }));
-    setMatchSelection((current) => ({ eventKey, value: current.value }));
-  }, [eventKey]);
-
-  function openTeam(teamNumber: number): void {
-    setTeamSelection({ eventKey, value: teamNumber });
-    writeLocation('team', { team: teamNumber });
-  }
+    const next = readLocation(location.search);
+    setTab(next.tab);
+    setTeamSelection({ eventKey, value: next.team });
+    setMatchSelection({ eventKey, value: next.match });
+  }, [location.search, eventKey]);
 
   function openMatch(matchKey: string): void {
     setMatchSelection({ eventKey, value: matchKey });
@@ -145,7 +133,7 @@ export default function AnalysisScreen(): JSX.Element {
               onSelectMatch={(match) => setMatchSelection({ eventKey, value: match })}
             />
           )}
-          {tab === 'ranking' && <RankingView eventKey={eventKey} onSelectTeam={openTeam} />}
+          {tab === 'ranking' && <RankingView eventKey={eventKey} />}
           {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
         </section>
       )}

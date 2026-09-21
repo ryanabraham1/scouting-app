@@ -17,6 +17,7 @@ import { Gavel, Star, X, RotateCcw, Search, Trophy, Ban, Lock, StickyNote } from
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import {
   aggregateEvent,
   aggregateTeamComponentSplit,
@@ -65,8 +66,6 @@ function buildTbaRankMap(data: unknown): Map<number, number> {
 
 export interface DraftBoardViewProps {
   eventKey: string;
-  /** Open a team's Team page (wires to the Dashboard's Team tab). */
-  onSelectTeam?: (teamNumber: number) => void;
 }
 
 const EM_DASH = '—';
@@ -75,38 +74,6 @@ const TOP8_CAPTAINS = 8;
 
 function fmt(n: number, digits = 0): string {
   return Number.isFinite(n) ? n.toFixed(digits) : EM_DASH;
-}
-
-/**
- * A team number that links to the Team page when `onSelect` is provided (else a
- * plain span). Used everywhere a team appears on the board so any number opens
- * that team's profile.
- */
-function TeamNumber(props: {
-  team: number;
-  onSelect?: (team: number) => void;
-  className?: string;
-  testid: string;
-}): JSX.Element {
-  const { team, onSelect, className, testid } = props;
-  if (!onSelect) {
-    return (
-      <span className={className} data-testid={testid}>
-        {team}
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      data-testid={testid}
-      onClick={() => onSelect(team)}
-      aria-label={`Open team ${team}`}
-      className={cn('hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring', className)}
-    >
-      {team}
-    </button>
-  );
 }
 
 /** Status-tinted classes for a pool row. */
@@ -122,7 +89,7 @@ function rowTone(status: DraftRow['status']): string {
 }
 
 export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element {
-  const { eventKey, onSelectTeam } = props;
+  const { eventKey } = props;
   const baseTeam = getStoredBaseTeam();
 
   const reportsQuery = useEventReports(eventKey);
@@ -549,10 +516,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           <Star className="size-3.5 shrink-0" /> Pick next
                         </span>
                         <div className="flex min-w-0 items-baseline gap-2.5">
-                          <TeamNumber
+                          <TeamLink
                             team={r.teamNumber}
-                            onSelect={onSelectTeam}
-                            testid={`draft-best-team-${r.teamNumber}`}
+                            data-testid={`draft-best-team-${r.teamNumber}`}
                             className="font-display text-3xl leading-none tabular-nums text-brand"
                           />
                           {r.nickname ? (
@@ -611,10 +577,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="eyebrow shrink-0 text-muted-foreground">#{i + 1}</span>
-                        <TeamNumber
+                        <TeamLink
                           team={r.teamNumber}
-                          onSelect={onSelectTeam}
-                          testid={`draft-best-team-${r.teamNumber}`}
+                          data-testid={`draft-best-team-${r.teamNumber}`}
                           className="font-mono text-sm font-semibold tabular-nums text-brand"
                         />
                         {r.nickname ? (
@@ -677,7 +642,13 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Trophy className="size-5 text-success" />
-              {pickedBy != null ? `On team ${pickedBy}'s alliance` : 'Our alliance'}
+              {pickedBy != null ? (
+                <>
+                  On team <TeamLink team={pickedBy} />&apos;s alliance
+                </>
+              ) : (
+                'Our alliance'
+              )}
             </CardTitle>
             {pickedBy == null ? (
               <span className="text-xs tabular-nums text-muted-foreground">
@@ -783,10 +754,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           : 'border-success/40 bg-success/10',
                       )}
                     >
-                      <TeamNumber
+                      <TeamLink
                         team={r.teamNumber}
-                        onSelect={onSelectTeam}
-                        testid={`draft-alliance-team-${r.teamNumber}`}
+                        data-testid={`draft-alliance-team-${r.teamNumber}`}
                         className={cn(
                           'font-semibold tabular-nums',
                           isCaptain || r.isUs ? 'text-brand' : 'text-success',
@@ -899,10 +869,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     data-testid={`draft-identity-${r.teamNumber}`}
                     className="col-start-2 row-start-1 flex min-w-0 items-baseline gap-2"
                   >
-                    <TeamNumber
+                    <TeamLink
                       team={r.teamNumber}
-                      onSelect={onSelectTeam}
-                      testid={`draft-team-${r.teamNumber}`}
+                      data-testid={`draft-team-${r.teamNumber}`}
                       className={cn(
                         'shrink-0 font-display text-lg font-semibold leading-none tabular-nums text-brand',
                         (r.status === 'taken' || r.blockedByRank || r.blockedTop8) &&

@@ -14,6 +14,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { EventSetup } from '@/admin/EventSetup';
 import { MatchPlanner } from '@/admin/MatchPlanner';
 import type { AssignMatch, AssignScout, AssignTeam } from '@/admin/types';
@@ -472,9 +473,7 @@ export default function SetupTab(): JSX.Element {
         </div>
         <div className="text-xs text-muted-foreground">
           Currently:{' '}
-          <span data-testid="setup-base-team-current" className="font-mono">
-            {baseTeam}
-          </span>
+          <TeamLink team={baseTeam} data-testid="setup-base-team-current" className="font-mono" />
         </div>
       </div>
 

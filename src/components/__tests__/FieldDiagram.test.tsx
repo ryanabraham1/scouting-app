@@ -39,7 +39,7 @@ describe('FieldDiagram', () => {
     expect(getByTestId('field-diagram')).toBeTruthy();
     const img = container.querySelector('img');
     expect(img).toBeTruthy();
-    expect(img?.getAttribute('src')).toBe('/assets/field/field.png');
+    expect(img?.getAttribute('src')).toBe('/assets/field/field.webp');
   });
 
   it('honors a custom data-testid', () => {

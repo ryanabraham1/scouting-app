@@ -3,6 +3,7 @@
 // state rides along as a one-line note (`liveNote`) instead of a second stacked
 // panel, so the lead never sees the seat count twice.
 import type { CoverageSummary } from './coverage';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 export interface CoverageGapPanelProps {
   summary: CoverageSummary;
@@ -113,7 +114,11 @@ export function CoverageGapPanel({
                       : 'bg-blue-500/15 text-blue-400'
                   }`}
                 >
-                  {shortMatch(g.matchKey)} · {g.allianceColor} {g.station} · {g.targetTeamNumber}
+                  {shortMatch(g.matchKey)} · {g.allianceColor} {g.station} ·{' '}
+                  <TeamLink
+                    team={g.targetTeamNumber}
+                    className={g.allianceColor === 'red' ? 'text-red-400' : 'text-blue-400'}
+                  />
                 </span>
               ))}
             </div>

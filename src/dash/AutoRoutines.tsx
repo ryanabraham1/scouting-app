@@ -9,6 +9,7 @@ import type { RoutineOverlay } from '@/components/FieldDiagram';
 import AutoHeatmap from '@/dash/AutoHeatmap';
 import { OUR_TEAM } from '@/dash/constants';
 import type { MsrRow } from '@/dash/types';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 export interface AutoRoutinesProps {
   reports: MsrRow[];
@@ -258,7 +259,7 @@ export default function AutoRoutines(props: AutoRoutinesProps): JSX.Element {
                     background: r.color,
                   }}
                 />
-                <span>{r.teamNumber}</span>
+                <TeamLink team={r.teamNumber} className="text-foreground" />
               </li>
             ))}
           </ul>

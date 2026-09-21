@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sheet } from '@/components/ui/Sheet';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { Button } from '@/components/ui/button';
 import { saveTeamStrategyNote } from '@/dash/matchupNotesClient';
 
@@ -88,14 +89,19 @@ export default function MatchupNotesModal({
     <Sheet
       open={open}
       onClose={onClose}
-      title={`Strategy note for team ${frozen.targetTeam}`}
+      title={
+        <>
+          Strategy note for team <TeamLink team={frozen.targetTeam} onClick={onClose} />
+        </>
+      }
       initialFocusRef={textareaRef}
       data-testid="matchup-notes-sheet"
     >
       <div className="flex h-full flex-col gap-3">
         <p className="text-xs text-muted-foreground">
-          {frozen.allianceContext}. This event-scoped note follows team {frozen.targetTeam}{' '}
-          across every matchup at this event.
+          {frozen.allianceContext}. This event-scoped note follows team{' '}
+          <TeamLink team={frozen.targetTeam} onClick={onClose} /> across every matchup at this
+          event.
         </p>
         <textarea
           ref={textareaRef}

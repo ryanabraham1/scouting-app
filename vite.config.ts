@@ -1,12 +1,86 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+/**
+ * Route chunks are lazy (router.tsx), so an uncached load of /dashboard was a
+ * serial waterfall: HTML → entry chunk (download + parse + execute) → THEN the
+ * route chunk and its static imports. On venue wifi each hop is a full
+ * round-trip. This plugin maps every lazy route to its built chunk closure and
+ * injects a tiny inline script that emits `<link rel="modulepreload">` for the
+ * current pathname, so the route's code downloads in parallel with the entry.
+ * Only matters for uncached loads (first visit / after a deploy) — the SW
+ * precache covers everything after that — but that is exactly the load that
+ * hurts most.
+ */
+function routeChunkPreload(): Plugin {
+  const root = fileURLToPath(new URL('.', import.meta.url));
+  // Keep in sync with the lazy routes in src/routes/router.tsx (redirect
+  // routes map to their destination screen).
+  const ROUTE_MODULES: Record<string, string> = {
+    '/scout': 'src/capture/ScoutHome.tsx',
+    '/pit': 'src/capture/ScoutHome.tsx',
+    '/scout/tutorial': 'src/tutorial/ScoutTutorial.tsx',
+    '/my-data': 'src/scout/MyDataView.tsx',
+    '/qr/send': 'src/qr/QrSendScreen.tsx',
+    '/qr/receive': 'src/qr/QrReceiveScreen.tsx',
+    '/dashboard': 'src/dash/DashboardScreen.tsx',
+    '/admin': 'src/dash/DashboardScreen.tsx',
+    '/analysis': 'src/dash/AnalysisScreen.tsx',
+    '/sync': 'src/sync/SyncStatusScreen.tsx',
+  };
+  return {
+    name: 'frc:route-chunk-preload',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const bundle = ctx.bundle;
+        if (!bundle) return html;
+        const chunks = Object.values(bundle).filter((c) => c.type === 'chunk');
+        const byFacade = new Map<string, string>();
+        for (const c of chunks) {
+          if (c.facadeModuleId) byFacade.set(path.relative(root, c.facadeModuleId), c.fileName);
+        }
+        const byFile = new Map(chunks.map((c) => [c.fileName, c] as const));
+        // Everything the entry already pulls in statically is preloaded by
+        // Vite's own tags; skip it so we never emit a duplicate link.
+        const entryClosure = new Set<string>();
+        const walk = (file: string, into: Set<string>): void => {
+          if (into.has(file)) return;
+          into.add(file);
+          for (const dep of byFile.get(file)?.imports ?? []) walk(dep, into);
+        };
+        for (const c of chunks) if (c.isEntry) walk(c.fileName, entryClosure);
+
+        const manifest: Record<string, string[]> = {};
+        for (const [route, mod] of Object.entries(ROUTE_MODULES)) {
+          const file = byFacade.get(mod);
+          if (!file) continue;
+          const closure = new Set<string>();
+          walk(file, closure);
+          manifest[route] = Array.from(closure)
+            .filter((f) => !entryClosure.has(f))
+            .map((f) => `/${f}`);
+        }
+        const script =
+          '<script>(function(){var m=' +
+          JSON.stringify(manifest) +
+          ';var p=location.pathname.replace(/[/]+$/,"")||"/";var f=m[p];if(!f)return;' +
+          'for(var i=0;i<f.length;i++){var l=document.createElement("link");l.rel="modulepreload";l.href=f[i];document.head.appendChild(l);}})();</script>';
+        return html.replace('</head>', `${script}\n  </head>`);
+      },
+    },
+  };
+}
 
 export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   plugins: [
     react(),
+    routeChunkPreload(),
     VitePWA({
       // Data-entry screens explicitly defer activation; autoUpdate bypasses
       // onNeedRefresh and can reload a capture in progress.
@@ -22,7 +96,7 @@ export default defineConfig({
         // woff2: the self-hosted mono telemetry font must be PREcached, or an
         // installed-then-offline device silently falls back to system mono
         // (the /assets/ runtime rule only caches it after a first online render).
-        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest,woff2}'],
+        globPatterns: ['**/*.{js,css,html,png,webp,svg,webmanifest,woff2}'],
         navigateFallback: '/index.html',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
@@ -38,7 +112,7 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
-            // Same-origin static assets (notably the ~2.4 MB field image used by
+            // Same-origin static assets (notably the field image used by
             // every capture/review/auto screen). These are also precached via
             // globPatterns, but a CacheFirst runtime rule is belt-and-suspenders:
             // if the precache ever skips the image (e.g. a stale SW generated

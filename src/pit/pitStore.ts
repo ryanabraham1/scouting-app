@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import { supabase } from '@/lib/supabase';
 import { isAuthClassError } from '@/sync/classifyError';
 import { isRetryDue } from '@/sync/retrySchedule';
+import { roundFieldPath, roundFieldPoint } from '@/lib/fieldPoint';
 
 export interface PitPhoto {
   id: string;
@@ -485,6 +486,10 @@ export async function listPitDraftsForEvent(eventKey: string): Promise<PitDraft[
 // value that is comparable ACROSS authors (unlike a per-author counter). The server
 // (migration 0031) writes only when it's STRICTLY NEWER than the stored revision, so
 // a stale offline resync can no longer clobber a newer report.
+function roundPoint<T extends { x: number; y: number }>(point: T | null | undefined): T | null {
+  return point == null ? null : roundFieldPoint(point);
+}
+
 export function pitUpsertPayload(
   report: PitReport,
   rowRevision: number,
@@ -516,8 +521,10 @@ export function pitUpsertPayload(
       brand: report.batteryBrand,
       connector: report.batteryConnector,
     },
-    preferred_auto_start_position: firstAuto?.startPosition ?? report.preferredAutoStartPosition,
-    preferred_auto_path: firstAuto?.path ?? report.preferredAutoPath,
+    preferred_auto_start_position: roundPoint(
+      firstAuto?.startPosition ?? report.preferredAutoStartPosition,
+    ),
+    preferred_auto_path: roundFieldPath(firstAuto?.path ?? report.preferredAutoPath),
     match_strategy: report.matchStrategy,
     robot_dimensions: {
       lengthIn: report.robotLengthIn,
@@ -526,7 +533,11 @@ export function pitUpsertPayload(
       trenchCapable: report.trenchCapable,
     },
     pit_questionnaire: report.questionnaire ?? {},
-    auto_routines: report.autoRoutines ?? [],
+    auto_routines: (report.autoRoutines ?? []).map((routine) => ({
+      ...routine,
+      startPosition: roundPoint(routine.startPosition),
+      path: roundFieldPath(routine.path),
+    })),
     photos,
     photo_path: photos[0]?.path ?? null,
     notes: questionnaire?.additionalComments ?? report.notes,

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 vi.mock('@/dash/useActiveEvent', () => ({
   useActiveEvent: () => ({ eventKey: '2026demo', loading: false, authoritative: true }),
@@ -10,9 +11,9 @@ vi.mock('@/dash/strategy/StrategyView', () => ({
   default: () => <div data-testid="view-strategy" />,
 }));
 vi.mock('@/dash/PicklistView', () => ({
-  default: ({ onSelectTeam }: { onSelectTeam?: (team: number) => void }) => (
+  default: () => (
     <div data-testid="view-picklist">
-      <button type="button" onClick={() => onSelectTeam?.(254)}>Open 254</button>
+      <TeamLink team={254} />
     </div>
   ),
 }));
@@ -70,11 +71,11 @@ describe('DashboardScreen', () => {
     ]);
   });
 
-  it('keeps old Setup links working as Settings', () => {
+  it('keeps old Setup links working as Settings', async () => {
     window.history.replaceState({}, '', '/dashboard?tab=setup');
     renderDashboard();
     unlock();
-    expect(screen.getByTestId('settings-tab')).toBeInTheDocument();
+    expect(await screen.findByTestId('settings-tab')).toBeInTheDocument();
   });
 
   it('locks again from the dashboard header', () => {
@@ -85,7 +86,7 @@ describe('DashboardScreen', () => {
     expect(window.sessionStorage.getItem('frc-lead-dashboard-unlocked')).toBeNull();
   });
 
-  it('opens Picklist team details on the Analysis page', () => {
+  it('opens Picklist team details on the Analysis page', async () => {
     function LocationProbe(): JSX.Element {
       const location = useLocation();
       return <div data-testid="location">{`${location.pathname}${location.search}`}</div>;
@@ -101,7 +102,7 @@ describe('DashboardScreen', () => {
     );
     unlock();
     fireEvent.click(screen.getByRole('tab', { name: 'Picklist' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open 254' }));
+    fireEvent.click(await screen.findByRole('link', { name: '254' }));
     expect(screen.getByTestId('location')).toHaveTextContent('/analysis?tab=team&team=254');
   });
 });

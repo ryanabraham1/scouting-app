@@ -12,6 +12,7 @@
 import { useMemo } from 'react';
 import { ArrowUp, ArrowDown, Trophy, Flag, CircleSlash } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import type { MatchRow } from '@/dash/useEventData';
 import {
   type Feed,
@@ -55,12 +56,11 @@ function TeamLine(props: { teams: number[]; color: 'red' | 'blue' | 'neutral'; b
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-mono text-sm tabular-nums">
       {teams.map((t) => (
-        <span
+        <TeamLink
           key={t}
+          team={t}
           className={cn(base, t === baseTeam && 'rounded bg-yellow-400/20 px-1 font-bold text-yellow-200 ring-1 ring-yellow-400/60')}
-        >
-          {t}
-        </span>
+        />
       ))}
     </span>
   );

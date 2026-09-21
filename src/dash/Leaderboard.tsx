@@ -11,6 +11,7 @@
 import type { ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 const EM_DASH = '—';
 
@@ -161,7 +162,9 @@ export default function Leaderboard(props: LeaderboardProps): JSX.Element {
                         )}
                       >
                         <td className="px-2 py-2 tabular-nums">{row.rank}</td>
-                        <td className="px-2 py-2 tabular-nums font-medium">{row.teamNumber}</td>
+                        <td className="px-2 py-2 tabular-nums font-medium">
+                          <TeamLink team={row.teamNumber} />
+                        </td>
                         <td className="px-2 py-2 text-right tabular-nums">{row.rp.toFixed(3)}</td>
                         <td
                           data-testid={`leaderboard-total-${row.teamNumber}`}

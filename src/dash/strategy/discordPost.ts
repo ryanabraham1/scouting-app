@@ -54,7 +54,7 @@ const RENDER_W = Math.round(FIELD_W / 3);
 const RENDER_H = Math.round(FIELD_H / 3);
 const LABEL_H = 64;
 const GAP = 12;
-const FIELD_IMAGE_SRC = '/assets/field/field.png';
+const FIELD_IMAGE_SRC = '/assets/field/field.webp';
 
 function loadFieldImage(): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {

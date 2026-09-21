@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { ensureEventScoutsFromRoster } from './ensureEventScoutsClient';
 import {
   autoAssignPits,
@@ -533,9 +534,7 @@ export function PitAssignmentBoard({
                     className="flex min-h-24 flex-col gap-2 rounded-lg border border-border p-3"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="w-16 shrink-0 font-mono font-semibold text-brand">
-                        {team.teamNumber}
-                      </span>
+                      <TeamLink team={team.teamNumber} className="w-16 shrink-0 font-mono font-semibold" />
                       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                         {team.nickname ?? ''}
                       </span>

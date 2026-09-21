@@ -39,10 +39,14 @@ describe('MatchupNotesModal', () => {
   });
 
   it('names the actual team and explains event-scoped resurfacing', () => {
-    const { getByText, queryByText } = renderModal();
-    expect(getByText('Strategy note for team 254')).toBeTruthy();
+    const { getByRole, getByText, getAllByRole, queryByText } = renderModal();
+    expect(getByRole('dialog', { name: 'Strategy note for team 254' })).toBeTruthy();
     expect(getByText(/Opponent · Red alliance/)).toBeTruthy();
-    expect(getByText(/follows team 254 across every matchup at this event/)).toBeTruthy();
+    expect(getByText(/across every matchup at this event/)).toBeTruthy();
+    // The team number links to its Analysis page (title + body copy).
+    for (const link of getAllByRole('link', { name: '254' })) {
+      expect(link).toHaveAttribute('href', '/analysis?tab=team&team=254');
+    }
     expect(queryByText(/alliance lead/i)).toBeNull();
   });
 

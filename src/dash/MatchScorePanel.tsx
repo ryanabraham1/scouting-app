@@ -7,6 +7,7 @@
 // host (team-last-match / match-results) keeps its own stable testids.
 
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 /** Winner side off a MatchRow — kept loose (`string`) since the row type is. */
 export type Winner = 'red' | 'blue' | 'tie' | string | null;
@@ -53,19 +54,21 @@ export function AllianceLine(props: {
       </div>
       <div className="flex items-end justify-between gap-2">
         <span className="flex flex-wrap gap-1.5">
-          {teams.map((t, i) => (
-            <span
-              key={`${color}-${i}`}
-              className={cn(
-                'rounded px-2 py-0.5 text-base font-semibold',
-                ourTeam != null && t === ourTeam
-                  ? 'bg-brand/25 text-brand ring-1 ring-brand/50'
-                  : `${colorText} bg-white/5`,
-              )}
-            >
-              {t ?? '—'}
-            </span>
-          ))}
+          {teams.map((t, i) => {
+            const chip = cn(
+              'rounded px-2 py-0.5 text-base font-semibold',
+              ourTeam != null && t === ourTeam
+                ? 'bg-brand/25 text-brand ring-1 ring-brand/50'
+                : `${colorText} bg-white/5`,
+            );
+            return t != null ? (
+              <TeamLink key={`${color}-${i}`} team={t} className={cn(chip, 'hover:opacity-80')} />
+            ) : (
+              <span key={`${color}-${i}`} className={chip}>
+                —
+              </span>
+            );
+          })}
         </span>
         <span className={cn('text-4xl font-black leading-none', colorText)}>{score ?? '—'}</span>
       </div>

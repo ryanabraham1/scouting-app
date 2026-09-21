@@ -49,19 +49,14 @@ describe('PicklistEpaBoard', () => {
     expect(getByTestId('epa-board-count').textContent).toContain('2/3');
   });
 
-  it('links a board team number to the Team tab via onSelectTeam', () => {
-    const onSelectTeam = vi.fn();
+  it('links a board team number to its Analysis team page', () => {
     const { getByTestId } = render(
-      <PicklistEpaBoard
-        teams={TEAMS}
-        epa={statboticsEpa()}
-        inListTeams={new Set()}
-        onAdd={onAdd}
-        onSelectTeam={onSelectTeam}
-      />,
+      <PicklistEpaBoard teams={TEAMS} epa={statboticsEpa()} inListTeams={new Set()} onAdd={onAdd} />,
     );
-    fireEvent.click(getByTestId('epa-board-team-254'));
-    expect(onSelectTeam).toHaveBeenCalledWith(254);
+    expect(getByTestId('epa-board-team-254')).toHaveAttribute(
+      'href',
+      '/analysis?tab=team&team=254',
+    );
   });
 
   it('orders rows by EPA desc, sinking no-EPA teams to the bottom with "—"', () => {

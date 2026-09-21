@@ -83,7 +83,7 @@ export function mergeRobots(
   return [...byKey.values()];
 }
 
-/** Field image aspect (public/assets/field/field.png is 3902×1584). */
+/** Field image aspect (public/assets/field/field.webp is 3902×1584). */
 export const FIELD_W = 3902;
 export const FIELD_H = 1584;
 export const FIELD_ASPECT = FIELD_W / FIELD_H;

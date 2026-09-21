@@ -1,8 +1,7 @@
 // src/dash/DashboardScreen.tsx — lightly protected controls for lead-only work.
 // The PIN is intentionally a client-side guard against accidental edits, not an
 // authentication boundary. Analysis lives separately at /analysis.
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Presentation,
   ClipboardList,
@@ -18,10 +17,23 @@ import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
 import StrategyView from '@/dash/strategy/StrategyView';
-import PicklistView from '@/dash/PicklistView';
-import ScoutersTab from '@/dash/ScoutersTab';
-import SetupTab from '@/dash/SetupTab';
-import DraftBoardView from '@/dash/DraftBoardView';
+
+// Strategy is the default tab and ships in this chunk; the other tabs are
+// loaded on first visit so a dashboard open only pays for what it shows
+// (Setup alone carried ~57 KB of admin code plus the picklist's dnd-kit).
+// The SW precaches every chunk, so the split costs nothing offline.
+const PicklistView = lazy(() => import('@/dash/PicklistView'));
+const ScoutersTab = lazy(() => import('@/dash/ScoutersTab'));
+const SetupTab = lazy(() => import('@/dash/SetupTab'));
+const DraftBoardView = lazy(() => import('@/dash/DraftBoardView'));
+
+function TabLoading(): JSX.Element {
+  return (
+    <p role="status" className="text-sm text-muted-foreground">
+      Loading…
+    </p>
+  );
+}
 
 type Tab = 'strategy' | 'scouters' | 'picklist' | 'draft' | 'settings';
 
@@ -156,7 +168,6 @@ function LeadGate({ children }: { children: (lockDashboard: () => void) => React
 function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.Element {
   const { eventKey, loading, authoritative, serverUnreachable } = useActiveEvent();
   useEventLiveSync(eventKey);
-  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>(initialTab);
 
   function selectTab(next: Tab): void {
@@ -178,8 +189,6 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
 
   const current = TABS.find((item) => item.key === tab);
   const dataGated = current?.needsEvent ?? true;
-  const openTeam = (teamNumber: number) =>
-    navigate(`/analysis?tab=team&team=${encodeURIComponent(teamNumber)}`);
 
   return (
     <div
@@ -238,8 +247,10 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         </div>
       ) : null}
 
-      {tab === 'scouters' && <ScoutersTab eventKey={eventKey} />}
-      {tab === 'settings' && <SetupTab />}
+      <Suspense fallback={<TabLoading />}>
+        {tab === 'scouters' && <ScoutersTab eventKey={eventKey} />}
+        {tab === 'settings' && <SetupTab />}
+      </Suspense>
 
       {dataGated &&
         (loading ? (
@@ -251,10 +262,12 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         ) : (
           <section className="min-w-0 flex-1">
             {tab === 'strategy' && <StrategyView eventKey={eventKey} />}
-            {tab === 'picklist' && (
-              <PicklistView eventKey={eventKey} onSelectTeam={openTeam} readOnly={!authoritative} />
-            )}
-            {tab === 'draft' && <DraftBoardView eventKey={eventKey} onSelectTeam={openTeam} />}
+            <Suspense fallback={<TabLoading />}>
+              {tab === 'picklist' && (
+                <PicklistView eventKey={eventKey} readOnly={!authoritative} />
+              )}
+              {tab === 'draft' && <DraftBoardView eventKey={eventKey} />}
+            </Suspense>
           </section>
         ))}
     </div>

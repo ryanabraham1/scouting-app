@@ -213,10 +213,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
  * Hard ceiling on the persisted blob. The whole cache is ONE IndexedDB value
  * that every boot must read and JSON.parse before any query may run, so its
  * size is directly the dashboard's cold-start latency (Firefox/Zen read a
- * multi-MB value in seconds, not milliseconds). Compact live data for a full
- * event sits well under this; anything beyond it is stale accumulation.
+ * multi-MB value in seconds, not milliseconds). Sized so a full event's live
+ * data (reports ≈2.6 MB for 350 reports, pit ≈0.7 MB, the compacted season TBA
+ * fan-out ≈0.7 MB) fits TOGETHER: at 3 MB they evicted one another on every
+ * persist, so each reload re-downloaded whichever set had just been dropped.
+ * Anything beyond this is stale accumulation. Parsing 6 MB is ~50 ms in
+ * Chromium; the 4 s restore timeout still bounds a pathological browser.
  */
-export const QUERY_CACHE_MAX_BYTES = 3 * 1024 * 1024;
+export const QUERY_CACHE_MAX_BYTES = 6 * 1024 * 1024;
 
 /** Lower number = evicted first. Raw upstream fan-out is cheapest to refetch. */
 function evictionPriority(query: DehydratedState['queries'][number]): number {
@@ -334,8 +338,22 @@ export function createMergeSafePersister(
   };
 }
 
+// Kick off the boot-time read at module evaluation so the IndexedDB open +
+// read overlaps React's first render and the rest of the entry chunk instead
+// of starting only once PersistQueryClientProvider mounts. Consumed once; any
+// later read (cross-tab cache-updated pings) goes straight to storage.
+let primedRead: Promise<string | undefined> | null =
+  typeof indexedDB === 'undefined' ? null : get<string>('frc-rq-cache', idbStore).catch(() => undefined);
+
 const cacheStorage: AtomicQueryCacheStorage = {
-  read: () => get<string>('frc-rq-cache', idbStore),
+  read: () => {
+    if (primedRead) {
+      const pending = primedRead;
+      primedRead = null;
+      return pending;
+    }
+    return get<string>('frc-rq-cache', idbStore);
+  },
   update: (transform) =>
     update<string>('frc-rq-cache', (current) => transform(current), idbStore),
   remove: () => del('frc-rq-cache', idbStore),

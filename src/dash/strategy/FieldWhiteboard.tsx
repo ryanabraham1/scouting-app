@@ -33,6 +33,7 @@ import {
 } from 'react';
 import { Eraser, Pen, PenTool, Redo2, Trash2, Undo2, Cloud, CloudOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { useOnline } from '@/sync/useOnline';
 import type { RoutineOverlay } from '@/components/FieldDiagram';
 import {
@@ -903,7 +904,7 @@ export default function FieldWhiteboard({
           </div>
         ) : (
           <img
-            src="/assets/field/field.png"
+            src="/assets/field/field.webp"
             alt="field"
             draggable={false}
             onError={() => setImgFailed(true)}
@@ -1059,7 +1060,7 @@ export default function FieldWhiteboard({
                 className="inline-block size-3.5 rounded-[3px] ring-1 ring-white/60"
                 style={{ background: seed.color }}
               />
-              <span className="tabular-nums font-medium text-foreground">{seed.team}</span>
+              <TeamLink team={seed.team} className="font-medium text-foreground" />
             </span>
           ))}
           <span className="text-muted-foreground/70">drag a square to place each robot</span>

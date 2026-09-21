@@ -57,5 +57,29 @@ const sessionReady = ensureAnonSession().catch(keepRetryingSession);
 supabase.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT') void ensureAnonSession().catch(keepRetryingSession);
 });
-const bootTimeout = new Promise<void>((resolve) => setTimeout(resolve, SESSION_BOOT_TIMEOUT_MS));
-void Promise.race([sessionReady, bootTimeout]).finally(mount);
+/**
+ * Only a device with NO persisted session needs to wait: that is the one case
+ * where a first action could race the sign-up. A returning device already has
+ * a token in storage — possibly expired, but supabase-js refreshes it lazily
+ * and every authed request waits on that refresh internally — so holding first
+ * paint behind `getSession()` bought nothing and, on venue wifi, cost up to
+ * SESSION_BOOT_TIMEOUT_MS of blank screen every morning while the refresh
+ * round-trip crawled.
+ */
+function hasPersistedSession(): boolean {
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) return true;
+    }
+  } catch {
+    // Storage unavailable (private mode / blocked): treat as a fresh device.
+  }
+  return false;
+}
+if (hasPersistedSession()) {
+  mount();
+} else {
+  const bootTimeout = new Promise<void>((resolve) => setTimeout(resolve, SESSION_BOOT_TIMEOUT_MS));
+  void Promise.race([sessionReady, bootTimeout]).finally(mount);
+}

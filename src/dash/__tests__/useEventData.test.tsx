@@ -72,6 +72,7 @@ import {
 } from '@/dash/seasonEpa';
 
 import { useActiveEvent } from '../useActiveEvent';
+import type { MsrRow } from '@/dash/types';
 
 function wrapper() {
   const client = new QueryClient({
@@ -189,6 +190,74 @@ describe('useEventData', () => {
       expect(builder.gte).not.toHaveBeenCalled();
     } finally {
       now.mockRestore();
+    }
+  });
+
+  it('useEventReports reconcile drops hard-deleted rows via the live id list without a full pull', async () => {
+    const w = wrapper();
+    const row = (id: string, stamp: string, extra: Record<string, unknown> = {}) =>
+      ({ id, match_key: 'qm1', target_team_number: 254, server_received_at: stamp, deleted: false, ...extra });
+    tableResults['match_scouting_report'] = {
+      data: [row('a', '2026-09-20T10:00:00Z'), row('b', '2026-09-20T10:01:00Z')],
+      error: null,
+    };
+    const { result } = renderHook(() => useEventReports('2026casnv'), { wrapper: w });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + REPORTS_FULL_REFRESH_MS + 1);
+    try {
+      // 'a' was hard-deleted server-side; 'b' edited. Both queries read the same
+      // mock table, so the id list is [b] and the incremental pull returns b.
+      tableResults['match_scouting_report'] = {
+        data: [row('b', '2026-09-20T10:05:00Z', { notes: 'edited' })],
+        error: null,
+      };
+      let refetched: MsrRow[] | undefined;
+      await act(async () => {
+        refetched = (await result.current.refetch()).data;
+      });
+      // Exactly two requests: the id list and the incremental pull — no `select('*')` full download.
+      expect(fromMock.mock.results).toHaveLength(3);
+      const incremental = fromMock.mock.results[2].value as Record<string, ReturnType<typeof vi.fn>>;
+      expect(incremental.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:01:00Z');
+      expect(refetched?.map((r) => r.id)).toEqual(['b']);
+      expect(refetched?.[0]?.notes).toBe('edited');
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('useEventReports reconcile falls back to a full download when a live id is unaccounted for', async () => {
+    const w = wrapper();
+    const row = (id: string, stamp: string) =>
+      ({ id, match_key: 'qm1', target_team_number: 254, server_received_at: stamp, deleted: false });
+    tableResults['match_scouting_report'] = { data: [row('a', '2026-09-20T10:00:00Z')], error: null };
+    const { result } = renderHook(() => useEventReports('2026casnv'), { wrapper: w });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + REPORTS_FULL_REFRESH_MS + 1);
+    try {
+      // A row whose stamp landed BEHIND our high-water mark: the id list knows
+      // it, the incremental pull (mocked as empty) does not.
+      let call = 0;
+      fromMock.mockImplementation(() => {
+        call += 1;
+        if (call === 1) return makeBuilder({ data: [row('a', 't'), row('z', 't')], error: null });
+        if (call === 2) return makeBuilder({ data: [], error: null });
+        return makeBuilder({ data: [row('a', '2026-09-20T10:00:00Z'), row('z', '2026-09-20T09:00:00Z')], error: null });
+      });
+      let refetched: MsrRow[] | undefined;
+      await act(async () => {
+        refetched = (await result.current.refetch()).data;
+      });
+      expect(fromMock.mock.results).toHaveLength(4);
+      const full = fromMock.mock.results[3].value as Record<string, ReturnType<typeof vi.fn>>;
+      expect(full.eq).toHaveBeenCalledWith('deleted', false);
+      expect(full.gte).not.toHaveBeenCalled();
+      expect(refetched?.map((r) => r.id).sort()).toEqual(['a', 'z']);
+    } finally {
+      now.mockRestore();
+      fromMock.mockImplementation((table: string) =>
+        makeBuilder(tableResults[table] ?? { data: [], error: null }),
+      );
     }
   });
 

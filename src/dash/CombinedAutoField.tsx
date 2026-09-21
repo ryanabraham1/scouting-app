@@ -20,6 +20,7 @@ import { type AllianceColor } from '@/dash/fieldFrame';
 import type { MsrRow } from '@/dash/types';
 import type { TeamPit } from '@/dash/useTeamPit';
 import { inferAllianceFromStart } from '@/fieldFrame';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 export interface CombinedAutoFieldProps {
   redTeams: number[];
@@ -217,7 +218,7 @@ export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.El
                 className="inline-block size-3 rounded-sm"
                 style={{ background: t.color }}
               />
-              <span className="tabular-nums font-medium">{t.team}</span>
+              <TeamLink team={t.team} className="font-medium text-foreground" />
             </span>
             {t.groups.length > 1 ? (
               <span

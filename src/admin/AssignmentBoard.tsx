@@ -19,6 +19,7 @@ import { isQualMatchKey } from '@/lib/formatMatch';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { Settings2, ChevronDown } from 'lucide-react';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import {
@@ -912,7 +913,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                   className="size-4 accent-brand"
                 />
                 <span>
-                  Don't scout the matches {ownTeam} plays in
+                  Don&apos;t scout the matches <TeamLink team={ownTeam} /> plays in
                   {ownMatchCount > 0 ? (
                     <span data-testid="opt-skip-own-count" className="text-xs text-muted-foreground">
                       {' '}
@@ -1171,15 +1172,14 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                             key={key}
                             className="flex items-center gap-2 text-sm"
                           >
-                            <span
+                            <TeamLink
+                              team={s.targetTeamNumber}
                               className={`w-20 shrink-0 rounded px-1.5 py-0.5 text-center font-mono ${
                                 s.allianceColor === 'red'
                                   ? 'bg-red-500/15 text-red-400'
                                   : 'bg-blue-500/15 text-blue-400'
                               }`}
-                            >
-                              {s.targetTeamNumber}
-                            </span>
+                            />
                             <span className="w-7 shrink-0 font-mono text-xs text-muted-foreground">
                               {s.allianceColor[0].toUpperCase()}
                               {s.station}

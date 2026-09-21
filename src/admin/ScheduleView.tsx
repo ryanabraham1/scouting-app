@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 interface MatchRow {
   match_key: string;
@@ -72,14 +73,14 @@ export function ScheduleView({ eventKey }: ScheduleViewProps): JSX.Element {
               >
                 <span className="w-10 shrink-0 font-semibold text-brand">Q{m.match_number}</span>
                 <span className="flex gap-1 font-mono text-red-400">
-                  <span className="rounded bg-red-500/15 px-1.5 py-0.5">{m.red1}</span>
-                  <span className="rounded bg-red-500/15 px-1.5 py-0.5">{m.red2}</span>
-                  <span className="rounded bg-red-500/15 px-1.5 py-0.5">{m.red3}</span>
+                  {[m.red1, m.red2, m.red3].map((t, i) => (
+                    <TeamLink key={i} team={t} className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-400" />
+                  ))}
                 </span>
                 <span className="flex gap-1 font-mono text-blue-400">
-                  <span className="rounded bg-blue-500/15 px-1.5 py-0.5">{m.blue1}</span>
-                  <span className="rounded bg-blue-500/15 px-1.5 py-0.5">{m.blue2}</span>
-                  <span className="rounded bg-blue-500/15 px-1.5 py-0.5">{m.blue3}</span>
+                  {[m.blue1, m.blue2, m.blue3].map((t, i) => (
+                    <TeamLink key={i} team={t} className="rounded bg-blue-500/15 px-1.5 py-0.5 text-blue-400" />
+                  ))}
                 </span>
               </li>
             ))}

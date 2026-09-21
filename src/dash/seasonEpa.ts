@@ -92,13 +92,36 @@ export function compactTbaMatch(raw: unknown): unknown {
   return out;
 }
 
+/**
+ * A finished event's match list never changes again, so refetching it every
+ * EPA_STALE_TIME was pure waste: the season fan-out re-pulled ~25 event lists
+ * (~30 KB gzipped each) on every dashboard open. Treat a list whose newest
+ * played match is older than this as settled and keep it for a week.
+ */
+export const COMPLETED_EVENT_GRACE_MS = 3 * 24 * 60 * 60_000;
+export const COMPLETED_EVENT_STALE_TIME = 7 * 24 * 60 * 60_000;
+
+/** True when every match in a compacted list has been played and the newest is well in the past. */
+export function isCompletedEventMatches(matches: unknown, now: number = Date.now()): boolean {
+  if (!Array.isArray(matches) || matches.length === 0) return false;
+  let newest = 0;
+  for (const m of matches) {
+    if (!isObj(m)) return false;
+    const played = typeof m.actual_time === 'number' ? m.actual_time : null;
+    if (played === null) return false;
+    if (played > newest) newest = played;
+  }
+  return now - newest * 1000 > COMPLETED_EVENT_GRACE_MS;
+}
+
 /** Full (compacted) TBA match list for one event, shared across every team replay. */
 export async function fetchEventMatchesCached(eventKey: string): Promise<unknown[]> {
   const queryKey = ['tba', 'event-matches', eventKey] as const;
   try {
     const json = await queryClient.fetchQuery({
       queryKey,
-      staleTime: EPA_STALE_TIME,
+      staleTime: (query) =>
+        isCompletedEventMatches(query.state.data) ? COMPLETED_EVENT_STALE_TIME : EPA_STALE_TIME,
       retry: false,
       queryFn: async (): Promise<unknown[]> => {
         const data = await tbaGet<unknown>(`/event/${eventKey}/matches`);

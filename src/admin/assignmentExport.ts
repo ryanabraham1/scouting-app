@@ -1,4 +1,3 @@
-import JSZip from 'jszip';
 import type { CachedMatch } from '@/db/types';
 import type { AssignScout, AssignTeam, Assignment, PitAssignment } from './types';
 
@@ -144,6 +143,9 @@ export async function createAssignmentWorkbook(
       crew.every((assignment) => assignment.source === 'auto') ? 'Auto' : 'Manual',
     ]);
 
+  // Loaded on demand: jszip is ~97 KB and only this export needs it, so it
+  // must not ride in the dashboard's route chunk.
+  const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
   zip.file(
     '[Content_Types].xml',

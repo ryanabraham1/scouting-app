@@ -285,7 +285,7 @@ export function FieldDiagram(props: FieldDiagramProps): JSX.Element {
         }}
        >
       <img
-        src="/assets/field/field.png"
+        src="/assets/field/field.webp"
         alt="field"
         draggable={false}
         style={{ display: 'block', width: '100%', height: 'auto' }}

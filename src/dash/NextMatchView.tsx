@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { useFullscreen } from '@/dash/useFullscreen';
 import {
   useEventMatches,
@@ -125,16 +126,15 @@ function TeamCell({
   color: 'red' | 'blue';
   mine: boolean;
 }) {
-  return (
-    <span
-      className={cn(
-        'px-2 py-1.5 text-center font-mono text-sm font-semibold tabular-nums',
-        color === 'red' ? 'bg-red-950/80 text-red-100' : 'bg-blue-950/80 text-blue-100',
-        mine && 'bg-amber-400 text-neutral-900',
-      )}
-    >
-      {team ?? ''}
-    </span>
+  const cell = cn(
+    'px-2 py-1.5 text-center font-mono text-sm font-semibold tabular-nums',
+    color === 'red' ? 'bg-red-950/80 text-red-100' : 'bg-blue-950/80 text-blue-100',
+    mine && 'bg-amber-400 text-neutral-900',
+  );
+  return team != null ? (
+    <TeamLink team={team} className={cn(cell, 'block hover:opacity-80')} />
+  ) : (
+    <span className={cell} />
   );
 }
 
@@ -451,7 +451,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
         </h2>
         <div className="flex items-center gap-3">
           <span className="text-lg font-semibold text-muted-foreground">
-            <span className="text-foreground">{baseTeam}</span> | {eventKey}
+            <TeamLink team={baseTeam} className="text-foreground" /> | {eventKey}
           </span>
           {fullscreen.supported ? (
             <button
@@ -504,7 +504,9 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           {/* Next match — the loud red hero card. */}
           <div className="rounded-xl bg-red-600 px-6 py-6 text-white">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-base font-semibold">{baseTeam} Next Match</span>
+              <span className="text-base font-semibold">
+                <TeamLink team={baseTeam} className="text-white hover:text-white/80" /> Next Match
+              </span>
             </div>
             <div
               data-testid="dash-next-title"
@@ -541,7 +543,9 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
                 </div>
               </div>
               {upcoming.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No upcoming matches for {baseTeam}.</p>
+                <p className="text-sm text-muted-foreground">
+                  No upcoming matches for <TeamLink team={baseTeam} />.
+                </p>
               ) : (
                 <ul data-testid="dash-next-upcoming" className="flex flex-col gap-2">
                   {upcoming.map((u) => (

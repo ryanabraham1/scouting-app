@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 vi.mock('@/dash/useActiveEvent', () => ({
   useActiveEvent: () => ({ eventKey: '2026demo', loading: false, authoritative: true }),
@@ -29,26 +30,32 @@ vi.mock('@/dash/MatchView', () => ({
   ),
 }));
 vi.mock('@/dash/RankingView', () => ({
-  default: ({ onSelectTeam }: { onSelectTeam?: (team: number) => void }) => (
+  default: () => (
     <div data-testid="view-ranking">
-      <button type="button" onClick={() => onSelectTeam?.(254)}>Open 254</button>
+      <TeamLink team={254} />
     </div>
   ),
 }));
 
 import AnalysisScreen from '../AnalysisScreen';
 
-function renderAnalysis(): ReturnType<typeof render> {
+function LocationProbe(): JSX.Element {
+  const location = useLocation();
+  return <div data-testid="location" data-search={location.search} />;
+}
+
+function renderAnalysis(path = '/analysis'): ReturnType<typeof render> {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AnalysisScreen />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
 
-beforeEach(() => {
-  window.history.replaceState({}, '', '/analysis');
-});
+function currentSearch(): string | null {
+  return screen.getByTestId('location').getAttribute('data-search');
+}
 
 describe('AnalysisScreen', () => {
   it('defaults to Pit Display and shows all five analysis sections', () => {
@@ -72,17 +79,16 @@ describe('AnalysisScreen', () => {
   it('opens a ranking team in Analysis and preserves a shareable query', () => {
     renderAnalysis();
     fireEvent.click(screen.getByRole('tab', { name: 'Ranking' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open 254' }));
+    fireEvent.click(screen.getByRole('link', { name: '254' }));
     expect(screen.getByTestId('view-team')).toHaveAttribute('data-selected', '254');
-    expect(window.location.search).toBe('?tab=team&team=254');
+    expect(currentSearch()).toBe('?tab=team&team=254');
   });
 
   it('loads a team directly from the URL and can drill into a match', () => {
-    window.history.replaceState({}, '', '/analysis?tab=team&team=1678');
-    renderAnalysis();
+    renderAnalysis('/analysis?tab=team&team=1678');
     expect(screen.getByTestId('view-team')).toHaveAttribute('data-selected', '1678');
     fireEvent.click(screen.getByRole('button', { name: 'Open match' }));
     expect(screen.getByTestId('view-match')).toHaveAttribute('data-match', '2026demo_qm7');
-    expect(window.location.search).toBe('?tab=match&match=2026demo_qm7');
+    expect(currentSearch()).toBe('?tab=match&match=2026demo_qm7');
   });
 });
