@@ -9,7 +9,18 @@
 // YouTube only: Twitch live embeds can't seek backwards and the VOD is a
 // different id, so a Twitch-only event resolves to null (no fallback, as today).
 
-import { pickWebcast, localDateStr, type MatchRow, type WebcastSyncMap } from '@/dash/useEventData';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  pickWebcast,
+  localDateStr,
+  useEventInfo,
+  useWebcastSync,
+  useAutoWebcastCalibration,
+  saveWebcastSync,
+  type MatchRow,
+  type WebcastSyncMap,
+} from '@/dash/useEventData';
+import type { MatchVideoStreamProps } from '@/dash/MatchVideo';
 
 /** Start the embed this many seconds before t=0 so the countdown is visible. */
 export const MATCH_STREAM_LEAD_SECONDS = 5;
@@ -67,4 +78,72 @@ export function resolveMatchStream(
     streamStartMs,
     t0Seconds: t0Seconds != null && t0Seconds >= 0 ? t0Seconds : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Shared hook for any card that embeds <MatchVideo> for a match row: resolves
+// the stream target, keeps it auto-calibrated, tracks whether the fallback is
+// what's showing, and turns a manual "Sync to match start" into a day-wide
+// calibration. Used by the Match tab and the Team tab's last-match card so the
+// two behave identically.
+// ---------------------------------------------------------------------------
+
+export interface MatchStreamState {
+  target: MatchStreamTarget | null;
+  /** Props for <MatchVideo stream=…>; null when there's no stream to offer. */
+  streamProps: MatchVideoStreamProps | null;
+  /** For <MatchVideo onStreamActive=…>. */
+  onStreamActive: (active: boolean) => void;
+  /**
+   * Call from the card's "Sync to match start" with the current video
+   * position: persists a manual calibration when the stream fallback is
+   * showing and the match has an FMS actual start (a predicted start would
+   * calibrate every other match wrong).
+   */
+  syncNow: (videoSeconds: number) => void;
+}
+
+export function useMatchStream(
+  eventKey: string | null,
+  match: MatchRow | null | undefined,
+  onSeekedToMatch: (t0Seconds: number) => void,
+): MatchStreamState {
+  const eventInfoQ = useEventInfo(eventKey);
+  const webcastSyncQ = useWebcastSync(eventKey);
+  const target = useMemo(
+    () => resolveMatchStream(match, eventInfoQ.data?.webcasts, webcastSyncQ.data),
+    [match, eventInfoQ.data?.webcasts, webcastSyncQ.data],
+  );
+  // Zero-touch calibration: ask YouTube when this match's stream began.
+  useAutoWebcastCalibration(eventKey, target?.videoId ?? null);
+
+  const [active, setActive] = useState(false);
+  const seekedRef = useRef(onSeekedToMatch);
+  seekedRef.current = onSeekedToMatch;
+
+  const streamProps = useMemo<MatchVideoStreamProps | null>(() => {
+    if (!target || !eventKey) return null;
+    return {
+      target,
+      // The stream position of t=0 is exactly the alignment offset the
+      // timelines need, so seeking auto-syncs them.
+      onSeekedToMatch: (t0) => seekedRef.current(t0),
+      onLiveStreamStart: (epochMs) => void saveWebcastSync(eventKey, target.videoId, epochMs, 'auto'),
+    };
+  }, [target, eventKey]);
+
+  const syncNow = useCallback(
+    (videoSeconds: number) => {
+      if (!active || !target || target.approximate || !eventKey) return;
+      void saveWebcastSync(
+        eventKey,
+        target.videoId,
+        target.matchStartMs - videoSeconds * 1000,
+        'manual',
+      );
+    },
+    [active, target, eventKey],
+  );
+
+  return { target, streamProps, onStreamActive: setActive, syncNow };
 }

@@ -32,13 +32,9 @@ import {
   useEventMatches,
   useEventReports,
   useEventScouts,
-  useEventInfo,
-  useWebcastSync,
-  saveWebcastSync,
-  useAutoWebcastCalibration,
   type MatchRow,
 } from '@/dash/useEventData';
-import { resolveMatchStream, type MatchStreamTarget } from '@/dash/matchStream';
+import { useMatchStream } from '@/dash/matchStream';
 import { useEventScoutCoverage } from '@/dash/useMatchScoutCoverage';
 import { COVERAGE_STATION_CAP } from '@/dash/aggregate';
 import { relativeTime } from '@/dash/relativeTime';
@@ -737,9 +733,6 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
   // whenever the selected match changes (handled in selectMatch).
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const [offsetSeconds, setOffsetSeconds] = useState(0);
-  // True while the video card shows the livestream fallback rather than a TBA
-  // match video — gates persisting a manual sync as a stream calibration.
-  const [streamActive, setStreamActive] = useState(false);
 
   // Detail pane ref so selecting a match on mobile (where the list stacks ABOVE
   // the detail) scrolls the video/reports into view instead of leaving them
@@ -884,28 +877,9 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
     [matches, selected],
   );
 
-  // Livestream fallback for the video card: the day's YouTube stream seeked to
-  // this match when TBA has no match video. Both hooks may be absent in unit
-  // tests that mock useEventData, so guard the optional-call result.
-  const eventInfoQ = useEventInfo?.(eventKey);
-  const webcastSyncQ = useWebcastSync?.(eventKey);
-  const streamTarget: MatchStreamTarget | null = useMemo(
-    () => resolveMatchStream(selectedMatch, eventInfoQ?.data?.webcasts, webcastSyncQ?.data),
-    [selectedMatch, eventInfoQ?.data?.webcasts, webcastSyncQ?.data],
-  );
-  // Zero-touch calibration: ask YouTube when this match's stream began.
-  useAutoWebcastCalibration?.(eventKey, streamTarget?.videoId ?? null);
-  const streamProps: MatchVideoStreamProps | null = useMemo(() => {
-    if (!streamTarget) return null;
-    return {
-      target: streamTarget,
-      // The stream position of t=0 is exactly the alignment offset the
-      // timelines need, so seeking auto-syncs them.
-      onSeekedToMatch: (t0) => setOffsetSeconds(t0),
-      onLiveStreamStart: (epochMs) =>
-        void saveWebcastSync?.(eventKey, streamTarget.videoId, epochMs, 'auto'),
-    };
-  }, [streamTarget, eventKey]);
+  // Livestream fallback for the video card (matchStream.ts): the day's YouTube
+  // stream seeked to this match when TBA has no match video.
+  const matchStream = useMatchStream(eventKey, selectedMatch, setOffsetSeconds);
 
   // Coverage for the selected match: from the event map (or a zeroed default
   // carrying the real roster size when the match has no reports yet).
@@ -1087,23 +1061,12 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
                     videoSeconds={videoSeconds}
                     offsetSeconds={offsetSeconds}
                     onTimeMs={(ms) => setVideoSeconds(ms / 1000)}
-                    stream={streamProps}
-                    onStreamActive={setStreamActive}
+                    stream={matchStream.streamProps}
+                    onStreamActive={matchStream.onStreamActive}
                     onSyncNow={() => {
                       if (videoSeconds == null) return;
                       setOffsetSeconds(videoSeconds);
-                      // In stream mode a manual sync on a match with a KNOWN
-                      // (FMS) start pins the stream's start for the whole day:
-                      // streamStart = matchStart - position. A predicted start
-                      // would calibrate every other match wrong, so skip it.
-                      if (streamActive && streamTarget && !streamTarget.approximate) {
-                        void saveWebcastSync?.(
-                          eventKey,
-                          streamTarget.videoId,
-                          streamTarget.matchStartMs - videoSeconds * 1000,
-                          'manual',
-                        );
-                      }
+                      matchStream.syncNow(videoSeconds);
                     }}
                     onResetSync={() => setOffsetSeconds(0)}
                   >

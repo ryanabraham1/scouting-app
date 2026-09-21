@@ -67,6 +67,7 @@ import { useTeamEpaHistory } from '@/dash/useTeamEpaHistory';
 import ReportDetail from '@/dash/ReportDetail';
 import AutoOptions from '@/dash/AutoOptions';
 import MatchVideo from '@/dash/MatchVideo';
+import { useMatchStream } from '@/dash/matchStream';
 import TeamTimeline from '@/dash/TeamTimeline';
 import { MATCH_MS } from '@/dash/matchTimeline';
 import {
@@ -370,6 +371,9 @@ function LastMatchCard(props: {
     setOffsetSeconds(0);
   }, [report.match_key, teamNumber]);
 
+  // Livestream fallback (matchStream.ts) when TBA has no video for this match.
+  const matchStream = useMatchStream(match?.event_key ?? null, match, setOffsetSeconds);
+
   const redTeams = [match?.red1 ?? null, match?.red2 ?? null, match?.red3 ?? null];
   const blueTeams = [match?.blue1 ?? null, match?.blue2 ?? null, match?.blue3 ?? null];
   const redScore = match?.actual_red_score ?? null;
@@ -414,7 +418,12 @@ function LastMatchCard(props: {
         {/* Video beside a compact match-details panel (alliances + score). */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_minmax(0,16rem)]">
           <div className="w-full">
-            <MatchVideo matchKey={report.match_key} onTimeMs={(ms) => setVideoSeconds(ms / 1000)} />
+            <MatchVideo
+              matchKey={report.match_key}
+              onTimeMs={(ms) => setVideoSeconds(ms / 1000)}
+              stream={matchStream.streamProps}
+              onStreamActive={matchStream.onStreamActive}
+            />
           </div>
           <MatchScorePanel
             redTeams={redTeams}
@@ -447,7 +456,9 @@ function LastMatchCard(props: {
               data-testid="team-last-match-sync-now"
               disabled={!hasTime}
               onClick={() => {
-                if (videoSeconds != null) setOffsetSeconds(videoSeconds);
+                if (videoSeconds == null) return;
+                setOffsetSeconds(videoSeconds);
+                matchStream.syncNow(videoSeconds);
               }}
               style={{ minHeight: CONTROL_MIN_HEIGHT }}
               className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 font-medium text-zinc-100 hover:bg-zinc-800 disabled:opacity-50"

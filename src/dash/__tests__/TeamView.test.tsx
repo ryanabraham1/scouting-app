@@ -32,6 +32,12 @@ vi.mock('@/dash/useEventData', () => ({
   useTbaTeam: () => ({ data: null }),
   useTbaTeamEventStatus: () => ({ data: null }),
   useTeamSeasonStats: () => ({ data: null }),
+  // Livestream fallback inputs: no webcasts / no calibration → MatchVideo
+  // behaves exactly as before (no stream embed).
+  useEventInfo: () => ({ data: { name: null, webcast: null, webcasts: [] } }),
+  useWebcastSync: () => ({ data: {} }),
+  useAutoWebcastCalibration: () => {},
+  saveWebcastSync: vi.fn(async () => {}),
 }));
 
 vi.mock('@/dash/useTeamEpaHistory', () => ({
