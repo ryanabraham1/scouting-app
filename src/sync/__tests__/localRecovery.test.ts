@@ -19,6 +19,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: { from } }));
 import { db, listMatchupNotesForEvent, saveMatchupNoteLocal } from '@/db/localStore';
 import type { LocalMatchupNote } from '@/db/types';
 import {
+  autoResolveConflicts,
   listLocalRecoveryRecords,
   loadRecoveryVersions,
   resolveLocalRecovery,
@@ -106,5 +107,80 @@ describe('typed local recovery registry', () => {
       'server',
     );
     expect(await db.matchupNotes.get(record.key)).toBeUndefined();
+  });
+
+  describe('autoResolveConflicts (no-human self-heal)', () => {
+    it('merges a differing server note and requeues the merged copy', async () => {
+      await saveMatchupNoteLocal(failedNote());
+      maybeSingle.mockResolvedValue({
+        data: {
+          event_key: '2026test',
+          our_team: -1,
+          opp_team: 254,
+          note: 'Server plan',
+          row_revision: Date.parse('2026-07-10T12:05:00.000Z'),
+          updated_at: '2026-07-10T12:05:00.000Z',
+          author_scout_id: null,
+          deleted: false,
+        },
+        error: null,
+      });
+
+      expect(await autoResolveConflicts()).toBe(1);
+      const saved = await db.matchupNotes.get('2026test:-1:254');
+      expect(saved?.syncState).toBe('dirty');
+      expect(saved?.recoveryIssue).toBeNull();
+      expect(saved?.note).toContain('Server plan');
+      expect(saved?.note).toContain('Block the local lane');
+      // The retry carries a revision above the server's so it lands as applied.
+      expect(Date.parse(saved!.updatedAt)).toBeGreaterThan(Date.parse('2026-07-10T12:05:00.000Z'));
+    });
+
+    it('drops the local copy when the server already holds identical text', async () => {
+      await saveMatchupNoteLocal(failedNote());
+      maybeSingle.mockResolvedValue({
+        data: {
+          event_key: '2026test',
+          our_team: -1,
+          opp_team: 254,
+          note: '  Block the local lane ',
+          row_revision: 5,
+          updated_at: '2026-07-10T12:05:00.000Z',
+          author_scout_id: null,
+          deleted: false,
+        },
+        error: null,
+      });
+
+      expect(await autoResolveConflicts()).toBe(1);
+      expect(await db.matchupNotes.get('2026test:-1:254')).toBeUndefined();
+    });
+
+    it('resends the local copy as-is when the server row is gone', async () => {
+      await saveMatchupNoteLocal(failedNote());
+      maybeSingle.mockResolvedValue({ data: null, error: null });
+
+      expect(await autoResolveConflicts()).toBe(1);
+      const saved = await db.matchupNotes.get('2026test:-1:254');
+      expect(saved?.syncState).toBe('dirty');
+      expect(saved?.note).toBe('Block the local lane');
+    });
+
+    it('leaves the conflict for the next drain when the server cannot be read', async () => {
+      await saveMatchupNoteLocal(failedNote());
+      maybeSingle.mockResolvedValue({ data: null, error: { message: 'Failed to fetch' } });
+
+      expect(await autoResolveConflicts()).toBe(0);
+      expect((await db.matchupNotes.get('2026test:-1:254'))?.syncState).toBe('error');
+    });
+
+    it('ignores terminal (non-conflict) dead-letters', async () => {
+      await saveMatchupNoteLocal({
+        ...failedNote(),
+        recoveryIssue: { kind: 'terminal', code: 'X', detectedAt: '2026-07-10T12:00:01.000Z' },
+      });
+      expect(await autoResolveConflicts()).toBe(0);
+      expect(maybeSingle).not.toHaveBeenCalled();
+    });
   });
 });

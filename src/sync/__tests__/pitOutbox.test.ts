@@ -386,28 +386,68 @@ describe('syncPitOnce', () => {
     }
   });
 
-  it('dead-letters a same-revision conflict instead of treating the attempt as its own predecessor', async () => {
+  it('rebases a same-revision conflict onto the server revision instead of treating the attempt as its own predecessor', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(101);
     try {
       await enqueuePitReport(makeReport({ notes: 'local B' }), {}, 100);
       expect((await getRec('2026casj:254'))?.rowRevision).toBe(101);
-      upsertMock.mockResolvedValueOnce({
-        data: { status: 'conflict', current_revision: 101 },
-        error: null,
-      });
+      upsertMock
+        .mockResolvedValueOnce({
+          data: { status: 'conflict', current_revision: 101 },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { status: 'applied' }, error: null });
 
+      // Not the predecessor path (that would have been laundering): an explicit
+      // rebase onto the server's revision, then one resend that lands.
       expect(await syncPitOnce()).toMatchObject({
-        attempted: 1,
-        retried: 0,
-        deadLettered: 1,
+        attempted: 2,
+        retried: 1,
+        synced: 1,
+        deadLettered: 0,
       });
+      const resent = upsertMock.mock.calls[1][1] as { p: Record<string, unknown> };
+      expect(resent.p.base_revision).toBe(101);
+      expect(resent.p.row_revision).toBe(102);
       expect(await getRec('2026casj:254')).toMatchObject({
-        rowRevision: 101,
-        baseRevision: 100,
-        syncState: 'error',
+        rowRevision: 102,
+        baseRevision: 102,
+        syncState: 'synced',
         predecessorAttempts: [],
         data: { notes: 'local B' },
       });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('a second conflict in the same drain stays a fixable dead-letter', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(101);
+    try {
+      await enqueuePitReport(makeReport({ notes: 'local B' }), {}, 100);
+      upsertMock
+        .mockResolvedValueOnce({
+          data: { status: 'conflict', current_revision: 101 },
+          error: null,
+        })
+        .mockResolvedValueOnce({
+          data: { status: 'conflict', current_revision: 500 },
+          error: null,
+        });
+
+      expect(await syncPitOnce()).toMatchObject({
+        attempted: 2,
+        retried: 1,
+        synced: 0,
+        deadLettered: 1,
+      });
+      expect(await getRec('2026casj:254')).toMatchObject({
+        rowRevision: 102,
+        baseRevision: 101,
+        syncState: 'error',
+        data: { notes: 'local B' },
+      });
+      expect((await getRec('2026casj:254'))?.lastSyncError).toContain('500');
     } finally {
       now.mockRestore();
     }
@@ -417,32 +457,40 @@ describe('syncPitOnce', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(101);
     try {
       await enqueuePitReport(makeReport({ notes: 'local B' }), {}, 100);
-      upsertMock.mockResolvedValueOnce({
+      upsertMock.mockResolvedValue({
         data: { status: 'conflict', current_revision: 101 },
         error: null,
       });
-      expect(await syncPitOnce()).toMatchObject({ deadLettered: 1, retried: 0 });
+      // Conflict, rebase, conflict again → dead-letter with B's attempt pruned.
+      expect(await syncPitOnce()).toMatchObject({ deadLettered: 1, retried: 1 });
+      expect((await getRec('2026casj:254'))?.predecessorAttempts).toEqual([]);
 
       await enqueuePitReport(makeReport({ notes: 'later C' }));
       expect(await getRec('2026casj:254')).toMatchObject({
-        rowRevision: 102,
-        baseRevision: 100,
+        rowRevision: 103,
+        baseRevision: 101,
         predecessorAttempts: [],
       });
-      upsertMock.mockResolvedValueOnce({
-        data: { status: 'conflict', current_revision: 101 },
-        error: null,
-      });
+      upsertMock.mockReset();
+      upsertMock
+        .mockResolvedValueOnce({
+          data: { status: 'conflict', current_revision: 101 },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { status: 'applied' }, error: null });
 
+      // C never "recovers" B as a landed predecessor (that ledger is empty); it
+      // resolves its own conflict by rebasing and resending its own content.
       expect(await syncPitOnce()).toMatchObject({
-        attempted: 1,
-        retried: 0,
-        deadLettered: 1,
+        attempted: 2,
+        retried: 1,
+        synced: 1,
+        deadLettered: 0,
       });
       expect(await getRec('2026casj:254')).toMatchObject({
-        rowRevision: 102,
-        baseRevision: 100,
-        syncState: 'error',
+        rowRevision: 103,
+        baseRevision: 103,
+        syncState: 'synced',
         data: { notes: 'later C' },
       });
     } finally {
@@ -477,16 +525,20 @@ describe('syncPitOnce', () => {
       });
 
       // An unrelated server row happens to use B's numeric revision. C must not
-      // mistake it for its own landed predecessor and auto-rebase over it.
-      upsertMock.mockResolvedValueOnce({
-        data: { status: 'conflict', current_revision: revisionB },
-        error: null,
-      });
-      expect(await syncPitOnce()).toMatchObject({ retried: 0, deadLettered: 1 });
+      // mistake it for its own landed predecessor; it rebases onto that server
+      // revision explicitly and resends its own content.
+      upsertMock
+        .mockResolvedValueOnce({
+          data: { status: 'conflict', current_revision: revisionB },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { status: 'applied' }, error: null });
+      expect(await syncPitOnce()).toMatchObject({ retried: 1, synced: 1, deadLettered: 0 });
+      const resent = upsertMock.mock.calls[2][1] as { p: Record<string, unknown> };
+      expect(resent.p.base_revision).toBe(revisionB);
       expect(await getRec('2026casj:254')).toMatchObject({
         rowRevision: revisionC,
-        baseRevision: 100,
-        syncState: 'error',
+        syncState: 'synced',
         data: { notes: 'newer C' },
       });
     } finally {
@@ -501,24 +553,29 @@ describe('syncPitOnce', () => {
       try {
         await enqueuePitReport(makeReport({ notes: 'invalid-conflict B' }), {}, 100);
         const revisionB = (await getRec('2026casj:254'))!.rowRevision!;
-        upsertMock.mockResolvedValueOnce({
+        upsertMock.mockResolvedValue({
           data: { status: 'conflict', current_revision: invalidRevision },
           error: null,
         });
-        expect(await syncPitOnce()).toMatchObject({ retried: 0, deadLettered: 1 });
+        // No usable server revision: the rebase falls back to "no base" (a
+        // fresh insert) and the repeated conflict dead-letters.
+        expect(await syncPitOnce()).toMatchObject({ retried: 1, deadLettered: 1 });
         expect((await getRec('2026casj:254'))?.predecessorAttempts).toEqual([]);
+        expect((await getRec('2026casj:254'))?.baseRevision).toBeNull();
 
         await enqueuePitReport(makeReport({ notes: 'later C' }));
         const revisionC = (await getRec('2026casj:254'))!.rowRevision!;
-        upsertMock.mockResolvedValueOnce({
-          data: { status: 'conflict', current_revision: revisionB },
-          error: null,
-        });
-        expect(await syncPitOnce()).toMatchObject({ retried: 0, deadLettered: 1 });
+        upsertMock.mockReset();
+        upsertMock
+          .mockResolvedValueOnce({
+            data: { status: 'conflict', current_revision: revisionB },
+            error: null,
+          })
+          .mockResolvedValueOnce({ data: { status: 'applied' }, error: null });
+        expect(await syncPitOnce()).toMatchObject({ retried: 1, synced: 1, deadLettered: 0 });
         expect(await getRec('2026casj:254')).toMatchObject({
           rowRevision: revisionC,
-          baseRevision: 100,
-          syncState: 'error',
+          syncState: 'synced',
           data: { notes: 'later C' },
         });
       } finally {
@@ -555,15 +612,16 @@ describe('syncPitOnce', () => {
       await enqueuePitReport(makeReport({ notes: 'later C', photos: [] }), {});
       const revisionC = (await getRec('2026casj:254'))!.rowRevision!;
       clearSyncCircuit();
-      upsertMock.mockResolvedValueOnce({
-        data: { status: 'conflict', current_revision: revisionB },
-        error: null,
-      });
-      expect(await syncPitOnce()).toMatchObject({ retried: 0, deadLettered: 1 });
+      upsertMock
+        .mockResolvedValueOnce({
+          data: { status: 'conflict', current_revision: revisionB },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { status: 'applied' }, error: null });
+      expect(await syncPitOnce()).toMatchObject({ retried: 1, synced: 1, deadLettered: 0 });
       expect(await getRec('2026casj:254')).toMatchObject({
         rowRevision: revisionC,
-        baseRevision: 100,
-        syncState: 'error',
+        syncState: 'synced',
         data: { notes: 'later C' },
       });
     } finally {
@@ -696,7 +754,7 @@ describe('syncPitOnce', () => {
     expect((await listPitDeadLetters()).length).toBe(1);
   });
 
-  it('preserves a concurrent edit as a fixable conflict dead-letter', async () => {
+  it('preserves a concurrent edit that conflicts again after a rebase as a fixable dead-letter', async () => {
     upsertMock.mockResolvedValue({
       data: { status: 'conflict', current_revision: 200 },
       error: null,
@@ -711,7 +769,7 @@ describe('syncPitOnce', () => {
     expect(record?.lastSyncError).toMatch(/changed on another device/i);
   });
 
-  it('preserves a stale pit upload and records the authoritative revision', async () => {
+  it('preserves a stale pit upload that stays stale after a rebase and records the authoritative revision', async () => {
     upsertMock.mockResolvedValue({
       data: { status: 'stale', current_revision: 201 },
       error: null,

@@ -10,7 +10,7 @@ import {
 } from '@/db/localStore';
 import { SYNC_MAX_ATTEMPTS } from '@/sync/constants';
 import { syncOnce } from '../outbox';
-import { clearSyncCircuit } from '../retrySchedule';
+import { clearSyncCircuit, isSyncCircuitOpen } from '../retrySchedule';
 
 function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport {
   const bursts: FuelBurst[] = [{ startMs: 0, endMs: 500, rate: 2, window: 'shift1' }];
@@ -128,25 +128,72 @@ describe('syncOnce', () => {
     expect((await getReport('idempotent-status'))?.syncState).toBe('synced');
   });
 
-  it.each(['stale', 'conflict'] as const)(
-    'preserves local data and records a recoverable %s verdict',
-    async (status) => {
-      await saveReport(makeReport({ id: `server-${status}`, notes: 'keep this local edit' }));
-      const summary = await syncOnce(
-        vi.fn().mockResolvedValue({
-          data: { status, current_revision: 7 },
-          error: null,
-        }),
-      );
+  it('stale verdict: the server holds a newer revision → adopt it and mark synced', async () => {
+    await saveReport(makeReport({ id: 'server-stale', notes: 'keep this local edit', rowRevision: 2 }));
+    const rpc = vi.fn().mockResolvedValue({
+      data: { status: 'stale', current_revision: 7 },
+      error: null,
+    });
+    const summary = await syncOnce(rpc);
 
-      expect(summary).toEqual({ attempted: 1, synced: 0, retried: 0, deadLettered: 1 });
-      const report = await getReport(`server-${status}`);
-      expect(report?.syncState).toBe('error');
-      expect(report?.notes).toBe('keep this local edit');
-      expect(report?.lastSyncError).toMatch(new RegExp(`${status}|conflict`, 'i'));
-      expect(report?.lastSyncError).toContain('7');
-    },
-  );
+    expect(summary).toEqual({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const report = await getReport('server-stale');
+    expect(report?.syncState).toBe('synced');
+    expect(report?.rowRevision).toBe(7);
+    expect(report?.lastSyncError).toBeNull();
+    // Local content is untouched; a later edit continues from revision 7.
+    expect(report?.notes).toBe('keep this local edit');
+  });
+
+  it('conflict verdict: rebases onto server revision + 1 and resends in the same drain', async () => {
+    await saveReport(makeReport({ id: 'server-conflict', notes: 'keep this local edit', rowRevision: 3 }));
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { status: 'conflict', current_revision: 3 }, error: null })
+      .mockResolvedValueOnce(successResult());
+    const summary = await syncOnce(rpc);
+
+    expect(summary).toEqual({ attempted: 2, synced: 1, retried: 1, deadLettered: 0 });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    const resent = (rpc.mock.calls[1][1] as { p: Record<string, unknown> }).p;
+    expect(resent.row_revision).toBe(4);
+    const report = await getReport('server-conflict');
+    expect(report?.syncState).toBe('synced');
+    expect(report?.rowRevision).toBe(4);
+    expect(report?.notes).toBe('keep this local edit');
+  });
+
+  it('conflict twice in one drain stays a recoverable dead-letter', async () => {
+    await saveReport(makeReport({ id: 'server-conflict-2', notes: 'keep this local edit', rowRevision: 3 }));
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { status: 'conflict', current_revision: 3 }, error: null })
+      .mockResolvedValueOnce({ data: { status: 'conflict', current_revision: 9 }, error: null });
+    const summary = await syncOnce(rpc);
+
+    expect(summary).toEqual({ attempted: 2, synced: 0, retried: 1, deadLettered: 1 });
+    const report = await getReport('server-conflict-2');
+    expect(report?.syncState).toBe('error');
+    expect(report?.notes).toBe('keep this local edit');
+    expect(report?.lastSyncError).toMatch(/conflict/i);
+    expect(report?.lastSyncError).toContain('9');
+  });
+
+  it('identity conflict (same id, different match/scout on the server) is never auto-resolved', async () => {
+    await saveReport(makeReport({ id: 'identity', notes: 'keep this local edit' }));
+    const rpc = vi.fn().mockResolvedValue({
+      data: { status: 'conflict', current_revision: 1, identity_conflict: true },
+      error: null,
+    });
+    const summary = await syncOnce(rpc);
+
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 0, deadLettered: 1 });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const report = await getReport('identity');
+    expect(report?.syncState).toBe('error');
+    expect(report?.lastSyncError).toMatch(/different match\/scout/i);
+  });
 
   it('transient (5xx): returns the report to dirty, increments syncAttempts, no dead-letter', async () => {
     await saveReport(makeReport({ id: 't1', syncAttempts: 0 }));
@@ -161,6 +208,35 @@ describe('syncOnce', () => {
     expect(got?.syncState).toBe('dirty');
     expect(got?.syncAttempts).toBe(1);
     expect(got?.lastSyncError).toBeTruthy();
+  });
+
+  it('per-row transient (unknown error shape): backs off that row only; drain continues and no circuit opens', async () => {
+    await saveReport(makeReport({ id: 'odd', createdAt: '2026-06-23T00:00:00.000Z' }));
+    await saveReport(makeReport({ id: 'fine', createdAt: '2026-06-23T00:00:01.000Z' }));
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ error: { message: 'something odd happened' } })
+      .mockResolvedValueOnce(successResult());
+
+    const summary = await syncOnce(rpc);
+
+    expect(summary).toEqual({ attempted: 2, synced: 1, retried: 1, deadLettered: 0 });
+    expect((await getReport('odd'))?.syncState).toBe('dirty');
+    expect((await getReport('odd'))?.nextSyncAt).toBeGreaterThan(Date.now());
+    expect((await getReport('fine'))?.syncState).toBe('synced');
+    expect(isSyncCircuitOpen()).toBe(false);
+  });
+
+  it('shared outage (5xx): opens the circuit and stops the drain after one probe', async () => {
+    await saveReport(makeReport({ id: 's1', createdAt: '2026-06-23T00:00:00.000Z' }));
+    await saveReport(makeReport({ id: 's2', createdAt: '2026-06-23T00:00:01.000Z' }));
+    const rpc = vi.fn().mockResolvedValue({ error: { message: 'bad gateway', status: 502 } });
+
+    const summary = await syncOnce(rpc);
+
+    expect(summary).toEqual({ attempted: 1, synced: 0, retried: 1, deadLettered: 0 });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(isSyncCircuitOpen()).toBe(true);
   });
 
   it('network gap (rpc throws): back to dirty WITHOUT burning an attempt; drain stops', async () => {

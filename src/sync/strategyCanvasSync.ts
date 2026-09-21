@@ -14,7 +14,8 @@ import {
   markStrategyCanvasSyncError,
 } from '@/db/localStore';
 import type { LocalStrategyCanvas } from '@/db/types';
-import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure, isSharedOutage } from '@/sync/classifyError';
+import { autoResolveConflicts } from '@/sync/localRecovery';
 import {
   isSyncCircuitOpen,
   openSyncCircuit,
@@ -73,6 +74,9 @@ export async function syncStrategyCanvasOnce(): Promise<StrategyCanvasSyncSummar
     deadLettered: 0,
   };
   if (isSyncCircuitOpen()) return summary;
+  // Conflicts from an earlier drain are merged (losslessly) and requeued first,
+  // so they upload in this same pass instead of waiting for a person.
+  await autoResolveConflicts().catch(() => 0);
   const queue = await getDueStrategyCanvasSyncQueue();
 
   for (const rec of queue) {
@@ -123,9 +127,11 @@ export async function syncStrategyCanvasOnce(): Promise<StrategyCanvasSyncSummar
         uploadedUpdatedAt: rec.updatedAt,
         nextSyncAt,
       });
-      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
-      break;
+      if (isSharedOutage(failure)) {
+        openSyncCircuit(nextSyncAt);
+        break;
+      }
     } else {
       const code = errorCode(failure);
       await markStrategyCanvasSyncError(

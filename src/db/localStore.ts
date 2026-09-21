@@ -18,6 +18,7 @@ import {
   isSupersedeRecoverable,
   isOrphanedScoutRecoverable,
 } from '@/sync/classifyError';
+import { isRetryDue } from '@/sync/retrySchedule';
 import {
   MATCH_REPORT_AUTO_REPAIR_VERSION,
   sanitizeMatchReport,
@@ -180,6 +181,54 @@ export async function markSynced(id: string, uploadedRevision?: number): Promise
     });
 }
 
+// Server verdict `stale`: the server already holds a STRICTLY NEWER revision of
+// this same report id (a lost-ack retry after the server bumped it, or a
+// dashboard-side edit). The server is authoritative, so adopt its revision and
+// mark the row synced instead of dead-lettering; a later local edit continues
+// from the server revision and uploads as `applied`. Revision-guarded like
+// markSynced so an edit made mid-flight is never marked synced by mistake.
+export async function acceptServerRevision(
+  id: string,
+  uploadedRevision: number,
+  serverRevision: number,
+): Promise<boolean> {
+  const updated = await db.reports
+    .where('id')
+    .equals(id)
+    .and((r) => (r.rowRevision ?? 1) === uploadedRevision)
+    .modify({
+      syncState: 'synced',
+      rowRevision: serverRevision,
+      syncAttempts: 0,
+      lastSyncError: null,
+      nextSyncAt: null,
+    });
+  return updated === 1;
+}
+
+// Server verdict `conflict` at the SAME revision (different content): rebase the
+// local row onto `serverRevision + 1` so the retry lands as `applied` — the
+// scout's device is the source of truth for its own report under the shared-
+// trust model, and the alternative (a permanent dead-letter) silently dropped
+// scouting data. Returns false if the row moved on in the meantime.
+export async function rebaseReportRevision(
+  id: string,
+  uploadedRevision: number,
+  newRevision: number,
+): Promise<boolean> {
+  const updated = await db.reports
+    .where('id')
+    .equals(id)
+    .and((r) => (r.rowRevision ?? 1) === uploadedRevision)
+    .modify({
+      syncState: 'dirty',
+      rowRevision: newRevision,
+      lastSyncError: null,
+      nextSyncAt: null,
+    });
+  return updated === 1;
+}
+
 // Upload in flight: set immediately before the RPC call.
 export async function markPending(id: string): Promise<void> {
   await db.reports.update(id, { syncState: 'pending', nextSyncAt: null });
@@ -236,7 +285,7 @@ export async function getSyncQueue(): Promise<LocalMatchReport[]> {
 }
 
 export async function getDueSyncQueue(now = Date.now()): Promise<LocalMatchReport[]> {
-  return (await getSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
+  return (await getSyncQueue()).filter((r) => isRetryDue(r.nextSyncAt, now));
 }
 
 // Dead-letters for the UI / manual retry.
@@ -407,7 +456,7 @@ export async function getMatchupSyncQueue(): Promise<LocalMatchupNote[]> {
 }
 
 export async function getDueMatchupSyncQueue(now = Date.now()): Promise<LocalMatchupNote[]> {
-  return (await getMatchupSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
+  return (await getMatchupSyncQueue()).filter((r) => isRetryDue(r.nextSyncAt, now));
 }
 
 export async function listMatchupDeadLetters(): Promise<LocalMatchupNote[]> {
@@ -546,7 +595,7 @@ export async function getStrategyCanvasSyncQueue(): Promise<LocalStrategyCanvas[
 export async function getDueStrategyCanvasSyncQueue(
   now = Date.now(),
 ): Promise<LocalStrategyCanvas[]> {
-  return (await getStrategyCanvasSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
+  return (await getStrategyCanvasSyncQueue()).filter((r) => isRetryDue(r.nextSyncAt, now));
 }
 
 export async function listStrategyCanvasDeadLetters(): Promise<LocalStrategyCanvas[]> {

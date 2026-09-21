@@ -6,6 +6,7 @@ import {
   isSupersedeRecoverable,
   isOrphanedScoutRecoverable,
   isAutoRepairableReportValidationError,
+  isSharedOutage,
 } from '../classifyError';
 
 describe('classifySyncError', () => {
@@ -143,11 +144,36 @@ describe('isOrphanedScoutRecoverable (BUG-6: narrowed so a real match/team FK st
   });
 });
 
+describe('isSharedOutage (only these may open the cross-outbox circuit)', () => {
+  it('matches network gaps, 408/429, 5xx and connection-class SQLSTATEs', () => {
+    expect(isSharedOutage(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isSharedOutage({ message: 'TypeError: Failed to fetch', code: '' })).toBe(true);
+    expect(isSharedOutage({ status: 503, message: 'unavailable' })).toBe(true);
+    expect(isSharedOutage({ status: 429, message: 'slow down' })).toBe(true);
+    expect(isSharedOutage({ code: '503', message: 'gateway' })).toBe(true);
+    expect(isSharedOutage({ code: '53300', message: 'too many connections' })).toBe(true);
+  });
+
+  it('does NOT match per-row transients: unknown shapes, custom client codes, plain Errors', () => {
+    expect(isSharedOutage(new Error('The object exceeded the maximum allowed size'))).toBe(false);
+    expect(isSharedOutage({ code: 'PIT_SYNC_CONTRACT', message: 'invalid status' })).toBe(false);
+    expect(isSharedOutage({ message: 'something odd happened' })).toBe(false);
+    expect(isSharedOutage(null)).toBe(false);
+  });
+});
+
 describe('isAuthClassError', () => {
   it('matches the ownership-gate 42501 message', () => {
     expect(isAuthClassError('42501: permission denied')).toBe(true);
     expect(isAuthClassError('not authorized: scout_id not owned by caller')).toBe(true);
     expect(isAuthClassError('insufficient_privilege')).toBe(true);
+  });
+
+  it('matches a Storage RLS denial (pit photo upload without a session)', () => {
+    expect(
+      isAuthClassError('Photo upload failed (403): new row violates row-level security policy'),
+    ).toBe(true);
+    expect(isAuthClassError('new row violates row-level security policy')).toBe(true);
   });
 
   it('matches HTTP 401/403 and PGRST301 auth errors', () => {

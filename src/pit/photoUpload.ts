@@ -27,10 +27,26 @@ export async function uploadPitPhoto(
     .from(BUCKET)
     .upload(path, file, { upsert: false, contentType: file.type || 'image/jpeg' });
   if (error) {
-    const status = Number((error as { statusCode?: string | number }).statusCode);
+    const raw = error as { status?: unknown; statusCode?: string | number };
+    const status = Number(raw.status ?? raw.statusCode);
     // A prior partial attempt may already have uploaded this immutable object.
     if (status === 409 || /already exists|duplicate/i.test(error.message)) return path;
-    throw new Error(error.message);
+    // Keep the HTTP status ON the thrown error. The outbox classifies failures
+    // by `.status` / `.code`; a bare `new Error(message)` used to erase it, so a
+    // definitive 4xx from Storage (RLS denial, oversized object, bad bucket)
+    // looked like an unknown transient and was retried forever — the report sat
+    // at "queued to send" with no way to surface or self-heal. With the status
+    // preserved a 403 dead-letters as auth-class (auto-requeued once a session
+    // exists), a 413 dead-letters with a readable reason, and a 5xx / network
+    // gap still retries.
+    throw Object.assign(
+      new Error(
+        Number.isFinite(status) && status > 0
+          ? `Photo upload failed (${status}): ${error.message}`
+          : `Photo upload failed: ${error.message}`,
+      ),
+      Number.isFinite(status) && status > 0 ? { status } : {},
+    );
   }
   return path;
 }

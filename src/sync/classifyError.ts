@@ -119,6 +119,27 @@ export function isNetworkFailure(err: unknown): boolean {
 }
 
 /**
+ * Whether a transient failure is a SHARED outage — the server or the link is
+ * the problem, so every other queued row would fail the same way right now —
+ * as opposed to a per-row transient (an unknown error shape, a local race). Only
+ * shared outages may open the cross-outbox sync circuit and stop a drain early;
+ * a per-row transient just backs off that row and lets the rest of the queue
+ * (and the other outboxes) proceed. Before this split one pit photo that kept
+ * failing with an unclassifiable error paused EVERY upload on the device for up
+ * to five minutes at a time.
+ */
+export function isSharedOutage(err: unknown): boolean {
+  if (isNetworkFailure(err)) return true;
+  if (err == null || typeof err !== 'object') return false;
+  const e = err as { status?: unknown; code?: unknown };
+  const status = numericStatus(e.status) ?? numericStatus(e.code);
+  if (status !== null && status >= 100 && status <= 599) {
+    return status >= 500 || TRANSIENT_4XX.has(status);
+  }
+  return typeof e.code === 'string' && TRANSIENT_SQLSTATE.test(e.code);
+}
+
+/**
  * Auth / RLS / ownership-class failures — the kind that a deployed RLS or RPC
  * change (e.g. migration 0012 relaxing the upsert ownership gate) can RESOLVE.
  * Such dead-letters are safe to auto-requeue once after the fix ships; genuine
@@ -131,7 +152,7 @@ export function isNetworkFailure(err: unknown): boolean {
  *   PGRST301 → JWT/role permission errors from PostgREST
  *   "not authorized" / "not authenticated" → the RPC's own raise messages
  */
-const AUTH_CLASS = /\b(42501|28000|401|403|PGRST301)\b|not authoriz|not authenticat|permission denied|insufficient_privilege/i;
+const AUTH_CLASS = /\b(42501|28000|401|403|PGRST301)\b|not authoriz|not authenticat|permission denied|insufficient_privilege|row-level security|jwt/i;
 
 export function isAuthClassError(message: string | null | undefined): boolean {
   if (!message) return false;

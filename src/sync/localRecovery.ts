@@ -175,3 +175,39 @@ export async function resolveLocalRecovery(
   }
   notifyRecoveryChanged();
 }
+
+/**
+ * Self-heal every conflict dead-letter without a human: merge is lossless for
+ * both kinds (notes keep the server text plus a clearly labelled local copy;
+ * whiteboards merge by stroke id), so it is always the right automatic choice.
+ * When the server holds the identical content the local copy is redundant and
+ * is dropped; when the server row is gone the local copy is resent as-is. The
+ * resolved rows return to the queue and upload in the same drain. Terminal
+ * (non-conflict) dead-letters are left for the once-per-session requeue.
+ * Returns how many records were resolved; a network gap while loading server
+ * versions leaves the rest for the next drain.
+ */
+export async function autoResolveConflicts(): Promise<number> {
+  const records = (await listLocalRecoveryRecords()).filter(
+    (record) => record.local.recoveryIssue?.kind === 'conflict',
+  );
+  let resolved = 0;
+  for (const record of records) {
+    try {
+      const versions = await loadRecoveryVersions(record);
+      let resolution: RecoveryResolution = 'merge';
+      if (versions.server == null) resolution = 'local';
+      else if (
+        versions.kind === 'matchup-note' &&
+        versions.server.trim() === versions.local.trim()
+      ) {
+        resolution = 'server';
+      }
+      await resolveLocalRecovery(record, versions, resolution);
+      resolved += 1;
+    } catch {
+      // Could not read the server copy (offline / transient): try next drain.
+    }
+  }
+  return resolved;
+}

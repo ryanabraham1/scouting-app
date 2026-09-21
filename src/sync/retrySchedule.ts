@@ -1,6 +1,17 @@
 const CIRCUIT_KEY = 'frc-scout-sync-circuit-until';
 const BASE_DELAY_MS = 2_000;
-const MAX_DELAY_MS = 5 * 60_000;
+export const MAX_DELAY_MS = 5 * 60_000;
+
+/**
+ * Whether a row's persisted `nextSyncAt` has come due. No backoff is ever longer
+ * than MAX_DELAY_MS, so a stamp further out than that can only come from a
+ * device clock that jumped (set wrong, then corrected): treat it as due instead
+ * of leaving the row parked at "queued to send" for hours.
+ */
+export function isRetryDue(nextSyncAt: number | null | undefined, now = Date.now()): boolean {
+  if (nextSyncAt == null) return true;
+  return nextSyncAt <= now || nextSyncAt > now + MAX_DELAY_MS;
+}
 
 let memoryCircuitUntil = 0;
 
@@ -51,18 +62,21 @@ export function openSyncCircuit(until: number): void {
   }
 }
 
-export function syncCircuitUntil(): number {
+export function syncCircuitUntil(now = Date.now()): number {
   try {
     const persisted = Number(localStorage.getItem(CIRCUIT_KEY));
     if (Number.isFinite(persisted)) memoryCircuitUntil = Math.max(memoryCircuitUntil, persisted);
   } catch {
     // Memory fallback.
   }
+  // Same clock-jump guard as isRetryDue: a circuit can never legitimately be
+  // open for longer than the longest backoff.
+  if (memoryCircuitUntil > now + MAX_DELAY_MS) clearSyncCircuit();
   return memoryCircuitUntil;
 }
 
 export function isSyncCircuitOpen(now = Date.now()): boolean {
-  return syncCircuitUntil() > now;
+  return syncCircuitUntil(now) > now;
 }
 
 export function clearSyncCircuit(): void {

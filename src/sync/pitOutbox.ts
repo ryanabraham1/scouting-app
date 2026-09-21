@@ -10,6 +10,7 @@ import {
   markPitPending,
   completePitSync,
   rebasePitAfterPredecessorConflict,
+  rebasePitOntoServer,
   discardPitPredecessorAttempt,
   markPitDirtyRetry,
   markPitSyncError,
@@ -19,7 +20,7 @@ import {
   type LocalPitReport,
 } from '@/pit/pitStore';
 import { cleanupPitPhotoTombstones, uploadPitPhoto } from '@/pit/photoUpload';
-import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure, isSharedOutage } from '@/sync/classifyError';
 import { queryClient } from '@/lib/queryPersist';
 import {
   isSyncCircuitOpen,
@@ -83,6 +84,8 @@ async function uploadAndUpsert(
       ok: false;
       failure: unknown;
       conflictRevision?: number;
+      /** True for a server `conflict`/`stale` verdict (vs a transport/RPC error). */
+      editConflict?: boolean;
       definitivelyNotWritten: boolean;
     }
 > {
@@ -156,6 +159,7 @@ async function uploadAndUpsert(
     return {
       ok: false,
       definitivelyNotWritten: true,
+      editConflict: true,
       failure: Object.assign(
         new Error(
           `This pit report changed on another device.${currentRevision} Local report preserved for recovery.`,
@@ -208,7 +212,10 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
   if (isSyncCircuitOpen()) return summary;
   const queue = await getDuePitSyncQueue();
 
-  for (const rec of queue) {
+  // One rebase-and-resend per report per drain: a second conflict is real.
+  const rebasedOntoServer = new Set<string>();
+  for (let index = 0; index < queue.length; index += 1) {
+    const rec = queue[index];
     const expectedRevision =
       rec.rowRevision ?? (Date.parse(rec.updatedAt) || 1);
     const claimed = await markPitPending(rec.draftKey, expectedRevision);
@@ -219,6 +226,7 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
     let failed = false;
     let acknowledgedRevision = expectedRevision;
     let conflictRevision: number | undefined;
+    let editConflict = false;
     let definitivelyNotWritten = false;
     try {
       const result = await uploadAndUpsert(rec, expectedRevision);
@@ -226,6 +234,7 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
         failed = true;
         failure = result.failure;
         conflictRevision = result.conflictRevision;
+        editConflict = result.editConflict === true;
         definitivelyNotWritten = result.definitivelyNotWritten;
       } else {
         acknowledgedRevision = result.acknowledgedRevision;
@@ -275,6 +284,25 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
       );
     }
 
+    // A genuine edit conflict (another device saved this team's pit report
+    // first) self-heals: rebase onto the server revision and resend once in
+    // this same drain. The RPC snapshots the overwritten version to
+    // pit_report_history, so last-writer-wins loses nothing.
+    if (editConflict && !rebasedOntoServer.has(rec.draftKey)) {
+      const rebased = await rebasePitOntoServer(
+        rec.draftKey,
+        expectedRevision,
+        conflictRevision ?? null,
+      );
+      if (rebased) {
+        rebasedOntoServer.add(rec.draftKey);
+        const refreshed = await getPitReport(rec.eventKey, rec.teamNumber);
+        if (refreshed) queue.push(refreshed);
+        summary.retried += 1;
+        continue;
+      }
+    }
+
     // Pure network gap: requeue without burning an attempt, stop the drain
     // (the rest of the queue faces the same dead network). See outbox.ts.
     if (isNetworkFailure(failure)) {
@@ -296,9 +324,13 @@ export async function syncPitOnce(): Promise<PitSyncSummary> {
         expectedRevision,
         nextSyncAt,
       });
-      openSyncCircuit(nextSyncAt);
       if (markedRetry) summary.retried += 1;
-      break;
+      // Only a shared outage (network / 429 / 5xx) pauses every outbox; a
+      // per-row transient backs off this report and lets the queue continue.
+      if (isSharedOutage(failure)) {
+        openSyncCircuit(nextSyncAt);
+        break;
+      }
     } else {
       const markedError = await markPitSyncError(
         rec.draftKey,

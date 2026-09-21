@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   clearSyncCircuit,
+  isRetryDue,
   isSyncCircuitOpen,
+  MAX_DELAY_MS,
   openSyncCircuit,
   retryDelayMs,
   syncCircuitUntil,
@@ -34,5 +36,21 @@ describe('retry scheduling', () => {
     expect(isSyncCircuitOpen(20_000)).toBe(false);
     clearSyncCircuit();
     expect(syncCircuitUntil()).toBe(0);
+  });
+
+  it('isRetryDue: due when unset, past, or impossibly far out (clock jump)', () => {
+    const now = 1_000_000;
+    expect(isRetryDue(null, now)).toBe(true);
+    expect(isRetryDue(now - 1, now)).toBe(true);
+    expect(isRetryDue(now + 1, now)).toBe(false);
+    expect(isRetryDue(now + MAX_DELAY_MS, now)).toBe(false);
+    expect(isRetryDue(now + MAX_DELAY_MS + 1, now)).toBe(true);
+  });
+
+  it('a circuit further out than the longest backoff is a clock jump and clears itself', () => {
+    const now = 1_000_000;
+    openSyncCircuit(now + MAX_DELAY_MS + 60_000);
+    expect(isSyncCircuitOpen(now)).toBe(false);
+    expect(syncCircuitUntil(now)).toBe(0);
   });
 });

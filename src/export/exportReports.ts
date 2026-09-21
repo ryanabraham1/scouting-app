@@ -1,5 +1,6 @@
 import type { LocalMatchReport } from '@/db/types';
 import { getUnsynced, saveReport } from '@/db/localStore';
+import { notifySyncQueueChanged } from '@/sync/queueEvents';
 
 const EXPORT_SCHEMA_VERSION = 1;
 
@@ -61,6 +62,7 @@ export async function importReportsFromJson(json: string): Promise<number> {
     await saveReport(report);
     imported += 1;
   }
+  if (imported > 0) notifySyncQueueChanged();
   return imported;
 }
 

@@ -35,10 +35,26 @@ function makeChannel(topic: string): FakeChannel {
   return ch;
 }
 
+// Fingerprint poll: `from(table).select(...).eq().order().limit()` resolves to
+// whatever the per-table mock returns. `null` disables the poll (no `from`).
+const fingerprintMock = vi.fn<(table: string) => Promise<unknown>>();
+let fromEnabled = true;
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     channel: (topic: string) => makeChannel(topic),
     removeChannel: (ch: unknown) => removeChannelMock(ch),
+    get from() {
+      if (!fromEnabled) return undefined;
+      return (table: string) => {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          order: () => chain,
+          limit: () => fingerprintMock(table),
+        };
+        return chain;
+      };
+    },
   },
 }));
 
@@ -51,7 +67,7 @@ vi.mock('@/dash/proxies', () => ({
   syncEventResults: (key: string) => syncEventResultsMock(key),
 }));
 
-import { useEventLiveSync } from '../useEventData';
+import { useEventLiveSync, LIVE_REPORTS_POLL_MS } from '../useEventData';
 
 function fire(ch: FakeChannel, table: string, payload: unknown): void {
   for (const h of ch.handlers) if (h.table === table) h.cb(payload);
@@ -66,6 +82,8 @@ describe('useEventLiveSync', () => {
 
   beforeEach(() => {
     channels.length = 0;
+    fromEnabled = true;
+    fingerprintMock.mockReset().mockResolvedValue({ data: [], count: 0, error: null });
     removeChannelMock.mockReset();
     syncEventResultsMock.mockReset().mockResolvedValue({ written: 0 });
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -140,5 +158,75 @@ describe('useEventLiveSync', () => {
     renderHook(() => useEventLiveSync(null), { wrapper });
     expect(channels).toHaveLength(0);
     expect(syncEventResultsMock).not.toHaveBeenCalled();
+  });
+
+  it('coalesces a burst of report events into one refetch', async () => {
+    vi.useFakeTimers();
+    try {
+      renderHook(() => useEventLiveSync('2026casf'), { wrapper });
+      const ch = channels[0];
+      invalidated = [];
+      for (let i = 0; i < 6; i += 1) fire(ch, 'match_scouting_report', { new: {} });
+      expect(invalidated).not.toContain(JSON.stringify(['reports', '2026casf']));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(
+        invalidated.filter((k) => k === JSON.stringify(['reports', '2026casf'])),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fingerprint poll refetches reports when the server changed and realtime said nothing', async () => {
+    vi.useFakeTimers();
+    try {
+      fingerprintMock.mockImplementation(async (table) =>
+        table === 'match_scouting_report'
+          ? { data: [{ server_received_at: '2026-09-20T10:00:00Z' }], count: 10, error: null }
+          : { data: [], count: 0, error: null },
+      );
+      renderHook(() => useEventLiveSync('2026casf'), { wrapper });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      invalidated = [];
+
+      // Unchanged fingerprint → no refetch.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LIVE_REPORTS_POLL_MS);
+      });
+      expect(invalidated).not.toContain(JSON.stringify(['reports', '2026casf']));
+
+      // A new report landed (count + newest stamp moved) → refetch reports only.
+      fingerprintMock.mockImplementation(async (table) =>
+        table === 'match_scouting_report'
+          ? { data: [{ server_received_at: '2026-09-20T10:05:00Z' }], count: 11, error: null }
+          : { data: [], count: 0, error: null },
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LIVE_REPORTS_POLL_MS);
+      });
+      expect(invalidated).toContain(JSON.stringify(['reports', '2026casf']));
+      expect(invalidated).not.toContain(JSON.stringify(['event-pits', '2026casf']));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('catches up every live query when the tab becomes visible again', () => {
+    renderHook(() => useEventLiveSync('2026casf'), { wrapper });
+    invalidated = [];
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    try {
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(invalidated).toContain(JSON.stringify(['reports', '2026casf']));
+      expect(invalidated).toContain(JSON.stringify(['matches', '2026casf']));
+    } finally {
+      visibility.mockRestore();
+    }
   });
 });

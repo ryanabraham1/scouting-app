@@ -13,7 +13,7 @@ const tableResults: Record<string, BuilderResult> = {};
 function makeBuilder(result: BuilderResult) {
   const builder: Record<string, unknown> = {};
   const chain = () => builder;
-  for (const method of ['select', 'eq', 'order', 'in', 'is']) {
+  for (const method of ['select', 'eq', 'gte', 'order', 'in', 'is']) {
     builder[method] = vi.fn(chain);
   }
   // Awaiting the builder resolves to the result.
@@ -57,6 +57,9 @@ import {
   useNexusEventStatus,
   useTeamSeasonStats,
   mergeMatchupNotes,
+  mergeReportRows,
+  resetReportsFetchStateForTests,
+  REPORTS_FULL_REFRESH_MS,
 } from '../useEventData';
 // The season-wide EPA fallback fetches per-team season matches through this
 // SHARED query client (queryClient.fetchQuery), so they cache /
@@ -109,6 +112,7 @@ describe('useEventData', () => {
     nexusGetMock.mockReset();
     epaFromTeamEventMock.mockReset();
     for (const k of Object.keys(tableResults)) delete tableResults[k];
+    resetReportsFetchStateForTests();
     // The cross-event EPA caches live on the shared client — drop them so each
     // test starts cold and tbaGet call-count assertions are meaningful.
     sharedQueryClient.clear();
@@ -124,6 +128,80 @@ describe('useEventData', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([{ target_team_number: 254, match_key: 'qm1' }]);
     expect(fromMock).toHaveBeenCalledWith('match_scouting_report');
+  });
+
+  it('useEventReports refetches incrementally after the first full load and merges by id', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const w = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    tableResults['match_scouting_report'] = {
+      data: [
+        { id: 'a', match_key: 'qm1', target_team_number: 254, server_received_at: '2026-09-20T10:00:00Z', deleted: false },
+        { id: 'b', match_key: 'qm1', target_team_number: 1678, server_received_at: '2026-09-20T10:01:00Z', deleted: false },
+      ],
+      error: null,
+    };
+    const { result } = renderHook(() => useEventReports('2026casnv'), { wrapper: w });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(2);
+    // Full load: filtered on deleted=false, no lower bound.
+    const firstBuilder = fromMock.mock.results[0].value as Record<string, ReturnType<typeof vi.fn>>;
+    expect(firstBuilder.eq).toHaveBeenCalledWith('deleted', false);
+    expect(firstBuilder.gte).not.toHaveBeenCalled();
+
+    // Server since then: 'b' edited, 'a' soft-deleted, 'c' new.
+    tableResults['match_scouting_report'] = {
+      data: [
+        { id: 'a', match_key: 'qm1', target_team_number: 254, server_received_at: '2026-09-20T10:02:00Z', deleted: true },
+        { id: 'b', match_key: 'qm1', target_team_number: 1678, notes: 'edited', server_received_at: '2026-09-20T10:03:00Z', deleted: false },
+        { id: 'c', match_key: 'qm2', target_team_number: 254, server_received_at: '2026-09-20T10:04:00Z', deleted: false },
+      ],
+      error: null,
+    };
+    await act(async () => {
+      await result.current.refetch();
+    });
+    const secondBuilder = fromMock.mock.results[1].value as Record<string, ReturnType<typeof vi.fn>>;
+    expect(secondBuilder.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:01:00Z');
+    expect(secondBuilder.eq).not.toHaveBeenCalledWith('deleted', false);
+    await waitFor(() =>
+      expect(result.current.data?.map((r) => r.id).sort()).toEqual(['b', 'c']),
+    );
+    expect(result.current.data?.find((r) => r.id === 'b')?.notes).toBe('edited');
+  });
+
+  it('useEventReports does a full reconcile once the incremental window expires', async () => {
+    const w = wrapper();
+    tableResults['match_scouting_report'] = {
+      data: [{ id: 'a', match_key: 'qm1', target_team_number: 254, server_received_at: '2026-09-20T10:00:00Z', deleted: false }],
+      error: null,
+    };
+    const { result } = renderHook(() => useEventReports('2026casnv'), { wrapper: w });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + REPORTS_FULL_REFRESH_MS + 1);
+    try {
+      await act(async () => {
+        await result.current.refetch();
+      });
+      const builder = fromMock.mock.results[1].value as Record<string, ReturnType<typeof vi.fn>>;
+      expect(builder.eq).toHaveBeenCalledWith('deleted', false);
+      expect(builder.gte).not.toHaveBeenCalled();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('mergeReportRows replaces, appends and drops soft-deleted rows', () => {
+    const row = (id: string, extra: Record<string, unknown> = {}) =>
+      ({ id, match_key: 'qm1', target_team_number: 1, server_received_at: 't', deleted: false, ...extra }) as never;
+    const merged = mergeReportRows(
+      [row('a'), row('b')],
+      [row('b', { notes: 'new' }), row('a', { deleted: true }), row('c')],
+    );
+    expect(merged.map((r: { id?: string }) => r.id)).toEqual(['b', 'c']);
+    expect((merged[0] as { notes?: string }).notes).toBe('new');
+    expect(mergeReportRows([row('a')], [])).toHaveLength(1);
   });
 
   it('keeps assignment query failures as errors while online instead of caching []', async () => {

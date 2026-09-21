@@ -95,6 +95,9 @@ export interface MsrRow {
   scout_id?: string | null;
   notes?: string | null;
 
+  // Primary key. Optional only for legacy test fixtures; every real row and the
+  // incremental reports merge (useEventReports) rely on it.
+  id?: string;
   server_received_at: string;
   deleted: boolean;
 }

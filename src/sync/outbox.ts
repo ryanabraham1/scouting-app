@@ -11,10 +11,12 @@ import {
   markSynced,
   markDirtyRetry,
   markSyncError,
+  acceptServerRevision,
+  rebaseReportRevision,
   autoRepairValidationDeadLetters,
 } from '@/db/localStore';
 import { toUpsertPayload } from '@/sync/mapReport';
-import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure, isSharedOutage } from '@/sync/classifyError';
 import {
   isSyncCircuitOpen,
   openSyncCircuit,
@@ -46,6 +48,8 @@ const defaultRpc: RpcFn = (fn, args) =>
 interface MatchUpsertResult {
   status: 'applied' | 'idempotent' | 'stale' | 'conflict';
   current_revision: number;
+  /** Same id but a different event/match/scout on the server — never auto-resolved. */
+  identity_conflict?: boolean;
 }
 
 function matchUpsertResult(value: unknown): MatchUpsertResult | null {
@@ -62,9 +66,15 @@ function matchUpsertResult(value: unknown): MatchUpsertResult | null {
 }
 
 function conflictMessage(result: MatchUpsertResult): string {
+  if (result.identity_conflict) {
+    return `Match report id already belongs to a different match/scout on the server (revision ${result.current_revision}). Local report preserved for recovery.`;
+  }
   const label = result.status === 'stale' ? 'stale' : 'conflicted';
   return `Match report upload ${label} with server revision ${result.current_revision}. Local report preserved for recovery.`;
 }
+
+/** One rebase-and-resend per report per drain: a second conflict is a real one. */
+const REBASE_RETRIES_PER_DRAIN = 1;
 
 function errorMessage(err: unknown): string {
   if (err == null) return 'unknown sync error';
@@ -97,7 +107,9 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
   await autoRepairValidationDeadLetters();
   const queue = await getDueSyncQueue();
 
-  for (const report of queue) {
+  const rebased = new Map<string, number>();
+  for (let index = 0; index < queue.length; index += 1) {
+    const report = queue[index];
     summary.attempted += 1;
     await markPending(report.id);
 
@@ -130,11 +142,33 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
       continue;
     }
     if (!failed && verdict && ['stale', 'conflict'].includes(verdict.status)) {
-      await markSyncError(
-        report.id,
-        conflictMessage(verdict),
-        report.rowRevision ?? 1,
-      );
+      const uploadedRevision = report.rowRevision ?? 1;
+      // Self-heal the two revision verdicts instead of parking the report:
+      //   stale    → the server already holds a newer revision of THIS report;
+      //              adopt it (server wins) and mark the local row synced.
+      //   conflict → same revision, different content; rebase onto the server
+      //              revision + 1 and resend once (scout's device wins). Only an
+      //              identity conflict (same id, different match/scout) or a
+      //              second conflict in the same drain stays dead-lettered.
+      if (verdict.status === 'stale' && !verdict.identity_conflict) {
+        if (await acceptServerRevision(report.id, uploadedRevision, verdict.current_revision)) {
+          summary.synced += 1;
+          continue;
+        }
+      } else if (
+        verdict.status === 'conflict' &&
+        !verdict.identity_conflict &&
+        (rebased.get(report.id) ?? 0) < REBASE_RETRIES_PER_DRAIN
+      ) {
+        const nextRevision = verdict.current_revision + 1;
+        if (await rebaseReportRevision(report.id, uploadedRevision, nextRevision)) {
+          rebased.set(report.id, (rebased.get(report.id) ?? 0) + 1);
+          queue.push({ ...report, rowRevision: nextRevision });
+          summary.retried += 1;
+          continue;
+        }
+      }
+      await markSyncError(report.id, conflictMessage(verdict), uploadedRevision);
       summary.deadLettered += 1;
       continue;
     }
@@ -164,11 +198,15 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
         uploadedRevision: report.rowRevision ?? 1,
         nextSyncAt,
       });
-      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
       // A shared 429/5xx outage applies to the queue, not this payload. Stop
-      // after one probe so a server incident cannot burn every row.
-      break;
+      // after one probe so a server incident cannot burn every row. A per-row
+      // transient (unknown error shape) only backs off THIS row — the rest of
+      // the queue and the other outboxes keep draining.
+      if (isSharedOutage(failure)) {
+        openSyncCircuit(nextSyncAt);
+        break;
+      }
     } else {
       await markSyncError(report.id, message, report.rowRevision ?? 1);
       summary.deadLettered += 1;

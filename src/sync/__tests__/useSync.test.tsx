@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { render, renderHook, act, waitFor } from '@testing-library/react';
 import type { LocalMatchReport } from '@/db/types';
 import type { FuelBurst } from '@/scoring';
 import { db, saveReport } from '@/db/localStore';
@@ -41,7 +41,10 @@ vi.mock('@/sync/syncLease', () => ({
   resetSyncLeaseForTests: vi.fn(async () => undefined),
 }));
 
-import { resetSyncControllerForTests, useSync } from '../useSync';
+import { resetSyncControllerForTests, useSync, SyncController } from '../useSync';
+import { notifySyncQueueChanged } from '../queueEvents';
+import { openSyncCircuit, isSyncCircuitOpen } from '../retrySchedule';
+import { queryClient } from '@/lib/queryPersist';
 
 function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport {
   const bursts: FuelBurst[] = [{ startMs: 0, endMs: 500, rate: 2, window: 'shift1' }];
@@ -131,7 +134,11 @@ describe('useSync', () => {
   it('runs syncOnce on mount and refreshes queued/deadLetters from the store', async () => {
     await saveReport(makeReport({ id: 'q1', syncState: 'dirty' }));
     await saveReport(makeReport({ id: 'q2', syncState: 'pending' }));
-    await saveReport(makeReport({ id: 'd1', syncState: 'error' }));
+    // A sanitize-repairable validation dead-letter: the in-drain repair owns it,
+    // so the session-start requeue leaves it alone (syncOnce is mocked here).
+    await saveReport(
+      makeReport({ id: 'd1', syncState: 'error', lastSyncError: 'fuel_bursts must be an array' }),
+    );
 
     const { result } = renderHook(() => useSync());
 
@@ -209,7 +216,7 @@ describe('useSync', () => {
     expect(syncOnceMock.mock.calls.length).toBeGreaterThan(afterMount);
   });
 
-  it('auto-requeues an auth-class dead-letter once on first online mount, then drains it', async () => {
+  it('auto-requeues every recoverable dead-letter once on first online mount, then drains it', async () => {
     // Wrongly dead-lettered by the old ownership gate (42501-class message).
     await saveReport(
       makeReport({
@@ -218,20 +225,30 @@ describe('useSync', () => {
         lastSyncError: 'not authorized: scout_id not owned by caller',
       }),
     );
-    // Genuine validation failure: must stay dead-lettered.
+    // A schema-class failure a later migration fixes: also worth one retry.
+    await saveReport(
+      makeReport({
+        id: 'schema-dead',
+        syncState: 'error',
+        lastSyncError: 'PGRST204: column not found',
+      }),
+    );
+    // Sanitize-repairable validation failure: owned by the in-drain repair, so
+    // the requeue skips it and it stays a dead-letter (syncOnce is mocked).
     await saveReport(
       makeReport({
         id: 'val-dead',
         syncState: 'error',
-        lastSyncError: 'PGRST204: column not found',
+        lastSyncError: 'fuel_bursts must be an array',
       }),
     );
 
     const { result } = renderHook(() => useSync());
 
-    // The auth-class report is requeued (dirty) and drained; the validation one
-    // remains a dead-letter. deadLetters settles at 1.
+    // The auth-class and schema-class reports are requeued (dirty) and drained;
+    // the sanitize-repairable one remains a dead-letter. deadLetters settles at 1.
     await waitFor(() => expect(result.current.deadLetters).toBe(1));
+    await waitFor(() => expect(result.current.queued).toBe(2));
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalled());
   });
 
@@ -369,5 +386,90 @@ describe('useSync', () => {
     expect(second.result.current.syncing).toBe(false);
     expect(syncOnceMock).toHaveBeenCalledTimes(1);
     expect(maxActive).toBe(1);
+  });
+
+  it('drains immediately when an outbox reports a new row (scout-sync-changed)', async () => {
+    const { result } = renderHook(() => useSync());
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.syncing).toBe(false));
+
+    await act(async () => {
+      notifySyncQueueChanged();
+    });
+
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('drains when the tab returns to the foreground', async () => {
+    const { result } = renderHook(() => useSync());
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.syncing).toBe(false));
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    try {
+      visibility.mockReturnValue('hidden');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(syncOnceMock).toHaveBeenCalledTimes(1);
+
+      visibility.mockReturnValue('visible');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(2));
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it('syncNow() clears a shared-outage circuit so the tap really probes the server', async () => {
+    const { result } = renderHook(() => useSync());
+    await waitFor(() => expect(result.current.syncing).toBe(false));
+    openSyncCircuit(Date.now() + 5 * 60_000);
+    expect(isSyncCircuitOpen()).toBe(true);
+
+    await act(async () => {
+      result.current.syncNow();
+    });
+
+    expect(isSyncCircuitOpen()).toBe(false);
+  });
+
+  it('refreshes this device\'s report queries after its own uploads land', async () => {
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined);
+    try {
+      syncOnceMock.mockResolvedValueOnce({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
+      syncPitOnceMock.mockResolvedValueOnce({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
+      const { result } = renderHook(() => useSync());
+      await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(result.current.syncing).toBe(false));
+
+      const keys = invalidate.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+      expect(keys).toContain(JSON.stringify(['reports']));
+      expect(keys).toContain(JSON.stringify(['event-pits']));
+      expect(keys).not.toContain(JSON.stringify(['matchup-notes']));
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  it('keeps draining the other outboxes when one of them throws', async () => {
+    syncOnceMock.mockRejectedValueOnce(new Error('scouting-db blocked'));
+    const { result } = renderHook(() => useSync());
+    const before = result.current.lastSyncedAt;
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.syncing).toBe(false));
+    expect(syncPitOnceMock).toHaveBeenCalledTimes(1);
+    expect(syncMatchupNotesOnceMock).toHaveBeenCalledTimes(1);
+    expect(syncStrategyCanvasOnceMock).toHaveBeenCalledTimes(1);
+    // The failed drain does not count as a successful sync.
+    expect(result.current.lastSyncedAt).toBe(before);
+  });
+
+  it('SyncController mounts the shared scheduler headlessly', async () => {
+    const { container } = render(<SyncController />);
+    expect(container.innerHTML).toBe('');
+    await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));
   });
 });

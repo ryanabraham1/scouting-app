@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { supabase } from '@/lib/supabase';
 import { isAuthClassError } from '@/sync/classifyError';
+import { isRetryDue } from '@/sync/retrySchedule';
 
 export interface PitPhoto {
   id: string;
@@ -947,7 +948,7 @@ export async function getPitSyncQueue(): Promise<LocalPitReport[]> {
 }
 
 export async function getDuePitSyncQueue(now = Date.now()): Promise<LocalPitReport[]> {
-  return (await getPitSyncQueue()).filter((r) => (r.nextSyncAt ?? 0) <= now);
+  return (await getPitSyncQueue()).filter((r) => isRetryDue(r.nextSyncAt, now));
 }
 
 export async function listPitDeadLetters(): Promise<LocalPitReport[]> {
@@ -1191,6 +1192,42 @@ export async function discardPitPredecessorAttempt(
     discarded = true;
   });
   return discarded;
+}
+
+/**
+ * Self-heal a CAS conflict the predecessor ledger could not explain: another
+ * device edited this shared team report (or the server row disappeared, e.g. a
+ * re-imported event). Rebase onto the server's current revision — base = server
+ * revision, row revision strictly above it — and requeue so the resend lands as
+ * `applied`. The scout's device wins; the overwritten server version is kept in
+ * `pit_report_history` by the RPC, so nothing is lost and nobody has to babysit
+ * a dead-letter. Revision-guarded: a re-submit made meanwhile is left alone.
+ */
+export async function rebasePitOntoServer(
+  draftKey: string,
+  expectedRevision: number,
+  serverRevision: number | null,
+): Promise<boolean> {
+  let rebased = false;
+  await pitDb.transaction('rw', pitDb.pitReports, pitDb.pitDrafts, async () => {
+    const record = await pitDb.pitReports.get(draftKey);
+    if (!record || pitRecordRevision(record) !== expectedRevision) return;
+    const base = maxPitBase(serverRevision);
+    record.baseRevision = base;
+    record.rowRevision = Math.max(pitRecordRevision(record), (base ?? 0) + 1, Date.now());
+    record.predecessorAttempts = [];
+    record.syncState = 'dirty';
+    record.lastSyncError = null;
+    record.nextSyncAt = null;
+    await pitDb.pitReports.put(record);
+    const draft = await pitDb.pitDrafts.get(draftKey);
+    if (draft) {
+      draft.baseRevision = base;
+      await pitDb.pitDrafts.put(draft);
+    }
+    rebased = true;
+  });
+  return rebased;
 }
 
 export async function markPitDirtyRetry(

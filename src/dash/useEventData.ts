@@ -133,21 +133,92 @@ export interface NexusStatusResult {
   source?: 'webhook' | 'proxy' | 'none';
 }
 
-/** Scouting reports for an event (deleted rows excluded; RLS-scoped). */
+/**
+ * A full reports download is re-done at most this often; every other refetch
+ * is incremental (only rows whose `server_received_at` moved past the newest
+ * cached one). The full pass is the belt-and-braces reconcile for anything an
+ * incremental pass cannot see (a hard delete, a row edited without its stamp
+ * moving). Exported for tests.
+ */
+export const REPORTS_FULL_REFRESH_MS = 10 * 60_000;
+const reportsLastFullFetchAt = new Map<string, number>();
+
+/** @internal Test hook: forget when each event was last fully downloaded. */
+export function resetReportsFetchStateForTests(): void {
+  reportsLastFullFetchAt.clear();
+}
+
+function newestServerReceivedAt(rows: MsrRow[]): string | null {
+  let newest: string | null = null;
+  for (const row of rows) {
+    const stamp = row.server_received_at;
+    if (typeof stamp === 'string' && (newest === null || stamp > newest)) newest = stamp;
+  }
+  return newest;
+}
+
+/**
+ * Fold a batch of changed rows (which MAY include soft-deleted ones) into the
+ * cached non-deleted list: deleted ids drop out, everything else is replaced
+ * or appended by id. Exported for tests.
+ */
+export function mergeReportRows(cached: MsrRow[], changed: MsrRow[]): MsrRow[] {
+  if (changed.length === 0) return cached;
+  const rowKey = (row: MsrRow): string =>
+    row.id ?? `${row.match_key}:${row.target_team_number}:${row.scout_id ?? ''}`;
+  const byId = new Map(cached.map((row) => [rowKey(row), row] as const));
+  for (const row of changed) {
+    if (row.deleted) byId.delete(rowKey(row));
+    else byId.set(rowKey(row), row);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Scouting reports for an event (deleted rows excluded; RLS-scoped).
+ *
+ * A full event is a multi-megabyte download (hundreds of reports, each with an
+ * auto path polyline and fuel-burst timelines), and the live dashboard refetches
+ * this query on EVERY report that lands — six times a match. On venue wifi that
+ * was the lag: each realtime tick re-pulled everything, and a slow pull could
+ * even hit the request timeout and fail. So after the first full load, a refetch
+ * asks only for rows whose `server_received_at` is at or past the newest one we
+ * hold (the RPC bumps that stamp on every insert, edit and soft-delete) and
+ * merges them into the cached list — typically a few KB. A full download is
+ * repeated every REPORTS_FULL_REFRESH_MS as the reconcile.
+ */
 export function useEventReports(eventKey: string | null): UseQueryResult<MsrRow[]> {
+  const client = useQueryClient();
   return useQuery({
     queryKey: ['reports', eventKey],
     enabled: !!eventKey,
     staleTime: STALE_TIME,
     queryFn: async (): Promise<MsrRow[]> => {
+      const key = eventKey as string;
+      const cached = client.getQueryData<MsrRow[]>(['reports', key]);
+      const since = cached && cached.length > 0 ? newestServerReceivedAt(cached) : null;
+      const lastFull = reportsLastFullFetchAt.get(key) ?? 0;
+      const incremental = since !== null && Date.now() - lastFull < REPORTS_FULL_REFRESH_MS;
+
+      if (incremental) {
+        const { data, error } = await supabase
+          .from('match_scouting_report')
+          .select('*')
+          .eq('event_key', key)
+          .gte('server_received_at', since as string);
+        if (error) throw error;
+        return mergeReportRows(cached as MsrRow[], (data ?? []) as MsrRow[]);
+      }
+
       const { data, error } = await supabase
         .from('match_scouting_report')
         .select('*')
-        .eq('event_key', eventKey as string)
+        .eq('event_key', key)
         .eq('deleted', false);
       if (error) {
         throw error;
       }
+      reportsLastFullFetchAt.set(key, Date.now());
       return (data ?? []) as MsrRow[];
     },
   });
@@ -927,6 +998,37 @@ export function useNexusEventStatus(
 }
 
 /**
+ * Realtime-independent freshness check for the scouting tables. Fetches ONE
+ * row (the newest `server_received_at`) plus the exact row count for the event
+ * — a few hundred bytes — and returns a fingerprint that changes on any insert,
+ * update, or soft-delete (the RPCs bump `server_received_at` on every write).
+ * Exported for tests.
+ */
+export async function fetchReportsFingerprint(
+  table: 'match_scouting_report' | 'pit_scouting_report',
+  eventKey: string,
+): Promise<string | null> {
+  const { data, count, error } = await supabase
+    .from(table)
+    .select('server_received_at', { count: 'exact' })
+    .eq('event_key', eventKey)
+    .order('server_received_at', { ascending: false })
+    .limit(1);
+  if (error) return null;
+  const newest = (data?.[0] as { server_received_at?: string | null } | undefined)
+    ?.server_received_at ?? '';
+  return `${count ?? 0}:${newest}`;
+}
+
+/**
+ * How often a live screen re-checks the scouting fingerprints. Realtime is the
+ * primary path (sub-second); this is the ceiling on staleness when the socket
+ * is silently dead — a common venue-wifi failure mode where the channel still
+ * reports SUBSCRIBED but no events arrive.
+ */
+export const LIVE_REPORTS_POLL_MS = 20_000;
+
+/**
  * Query keys that a live screen must refresh when it may have MISSED realtime
  * events (a websocket drop at a bad venue, a channel re-join). Nexus is excluded:
  * it already polls on NEXUS_POLL_MS with staleTime 0.
@@ -982,6 +1084,22 @@ export function useEventLiveSync(eventKey: string | null): void {
       for (const queryKey of liveQueryKeys(eventKey)) {
         void queryClient.invalidateQueries({ queryKey });
       }
+    };
+    // Six scouts submit within seconds of a match ending; without coalescing,
+    // each realtime event re-downloaded the whole reports table. One trailing
+    // refetch per burst is enough.
+    const pendingInvalidations = new Map<string, ReturnType<typeof setTimeout>>();
+    const invalidateSoon = (queryKey: unknown[], delayMs = 400) => {
+      const hash = JSON.stringify(queryKey);
+      const existing = pendingInvalidations.get(hash);
+      if (existing) clearTimeout(existing);
+      pendingInvalidations.set(
+        hash,
+        setTimeout(() => {
+          pendingInvalidations.delete(hash);
+          void queryClient.invalidateQueries({ queryKey });
+        }, delayMs),
+      );
     };
     const channel = supabase
       .channel(`live-${eventKey}-${channelId}`)
@@ -1065,9 +1183,9 @@ export function useEventLiveSync(eventKey: string | null): void {
           // dashboard heartbeat (and every report-derived view) updates within
           // one realtime tick instead of waiting out the 60s staleTime. Requires
           // migration 0034 (match_scouting_report in supabase_realtime); without
-          // it this branch is a harmless no-op. The 60s poll + manual Sync are
-          // the always-present fallback refresh paths.
-          queryClient.invalidateQueries({ queryKey: ['reports', eventKey] });
+          // it this branch is a harmless no-op. The fingerprint poll below and
+          // manual Sync are the always-present fallback refresh paths.
+          invalidateSoon(['reports', eventKey]);
         },
       )
       .on(
@@ -1092,7 +1210,7 @@ export function useEventLiveSync(eventKey: string | null): void {
         },
         (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
           const team = Number(payload.new?.team_number ?? payload.old?.team_number);
-          queryClient.invalidateQueries({ queryKey: ['event-pits', eventKey] });
+          invalidateSoon(['event-pits', eventKey]);
           if (Number.isInteger(team) && team > 0) {
             queryClient.invalidateQueries({ queryKey: ['team-pit', eventKey, team] });
             queryClient.invalidateQueries({ queryKey: ['team-photo', eventKey, team] });
@@ -1111,10 +1229,57 @@ export function useEventLiveSync(eventKey: string | null): void {
           console.warn(`[live-sync] realtime ${status} for ${eventKey}`, err?.message ?? '');
         }
       });
+    // A backgrounded phone/kiosk tab loses realtime silently (timers throttled,
+    // socket parked). The moment it is looked at again, catch up everything.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') invalidateLive();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      for (const timer of pendingInvalidations.values()) clearTimeout(timer);
+      pendingInvalidations.clear();
       if (typeof supabase.removeChannel === 'function') supabase.removeChannel(channel);
     };
   }, [eventKey, queryClient, channelId]);
+
+  // Scouting-data freshness safety net that does not depend on realtime at all.
+  // Every LIVE_REPORTS_POLL_MS (only while visible) compare a tiny per-table
+  // fingerprint with the last one seen; a change means a report landed that the
+  // socket did not tell us about, so refetch that table's query. Costs two
+  // one-row selects per tick; a dead channel now means ≤20s of staleness, not
+  // "until someone reloads the kiosk".
+  useEffect(() => {
+    if (!eventKey || typeof supabase.from !== 'function') return;
+    let cancelled = false;
+    const seen: Partial<Record<'match_scouting_report' | 'pit_scouting_report', string>> = {};
+    const targets = [
+      { table: 'match_scouting_report', queryKey: ['reports', eventKey] },
+      { table: 'pit_scouting_report', queryKey: ['event-pits', eventKey] },
+    ] as const;
+    const tick = async () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      await Promise.all(
+        targets.map(async ({ table, queryKey }) => {
+          const fingerprint = await fetchReportsFingerprint(table, eventKey);
+          if (cancelled || fingerprint === null) return;
+          const previous = seen[table];
+          seen[table] = fingerprint;
+          if (previous !== undefined && previous !== fingerprint) {
+            void queryClient.invalidateQueries({ queryKey });
+          }
+        }),
+      );
+    };
+    void tick();
+    const id = setInterval(() => void tick(), LIVE_REPORTS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [eventKey, queryClient]);
 
   // Results reconcile safety net (webhook is the primary path). After each tick
   // the schedule is refetched directly: a reconcile from THIS or ANY other device

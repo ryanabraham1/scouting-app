@@ -13,7 +13,8 @@ import {
   markMatchupSyncError,
 } from '@/db/localStore';
 import type { LocalMatchupNote } from '@/db/types';
-import { classifySyncError, isNetworkFailure } from '@/sync/classifyError';
+import { classifySyncError, isNetworkFailure, isSharedOutage } from '@/sync/classifyError';
+import { autoResolveConflicts } from '@/sync/localRecovery';
 import { queryClient } from '@/lib/queryPersist';
 import {
   isSyncCircuitOpen,
@@ -68,6 +69,9 @@ function notePayload(rec: LocalMatchupNote): Record<string, unknown> {
 export async function syncMatchupNotesOnce(): Promise<MatchupSyncSummary> {
   const summary: MatchupSyncSummary = { attempted: 0, synced: 0, retried: 0, deadLettered: 0 };
   if (isSyncCircuitOpen()) return summary;
+  // Conflicts from an earlier drain are merged (losslessly) and requeued first,
+  // so they upload in this same pass instead of waiting for a person.
+  await autoResolveConflicts().catch(() => 0);
   const queue = await getDueMatchupSyncQueue();
 
   for (const rec of queue) {
@@ -141,9 +145,11 @@ export async function syncMatchupNotesOnce(): Promise<MatchupSyncSummary> {
         uploadedUpdatedAt: rec.updatedAt,
         nextSyncAt,
       });
-      openSyncCircuit(nextSyncAt);
       summary.retried += 1;
-      break;
+      if (isSharedOutage(failure)) {
+        openSyncCircuit(nextSyncAt);
+        break;
+      }
     } else {
       await markMatchupSyncError(
         rec.key,

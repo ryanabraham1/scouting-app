@@ -74,6 +74,35 @@ describe('uploadPitPhoto', () => {
       uploadPitPhoto('2026casj', 254, new Blob(['x']))
     ).rejects.toThrow('boom');
   });
+
+  it('keeps the HTTP status on the thrown error so the outbox can classify it', async () => {
+    uploadMock.mockResolvedValue({
+      data: null,
+      error: { message: 'new row violates row-level security policy', status: 403, statusCode: '403' },
+    });
+    const thrown = await uploadPitPhoto('2026casj', 254, 'p1', new Blob(['x'])).catch((e) => e);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as { status?: number }).status).toBe(403);
+    expect((thrown as Error).message).toBe(
+      'Photo upload failed (403): new row violates row-level security policy',
+    );
+  });
+
+  it('falls back to a legacy string statusCode', async () => {
+    uploadMock.mockResolvedValue({
+      data: null,
+      error: { message: 'Payload too large', statusCode: '413' },
+    });
+    const thrown = await uploadPitPhoto('2026casj', 254, 'p1', new Blob(['x'])).catch((e) => e);
+    expect((thrown as { status?: number }).status).toBe(413);
+  });
+
+  it('leaves a transport failure status-less so it still reads as a network gap', async () => {
+    uploadMock.mockResolvedValue({ data: null, error: { message: 'Failed to fetch' } });
+    const thrown = await uploadPitPhoto('2026casj', 254, 'p1', new Blob(['x'])).catch((e) => e);
+    expect((thrown as { status?: number }).status).toBeUndefined();
+    expect((thrown as Error).message).toMatch(/Failed to fetch/);
+  });
 });
 
 function report(): PitReport {
