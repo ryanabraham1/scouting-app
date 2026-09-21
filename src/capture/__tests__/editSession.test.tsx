@@ -196,6 +196,42 @@ describe('revision bump on save (cases 3 + 4)', () => {
   });
 });
 
+describe('fuel correction on an edited report', () => {
+  it('re-fits bursts from the pre-edit snapshot on every keystroke and saves recomputed aggregates', async () => {
+    await saveReport(makeSavedReport()); // teleop = 20 + 10 = 30 balls
+    const { result } = renderHook(() =>
+      useCaptureSession({ ...target, editingReportId: 'report-edit-1' }),
+    );
+    await waitFor(() => expect(result.current.bursts.length).toBe(2));
+
+    // NumberField commits "2" then "25" while the scout types "25". The
+    // intermediate value must NOT shred the timeline: the final re-fit is
+    // computed from the ORIGINAL bursts, so transition stays byte-identical.
+    act(() => result.current.setGroupFuel('teleop', 2));
+    act(() => result.current.setGroupFuel('teleop', 25));
+    expect(result.current.bursts[0]).toEqual(TWO_BURSTS[0]);
+    expect(result.current.bursts).toHaveLength(2);
+    expect(result.current.bursts[1].startMs).toBe(2000);
+    expect(result.current.bursts[1].endMs).toBeLessThan(3000);
+
+    // An independent group edit leaves the teleop correction in place.
+    act(() => result.current.setGroupFuel('auto', 4));
+    expect(result.current.bursts.filter((b) => b.window === 'auto')).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.save();
+    });
+    const saved = (await getReport('report-edit-1'))!;
+    expect(saved.autoFuel).toBe(4);
+    expect(saved.teleopFuelActive + saved.teleopFuelInactive).toBe(25);
+    expect(saved.rowRevision).toBe(4);
+    expect(saved.syncState).toBe('dirty');
+    // The wire payload carries the re-fitted bursts, so the server recompute agrees.
+    const payload = toUpsertPayload(saved);
+    expect(payload.fuel_bursts).toEqual(saved.fuelBursts);
+  });
+});
+
 describe('no-show scoring parity on save', () => {
   it('persists zero aggregates while preserving raw bursts for the server', async () => {
     await saveReport(makeSavedReport({ noShow: true }));

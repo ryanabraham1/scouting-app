@@ -313,7 +313,7 @@ export default function ScoutHome() {
   // from a DURABLE flag so logging out survives reloads/remounts — otherwise the
   // old profile resurrected from cache and the user got "stuck in a profile".
   const [loggedOut, setLoggedOut] = useState<boolean>(() => isScouterLoggedOut());
-  const [savedNotice, setSavedNotice] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<'saved' | 'updated' | null>(null);
   // The server-owned global selection always wins online; local storage is used
   // by the shared resolver only as an offline fallback.
   const { eventKey: activeEvent, loading: activeEventLoading } = useActiveEvent();
@@ -349,6 +349,9 @@ export default function ScoutHome() {
   );
   // Loaded revision of the report being corrected (drives the Review edit banner).
   const [editingRev, setEditingRev] = useState<number | undefined>(undefined);
+  // Where the correction flow returns after save/exit: the My Data list (the
+  // /scout?edit= deep link) or this home screen (a Done-tab row).
+  const [editReturn, setEditReturn] = useState<'my-data' | 'home'>('my-data');
 
   const [matchKey, setMatchKey] = useState('');
   const [alliance, setAlliance] = useState<'red' | 'blue'>('red');
@@ -393,11 +396,18 @@ export default function ScoutHome() {
     );
   };
 
-  // Assignments this scout already has a saved report for, keyed by match+team, so
-  // UpcomingMatches can move them out of the "to scout" feed into "Completed".
-  const completedKeys = new Set(
-    reports.map((r) => `${r.matchKey}:${r.targetTeamNumber}`),
-  );
+  // Every report this scout has saved (assigned or not), oldest first so a
+  // re-scouted slot resolves to its NEWEST report in UpcomingMatches' Done tab.
+  const completedReports = [...reports]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((r) => ({
+      id: r.id,
+      event_key: r.eventKey,
+      match_key: r.matchKey,
+      target_team_number: r.targetTeamNumber,
+      alliance_color: r.allianceColor,
+      station: r.station,
+    }));
 
   useEffect(() => {
     // Identity/event transitions must never display the previous scout's rows
@@ -555,6 +565,66 @@ export default function ScoutHome() {
   // the recovery path — re-saving re-validates and clears the error (BUG-4). No
   // `deleted` check — the local row has no `deleted` field (see
   // docs/plans/report-correction.md §1).
+  // Shared by the deep link and the Done-tab rows: validate the report against
+  // the current event/scout and open it for correction. Returns false when the
+  // report can't be edited here (a warning is shown instead).
+  const openReportForEdit = (r: LocalMatchReport, returnTo: 'my-data' | 'home'): boolean => {
+    if (!effective) return false;
+    const currentEvent = activeEvent || effective.event_key;
+    if (r.eventKey !== currentEvent) {
+      setManualWarning(
+        `That report belongs to ${r.eventKey}. Switch the active event or open My Data to recover it safely.`,
+      );
+      return false;
+    }
+    if (
+      !reportMatchesScoutScope(r, {
+        eventKey: currentEvent,
+        scoutId,
+        scoutName: effective.display_name,
+      })
+    ) {
+      setManualWarning('That report belongs to another scout on this device.');
+      return false;
+    }
+    setEditingRev(r.rowRevision ?? 1);
+    setEditReturn(returnTo);
+    if (r.syncState === 'error' && deadLetterNeedsTargetCorrection(r.lastSyncError)) {
+      // A dead-lettered report is most likely stuck on a bad match/team FK
+      // (BUG-1). The capture/review flow can't change the target match/team, so
+      // route the correction through the manual-pick form pre-filled with the
+      // report's values; "Start capture" then re-normalizes + re-validates them
+      // (BUG-1) and re-saves IN PLACE under this id (BUG-4).
+      setFixingReportId(r.id);
+      setMatchKey(r.matchKey);
+      setAlliance(r.allianceColor);
+      setStation(r.station);
+      setTeam(String(r.targetTeamNumber));
+      setManualWarning('This report failed to sync — fix the match/team below, then Start to re-save.');
+      return true;
+    }
+    // Validation-class failures such as malformed fuel bursts/auto paths do
+    // not require the scout to re-enter the match and team. Open Review
+    // directly; save() sanitizes the stored report and re-queues it in place.
+    setActive({
+      eventKey: r.eventKey,
+      matchKey: r.matchKey,
+      // Use the currently selected canonical identity when correcting a report
+      // whose original scout row id was later reconciled.
+      scoutId,
+      scoutName: effective.display_name,
+      targetTeamNumber: r.targetTeamNumber,
+      allianceColor: r.allianceColor,
+      station: r.station,
+      editingReportId: r.id,
+    });
+    return true;
+  };
+  // Kept in a ref so the deep-link effect below always calls the latest closure
+  // without re-firing on every render.
+  const openReportForEditRef = useRef(openReportForEdit);
+  openReportForEditRef.current = openReportForEdit;
+
   const editId = searchParams.get('edit');
   useEffect(() => {
     if (!effective || !editId) return;
@@ -573,58 +643,12 @@ export default function ScoutHome() {
         { replace: true },
       );
       if (!r) return; // not found: fall through
-      const currentEvent = activeEvent || effective.event_key;
-      if (r.eventKey !== currentEvent) {
-        setManualWarning(
-          `That report belongs to ${r.eventKey}. Switch the active event or open My Data to recover it safely.`,
-        );
-        return;
-      }
-      if (
-        !reportMatchesScoutScope(r, {
-          eventKey: currentEvent,
-          scoutId,
-          scoutName: effective.display_name,
-        })
-      ) {
-        setManualWarning('That report belongs to another scout on this device.');
-        return;
-      }
-      setEditingRev(r.rowRevision ?? 1);
-      if (r.syncState === 'error' && deadLetterNeedsTargetCorrection(r.lastSyncError)) {
-        // A dead-lettered report is most likely stuck on a bad match/team FK
-        // (BUG-1). The capture/review flow can't change the target match/team, so
-        // route the correction through the manual-pick form pre-filled with the
-        // report's values; "Start capture" then re-normalizes + re-validates them
-        // (BUG-1) and re-saves IN PLACE under this id (BUG-4).
-        setFixingReportId(r.id);
-        setMatchKey(r.matchKey);
-        setAlliance(r.allianceColor);
-        setStation(r.station);
-        setTeam(String(r.targetTeamNumber));
-        setManualWarning('This report failed to sync — fix the match/team below, then Start to re-save.');
-        return;
-      }
-      // Validation-class failures such as malformed fuel bursts/auto paths do
-      // not require the scout to re-enter the match and team. Open Review
-      // directly; save() sanitizes the stored report and re-queues it in place.
-      setActive({
-        eventKey: r.eventKey,
-        matchKey: r.matchKey,
-        // Use the currently selected canonical identity when correcting a report
-        // whose original scout row id was later reconciled.
-        scoutId,
-        scoutName: effective.display_name,
-        targetTeamNumber: r.targetTeamNumber,
-        allianceColor: r.allianceColor,
-        station: r.station,
-        editingReportId: r.id,
-      });
+      openReportForEditRef.current(r, 'my-data');
     })();
     return () => {
       cancelled = true;
     };
-  }, [effective, editId, setSearchParams, scoutId, activeEvent]);
+  }, [effective, editId, setSearchParams]);
 
   // Gate: no scouter selected yet on this device → pick a name (or wait for an event).
   if (!effective) {
@@ -701,10 +725,17 @@ export default function ScoutHome() {
     // Navigation is owned ENTIRELY by ScoutHome (CaptureFlow has no router access):
     // an edit save re-uploads an existing report, so jump to My Data with the
     // updated flag; a fresh capture/exit clears the active target in place.
-    const leaveEdit = () => {
+    // An edit opened from the Done tab lands back on this screen (with a saved
+    // notice); one opened from My Data's deep link returns there.
+    const leaveEdit = (saved: boolean) => {
       setActive(null);
       setEditingRev(undefined);
-      navigate('/my-data?updated=1');
+      if (editReturn === 'home') {
+        if (saved) setSavedNotice('updated');
+        void refreshLocal();
+        return;
+      }
+      navigate(saved ? '/my-data?updated=1' : '/my-data');
     };
     const leaveFresh = () => {
       setActive(null);
@@ -716,12 +747,8 @@ export default function ScoutHome() {
         suggestedBps={suggestedBps}
         startStage={isEdit ? 'review' : 'live'}
         editingRevision={isEdit ? editingRev : undefined}
-        onDone={isEdit ? leaveEdit : () => { setSavedNotice(true); leaveFresh(); }}
-        onExit={isEdit ? () => {
-          setActive(null);
-          setEditingRev(undefined);
-          navigate('/my-data');
-        } : leaveFresh}
+        onDone={isEdit ? () => leaveEdit(true) : () => { setSavedNotice('saved'); leaveFresh(); }}
+        onExit={isEdit ? () => leaveEdit(false) : leaveFresh}
       />
     );
   }
@@ -902,7 +929,13 @@ export default function ScoutHome() {
       </header>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 px-safe pb-safe pt-4">
-        {savedNotice && <p role="status" className="rounded-xl bg-success/10 p-3 text-sm text-success">Saved on this device. You can start your next match.</p>}
+        {savedNotice && (
+          <p role="status" className="rounded-xl bg-success/10 p-3 text-sm text-success">
+            {savedNotice === 'updated'
+              ? 'Report updated on this device — it will re-upload with your changes.'
+              : 'Saved on this device. You can start your next match.'}
+          </p>
+        )}
         {/* Status strip: ONE thin line — sync state (tap for details) on the
             left, offline-cache + sync actions as icon buttons on the right. The
             match list is the star of this screen; passive status doesn't get to
@@ -946,7 +979,11 @@ export default function ScoutHome() {
               eventKey={eventKey}
               assignments={assignments}
               onStart={startFromAssignment}
-              completedKeys={completedKeys}
+              completed={completedReports}
+              onEdit={(c) => {
+                const r = reports.find((x) => x.id === c.id);
+                if (r) openReportForEdit(r, 'home');
+              }}
             />
 
             {/* Only surfaced when there IS something to resume — an always-on

@@ -69,9 +69,18 @@ query param read in `MyDataView` (this is the single approach — not "param or 
 
 **Editable vs not:** All deferred fields (climb, intake, defense seconds, being-defended seconds,
 pins, max capacity, fouls minor/major, foul reasons, flags no-show/died/tipped/dropped, auto
-start/path, notes). The raw fuel **bursts** and **feeding bursts** are carried through unchanged
-(read from the loaded report into session state) and contribute to the recomputed aggregates;
-they are not re-edited via the slider. `inactiveFirst` is carried through.
+start/path, notes) **plus the three fuel totals** (Auto / Teleop / Endgame) on the Review summary.
+Fuel is never stored as a count, so a total edit re-fits the raw **bursts** via
+`src/capture/fuelCorrection.ts` (`adjustFuelTotal`): decreases trim from the end of the latest
+window, increases append one correction burst there, and earlier bursts stay byte-identical so
+tempo/cycle/suppression analytics keep their timeline. Every keystroke re-fits from a snapshot of
+the pre-edit bursts (`useCaptureSession.setGroupFuel`). **Feeding bursts** are carried through
+unchanged. `inactiveFirst` is carried through.
+
+**Entry points (2026-09-20):** besides My Data → Edit, the scout home's **Done** tab lists every
+report the scout has saved — including matches they were *not* assigned (tagged "extra") — and
+tapping a Done row opens this same correction flow (it previously started a fresh, superseding
+capture). Edits opened from Done return to the home screen; the deep link still returns to My Data.
 
 **Identity note (documented behavior, no code):** if between the original capture and the edit
 the device's `scout_id` was orphaned by `select_scouter` consolidation, the server re-resolves by

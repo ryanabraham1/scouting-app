@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, CheckCircle2, Clock3, PartyPopper } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Clock3, PartyPopper, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { supabase } from '@/lib/supabase';
@@ -81,8 +81,21 @@ export function isUpcoming(m: UpcomingMatchRow): boolean {
   return m.winner == null && m.result_synced_at == null;
 }
 
+/**
+ * A saved report for this scout, keyed to an assignment slot. Reports for
+ * matches the scout was NOT assigned to still surface in the Done tab (as a
+ * synthesized row) so "Scout another match" captures are visible and editable.
+ */
+export interface CompletedReport extends ScoutAssignment {
+  id: string;
+}
+
 interface EnrichedAssignment {
   assignment: ScoutAssignment;
+  /** Set on Done rows: the saved report this slot resolves to. */
+  report?: CompletedReport;
+  /** Done row for a match the scout picked up themselves (no assignment). */
+  unassigned?: boolean;
   match: UpcomingMatchRow | null;
 }
 
@@ -122,10 +135,15 @@ export interface UpcomingMatchesProps {
   /** Start capturing the tapped assignment. */
   onStart: (a: ScoutAssignment) => void;
   /**
-   * Keys (`${match_key}:${target_team_number}`) the scout already has a saved
-   * report for. These move out of the "To scout" feed into the "Completed" tab.
+   * Reports this scout has already saved (any match, assigned or not). An
+   * assignment with a matching match+team moves out of the "To scout" feed into
+   * the "Done" tab; a report with no matching assignment is shown in Done as
+   * its own row. Tapping a Done row opens the report for correction via
+   * `onEdit` (never a fresh, superseding capture).
    */
-  completedKeys?: Set<string>;
+  completed?: readonly CompletedReport[];
+  /** Open an existing report in the correction flow. */
+  onEdit?: (report: CompletedReport) => void;
 }
 
 /** Stable completion key for an assignment / report: match + target team. */
@@ -154,7 +172,8 @@ export function UpcomingMatches({
   eventKey,
   assignments,
   onStart,
-  completedKeys,
+  completed,
+  onEdit,
 }: UpcomingMatchesProps) {
   const [matches, setMatches] = useState<UpcomingMatchRow[] | null>(null);
   // The displayed countdown advances locally; it does not create extra network
@@ -272,10 +291,27 @@ export function UpcomingMatches({
   }, [eventKey]);
 
   const byKey = new Map((matches ?? []).map((m) => [m.match_key, m]));
-  const done = completedKeys ?? new Set<string>();
-  const enrichedAll: EnrichedAssignment[] = assignments
-    .map((assignment) => ({ assignment, match: byKey.get(assignment.match_key) ?? null }))
-    .sort(sortEnriched);
+  // Slot → saved report. Later entries win so a re-scouted slot edits the newest.
+  const done = new Map<string, CompletedReport>();
+  for (const r of completed ?? []) done.set(assignmentKey(r), r);
+  const assignedKeys = new Set(assignments.map(assignmentKey));
+  const enrichedAll: EnrichedAssignment[] = [
+    ...assignments.map((assignment) => ({
+      assignment,
+      report: done.get(assignmentKey(assignment)),
+      match: byKey.get(assignment.match_key) ?? null,
+    })),
+    // Matches scouted WITHOUT an assignment ("Scout another match") still count
+    // as done — otherwise the work is invisible and can't be reopened for edits.
+    ...[...done.values()]
+      .filter((r) => !assignedKeys.has(assignmentKey(r)))
+      .map((r) => ({
+        assignment: r,
+        report: r,
+        unassigned: true,
+        match: byKey.get(r.match_key) ?? null,
+      })),
+  ].sort(sortEnriched);
 
   // To scout: not yet completed AND still upcoming (if we know the result; offline
   // / un-imported matches are assumed upcoming). Completed: a saved report exists.
@@ -283,12 +319,11 @@ export function UpcomingMatches({
   // outstanding assignment the scout missed (so it stays visible to backfill,
   // instead of vanishing once an event's matches are all played).
   const todoList = enrichedAll.filter(
-    (e) => !done.has(assignmentKey(e.assignment)) && (e.match ? isUpcoming(e.match) : true),
+    (e) => !e.report && (e.match ? isUpcoming(e.match) : true),
   );
-  const doneList = enrichedAll.filter((e) => done.has(assignmentKey(e.assignment)));
+  const doneList = enrichedAll.filter((e) => e.report);
   const missedList = enrichedAll.filter(
-    (e) =>
-      !done.has(assignmentKey(e.assignment)) && e.match != null && !isUpcoming(e.match),
+    (e) => !e.report && e.match != null && !isUpcoming(e.match),
   );
   const [expanded, setExpanded] = useState(false);
   const shown = view === 'done' ? doneList : view === 'missed' ? missedList : todoList;
@@ -406,14 +441,14 @@ export function UpcomingMatches({
         </p>
       ) : (
         <ul className="flex flex-col gap-2 landscape:grid landscape:grid-cols-2">
-          {(expanded || view !== 'todo' ? shown : shown.slice(0, 3)).map(({ assignment: a, match }) => {
+          {(expanded || view !== 'todo' ? shown : shown.slice(0, 3)).map(({ assignment: a, match, report, unassigned }) => {
             const isDone = view === 'done';
             const isMissed = view === 'missed';
             // Live (queuing/on-field) affordance only matters for the upcoming feed.
             const liveStatus = view === 'todo' ? liveStatusForKey(nexus, a.match_key) : null;
             const timing = view === 'todo' && match ? matchTimeDisplay(match, { now }) : null;
             return (
-            <li key={a.match_key} data-testid="scout-upcoming-match">
+            <li key={assignmentKey(a)} data-testid="scout-upcoming-match">
               <Button
                 data-testid="scout-assignment"
                 variant="outline"
@@ -427,7 +462,10 @@ export function UpcomingMatches({
                       : 'border-l-brand/50',
                   liveStatus && 'border-l-success ring-2 ring-success',
                 )}
-                onClick={() => onStart(a)}
+                // Done rows re-open the SAVED report (revision bump, same id).
+                // Falling through to onStart would start a fresh capture that
+                // supersedes the original instead of editing it.
+                onClick={() => (isDone && report && onEdit ? onEdit(report) : onStart(a))}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-base font-semibold">
@@ -435,6 +473,14 @@ export function UpcomingMatches({
                       <CheckCircle2 className="size-4 shrink-0 text-success" />
                     ) : null}
                     <span className="truncate">{matchLabelFromKey(a.match_key)}</span>
+                    {unassigned ? (
+                      <span
+                        data-testid="scout-done-unassigned"
+                        className="inline-flex shrink-0 items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        extra
+                      </span>
+                    ) : null}
                     {liveStatus ? (
                       <span
                         data-testid="scout-upcoming-live"
@@ -472,8 +518,9 @@ export function UpcomingMatches({
                   </span>
                 </div>
                 {isDone ? (
-                  <span className="text-xs font-medium text-success">
-                    Tap to review or re-scout
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-success">
+                    <Pencil className="size-3.5 shrink-0" />
+                    {onEdit ? 'Tap to edit this report' : 'Tap to review or re-scout'}
                   </span>
                 ) : view === 'todo' ? (
                   <span

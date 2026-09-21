@@ -692,6 +692,64 @@ describe('ScoutHome matches to scout', () => {
   });
 });
 
+describe('ScoutHome Done tab', () => {
+  function makeSynced(over: Partial<LocalMatchReport>): LocalMatchReport {
+    return {
+      ...makeDeadLetter(''),
+      syncState: 'synced',
+      syncAttempts: 0,
+      lastSyncError: null,
+      ...over,
+    };
+  }
+
+  it('lists a match scouted WITHOUT an assignment as done, tagged extra', async () => {
+    // sf1 is not assigned to Casey but was scouted via "Scout another match".
+    await saveReport(
+      makeSynced({
+        id: '22222222-2222-4222-8222-222222222222',
+        matchKey: '2026demo_sf1',
+        targetTeamNumber: 4,
+        allianceColor: 'blue',
+        station: 1,
+      }),
+    );
+    renderHome();
+    await screen.findByTestId('scout-upcoming-matches');
+    fireEvent.click(await screen.findByRole('tab', { name: /Done \(1\)/ }));
+    const rows = await screen.findAllByTestId('scout-upcoming-match');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('Semifinal 1');
+    expect(rows[0].textContent).toContain('#4');
+    expect(screen.getByTestId('scout-done-unassigned')).toBeTruthy();
+  });
+
+  it('tapping a done row opens the saved report for editing (not a fresh capture) and returns home', async () => {
+    await saveReport(
+      makeSynced({ id: '33333333-3333-4333-8333-333333333333', rowRevision: 2 }),
+    ); // qm5 / 254 — Casey's assignment
+    renderHome();
+    await screen.findByTestId('scout-upcoming-matches');
+    fireEvent.click(await screen.findByRole('tab', { name: /Done \(1\)/ }));
+    const row = await screen.findByTestId('scout-assignment');
+    expect(row.textContent).toContain('Tap to edit');
+    fireEvent.click(row);
+    // Review opens in edit mode with the loaded revision — never the live capture.
+    expect(await screen.findByTestId('review-editing-banner')).toHaveTextContent('rev 2 -> 3');
+    expect(screen.queryByTestId('capture-placement-submit')).toBeNull();
+    // Fuel totals are editable in the correction Review.
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    const auto = (await screen.findByTestId('review-fuel-auto')) as HTMLInputElement;
+    expect(auto.disabled).toBe(false);
+    fireEvent.change(auto, { target: { value: '7' } });
+    expect(auto.value).toBe('7');
+    // Leaving the edit lands back on the home screen (not My Data).
+    fireEvent.click(screen.getByTestId('review-exit'));
+    expect(await screen.findByTestId('scout-home')).toBeTruthy();
+  });
+});
+
 describe('ScoutHome Match/Pit toggle', () => {
   it('defaults to match mode (manual pick visible, no pit flow)', async () => {
     renderHome();

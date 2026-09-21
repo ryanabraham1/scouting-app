@@ -18,6 +18,7 @@ import { RatingSlider } from '@/components/ui/RatingSlider';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
+import { FUEL_GROUP_WINDOWS, groupFuelMax, type FuelGroup } from '@/capture/fuelCorrection';
 import { FOUL_REASONS } from '@/scoring/fouls';
 import {
   useTeamAutoHistory,
@@ -50,6 +51,7 @@ export type ReviewObservedAction =
   | 'flag'
   | 'auto_path'
   | 'notes'
+  | 'fuel'
   | 'next';
 
 /**
@@ -524,15 +526,36 @@ export function ReviewScreen(props: {
                 <ClipboardCheck className="size-5 text-brand" />
                 Match summary
               </p>
-              <div className="grid grid-cols-2 gap-y-1.5 landscape:gap-y-2">
-                <span className="text-muted-foreground">Auto fuel</span>
-                <span className="text-right tabular-nums text-energy">{agg.autoFuel}</span>
-                <span className="text-muted-foreground">Teleop fuel</span>
-                <span className="text-right tabular-nums text-energy">
-                  {agg.teleopFuelActive + agg.teleopFuelInactive}
-                </span>
-                <span className="text-muted-foreground">Endgame fuel</span>
-                <span className="text-right tabular-nums text-energy">{agg.endgameFuel}</span>
+              {/* The three phase totals are EDITABLE: a scout who missed or
+                  over-counted a burst corrects the number here (before OR after
+                  submitting), and the session re-fits the recorded bursts so
+                  the timeline, aggregates and server recompute all agree. */}
+              <div className="grid grid-cols-2 items-center gap-y-1.5 landscape:gap-y-2">
+                {(
+                  [
+                    ['auto', 'Auto fuel', agg.autoFuel],
+                    ['teleop', 'Teleop fuel', agg.teleopFuelActive + agg.teleopFuelInactive],
+                    ['endgame', 'Endgame fuel', agg.endgameFuel],
+                  ] as const
+                ).map(([group, label, value]) => (
+                  <label key={group} className="contents">
+                    <span className="text-muted-foreground">{label}</span>
+                    <NumberField
+                      data-testid={`review-fuel-${group}`}
+                      min={0}
+                      max={groupFuelMax(FUEL_GROUP_WINDOWS[group as FuelGroup])}
+                      step={1}
+                      inputMode="numeric"
+                      value={value}
+                      disabled={s.noShow}
+                      onCommit={(v) => {
+                        s.setGroupFuel(group as FuelGroup, v);
+                        props.onAction?.('fuel');
+                      }}
+                      className="ml-auto w-24 rounded-lg border border-border bg-input px-2 py-1 text-right text-base tabular-nums text-energy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    />
+                  </label>
+                ))}
                 <span className="text-muted-foreground">By shift</span>
                 <span className="text-right tabular-nums">{agg.fuelByShift.join(' / ')}</span>
                 <span className="text-base font-semibold">Fuel points</span>

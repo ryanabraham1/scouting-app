@@ -20,6 +20,7 @@ import {
   type CaptureSessionStorage,
 } from '@/capture/captureSessionStorage';
 import { sanitizeMatchReport } from '@/sync/sanitizeReport';
+import { adjustFuelTotal, FUEL_GROUP_WINDOWS, type FuelGroup } from '@/capture/fuelCorrection';
 
 export interface CaptureTarget {
   eventKey: string;
@@ -420,6 +421,8 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
   // rate, inactiveFirst) must NOT pass a possibly-stale `bursts` closure — they
   // omit it and persistDraft fills the current array from this ref.
   const burstsRef = useRef<FuelBurst[]>([]);
+  // Pre-correction snapshot for the Review fuel fields (see setGroupFuel).
+  const fuelEditBaseRef = useRef<FuelBurst[] | null>(null);
   const [inactiveFirst, setInactiveFirstState] = useState<boolean | null>(null);
   const [rate, setRateState] = useState<number>(1);
   const [deferred, setDeferred] = useState<DeferredState>(initialDeferred);
@@ -910,6 +913,7 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     const burst: FuelBurst = { startMs: start, endMs: start + durationMs, rate: effRate, window };
     const nextBursts = [...burstsRef.current, burst];
     burstsRef.current = nextBursts;
+    fuelEditBaseRef.current = null; // a new live burst invalidates any Review re-fit base
     setBursts(nextBursts);
     persistDraft({ bursts: nextBursts, inactiveFirst, rate, deferred: deferredRef.current });
   }, [
@@ -1052,6 +1056,7 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     if (prev.length === 0) return;
     const next = prev.slice(0, -1);
     burstsRef.current = next;
+    fuelEditBaseRef.current = null;
     setBursts(next);
     persistDraft({ bursts: next, inactiveFirst, rate, deferred: deferredRef.current });
   }, [inactiveFirst, rate, persistDraft]);
@@ -1132,6 +1137,31 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       deferredRef.current = next;
       setDeferred(next);
       persistDraft({ inactiveFirst, rate, deferred: next });
+    },
+    [inactiveFirst, rate, persistDraft],
+  );
+
+  // Hand-corrected fuel TOTAL for one Review group (auto / teleop / endgame).
+  // Fuel is integrated from timestamped bursts, so the correction re-fits the
+  // bursts (see fuelCorrection.ts) rather than overwriting a number. Every edit
+  // is computed from a snapshot of the bursts as they stood BEFORE the first
+  // correction — NumberField commits on each keystroke, and re-fitting "1" then
+  // "12" from the live list would have shredded the recorded timeline on the
+  // intermediate value. Groups are independent: a group's re-fit only replaces
+  // that group's windows, so an auto edit never undoes a teleop edit.
+  const setGroupFuel = useCallback(
+    (group: FuelGroup, count: number) => {
+      const windows = FUEL_GROUP_WINDOWS[group];
+      const base = (fuelEditBaseRef.current ??= burstsRef.current);
+      const current = burstsRef.current;
+      const refit = adjustFuelTotal(base, windows, count);
+      const next = [
+        ...current.filter((b) => !windows.includes(b.window)),
+        ...refit.filter((b) => windows.includes(b.window)),
+      ];
+      burstsRef.current = next;
+      setBursts(next);
+      persistDraft({ bursts: next, inactiveFirst, rate, deferred: deferredRef.current });
     },
     [inactiveFirst, rate, persistDraft],
   );
@@ -1338,6 +1368,8 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     defendedDurationMs: deferred.defendedDurationMs,
     setDefendedDurationMs: (v: number) =>
       setDurationAdjusted('defendedDurationMs', 'defendedIntervals', v),
+    // Review-step fuel correction (auto / teleop / endgame totals).
+    setGroupFuel,
     // Timestamped interval timers — call begin* on activate, end* on commit.
     defenseIntervals: deferred.defenseIntervals,
     defendedIntervals: deferred.defendedIntervals,

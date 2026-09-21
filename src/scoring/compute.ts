@@ -1,5 +1,5 @@
 // src/scoring/compute.ts
-import type { MatchReportInputs, MatchReportAggregates, MatchWindow } from './types';
+import type { FuelBurst, MatchReportInputs, MatchReportAggregates, MatchWindow } from './types';
 import { SCORING } from './constants';
 
 const RATE_SCALE_DIGITS = 9;
@@ -34,6 +34,29 @@ function burstNumerator(rate: number, startMs: number, endMs: number): bigint {
 
 function roundWindow(numerator: bigint): number {
   return Number((numerator + WINDOW_HALF) / WINDOW_DIVISOR);
+}
+
+/**
+ * Exact nano-ball×ms numerator for every burst in ONE window. Exposed so a
+ * Review-step fuel correction can re-fit bursts against the same integer math
+ * the aggregates (and the server RPC) use, instead of a float approximation.
+ */
+export function windowFuelNumerator(bursts: readonly FuelBurst[], window: MatchWindow): bigint {
+  let n = 0n;
+  for (const b of bursts) {
+    if (b.window === window) n += burstNumerator(b.rate, b.startMs, b.endMs);
+  }
+  return n;
+}
+
+/** Rounded (half-up, once) ball count for a window numerator. */
+export function roundFuelNumerator(numerator: bigint): number {
+  return roundWindow(numerator);
+}
+
+/** Rounded fuel scored in ONE window — identical to the per-window step of computeAggregates. */
+export function windowFuelTotal(bursts: readonly FuelBurst[], window: MatchWindow): number {
+  return roundWindow(windowFuelNumerator(bursts, window));
 }
 
 export function computeAggregates(input: MatchReportInputs): MatchReportAggregates {
