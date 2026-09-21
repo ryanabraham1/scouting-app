@@ -382,8 +382,13 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     [aggs, epaAvailable, epaByTeam, tbaRankByTeam],
   );
 
-  const [sortKey, setSortKey] = useState<SortKey>('epa');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  // Default ranking is the official TBA rank (ascending). Falls back below when
+  // TBA has nothing for this event yet.
+  const [sortKey, setSortKey] = useState<SortKey>('tbaRank');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // True once the user has clicked a column — the default-fallback effects
+  // must never override an explicit choice.
+  const userSortedRef = useRef(false);
   const [selected, setSelected] = useState<number[]>([]);
 
   // User-chosen hidden stat columns (Team is never toggleable). We store HIDDEN
@@ -430,14 +435,25 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     };
   }, [columnsOpen]);
 
-  // EPA is the default ranking. With NO match-result EPA at all (nothing posted
-  // yet) every row ties at "—", so nudge the UNTOUCHED default to Scouted Pts;
-  // once the user picks a column (or EPA lands) it's left alone.
+  // TBA rank is the default ranking. Before quals post (or when the proxy is
+  // down) every row ties at "—", so nudge the UNTOUCHED default to EPA — and
+  // with no match-result EPA either, to Scouted Pts. Once the user picks a
+  // column it's left alone; once TBA ranks land the default snaps back.
+  const tbaSettled = !tbaQuery.isPending;
+  const tbaRankAvailable = tbaRankByTeam.size > 0;
   useEffect(() => {
-    if (aggs.length > 0 && !epaAvailable) {
-      setSortKey((k) => (k === 'epa' ? 'scoutingExpectedPoints' : k));
+    if (userSortedRef.current || aggs.length === 0 || !tbaSettled) return;
+    if (tbaRankAvailable) {
+      setSortKey('tbaRank');
+      setSortDir('asc');
+    } else if (epaAvailable) {
+      setSortKey('epa');
+      setSortDir('desc');
+    } else {
+      setSortKey('scoutingExpectedPoints');
+      setSortDir('desc');
     }
-  }, [aggs.length, epaAvailable]);
+  }, [aggs.length, tbaSettled, tbaRankAvailable, epaAvailable]);
 
   const sortedRows = useMemo(() => {
     const copy = [...rows];
@@ -462,6 +478,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   }, [rows]);
 
   function onSort(key: SortKey): void {
+    userSortedRef.current = true;
     if (key === sortKey) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
