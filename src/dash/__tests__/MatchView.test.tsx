@@ -22,6 +22,7 @@ vi.mock('@/dash/useEventData', () => ({
   useEventInfo: () => ({ data: { name: null, webcast: null, webcasts: [] } }),
   useWebcastSync: () => ({ data: {} }),
   saveWebcastSync: vi.fn(async () => {}),
+  useAutoWebcastCalibration: () => {},
 }));
 
 // MatchVideo AND the new MatchResultsCard fetch the TBA match through

@@ -19,6 +19,8 @@ vi.mock('@/dash/useEventData', () => ({
   useTeamSeasonStats: () => ({
     data: { worldRank: null, totalEpa: null, epaSource: 'none', seasonRecord: null },
   }),
+  saveWebcastSync: vi.fn(async () => {}),
+  useAutoWebcastCalibration: () => {},
 }));
 
 import NextMatchView from '@/dash/NextMatchView';

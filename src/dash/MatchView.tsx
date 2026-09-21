@@ -35,6 +35,7 @@ import {
   useEventInfo,
   useWebcastSync,
   saveWebcastSync,
+  useAutoWebcastCalibration,
   type MatchRow,
 } from '@/dash/useEventData';
 import { resolveMatchStream, type MatchStreamTarget } from '@/dash/matchStream';
@@ -892,6 +893,8 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
     () => resolveMatchStream(selectedMatch, eventInfoQ?.data?.webcasts, webcastSyncQ?.data),
     [selectedMatch, eventInfoQ?.data?.webcasts, webcastSyncQ?.data],
   );
+  // Zero-touch calibration: ask YouTube when this match's stream began.
+  useAutoWebcastCalibration?.(eventKey, streamTarget?.videoId ?? null);
   const streamProps: MatchVideoStreamProps | null = useMemo(() => {
     if (!streamTarget) return null;
     return {

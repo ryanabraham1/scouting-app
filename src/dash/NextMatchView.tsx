@@ -19,6 +19,7 @@ import {
   useTeamSeasonStats,
   useTbaEventAlliances,
   saveWebcastSync,
+  useAutoWebcastCalibration,
   type MatchRow,
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
@@ -26,7 +27,7 @@ import { formatMatchKeyRaw, formatMatchShort, isQualLevel } from '@/lib/formatMa
 import { redTeamsOf, blueTeamsOf, byPlay, shortTime } from '@/dash/matchOrder';
 import PlayoffPath from '@/dash/PlayoffPath';
 import { projectNextPlayoffMatch, resolveFeedTeams, sfSet, feedLabel, ourAllianceTeams } from '@/dash/playoffModel';
-import EventStream from '@/dash/EventStream';
+import EventStream, { webcastYoutubeId } from '@/dash/EventStream';
 import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
@@ -229,6 +230,9 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // unit tests that mock useEventData, so guard the optional-call result).
   const eventInfoQ = useEventInfo?.(eventKey);
   const eventInfo = eventInfoQ?.data ?? { name: null, webcast: null };
+  // Calibrate today's stream as soon as the dashboard is open so the Match tab
+  // can seek it to any match without anyone touching the sync button.
+  useAutoWebcastCalibration?.(eventKey, webcastYoutubeId(eventInfo.webcast));
   const rankingsQ = useTbaRankings?.(eventKey);
   const rankRows = useMemo(() => parseTbaRankings(rankingsQ?.data), [rankingsQ?.data]);
   const ourRankRow = rankRows.find((r) => r.teamNumber === baseTeam) ?? null;

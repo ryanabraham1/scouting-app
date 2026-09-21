@@ -176,3 +176,33 @@ export function epaFromTeamEvent(json: unknown): number | null {
   }
   return null;
 }
+
+/** youtube-proxy result: when a livestream actually started (null = not yet). */
+export interface YoutubeStreamStart {
+  available: true;
+  videoId: string;
+  actualStartTime: string | null;
+  actualEndTime: string | null;
+}
+
+/**
+ * Read a livestream's start through the youtube-proxy Edge Function. Never
+ * throws: degrades to `{ available: false }` on the sentinel body OR on any
+ * fetch/non-2xx error.
+ */
+export async function youtubeStreamStart(
+  videoId: string,
+): Promise<YoutubeStreamStart | ProxyUnavailable> {
+  try {
+    const res = await fetch(
+      `${env.SUPABASE_URL}/functions/v1/youtube-proxy?video=${encodeURIComponent(videoId)}`,
+      { headers: await authHeaders() },
+    );
+    if (!res.ok) return { available: false };
+    const body = (await res.json()) as unknown;
+    if (isUnavailable(body)) return { available: false };
+    return body as YoutubeStreamStart;
+  } catch {
+    return { available: false };
+  }
+}

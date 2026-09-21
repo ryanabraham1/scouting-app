@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { tbaGet, statboticsGet, nexusGet, syncEventResults } from '@/dash/proxies';
+import { tbaGet, statboticsGet, nexusGet, syncEventResults, youtubeStreamStart, isUnavailable } from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
 import { computeLocalEpa } from '@/dash/localEpa';
 import {
@@ -1480,6 +1480,42 @@ export async function saveWebcastSync(
     // refetch so the cache reflects the truth rather than our guess.
     void queryClient.invalidateQueries({ queryKey: key });
   }
+}
+
+// Ask YouTube (via youtube-proxy) when a stream began and persist it as an
+// `auto` calibration — the zero-touch path, for live streams and VODs alike. A
+// stream that hasn't started yet answers null and is re-polled.
+const YT_STREAM_START_STALE_MS = 6 * 60 * 60_000;
+const YT_STREAM_PENDING_POLL_MS = 60_000;
+
+/**
+ * Auto-calibrate `videoId` for `eventKey` from YouTube's own start time. Runs
+ * whenever there is no MANUAL calibration for the video (a manual sync always
+ * wins); an existing live-derived `auto` row is refined by YouTube's value.
+ * Pass null to do nothing.
+ */
+export function useAutoWebcastCalibration(eventKey: string | null, videoId: string | null): void {
+  const syncQ = useWebcastSync(eventKey);
+  const existing = videoId ? syncQ.data?.[videoId] : undefined;
+  const enabled = !!eventKey && !!videoId && syncQ.isSuccess && existing?.source !== 'manual';
+  const q = useQuery({
+    queryKey: ['youtube', 'stream-start', videoId],
+    enabled,
+    staleTime: YT_STREAM_START_STALE_MS,
+    queryFn: () => youtubeStreamStart(videoId as string),
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      // Not started yet (or upstream down): keep checking every minute.
+      return !d || isUnavailable(d) || !d.actualStartTime ? YT_STREAM_PENDING_POLL_MS : false;
+    },
+  });
+  const data = q.data;
+  useEffect(() => {
+    if (!enabled || !data || isUnavailable(data) || !data.actualStartTime) return;
+    const ms = Date.parse(data.actualStartTime);
+    if (!Number.isFinite(ms)) return;
+    void saveWebcastSync(eventKey as string, videoId as string, ms, 'auto');
+  }, [enabled, data, eventKey, videoId]);
 }
 
 /** Season-level stats for OUR team: in-house EPA with Statbotics metadata/fallback. */
