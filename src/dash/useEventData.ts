@@ -57,6 +57,10 @@ export interface MatchRow {
   comp_level: string;
   match_number: number;
   scheduled_time: string | null;
+  /** TBA's live predicted start (may be absent on rows cached before 20260910). */
+  predicted_time?: string | null;
+  /** FMS actual start (absent on rows cached before 20260920). */
+  actual_time?: string | null;
   red1: number | null;
   red2: number | null;
   red3: number | null;
@@ -1310,11 +1314,18 @@ export function useEventLiveSync(eventKey: string | null): void {
 /** Parsed TBA event header info: display name + first usable webcast. */
 export interface EventInfo {
   name: string | null;
+  /** Today's stream (see pickWebcast). */
   webcast: EventWebcast | null;
+  /**
+   * Raw TBA webcast list so a match on another day can resolve ITS day's stream
+   * via `pickWebcast({ webcasts }, date)`. Absent on caches from before this
+   * field existed.
+   */
+  webcasts?: unknown[];
 }
 
 /** Local calendar date as YYYY-MM-DD (TBA webcast `date` is the event-local day). */
-function localDateStr(now: Date = new Date()): string {
+export function localDateStr(now: Date = new Date()): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
@@ -1378,14 +1389,97 @@ export function useEventInfo(eventKey: string | null): UseQueryResult<EventInfo>
     staleTime: STALE_TIME,
     queryFn: async (): Promise<EventInfo> => {
       try {
-        const data = await tbaGet<{ name?: string }>(`/event/${eventKey}`);
+        const data = await tbaGet<{ name?: string; webcasts?: unknown }>(`/event/${eventKey}`);
         const name = typeof data?.name === 'string' ? data.name : null;
-        return { name, webcast: pickWebcast(data) };
+        const webcasts = Array.isArray(data?.webcasts) ? data.webcasts : [];
+        return { name, webcast: pickWebcast(data), webcasts };
       } catch {
-        return { name: null, webcast: null };
+        return { name: null, webcast: null, webcasts: [] };
       }
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Livestream calibration (`webcast_sync`): when each of the event's YouTube
+// streams actually began, keyed by video id. With it, a match's position in the
+// stream/VOD is just `actual_time - stream_start`. `auto` rows are derived on
+// any dashboard that has the stream playing live (useYouTubePlayer's
+// onLiveStreamStart); `manual` rows come from a lead syncing a match with a known
+// actual_time and win over auto.
+// ---------------------------------------------------------------------------
+
+export interface WebcastSyncRow {
+  video_id: string;
+  stream_start_at: string;
+  source: 'auto' | 'manual';
+}
+
+export type WebcastSyncMap = Record<string, WebcastSyncRow>;
+
+export const webcastSyncQueryKey = (eventKey: string | null) => ['webcast-sync', eventKey] as const;
+
+export function useWebcastSync(eventKey: string | null): UseQueryResult<WebcastSyncMap> {
+  return useQuery({
+    queryKey: webcastSyncQueryKey(eventKey),
+    enabled: !!eventKey,
+    staleTime: STALE_TIME,
+    queryFn: async (): Promise<WebcastSyncMap> => {
+      const { data, error } = await supabase
+        .from('webcast_sync')
+        .select('video_id, stream_start_at, source')
+        .eq('event_key', eventKey as string);
+      if (error) throw error;
+      const map: WebcastSyncMap = {};
+      for (const r of (data ?? []) as WebcastSyncRow[]) map[r.video_id] = r;
+      return map;
+    },
+  });
+}
+
+// An auto derivation drifts by a second or two between reports; don't churn the
+// row (and every dashboard's cache) for less than this.
+const WEBCAST_SYNC_MIN_DELTA_MS = 3_000;
+
+/**
+ * Persist a stream's start. Never lets an `auto` derivation replace a `manual`
+ * calibration, and skips writes that wouldn't move an auto row meaningfully.
+ * Best-effort: failures (offline) are swallowed — the next live sample retries.
+ */
+export async function saveWebcastSync(
+  eventKey: string,
+  videoId: string,
+  streamStartMs: number,
+  source: WebcastSyncRow['source'],
+): Promise<void> {
+  if (!eventKey || !videoId || !Number.isFinite(streamStartMs)) return;
+  const key = webcastSyncQueryKey(eventKey);
+  const current = queryClient.getQueryData<WebcastSyncMap>(key)?.[videoId];
+  if (current && source === 'auto') {
+    if (current.source === 'manual') return;
+    const prevMs = Date.parse(current.stream_start_at);
+    if (Number.isFinite(prevMs) && Math.abs(prevMs - streamStartMs) < WEBCAST_SYNC_MIN_DELTA_MS) {
+      return;
+    }
+  }
+  const row: WebcastSyncRow = {
+    video_id: videoId,
+    stream_start_at: new Date(streamStartMs).toISOString(),
+    source,
+  };
+  // Optimistic: every open Match/Next-Match view sees the calibration at once.
+  queryClient.setQueryData<WebcastSyncMap>(key, (prev) => ({ ...(prev ?? {}), [videoId]: row }));
+  const { error } = await supabase
+    .from('webcast_sync')
+    .upsert(
+      { event_key: eventKey, ...row, updated_at: new Date().toISOString() },
+      { onConflict: 'event_key,video_id' },
+    );
+  if (error) {
+    // Server may hold a manual row we hadn't fetched yet, or we're offline —
+    // refetch so the cache reflects the truth rather than our guess.
+    void queryClient.invalidateQueries({ queryKey: key });
+  }
 }
 
 /** Season-level stats for OUR team: in-house EPA with Statbotics metadata/fallback. */

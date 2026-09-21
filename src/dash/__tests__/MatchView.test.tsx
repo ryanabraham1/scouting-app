@@ -17,6 +17,11 @@ vi.mock('@/dash/useEventData', () => ({
   useEventMatches: (eventKey: string | null) => useEventMatchesMock(eventKey),
   useEventReports: (eventKey: string | null) => useEventReportsMock(eventKey),
   useEventScouts: (eventKey: string | null) => useEventScoutsMock(eventKey),
+  // Livestream fallback inputs: no webcasts / no calibration → MatchVideo
+  // behaves exactly as before (no stream embed).
+  useEventInfo: () => ({ data: { name: null, webcast: null, webcasts: [] } }),
+  useWebcastSync: () => ({ data: {} }),
+  saveWebcastSync: vi.fn(async () => {}),
 }));
 
 // MatchVideo AND the new MatchResultsCard fetch the TBA match through

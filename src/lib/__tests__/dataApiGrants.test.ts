@@ -6,10 +6,12 @@ import { describe, expect, it } from 'vitest';
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
 const EDGE_FUNCTIONS = join(ROOT, 'supabase/functions');
-const MIGRATION_PATH = join(
-  ROOT,
+// The grant manifest plus its append-only addenda (migrations are never edited
+// once pushed, so a new browser-facing table carries its own explicit grants).
+const MIGRATION_PATHS = [
   'supabase/migrations/20260722181527_explicit_browser_data_api_grants.sql',
-);
+  'supabase/migrations/20260920200000_match_actual_time_and_webcast_sync.sql',
+].map((p) => join(ROOT, p));
 
 type TablePrivilege = 'select' | 'insert' | 'update' | 'delete';
 type DataApiUsage = {
@@ -33,6 +35,7 @@ const EXPECTED_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
   scouter_roster: ['delete', 'insert', 'select'],
   strategy_canvas: ['select'],
   team: ['select'],
+  webcast_sync: ['insert', 'select', 'update'],
 };
 
 const EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
@@ -338,7 +341,9 @@ function migrationBrowserRpcGrants(sql: string): string[] {
 }
 
 describe('explicit browser Data API grants', () => {
-  const migration = readFileSync(MIGRATION_PATH, 'utf8').toLowerCase();
+  const migration = MIGRATION_PATHS.map((p) => readFileSync(p, 'utf8'))
+    .join('\n')
+    .toLowerCase();
   const compactMigration = migration.replace(/\s+/g, ' ');
 
   it('matches every direct browser table operation exactly', () => {

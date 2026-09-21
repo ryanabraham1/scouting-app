@@ -115,6 +115,7 @@ interface TbaMatch {
   set_number?: number;
   time?: number | null;
   predicted_time?: number | null;
+  actual_time?: number | null;
   winning_alliance?: string | null;
   alliances?: { red?: TbaAlliance; blue?: TbaAlliance };
 }
@@ -180,6 +181,8 @@ async function upsertMatchScore(m: TbaMatch): Promise<void> {
   if (m.predicted_time) {
     row.predicted_time = new Date(m.predicted_time * 1000).toISOString();
   }
+  // FMS actual start — drives the livestream match-jump on the dashboard.
+  if (m.actual_time) row.actual_time = new Date(m.actual_time * 1000).toISOString();
   if (played) {
     row.actual_red_score = redScore;
     row.actual_blue_score = blueScore;

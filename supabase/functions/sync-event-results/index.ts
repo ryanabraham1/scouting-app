@@ -42,6 +42,7 @@ interface TbaMatch {
   match_number: number;
   time?: number | null;
   predicted_time?: number | null;
+  actual_time?: number | null;
   winning_alliance?: string | null;
   alliances?: { red?: TbaAlliance; blue?: TbaAlliance };
 }
@@ -130,6 +131,10 @@ Deno.serve(async (req) => {
         typeof m.predicted_time === "number" && m.predicted_time > 0
           ? new Date(m.predicted_time * 1000).toISOString()
           : null;
+      row.actual_time =
+        typeof m.actual_time === "number" && m.actual_time > 0
+          ? new Date(m.actual_time * 1000).toISOString()
+          : null;
       return { row, played };
     });
 
@@ -143,7 +148,7 @@ Deno.serve(async (req) => {
   const { data: existing } = await svc
     .from("match")
     .select(
-      "match_key, scheduled_time, predicted_time, actual_red_score, actual_blue_score, winner",
+      "match_key, scheduled_time, predicted_time, actual_time, actual_red_score, actual_blue_score, winner",
     )
     .eq("event_key", eventKey);
   const prev = new Map(
@@ -155,6 +160,7 @@ Deno.serve(async (req) => {
         winner: r.winner as string | null,
         scheduled: r.scheduled_time as string | null,
         predicted: r.predicted_time as string | null,
+        actual: r.actual_time as string | null,
       },
     ]),
   );
@@ -164,7 +170,8 @@ Deno.serve(async (req) => {
       if (!p) return true; // new match (e.g. a playoff match not yet imported)
       const timingChanged =
         !sameTimestamp(p.scheduled, row.scheduled_time) ||
-        !sameTimestamp(p.predicted, row.predicted_time);
+        !sameTimestamp(p.predicted, row.predicted_time) ||
+        !sameTimestamp(p.actual, row.actual_time);
       // If TBA temporarily regresses a played match to an unplayed shape, never
       // let a timing-only refresh erase the result we already hold.
       if (!played && (p.ars != null || p.abs != null || p.winner != null)) return false;

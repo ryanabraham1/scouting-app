@@ -112,6 +112,7 @@ export interface CachedMatch {
   match_number: number;
   scheduled_time: string | null;
   predicted_time: string | null;
+  actual_time?: string | null;
   red1: number | null;
   red2: number | null;
   red3: number | null;

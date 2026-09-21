@@ -18,6 +18,7 @@ import {
   useTbaRankings,
   useTeamSeasonStats,
   useTbaEventAlliances,
+  saveWebcastSync,
   type MatchRow,
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
@@ -472,7 +473,14 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
         {/* LEFT — livestream over the event & season ranking blocks. */}
         <div className="flex flex-col gap-4">
-          <EventStream webcast={eventInfo.webcast} />
+          <EventStream
+            webcast={eventInfo.webcast}
+            // While the stream plays live here, record when it began so the
+            // Match tab can seek the stream/VOD to any match (matchStream.ts).
+            onLiveStreamStart={(videoId, epochMs) =>
+              void saveWebcastSync?.(eventKey, videoId, epochMs, 'auto')
+            }
+          />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <EventRankSummary row={ourRankRow} teamCount={rankRows.length || null} />
             <SeasonStats

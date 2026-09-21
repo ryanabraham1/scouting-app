@@ -10,8 +10,10 @@
 // computes the iframe src is exported and tested directly. Nothing here throws;
 // every missing/odd field falls through to the placeholder.
 
+import { useState } from 'react';
 import { Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useYouTubePlayer } from '@/dash/useYouTubePlayer';
 
 export interface EventWebcast {
   /** TBA webcast type, e.g. 'youtube' | 'twitch' | 'livestream' | ... */
@@ -27,6 +29,12 @@ export interface EventStreamProps {
   /** Page host for the Twitch `parent` param; defaults to window.location.hostname. */
   parentHost?: string;
   className?: string;
+  /**
+   * YouTube only: called (throttled) with the epoch-ms the stream began while it
+   * is detectably live — see useYouTubePlayer. Supplying it attaches the IFrame
+   * API to the embed; the src gains `enablejsapi`/`origin`.
+   */
+  onLiveStreamStart?: (videoId: string, epochMs: number) => void;
 }
 
 /** Default parent host for the Twitch `parent` param, safe under SSR/jsdom. */
@@ -77,17 +85,44 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
   );
 }
 
+/** YouTube video id of a webcast descriptor (mirrors webcastEmbedSrc's rule). */
+export function webcastYoutubeId(webcast: EventWebcast | null | undefined): string | null {
+  if (!webcast || webcast.type !== 'youtube') return null;
+  const file = typeof webcast.file === 'string' ? webcast.file : '';
+  const channel = typeof webcast.channel === 'string' ? webcast.channel : '';
+  return file || channel || null;
+}
+
 export default function EventStream({
   webcast,
   parentHost,
   className,
+  onLiveStreamStart,
 }: EventStreamProps): JSX.Element {
   const host = parentHost ?? defaultParentHost();
-  const src = webcastEmbedSrc(webcast, host);
+  const baseSrc = webcastEmbedSrc(webcast, host);
+  const youtubeId = webcastYoutubeId(webcast);
+  const wantsApi = !!onLiveStreamStart && !!youtubeId && !!baseSrc;
+  let src = baseSrc;
+  if (wantsApi && src) {
+    const params = new URLSearchParams({ enablejsapi: '1' });
+    if (typeof window !== 'undefined' && window.location) params.set('origin', window.location.origin);
+    src = `${src}?${params.toString()}`;
+  }
+
+  const [iframe, setIframe] = useState<HTMLIFrameElement | null>(null);
+  useYouTubePlayer({
+    iframe,
+    enabled: wantsApi,
+    onLiveStreamStart: (epochMs) => {
+      if (youtubeId) onLiveStreamStart?.(youtubeId, epochMs);
+    },
+  });
 
   const body = src ? (
     <Frame>
       <iframe
+        ref={setIframe}
         data-testid="dash-stream-frame"
         className="absolute inset-0 h-full w-full"
         src={src}

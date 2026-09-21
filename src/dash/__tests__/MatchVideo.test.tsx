@@ -125,3 +125,75 @@ describe('MatchVideo', () => {
     expect(getByText(/1.4h after the match/)).toBeTruthy();
   });
 });
+
+describe('MatchVideo livestream fallback', () => {
+  const target = {
+    videoId: 'streamVid',
+    matchStartMs: 1_000_000,
+    approximate: false,
+    streamStartMs: 0,
+    t0Seconds: 1000,
+  };
+
+  it('embeds the event stream at the match start (with a lead) when TBA has no video', async () => {
+    tbaGetOptionalMock.mockResolvedValue({ videos: [] });
+    const onStreamActive = vi.fn();
+    const { getByTestId, queryByTestId } = renderWithClient(
+      <MatchVideo matchKey="2026casnv_qm1" stream={{ target }} onStreamActive={onStreamActive} />,
+    );
+    await waitFor(() => expect(getByTestId('match-video-stream-frame')).toBeTruthy());
+    const frame = getByTestId('match-video-stream-frame') as HTMLIFrameElement;
+    expect(frame.src).toContain('https://www.youtube.com/embed/streamVid');
+    expect(frame.src).toContain('start=995'); // t0 - 5s lead
+    expect(frame.src).toContain('enablejsapi=1');
+    expect(queryByTestId('match-video-none')).toBeNull();
+    expect(getByTestId('match-video-stream-note').textContent).toContain('livestream from this match');
+    expect(getByTestId('match-video-stream-link').getAttribute('href')).toBe(
+      'https://youtu.be/streamVid?t=995',
+    );
+    expect(onStreamActive).toHaveBeenLastCalledWith(true);
+  });
+
+  it('still embeds the stream (unseeked) and explains when it is not calibrated', async () => {
+    tbaGetOptionalMock.mockResolvedValue({ videos: [] });
+    const { getByTestId } = renderWithClient(
+      <MatchVideo
+        matchKey="2026casnv_qm1"
+        stream={{ target: { ...target, streamStartMs: null, t0Seconds: null } }}
+      />,
+    );
+    await waitFor(() => expect(getByTestId('match-video-stream-frame')).toBeTruthy());
+    const frame = getByTestId('match-video-stream-frame') as HTMLIFrameElement;
+    expect(frame.src).not.toContain('start=');
+    expect(getByTestId('match-video-stream-note').textContent).toContain('not calibrated');
+  });
+
+  it('labels an estimated start honestly', async () => {
+    tbaGetOptionalMock.mockResolvedValue({ videos: [] });
+    const { getByTestId } = renderWithClient(
+      <MatchVideo matchKey="2026casnv_qm1" stream={{ target: { ...target, approximate: true } }} />,
+    );
+    await waitFor(() => expect(getByTestId('match-video-stream-frame')).toBeTruthy());
+    expect(getByTestId('match-video-stream-note').textContent).toContain('estimated');
+  });
+
+  it('prefers a real TBA match video over the stream and reports stream inactive', async () => {
+    tbaGetOptionalMock.mockResolvedValue({ videos: [{ type: 'youtube', key: 'realVid' }] });
+    const onStreamActive = vi.fn();
+    const { getByTestId, queryByTestId } = renderWithClient(
+      <MatchVideo matchKey="2026casnv_qm1" stream={{ target }} onStreamActive={onStreamActive} />,
+    );
+    await waitFor(() => expect(getByTestId('match-video-frame')).toBeTruthy());
+    expect(queryByTestId('match-video-stream-frame')).toBeNull();
+    expect(onStreamActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('falls back to the stream when TBA is offline', async () => {
+    tbaGetOptionalMock.mockResolvedValue({ available: false });
+    const { getByTestId, queryByTestId } = renderWithClient(
+      <MatchVideo matchKey="2026casnv_qm1" stream={{ target }} />,
+    );
+    await waitFor(() => expect(getByTestId('match-video-stream-frame')).toBeTruthy());
+    expect(queryByTestId('match-video-unavailable')).toBeNull();
+  });
+});
