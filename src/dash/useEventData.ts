@@ -3,7 +3,8 @@ import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-q
 import { supabase } from '@/lib/supabase';
 import { tbaGet, statboticsGet, nexusGet, syncEventResults, youtubeStreamStart, isUnavailable } from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
-import { computeLocalEpa } from '@/dash/localEpa';
+import { computeLocalEpa, computeLocalEpaComponents } from '@/dash/localEpa';
+import type { LocalEpaComponents } from '@/dash/localEpa';
 import {
   fetchSeasonMatchRows,
   fetchTeamSeasonMatchesCached,
@@ -100,6 +101,13 @@ export interface PitAssignmentRow {
 
 export interface EventEpa {
   epaByTeam: Map<number, number | null>;
+  /**
+   * Auto / teleop / endgame split of each team's local EPA (sums to
+   * `epaByTeam`). Absent/undefined for a team whose EPA is Statbotics-sourced
+   * or whose season data carries no score breakdowns. OPTIONAL so fixtures
+   * without it keep type-checking; `useEventEpa` always sets it.
+   */
+  componentsByTeam?: Map<number, LocalEpaComponents | null>;
   available: boolean;
   /**
    * Where the EPA values came from:
@@ -606,6 +614,8 @@ export function useTbaTeamEventStatus(
 /** A team's season EPA from one cached source (so every display agrees). */
 export interface TeamSeasonEpa {
   epa: number | null;
+  /** Auto / teleop / endgame split of `epa` (local model only; null otherwise). */
+  components?: LocalEpaComponents | null;
   worldRank: number | null;
   record: string | null;
   source: 'statbotics' | 'inhouse' | 'none';
@@ -623,12 +633,13 @@ function statboticsSeasonResult(sb: StatboticsSeasonEpa): TeamSeasonEpa {
 }
 
 function localSeasonResult(team: number, localRows: MatchRow[]): TeamSeasonEpa {
-  const computed = computeLocalEpa(localRows, {
-    recencyBoost: EPA_RECENCY_BOOST,
-  }).get(team);
+  const options = { recencyBoost: EPA_RECENCY_BOOST };
+  const computed = computeLocalEpa(localRows, options).get(team);
   const epa = computed != null && Number.isFinite(computed) ? computed : null;
+  const components = epa != null ? computeLocalEpaComponents(localRows, options).get(team) ?? null : null;
   return {
     epa,
+    components,
     worldRank: null,
     record: null,
     source: epa != null ? 'inhouse' : 'none',
@@ -637,6 +648,9 @@ function localSeasonResult(team: number, localRows: MatchRow[]): TeamSeasonEpa {
 
 function sameSeasonResult(a: TeamSeasonEpa, b: TeamSeasonEpa): boolean {
   return a.epa === b.epa &&
+    a.components?.auto === b.components?.auto &&
+    a.components?.teleop === b.components?.teleop &&
+    a.components?.endgame === b.components?.endgame &&
     a.worldRank === b.worldRank &&
     a.record === b.record &&
     a.source === b.source;
@@ -814,6 +828,7 @@ export function useEventEpa(
         )),
       );
       const epaByTeam = new Map<number, number | null>();
+      const componentsByTeam = new Map<number, LocalEpaComponents | null>();
       const sourceByTeam = new Map<number, 'statbotics' | 'local' | 'none'>();
       let anyStatbotics = false;
       let anyLocal = false;
@@ -824,6 +839,7 @@ export function useEventEpa(
           ? settled.value
           : { epa: null, worldRank: null, record: null, source: 'none' };
         epaByTeam.set(team, r.epa);
+        componentsByTeam.set(team, r.source === 'statbotics' ? null : r.components ?? null);
         // seasonEpaForTeam returns 'inhouse' for the local fallback; normalize to
         // the event-level 'local' label so the per-team source matches `source`.
         sourceByTeam.set(
@@ -843,7 +859,7 @@ export function useEventEpa(
             ? 'statbotics'
             : 'none'
         : 'none';
-      return { epaByTeam, available: anyEpa, source, sourceByTeam };
+      return { epaByTeam, componentsByTeam, available: anyEpa, source, sourceByTeam };
     },
   });
 }

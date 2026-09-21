@@ -1,6 +1,13 @@
 // src/dash/__tests__/localEpa.test.ts
 import { describe, it, expect } from 'vitest';
-import { computeLocalEpa, computeLocalEpaHistory, tbaMatchesToRows } from '@/dash/localEpa';
+import {
+  computeLocalEpa,
+  computeLocalEpaComponents,
+  computeLocalEpaHistory,
+  tbaMatchesToRows,
+} from '@/dash/localEpa';
+import type { LocalEpaMatchRow } from '@/dash/localEpa';
+import { EPA_GAIN } from '@/dash/constants';
 import type { MatchRow } from '@/dash/useEventData';
 
 let seq = 0;
@@ -133,7 +140,7 @@ describe('computeLocalEpa', () => {
     expect(tilted).toBeGreaterThan(base);
   });
 
-  it('initializes and updates per the Statbotics scalar recurrence', () => {
+  it('initializes and updates per the Statbotics scalar recurrence (gain 1)', () => {
     // One played match: red 90, blue 60. Alliance scores = [90, 60].
     //   mean = 75, population sd = 15.
     //   init = max(0, mean/3 - 0.2*sd) = max(0, 25 - 3) = 22.
@@ -150,7 +157,7 @@ describe('computeLocalEpa', () => {
         actual_blue_score: 60,
       }),
     ];
-    const epa = computeLocalEpa(matches);
+    const epa = computeLocalEpa(matches, { gain: 1 });
     for (const t of [1, 2, 3, 4, 5, 6]) {
       expect(Number.isFinite(epa.get(t) as number)).toBe(true);
     }
@@ -160,6 +167,23 @@ describe('computeLocalEpa', () => {
     //   blue Δ = 1 * (1/3) * (60-66)/3 = (1/3)*-2 = -2/3  -> 22 - 2/3 = 64/3 ≈ 21.3333
     expect(epa.get(1)).toBeCloseTo(74 / 3, 6);
     expect(epa.get(4)).toBeCloseTo(64 / 3, 6);
+  });
+
+  it('scales every update by EPA_GAIN by default', () => {
+    const matches = [
+      match({
+        match_number: 1,
+        red1: 1, red2: 2, red3: 3,
+        blue1: 4, blue2: 5, blue3: 6,
+        actual_red_score: 90,
+        actual_blue_score: 60,
+      }),
+    ];
+    const init = 22;
+    const unit = (computeLocalEpa(matches, { gain: 1 }).get(1) as number) - init;
+    const dflt = (computeLocalEpa(matches).get(1) as number) - init;
+    expect(dflt).toBeCloseTo(unit * EPA_GAIN, 10);
+    expect(EPA_GAIN).toBeGreaterThan(1);
   });
 
   it('a team that consistently outscores rises above one that consistently loses', () => {
@@ -263,6 +287,58 @@ describe('computeLocalEpa', () => {
   });
 });
 
+describe('computeLocalEpaComponents', () => {
+  const withComponents = (
+    over: Partial<LocalEpaMatchRow>,
+    red: { auto: number; teleop: number; endgame: number },
+    blue: { auto: number; teleop: number; endgame: number },
+  ): LocalEpaMatchRow => ({
+    ...match({
+      red1: 1, red2: 2, red3: 3,
+      blue1: 4, blue2: 5, blue3: 6,
+      actual_red_score: red.auto + red.teleop + red.endgame,
+      actual_blue_score: blue.auto + blue.teleop + blue.endgame,
+      ...over,
+    }),
+    local_epa_red_components: red,
+    local_epa_blue_components: blue,
+  });
+
+  it('is empty when no played match carries components', () => {
+    const ms = [match({ match_number: 1, red1: 1, red2: 2, red3: 3, blue1: 4, blue2: 5, blue3: 6, actual_red_score: 90, actual_blue_score: 60 })];
+    expect(computeLocalEpaComponents(ms).size).toBe(0);
+  });
+
+  it('component streams sum to the total EPA for every team', () => {
+    const ms: LocalEpaMatchRow[] = [
+      withComponents({ match_number: 1 }, { auto: 30, teleop: 50, endgame: 10 }, { auto: 10, teleop: 40, endgame: 10 }),
+      withComponents({ match_number: 2, match_key: 'k2', red1: 4, red2: 5, red3: 6, blue1: 1, blue2: 2, blue3: 3 }, { auto: 5, teleop: 60, endgame: 0 }, { auto: 40, teleop: 100, endgame: 20 }),
+      withComponents({ match_number: 3, match_key: 'k3', comp_level: 'sf' }, { auto: 20, teleop: 80, endgame: 0 }, { auto: 20, teleop: 20, endgame: 20 }),
+    ];
+    const total = computeLocalEpa(ms);
+    const comp = computeLocalEpaComponents(ms);
+    for (const t of [1, 2, 3, 4, 5, 6]) {
+      const c = comp.get(t)!;
+      expect(c.auto + c.teleop + c.endgame).toBeCloseTo(total.get(t) as number, 9);
+    }
+    // Team 1's alliance out-scored its prediction in auto by more than teams 4-6's did.
+    expect(comp.get(1)!.auto).toBeGreaterThan(comp.get(4)!.auto);
+  });
+
+  it('a match without components apportions the total delta by current shares (sum still holds)', () => {
+    const ms: LocalEpaMatchRow[] = [
+      withComponents({ match_number: 1 }, { auto: 30, teleop: 50, endgame: 10 }, { auto: 10, teleop: 40, endgame: 10 }),
+      match({ match_number: 2, match_key: 'k2', red1: 1, red2: 2, red3: 3, blue1: 4, blue2: 5, blue3: 6, actual_red_score: 200, actual_blue_score: 20 }),
+    ];
+    const total = computeLocalEpa(ms);
+    const comp = computeLocalEpaComponents(ms);
+    for (const t of [1, 2, 3, 4, 5, 6]) {
+      const c = comp.get(t)!;
+      expect(c.auto + c.teleop + c.endgame).toBeCloseTo(total.get(t) as number, 9);
+    }
+  });
+});
+
 describe('tbaMatchesToRows', () => {
   const tbaMatch = (o: Record<string, unknown>) => ({
     key: 'k',
@@ -307,6 +383,32 @@ describe('tbaMatchesToRows', () => {
     expect(lowerFouls.actual_red_score).toBe(90);
     expect(higherFouls.actual_red_score).toBe(120);
     expect(computeLocalEpa([lowerFouls])).toEqual(computeLocalEpa([higherFouls]));
+  });
+
+  it('attaches 2026 breakdown components (and omits them when the keys are absent)', () => {
+    const full = tbaMatch({
+      alliances: {
+        red: { team_keys: ['frc1', 'frc2', 'frc3'], score: 446 },
+        blue: { team_keys: ['frc4', 'frc5', 'frc6'], score: 100 },
+      },
+      score_breakdown: {
+        red: {
+          totalAutoPoints: 57, autoTowerPoints: 15, totalTeleopPoints: 389, endGameTowerPoints: 30,
+          totalTowerPoints: 45, totalPoints: 446, foulPoints: 0, adjustPoints: 0,
+        },
+        blue: {
+          totalAutoPoints: 20, autoTowerPoints: 0, totalTeleopPoints: 80, endGameTowerPoints: 0,
+          totalTowerPoints: 0, totalPoints: 100, foulPoints: 0, adjustPoints: 0,
+        },
+      },
+    });
+    const [row] = tbaMatchesToRows([full]) as LocalEpaMatchRow[];
+    expect(row.local_epa_red_components).toEqual({ auto: 42, teleop: 359, endgame: 45 });
+    expect(row.local_epa_blue_components).toEqual({ auto: 20, teleop: 80, endgame: 0 });
+    const [legacy] = tbaMatchesToRows([tbaMatch({
+      score_breakdown: { red: { foulPoints: 0, adjustPoints: 0 }, blue: { foulPoints: 0, adjustPoints: 0 } },
+    })]) as LocalEpaMatchRow[];
+    expect(legacy.local_epa_red_components).toBeUndefined();
   });
 
   it('falls back to official scores when score_breakdown is missing or malformed', () => {

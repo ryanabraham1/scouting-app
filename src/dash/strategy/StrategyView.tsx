@@ -679,6 +679,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
         blueTeams,
         agg,
         epaByTeam: epa.epaByTeam,
+        componentEpaByTeam: epa.componentsByTeam,
         statboticsAvailable: epa.available,
         fraction,
         playedMatches,

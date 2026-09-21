@@ -303,7 +303,8 @@ describe('predictMatch — robustness', () => {
     expect(CONFIDENCE_N).toBe(4);
     expect(WINPROB_SIGMA_FRACTION).toBe(0.11);
     expect(WINPROB_SIGMA_FLOOR).toBe(12);
-    expect(WINPROB_LOGIT_SCALE).toBe(1.7);
+    // Fitted on the 2026 season backtest (constants.ts); the old 1.7 was ~2× overconfident.
+    expect(WINPROB_LOGIT_SCALE).toBe(0.85);
   });
 
   it('a 21-pt margin in a high-scoring game is a near coin-flip, not a lock', () => {

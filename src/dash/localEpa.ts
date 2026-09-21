@@ -11,11 +11,13 @@
 // overall EPA is what we display and what predicts alliance score, so the scalar
 // port is the right scope.
 //
-// NOTE (component-epa-estimation): the raw TBA `score_breakdown` JSON DOES exist
-// per-event (it is dropped on the way into MatchRow). `parseRebuiltBreakdown`
-// below is the dark, flag-gated, single-event Tier-2 seam that reads it once the
-// 2026 REBUILT field names are confirmed. The shipped v1 component split does
-// NOT use it — it decomposes the already-shown prediction total instead.
+// Component EPAs (auto / teleop / endgame) run alongside the total as three
+// sibling streams of the SAME recurrence, each on its own alliance residual
+// read off the TBA `score_breakdown` (`parseRebuiltBreakdown`, 2026 REBUILT keys
+// verified live 2026-09-21). Because the recurrence is linear and the three
+// component scores sum exactly to the no-foul score, the component streams sum
+// to the total stream — the total EPA every screen shows is unchanged by this;
+// the split just becomes real per-team data instead of a fitted fraction.
 //
 // Algorithm (per played match, chronological by match_number):
 //   * Init each team's EPA = max(0, mean/NUM_TEAMS - 0.2*sd)  (init.py, no history),
@@ -25,11 +27,13 @@
 //       percent = (2/3) * clamp(0.5 - (1/30)*(N-6), 0.3, 0.5)   (percent_func)
 //       ΔEPA    = weight * percent * (ownScore - ownEPA) / NUM_TEAMS
 //     where weight = 1 for quals, 1/3 for playoffs (ELIM_WEIGHT). MARGIN is 0 for
-//     modern games, so there is no opponent term. All six updates use the SAME
+//     modern games, so there is no opponent term. The whole update is scaled by
+//     EPA_GAIN (backtested; see constants.ts) — `gain: 1` is the exact port. All six updates use the SAME
 //     pre-match snapshot; apply, then increment N for QUAL matches only. Null
 //     roster slots are skipped.
 
 import type { MatchRow } from '@/dash/useEventData';
+import { EPA_GAIN } from '@/dash/constants';
 
 /**
  * TBA-backed rows retain the official score for display/result consumers while
@@ -39,6 +43,19 @@ import type { MatchRow } from '@/dash/useEventData';
 export interface LocalEpaMatchRow extends MatchRow {
   local_epa_red_score?: number;
   local_epa_blue_score?: number;
+  /** Per-alliance component scores off the breakdown (2026); absent when unavailable. */
+  local_epa_red_components?: LocalEpaComponents;
+  local_epa_blue_components?: LocalEpaComponents;
+}
+
+/** Additive point components of an alliance score / a team's EPA. */
+export interface LocalEpaComponents {
+  /** Autonomous hub fuel (auto tower excluded — that is endgame). */
+  auto: number;
+  /** Every teleop-period hub point: transition, all four shifts, endgame-period fuel. */
+  teleop: number;
+  /** Tower points (auto + endgame). */
+  endgame: number;
 }
 
 function isObject(x: unknown): x is Record<string, unknown> {
@@ -126,6 +143,7 @@ export function tbaMatchesToRows(json: unknown): LocalEpaMatchRow[] {
       redScore != null && blueScore != null && redScore >= 0 && blueScore >= 0;
     const redEpaScore = played ? noFoulScore(m.score_breakdown, 'red', redScore) : null;
     const blueEpaScore = played ? noFoulScore(m.score_breakdown, 'blue', blueScore) : null;
+    const components = played ? parseRebuiltBreakdown(m) : null;
 
     const compLevel = typeof m.comp_level === 'string' ? m.comp_level : 'qm';
     const matchNumber = finiteOrNull(m.match_number) ?? 0;
@@ -151,6 +169,9 @@ export function tbaMatchesToRows(json: unknown): LocalEpaMatchRow[] {
         actual_blue_score: played ? blueScore : null,
         ...(redEpaScore != null ? { local_epa_red_score: redEpaScore } : {}),
         ...(blueEpaScore != null ? { local_epa_blue_score: blueEpaScore } : {}),
+        ...(components
+          ? { local_epa_red_components: components.red, local_epa_blue_components: components.blue }
+          : {}),
         winner: played && winner ? winner : null,
         result_synced_at: null,
       },
@@ -214,6 +235,8 @@ export interface LocalEpaOptions {
    * without inflating the overall learning rate). See EPA_RECENCY_BOOST.
    */
   recencyBoost?: number;
+  /** Learning-rate multiplier on every update (default EPA_GAIN; 1 = exact Statbotics port). */
+  gain?: number;
 }
 
 /** EPA immediately after one of the selected team's played matches. */
@@ -229,16 +252,22 @@ function runLocalEpa(
   matches: MatchRow[],
   options: LocalEpaOptions,
   historyTeam?: number,
-): { epa: Map<number, number>; history: LocalEpaHistoryPoint[] } {
+): {
+  epa: Map<number, number>;
+  components: Map<number, LocalEpaComponents>;
+  history: LocalEpaHistoryPoint[];
+} {
   const history: LocalEpaHistoryPoint[] = [];
   const recencyBoost = options.recencyBoost ?? 0;
+  const gain = options.gain ?? EPA_GAIN;
   const played = matches
     .filter(isPlayed)
     .slice()
     .sort((a, b) => a.match_number - b.match_number);
 
   const epa = new Map<number, number>();
-  if (played.length === 0) return { epa, history };
+  const components = new Map<number, LocalEpaComponents>();
+  if (played.length === 0) return { epa, components, history };
 
   // Recency multiplier for the match at chronological index `i` of `total`.
   const total = played.length;
@@ -263,11 +292,38 @@ function runLocalEpa(
   const yearSd = Math.sqrt(yearVar);
   const init = Math.max(0, yearMean / NUM_TEAMS - INIT_PENALTY * yearSd);
 
+  // Component streams exist when ANY played match carries breakdown components.
+  // Each team's components start as `init` split by the dataset's mean component
+  // shares (so they sum to `init`, like the total).
+  const compMean: LocalEpaComponents = { auto: 0, teleop: 0, endgame: 0 };
+  let compRows = 0;
+  for (const m of played) {
+    const c = componentsOf(m);
+    if (!c) continue;
+    for (const side of [c.red, c.blue]) {
+      compMean.auto += side.auto;
+      compMean.teleop += side.teleop;
+      compMean.endgame += side.endgame;
+      compRows += 1;
+    }
+  }
+  const hasComponents = compRows > 0;
+  const initComponents = (): LocalEpaComponents => {
+    const total = compMean.auto + compMean.teleop + compMean.endgame;
+    if (!(total > 0)) return { auto: 0, teleop: init, endgame: 0 };
+    return {
+      auto: (init * compMean.auto) / total,
+      teleop: (init * compMean.teleop) / total,
+      endgame: (init * compMean.endgame) / total,
+    };
+  };
+
   const nByTeam = new Map<number, number>();
   const ensure = (team: number): void => {
     if (!epa.has(team)) {
       epa.set(team, init);
       nByTeam.set(team, 0);
+      if (hasComponents) components.set(team, initComponents());
     }
   };
 
@@ -297,16 +353,75 @@ function runLocalEpa(
 
     for (const t of reds) {
       const p = percentOf(nByTeam.get(t) as number);
-      deltas.push([t, (weight * rec * p * redErr) / NUM_TEAMS]);
+      deltas.push([t, (weight * rec * gain * p * redErr) / NUM_TEAMS]);
     }
     for (const t of blues) {
       const p = percentOf(nByTeam.get(t) as number);
-      deltas.push([t, (weight * rec * p * blueErr) / NUM_TEAMS]);
+      deltas.push([t, (weight * rec * gain * p * blueErr) / NUM_TEAMS]);
+    }
+
+    // Component streams: the same recurrence on each component's own alliance
+    // residual (pre-match snapshot, like the total). A match without breakdown
+    // components apportions the team's TOTAL delta by its current component
+    // shares so the components keep summing to the total.
+    const compDeltas: Array<[number, LocalEpaComponents]> = [];
+    if (hasComponents) {
+      const c = componentsOf(m);
+      const sumComp = (teams: number[]): LocalEpaComponents =>
+        teams.reduce<LocalEpaComponents>(
+          (acc, t) => {
+            const q = components.get(t) as LocalEpaComponents;
+            acc.auto += q.auto;
+            acc.teleop += q.teleop;
+            acc.endgame += q.endgame;
+            return acc;
+          },
+          { auto: 0, teleop: 0, endgame: 0 },
+        );
+      const side = (teams: number[], actual: LocalEpaComponents | null, totalErr: number): void => {
+        const pred = actual ? sumComp(teams) : null;
+        for (const t of teams) {
+          const p = percentOf(nByTeam.get(t) as number);
+          const k = (weight * rec * gain * p) / NUM_TEAMS;
+          if (actual && pred) {
+            compDeltas.push([
+              t,
+              {
+                auto: k * (actual.auto - pred.auto),
+                teleop: k * (actual.teleop - pred.teleop),
+                endgame: k * (actual.endgame - pred.endgame),
+              },
+            ]);
+          } else {
+            const q = components.get(t) as LocalEpaComponents;
+            const total = q.auto + q.teleop + q.endgame;
+            const share = total > 0 ? q : initComponents();
+            const shareTotal = share.auto + share.teleop + share.endgame || 1;
+            const d = k * totalErr;
+            compDeltas.push([
+              t,
+              {
+                auto: (d * share.auto) / shareTotal,
+                teleop: (d * share.teleop) / shareTotal,
+                endgame: (d * share.endgame) / shareTotal,
+              },
+            ]);
+          }
+        }
+      };
+      side(reds, c?.red ?? null, redErr);
+      side(blues, c?.blue ?? null, blueErr);
     }
 
     // Apply all deltas (from the snapshot), then bump N for QUALS only.
     for (const [t, delta] of deltas) {
       epa.set(t, (epa.get(t) as number) + delta);
+    }
+    for (const [t, d] of compDeltas) {
+      const q = components.get(t) as LocalEpaComponents;
+      q.auto += d.auto;
+      q.teleop += d.teleop;
+      q.endgame += d.endgame;
     }
     if (!elim) {
       for (const t of [...reds, ...blues]) {
@@ -325,7 +440,15 @@ function runLocalEpa(
     }
   });
 
-  return { epa, history };
+  return { epa, components, history };
+}
+
+/** Both alliances' breakdown components for a row, or null when either is missing. */
+function componentsOf(m: MatchRow): { red: LocalEpaComponents; blue: LocalEpaComponents } | null {
+  const local = m as LocalEpaMatchRow;
+  const red = local.local_epa_red_components;
+  const blue = local.local_epa_blue_components;
+  return red && blue ? { red, blue } : null;
 }
 
 /**
@@ -352,62 +475,63 @@ export function computeLocalEpaHistory(
   return runLocalEpa(matches, options, team).history;
 }
 
-// ===========================================================================
-// Tier 2 — real TBA score_breakdown extraction (component-epa-estimation §3B/§4).
-//
-// DARK behind a flag, DEFAULT OFF, and scoped to SINGLE-EVENT raw JSON only
-// (raw TBA match objects DO carry `score_breakdown`; MatchRow drops it, so the
-// season recurrence can never use this). The exact
-// 2026 REBUILT `score_breakdown` field names are UNCONFIRMED in live data, so
-// `parseRebuiltBreakdown` is defensive: every key access is finite-guarded and
-// any missing/renamed key makes the whole parse return `null` → callers silently
-// fall back to the Tier-1 proportional split. It NEVER throws on schema drift.
-// ===========================================================================
-
 /**
- * Master flag for Tier-2 real-breakdown extraction. DEFAULT FALSE. Do NOT flip
- * this on until the 2026 REBUILT `score_breakdown` keys are validated against a
- * real played event (plan §4/§11). With it off, `parseRebuiltBreakdown` returns
- * `null` regardless of input so no code path depends on the unconfirmed schema.
+ * Component EPAs (auto / teleop / endgame) per team from the same replay as
+ * {@link computeLocalEpa}; for every team `auto + teleop + endgame` equals its
+ * total EPA (up to floating point). Empty when no played match carries
+ * breakdown components (pre-2026 data or a breakdown-less feed).
  */
-export const ENABLE_TBA_BREAKDOWN = false;
+export function computeLocalEpaComponents(
+  matches: MatchRow[],
+  options: LocalEpaOptions = {},
+): Map<number, LocalEpaComponents> {
+  return runLocalEpa(matches, options).components;
+}
+
+// ===========================================================================
+// TBA `score_breakdown` → per-alliance components (2026 REBUILT).
+//
+// Field names verified against live TBA data (2026casnv_qm1 via tba-proxy,
+// 2026-09-21) and checked on all 36,582 alliance results of the 2026 season:
+//   auto    = totalAutoPoints   - autoTowerPoints     (== hubScore.autoPoints)
+//   teleop  = totalTeleopPoints - endGameTowerPoints  (== hubScore.teleopPoints)
+//   endgame = totalTowerPoints
+// and auto + teleop + endgame == totalPoints - foulPoints - adjustPoints on every
+// one of them, which is what lets the component EPA streams sum to the total.
+// Defensive: any missing/malformed key makes the whole parse return `null`
+// (callers keep the total-only model). Never throws on schema drift.
+// ===========================================================================
 
 /** Per-alliance component scores extracted from a single match's score_breakdown. */
 export interface RebuiltBreakdown {
-  red: { auto: number; fuelTeleop: number };
-  blue: { auto: number; fuelTeleop: number };
+  red: LocalEpaComponents;
+  blue: LocalEpaComponents;
 }
 
-/** Inferred 2026 REBUILT key candidates (TBA research; UNCONFIRMED). */
-const AUTO_FUEL_KEYS = ['autoFuelPoints', 'autoPoints'];
-const TELEOP_FUEL_KEYS = ['teleopFuelPoints', 'teleopPoints'];
-
-function firstFiniteKey(obj: Record<string, unknown>, keys: string[]): number | null {
-  for (const k of keys) {
-    const v = finiteOrNull(obj[k]);
-    if (v != null) return v;
-  }
-  return null;
-}
-
-function parseAlliance(
-  raw: unknown,
-): { auto: number; fuelTeleop: number } | null {
+function parseAlliance(raw: unknown): LocalEpaComponents | null {
   if (!isObject(raw)) return null;
-  const auto = firstFiniteKey(raw, AUTO_FUEL_KEYS);
-  const fuelTeleop = firstFiniteKey(raw, TELEOP_FUEL_KEYS);
-  if (auto == null || fuelTeleop == null) return null;
-  return { auto, fuelTeleop };
+  const totalAuto = finiteOrNull(raw.totalAutoPoints);
+  const totalTeleop = finiteOrNull(raw.totalTeleopPoints);
+  const totalTower = finiteOrNull(raw.totalTowerPoints);
+  if (totalAuto == null || totalTeleop == null || totalTower == null) return null;
+  // Tower fields are 0 when absent (a match with no tower play) — same
+  // missing-means-zero rule as foul/adjust points above.
+  const autoTower = optionalPointField(raw, 'autoTowerPoints');
+  const endgameTower = optionalPointField(raw, 'endGameTowerPoints');
+  if (autoTower == null || endgameTower == null) return null;
+  return {
+    auto: totalAuto - autoTower,
+    teleop: totalTeleop - endgameTower,
+    endgame: totalTower,
+  };
 }
 
 /**
- * Read per-alliance auto / teleop-fuel points off ONE raw TBA match's
- * `score_breakdown`. Returns `null` when the flag is off, the input is not a
- * usable object, or ANY expected key is missing/renamed (schema drift) — callers
- * fall back to the Tier-1 split. Pure; never throws. Plan §3B/§4.
+ * Read per-alliance auto / teleop / endgame points off ONE raw TBA match's
+ * `score_breakdown`. Returns `null` when the input is not a usable object or
+ * ANY expected key is missing/renamed (schema drift). Pure; never throws.
  */
 export function parseRebuiltBreakdown(rawMatch: unknown): RebuiltBreakdown | null {
-  if (!ENABLE_TBA_BREAKDOWN) return null;
   if (!isObject(rawMatch)) return null;
   const sb = rawMatch.score_breakdown;
   if (!isObject(sb)) return null;

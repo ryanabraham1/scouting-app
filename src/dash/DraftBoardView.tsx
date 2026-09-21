@@ -146,6 +146,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
           blueTeams: [],
           agg: aggByTeam,
           epaByTeam: epaByTeam ?? new Map(),
+          componentEpaByTeam: epaQuery.data?.componentsByTeam,
           statboticsAvailable: epaAvailable,
           fraction,
           playedMatches,
@@ -176,6 +177,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     componentQuery.data?.fraction,
     epaAvailable,
     epaByTeam,
+    epaQuery.data?.componentsByTeam,
     playedMatches,
     teamNumbers,
   ]);

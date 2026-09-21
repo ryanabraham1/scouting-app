@@ -15,6 +15,7 @@ import {
   APPLY_DEFENSE_TO_PREDICTION,
 } from './constants';
 import type { TeamAgg, ComponentFraction } from './aggregate';
+import type { LocalEpaComponents } from '@/dash/localEpa';
 import {
   aggregateTeamComponentSplit,
   aggregateTeamDefensePts,
@@ -28,8 +29,9 @@ import {
  *
  *  - SCOUTED branch: split from the team's own means, rescaled so
  *    `auto + fuel === expected` (unrounded; plan §8).
- *  - EPA (unscouted) branch: `auto + fuel` carry the full `expected` via the
- *    event-wide fitted auto:fuel fraction.
+ *  - EPA (unscouted) branch: the team's own component EPA (auto / teleop /
+ *    endgame streams of the season model) rescaled to `expected`; when the
+ *    season data has no breakdowns, the event-wide fitted auto:fuel fraction.
  *  - NONE branch: all zero.
  *
  * `defense` is the points this team removes from the OPPOSING alliance (a
@@ -37,7 +39,13 @@ import {
  */
 export interface ComponentBreakdown {
   auto: number;
+  /** Every non-auto point (teleop hub fuel + tower); `auto + fuel === expected`. */
   fuel: number;
+  /**
+   * Tower (endgame) points, a SUBSET of `fuel`, when the split comes from the
+   * component EPA model; undefined for the scouting / fitted-fraction branches.
+   */
+  endgame?: number;
   /** Points removed from the OPPOSING alliance (>=0); null/`—` when unknown. */
   defense: number | null;
   source: 'scouting' | 'epa' | 'none';
@@ -92,6 +100,11 @@ export interface PredictInput {
    * value high enough to surface estimates when a `fraction` is supplied.
    */
   playedMatches?: number;
+  /**
+   * OPTIONAL per-team component EPA (`EventEpa.componentsByTeam`). When a team
+   * has one, its EPA-branch split uses it instead of the fitted fraction.
+   */
+  componentEpaByTeam?: Map<number, LocalEpaComponents | null>;
 }
 
 function clamp01(x: number): number {
@@ -161,6 +174,7 @@ export function resolveComponentBreakdown(
   fraction: ComponentFraction,
   predictionSource: TeamPrediction['source'],
   playedMatches: number,
+  componentEpa?: LocalEpaComponents | null,
 ): ComponentBreakdown {
   const f = fraction ?? F_DEFAULT;
 
@@ -192,8 +206,29 @@ export function resolveComponentBreakdown(
     };
   }
 
-  // 2. EPA (unscouted): split the full `expected` across auto/fuel with the
-  // fitted auto:fuel ratio so the alliance score is still fully decomposed.
+  // 2a. EPA with the team's OWN component EPA (season model, real breakdowns):
+  // rescale its auto / teleop / endgame streams to `expected` (they already sum
+  // to the team's EPA, so this is a no-op when `expected` IS that EPA).
+  if (predictionSource === 'epa' && componentEpa && expected > 0) {
+    const total = componentEpa.auto + componentEpa.teleop + componentEpa.endgame;
+    if (total > 0) {
+      const k = expected / total;
+      const auto = Math.max(0, componentEpa.auto) * k;
+      const endgame = Math.max(0, componentEpa.endgame) * k;
+      return {
+        auto,
+        fuel: expected - auto,
+        endgame: Math.min(endgame, expected - auto),
+        defense: null,
+        source: 'epa',
+        provisional: false,
+      };
+    }
+  }
+
+  // 2b. EPA (unscouted, no component data): split the full `expected` across
+  // auto/fuel with the fitted auto:fuel ratio so the alliance score is still
+  // fully decomposed.
   if (
     predictionSource !== 'none' &&
     expected > 0 &&
@@ -235,6 +270,7 @@ export function predictMatch(input: PredictInput): MatchPrediction {
         fraction,
         p.source,
         played,
+        input.componentEpaByTeam?.get(p.teamNumber) ?? null,
       );
     };
     redPreds.forEach(attach);

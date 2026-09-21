@@ -47,10 +47,14 @@ Invariants observed:
 - `normXp = 1500 + 250 · (xp − scoreMean/3) / scoreSd` (checked to 4 decimals
   on 2025 and 2026). This is what "compare across seasons" uses.
 - 2026 component definitions (from the match `detail` table vs TBA breakdown):
-  `auto` = `totalAutoPoints` (auto hub fuel + auto tower),
-  `teleop` = `totalTeleopPoints` = `hubScore.teleopPoints` (transition + all four
-  shifts + endgame-period fuel), `endgame` = `totalTowerPoints`. Fouls excluded:
-  updates are against `no_foul_points` (= `totalPoints − foulPoints − adjustPoints`).
+  `auto` = `hubScore.autoPoints` (= `totalAutoPoints − autoTowerPoints`),
+  `teleop` = `hubScore.teleopPoints` (= `totalTeleopPoints − endGameTowerPoints`:
+  transition + all four shifts + endgame-period fuel), `endgame` =
+  `totalTowerPoints`. Note TBA's `totalAutoPoints`/`totalTeleopPoints` already
+  include the tower points, so the three sum to the no-foul score only with the
+  tower subtracted (verified on all 36,582 alliance results of 2026). Fouls
+  excluded: updates are against `no_foul_points`
+  (= `totalPoints − foulPoints − adjustPoints`).
 
 ## 3. Confirmed: win-probability / prediction math (client code)
 
@@ -209,3 +213,63 @@ Recommended, in order of payoff / effort:
 
 Keep `seasonEpa.ts` behaviour (season-wide, no inter-event shrink) — match13
 does the same.
+
+## 7. Backtest of candidate changes (2026-09-21)
+
+Data: every played official 2026 match with a score breakdown (215 events,
+18,291 matches, fetched through `tba-proxy`). Two harnesses:
+
+- **Causal replay** (all 18,291 matches): predict each match from the ratings
+  as of that moment, then update. Same recurrence as `computeLocalEpa`
+  (verified to reproduce it to 1e-13 at gain 1, tilt 0).
+- **Production-shaped sample** (every 20th match, n=910): recompute the season
+  EPA from scratch over all prior matches with the real `computeLocalEpa`
+  (recency tilt 0.5 as shipped) and score with the real `predictMatch`.
+
+Logistic slopes were fit on the first half of the season and scored on the
+second half (out-of-sample). Metrics: win accuracy, Brier, log-loss, mean
+absolute error of the alliance no-foul score.
+
+| variant (causal replay, quals) | acc | Brier | log-loss | score MAE |
+|---|---|---|---|---|
+| A. shipped before: Statbotics port, sigma 0.11·total, slope 1.7 | 77.60 | 0.1588 | 0.5132 | 53.00 |
+| slope refit only (0.91) | 77.58 | 0.1506 | 0.4582 | 53.00 |
+| + per-team running-variance sigma (match13 style), refit | 77.63 | 0.1513 | 0.4654 | 53.00 |
+| + constant sigma = season SD, refit | 77.58 | 0.1520 | 0.4686 | 53.00 |
+| + gain ×1.25, slope 0.85 **(shipped)** | 77.64 | 0.1505 | 0.4590 | 51.43 |
+| + gain ×1.5 | 77.75 | 0.1510 | 0.4618 | 50.62 |
+| + fast/slow 2.0/0.5 blend, w 0.8 (match13 style) | 77.99 | 0.1516 | 0.4641 | 50.84 |
+| + elim weight 1 instead of ⅓ | 77.50 | 0.1517 | 0.4676 | 52.89 |
+
+2nd-half-of-season log-loss (out of sample): 0.4849 before → 0.4368 shipped.
+
+Production-shaped sample, real app code, old vs new constants:
+
+| | acc | Brier | log-loss | score MAE | auto MAE (alliance) |
+|---|---|---|---|---|---|
+| old (gain 1, slope 1.7, fitted-fraction split) | 79.07 | 0.1559 | 0.5351 | 53.68 | 12.86 |
+| new (gain 1.25, slope 0.85, component EPA split) | 78.52 | 0.1508 | 0.4674 | 52.56 | 12.36 |
+
+(±1.35 pts accuracy is one standard error at n=910; the full replay had
+accuracy +0.04.)
+
+What was adopted and why:
+
+1. **Slope 1.7 → 0.85.** The single biggest win (log-loss −11–13%). The old
+   value was a probit→logit conversion, never fit; our predictions were about
+   twice as confident as the outcomes justified.
+2. **EPA gain ×1.25.** −3% score MAE in the replay, calibration unchanged.
+3. **Real component EPAs** (auto / teleop / endgame streams on the confirmed
+   TBA keys). Alliance-level component MAE only improves ~2–4%, but the split
+   is now per-team data rather than one event-wide ratio applied to everyone,
+   which is what the whiteboard/matchup views need.
+
+What was tested and **not** adopted:
+
+- match13's per-team variance sigma: worse than the existing `0.11·total`
+  sigma on every metric. The heteroscedastic-by-score model already captures
+  the uncertainty structure of this game better.
+- match13's fast/slow blend: no gain over simply raising the single gain, and
+  more state to carry. (Could still be exposed as a "surging" indicator.)
+- Match-count-dependent sigma widening: +0.2% log-loss, not worth plumbing.
+- Elim weight 1: better on elims, worse on quals; kept Statbotics' ⅓.

@@ -11,6 +11,7 @@ import {
   aggregateTeamDefensePts,
   fitComponentFraction,
   F_DEFAULT,
+  type ComponentFraction,
   type TeamAgg,
 } from '@/dash/aggregate';
 import {
@@ -19,7 +20,7 @@ import {
   type PredictInput,
   type TeamPrediction,
 } from '@/dash/predict';
-import { parseRebuiltBreakdown, ENABLE_TBA_BREAKDOWN } from '@/dash/localEpa';
+import { parseRebuiltBreakdown } from '@/dash/localEpa';
 import { SCORING } from '@/scoring';
 
 /**
@@ -358,25 +359,98 @@ describe('predictMatch — component parity & invariants', () => {
   });
 });
 
-describe('parseRebuiltBreakdown (Tier 2 — flag OFF by default)', () => {
-  it('ENABLE_TBA_BREAKDOWN defaults OFF', () => {
-    expect(ENABLE_TBA_BREAKDOWN).toBe(false);
+describe('resolveComponentBreakdown — component EPA branch', () => {
+  it('uses the team\'s own component EPA (rescaled to expected) instead of the fitted fraction', () => {
+    const fraction = { fAuto: 0.5, fFuel: 0.5 } as ComponentFraction;
+    const out = resolveComponentBreakdown(
+      254, undefined, 300, fraction, 'epa', 99,
+      { auto: 60, teleop: 130, endgame: 10 }, // sums to 200 → rescale ×1.5
+    );
+    expect(out.source).toBe('epa');
+    expect(out.provisional).toBe(false);
+    expect(out.auto).toBeCloseTo(90, 10);
+    expect(out.fuel).toBeCloseTo(210, 10); // teleop 195 + endgame 15
+    expect(out.endgame).toBeCloseTo(15, 10);
+    expect(out.auto + out.fuel).toBeCloseTo(300, 10);
   });
 
-  it('returns null while the flag is OFF even for a well-formed breakdown', () => {
-    const raw = {
-      score_breakdown: {
-        red: { autoFuelPoints: 18, teleopFuelPoints: 71 },
-        blue: { autoFuelPoints: 12, teleopFuelPoints: 55 },
-      },
-    };
-    expect(parseRebuiltBreakdown(raw)).toBeNull();
+  it('falls back to the fitted fraction when the component EPA is null or degenerate', () => {
+    const fraction = { fAuto: 0.25, fFuel: 0.75 } as ComponentFraction;
+    const viaFraction = resolveComponentBreakdown(254, undefined, 100, fraction, 'epa', 99, null);
+    expect(viaFraction.auto).toBeCloseTo(25, 10);
+    expect(viaFraction.provisional).toBe(true);
+    const degenerate = resolveComponentBreakdown(254, undefined, 100, fraction, 'epa', 99, { auto: 0, teleop: 0, endgame: 0 });
+    expect(degenerate).toEqual(viaFraction);
   });
 
-  it('returns null (never throws) on null / non-object input', () => {
+  it('predictMatch threads componentEpaByTeam into each team\'s breakdown', () => {
+    const out = predictMatch({
+      redTeams: [1],
+      blueTeams: [2],
+      agg: new Map(),
+      epaByTeam: new Map([[1, 120], [2, 80]]),
+      componentEpaByTeam: new Map([[1, { auto: 40, teleop: 80, endgame: 0 }], [2, null]]),
+      statboticsAvailable: true,
+      fraction: { fAuto: 0.5, fFuel: 0.5 } as ComponentFraction,
+      playedMatches: 99,
+    });
+    expect(out.red.teams[0].components?.auto).toBeCloseTo(40, 10);
+    expect(out.red.teams[0].components?.provisional).toBe(false);
+    expect(out.blue.teams[0].components?.auto).toBeCloseTo(40, 10); // 0.5 × 80 via fraction
+    expect(out.blue.teams[0].components?.provisional).toBe(true);
+  });
+});
+
+describe('parseRebuiltBreakdown (2026 REBUILT score_breakdown)', () => {
+  // Live TBA 2026casnv_qm1 blue (401 pts, no fouls) with tower points added so
+  // every branch of the arithmetic is exercised.
+  const alliance = (o: Record<string, unknown>) => ({
+    totalAutoPoints: 57, // 42 hub + 15 auto tower
+    autoTowerPoints: 15,
+    totalTeleopPoints: 389, // 359 hub + 30 endgame tower
+    endGameTowerPoints: 30,
+    totalTowerPoints: 45,
+    totalPoints: 446,
+    foulPoints: 0,
+    adjustPoints: 0,
+    ...o,
+  });
+
+  it('splits auto / teleop / endgame so they sum to the no-foul score', () => {
+    const out = parseRebuiltBreakdown({
+      score_breakdown: { red: alliance({}), blue: alliance({ totalAutoPoints: 42, autoTowerPoints: 0, totalTowerPoints: 30, totalPoints: 431 }) },
+    });
+    expect(out).toEqual({
+      red: { auto: 42, teleop: 359, endgame: 45 },
+      blue: { auto: 42, teleop: 359, endgame: 30 },
+    });
+    expect(out!.red.auto + out!.red.teleop + out!.red.endgame).toBe(446);
+    expect(out!.blue.auto + out!.blue.teleop + out!.blue.endgame).toBe(431);
+  });
+
+  it('treats absent tower fields as zero but rejects a missing total', () => {
+    const noTower = alliance({ autoTowerPoints: undefined, endGameTowerPoints: undefined, totalTowerPoints: 0 });
+    delete (noTower as Record<string, unknown>).autoTowerPoints;
+    delete (noTower as Record<string, unknown>).endGameTowerPoints;
+    expect(parseRebuiltBreakdown({ score_breakdown: { red: noTower, blue: noTower } })?.red).toEqual({
+      auto: 57,
+      teleop: 389,
+      endgame: 0,
+    });
+    const noTeleop = alliance({});
+    delete (noTeleop as Record<string, unknown>).totalTeleopPoints;
+    expect(parseRebuiltBreakdown({ score_breakdown: { red: noTeleop, blue: alliance({}) } })).toBeNull();
+  });
+
+  it('returns null (never throws) on null / non-object / schema-drifted input', () => {
     expect(parseRebuiltBreakdown(null)).toBeNull();
     expect(parseRebuiltBreakdown(42)).toBeNull();
     expect(parseRebuiltBreakdown('x')).toBeNull();
     expect(() => parseRebuiltBreakdown(undefined)).not.toThrow();
+    expect(
+      parseRebuiltBreakdown({
+        score_breakdown: { red: { autoFuelPoints: 18, teleopFuelPoints: 71 }, blue: alliance({}) },
+      }),
+    ).toBeNull();
   });
 });

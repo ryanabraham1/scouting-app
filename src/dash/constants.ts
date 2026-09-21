@@ -19,6 +19,20 @@ export const CONFIDENCE_N = 4;
  */
 export const EPA_RECENCY_BOOST = 0.5;
 
+/**
+ * Learning-rate multiplier on the in-house EPA update (applied on top of the
+ * Statbotics `percent_func` schedule). 1 is the exact Statbotics port.
+ *
+ * Backtested 2026-09-21 on the full 2026 season (18,291 played official
+ * matches, causal predict-then-update replay, docs/research/
+ * match13-xp-reverse-engineering.md §7): ×1.25 cut the alliance-score MAE
+ * from 53.0 to 51.4 (−3.0%) and left win-prob calibration unchanged
+ * (Brier 0.1506 → 0.1505); ×1.5 bought another −1.5% MAE but started to hurt
+ * calibration (2nd-half log-loss +1.2%); ≥×1.75 is unstable. A high-variance
+ * fuel game rewards reacting faster than the 2023-tuned Statbotics schedule.
+ */
+export const EPA_GAIN = 1.25;
+
 // Win-probability calibration.
 //
 // Win prob is logistic over the predicted score margin, but the SPREAD of FRC
@@ -32,6 +46,18 @@ export const EPA_RECENCY_BOOST = 0.5;
 //   redWinProb = logistic( WINPROB_LOGIT_SCALE * (redScore - blueScore) / sigma )
 //
 // This self-calibrates across seasons/score scales from the predicted totals.
+//
+// Calibration evidence (2026-09-21, full-2026-season causal backtest, slope fit
+// by logistic regression on the first half of the season and scored on the
+// second half — see docs/research/match13-xp-reverse-engineering.md §7):
+//   * This "sigma ∝ total" model beat both a constant sigma and a per-team
+//     running-variance sigma (match13's approach) on out-of-sample log-loss
+//     (0.4355 vs 0.4785 / 0.4526), so the sigma shape is kept as-is.
+//   * The old slope 1.7 (a probit→logit conversion, not a fit) was ~2× too
+//     confident: the fitted slope is 0.79–0.91 depending on EPA gain. At the
+//     shipped EPA_GAIN the fitted value is ~0.8; 0.85 scored best of the
+//     candidates tried (2nd-half log-loss 0.4849 → 0.4368, Brier 0.1476 →
+//     0.1414, win accuracy unchanged). Elims fit ~+0.15 steeper; not modelled.
 
 /** Margin standard deviation as a fraction of the total predicted alliance score. */
 export const WINPROB_SIGMA_FRACTION = 0.11;
@@ -39,8 +65,8 @@ export const WINPROB_SIGMA_FRACTION = 0.11;
 /** Floor on the margin SD so low-scoring totals don't produce an over-steep curve. */
 export const WINPROB_SIGMA_FLOOR = 12;
 
-/** Probit→logit factor: logistic(1.7·z) ≈ Φ(z), so a logistic curve mimics a normal CDF. */
-export const WINPROB_LOGIT_SCALE = 1.7;
+/** Logistic slope on the sigma-normalized margin (fitted; see calibration note above). */
+export const WINPROB_LOGIT_SCALE = 0.85;
 
 /** Our team: never scouted (EPA-only in predictions, omitted from our auto overlay). */
 export const OUR_TEAM = 3256;

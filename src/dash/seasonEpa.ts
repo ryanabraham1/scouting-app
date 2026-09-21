@@ -32,7 +32,7 @@ export const EPA_STALE_TIME = 5 * 60_000;
 
 // Bump whenever the season fan-out/replay semantics change so persisted results
 // produced by an older, slower traversal cannot mask the new path.
-export const SEASON_EPA_CLOSURE_VERSION = 5;
+export const SEASON_EPA_CLOSURE_VERSION = 6;
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -56,10 +56,18 @@ const MATCH_KEYS = [
   'time',
 ] as const;
 const ALLIANCE_KEYS = ['score', 'team_keys'] as const;
-// Tier-1 EPA only needs the foul/adjust fields off the breakdown. The dark
-// Tier-2 parser (`ENABLE_TBA_BREAKDOWN`, default off) would need this list
-// widened before it can be switched on — see localEpa.ts.
-const BREAKDOWN_KEYS = ['foulPoints', 'adjustPoints'] as const;
+// The EPA model reads the foul/adjust fields (no-foul score) plus the five
+// 2026 fields `parseRebuiltBreakdown` (localEpa.ts) turns into auto / teleop /
+// endgame components. Everything else in the ~60-field breakdown is dropped.
+const BREAKDOWN_KEYS = [
+  'foulPoints',
+  'adjustPoints',
+  'totalAutoPoints',
+  'totalTeleopPoints',
+  'totalTowerPoints',
+  'autoTowerPoints',
+  'endGameTowerPoints',
+] as const;
 
 /**
  * Project a raw TBA match down to the fields the EPA model, W-L-T record and
