@@ -78,13 +78,13 @@ async function captureBaseline(page: import('@playwright/test').Page): Promise<v
   await expect(page.getByTestId('scout-home')).toBeVisible({ timeout: 15_000 });
 }
 
-// Step the edit Review wizard from Climb to the SAVE step, setting climb to 3 and
-// a distinctive note along the way.
-async function editClimbAndNotes(
+// Step the edit Review wizard from Ratings to the SAVE step, setting the defense
+// rating to 10 and a distinctive note along the way.
+async function editRatingAndNotes(
   page: import('@playwright/test').Page,
   note: string,
 ): Promise<void> {
-  await page.getByTestId('review-climb').getByRole('button', { name: '3', exact: true }).click();
+  await page.getByTestId('review-defense-rating').press('End');
   const save = page.getByTestId('review-save');
   for (let i = 0; i < 6 && !(await save.isVisible()); i += 1) {
     await page.getByTestId('review-next').click();
@@ -121,9 +121,9 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
   await expect(page.getByTestId('review-editing-banner')).toBeVisible();
   await expect(page.getByTestId('review-editing-banner')).toContainText('rev 1 -> 2');
 
-  // 5. Change climb to 3 + a distinctive note; save.
+  // 5. Change the defense rating to 10 + a distinctive note; save.
   const note = `corrected-${Date.now()}`;
-  await editClimbAndNotes(page, note);
+  await editRatingAndNotes(page, note);
 
   // 6. Redirect to My Data with the updated toast + a rev 2 chip.
   await expect(page.getByTestId('my-data')).toBeVisible({ timeout: 15_000 });
@@ -131,17 +131,17 @@ test('Scenario A: edit + resubmit bumps revision (local + server)', async ({ pag
   await expect(page.getByTestId(`my-data-rev-${editId}`)).toContainText('rev 2');
   await expect(page.getByText(note)).toBeVisible();
 
-  // 7. Server assertion once the queue drains: revision bumped, climb updated,
+  // 7. Server assertion once the queue drains: revision bumped, rating updated,
   //    exactly one row for that id (UPDATE path, not a duplicate insert).
   await page.goto('/scout');
   await expect.poll(async () => {
     const { data } = await admin
       .from('match_scouting_report')
-      .select('row_revision, climb_level')
+      .select('row_revision, defense_rating')
       .eq('id', editId)
       .maybeSingle();
     return data;
-  }, { timeout: 30_000 }).toMatchObject({ row_revision: 2, climb_level: 3 });
+  }, { timeout: 30_000 }).toMatchObject({ row_revision: 2, defense_rating: 10 });
 
   // Scenario B: idempotent resubmit — re-trigger sync without editing; revision
   // stays 2 and there's still exactly one active row.
@@ -198,13 +198,9 @@ test('Scenario C: dead-letter rows expose the edit recovery path', async ({ page
       fuelByShift: [0, 0, 0, 0],
       fuelPoints: 0,
       fuelEstimateConfidence: 0.3,
-      climbLevel: 0,
-      climbAttempted: false,
-      climbSuccess: false,
       autoStartPosition: null,
       autoPath: null,
       autoLeftStartingLine: false,
-      autoClimbLevel1: false,
       intakeSources: [],
       maxFuelCapacityObserved: 0,
       defenseRating: 0,
@@ -261,7 +257,7 @@ test('Scenario D: offline edit queues then drains', async ({ page }) => {
   await page.context().setOffline(true);
   await page.getByTestId(`my-data-edit-${editId}`).click();
   await expect(page.getByTestId('review-editing-banner')).toBeVisible();
-  await editClimbAndNotes(page, `offline-${Date.now()}`);
+  await editRatingAndNotes(page, `offline-${Date.now()}`);
 
   await page.getByTestId('my-data-back').click();
   await expect(page.getByTestId('sync-indicator').getByLabel('offline')).toBeVisible();

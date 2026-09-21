@@ -28,8 +28,6 @@ export interface MatchReportInputs {
   schemaVersion: number;
   inactiveFirst: boolean;
   fuelBursts: FuelBurst[];
-  climbLevel: 0 | 1 | 2 | 3;
-  autoClimbLevel1: boolean;
   noShow: boolean;
 }
 

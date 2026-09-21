@@ -8,7 +8,6 @@ import {
   ratedMeanText,
 } from '@/dash/aggregate';
 import type { MsrRow, BurstRow, IntervalRow, ScoutLite } from '@/dash/types';
-import { SCORING } from '@/scoring';
 
 /** Minimal MsrRow factory: fills required fields, override per test. */
 function row(overrides: Partial<MsrRow>): MsrRow {
@@ -24,11 +23,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -55,8 +50,6 @@ describe('aggregateTeam', () => {
       endgame_fuel: 3,
       fuel_points: 40,
       fuel_estimate_confidence: 0.9,
-      climb_level: 2,
-      climb_success: true,
       defense_rating: 3,
     }),
     row({
@@ -67,8 +60,6 @@ describe('aggregateTeam', () => {
       endgame_fuel: 1,
       fuel_points: 30,
       fuel_estimate_confidence: 0.6,
-      climb_level: 3,
-      climb_success: false, // attempted level 3 but failed -> 0 climb points
       defense_rating: 1,
       died: true,
     }),
@@ -80,8 +71,6 @@ describe('aggregateTeam', () => {
       endgame_fuel: 2,
       fuel_points: 50,
       fuel_estimate_confidence: 0.3,
-      climb_level: 1,
-      climb_success: true,
       defense_rating: 5,
     }),
   ];
@@ -110,16 +99,6 @@ describe('aggregateTeam', () => {
     expect(agg.meanFuelConfidence).toBeCloseTo(0.6, 10); // (0.9+0.6+0.3)/3
   });
 
-  it('computes climb stats and per-match climb points (success-gated)', () => {
-    expect(agg.climbSuccessRate).toBeCloseTo(2 / 3, 10); // M1, M3 succeeded
-    expect(agg.avgClimbLevel).toBeCloseTo(2, 10); // (2+3+1)/3
-    // SCORING.CLIMB teleop: M1 L2=20 (success), M2 L3=0 (failed), M3 L1=10 (success)
-    const expectedClimb =
-      (SCORING.CLIMB[2].teleop + 0 + SCORING.CLIMB[1].teleop) / 3;
-    expect(agg.meanClimbPoints).toBeCloseTo(expectedClimb, 10);
-    expect(agg.meanClimbPoints).toBeCloseTo(10, 10);
-  });
-
   it('computes defense, no-show/died rates and reliability', () => {
     expect(agg.avgDefenseRating).toBeCloseTo(3, 10); // (3+1+5)/3
     expect(agg.noShowRate).toBeCloseTo(0, 10);
@@ -128,20 +107,13 @@ describe('aggregateTeam', () => {
     expect(agg.reliability).toBeCloseTo(2 / 3, 10);
   });
 
-  it('computes scoutingExpectedPoints = meanFuelPoints + meanClimbPoints (RAW)', () => {
-    // 40 + 10 = 50 (no confidence down-weight)
-    expect(agg.scoutingExpectedPoints).toBeCloseTo(50, 10);
+  it('computes scoutingExpectedPoints = meanFuelPoints (RAW)', () => {
+    // 40 (no confidence down-weight)
+    expect(agg.scoutingExpectedPoints).toBeCloseTo(40, 10);
   });
 });
 
 describe('aggregateTeam edge cases', () => {
-  it('climb_level 0 yields 0 climb points even if climb_success is true', () => {
-    const agg = aggregateTeam(7, [
-      row({ target_team_number: 7, climb_level: 0, climb_success: true }),
-    ]);
-    expect(agg.meanClimbPoints).toBeCloseTo(0, 10);
-  });
-
   it('clamps reliability at 0 when no-shows + deaths exceed 1', () => {
     // both no_show and died in the same single match -> 1 - (1 + 1) = -1 -> 0
     const agg = aggregateTeam(7, [
@@ -170,14 +142,10 @@ describe('aggregateTeam edge cases', () => {
         teleop_fuel_inactive: 10,
         endgame_fuel: 5,
         fuel_points: 99,
-        climb_level: 3,
-        climb_success: true,
-        auto_climb_level1: true,
       }),
     ]);
     expect(agg.meanTotalFuel).toBe(0);
     expect(agg.meanFuelPoints).toBe(0);
-    expect(agg.meanClimbPoints).toBe(0);
     expect(agg.scoutingExpectedPoints).toBe(0);
   });
 
@@ -462,49 +430,6 @@ describe('distribution + trend', () => {
     expect(agg.recentFuelDelta).toBe(0);
   });
 
-  it('climb-points σ uses climbPointsForMatch (auto bonus independent of teleop)', () => {
-    // Re-derive expected per-match climb points the SAME way climbPointsForMatch does,
-    // pulling magnitudes from the frozen SCORING.CLIMB so a magnitude change re-derives.
-    const climbPts = (r: {
-      climb_success: boolean;
-      climb_level: 1 | 2 | 3 | 0;
-      auto_climb_level1: boolean;
-    }): number => {
-      let pts = 0;
-      if (r.climb_success && r.climb_level !== 0) {
-        pts += SCORING.CLIMB[r.climb_level].teleop;
-      }
-      if (r.auto_climb_level1) pts += SCORING.CLIMB[1].auto;
-      return pts;
-    };
-    const inputs = [
-      { climb_success: true, climb_level: 2 as const, auto_climb_level1: false },
-      // auto bonus added even though teleop climb FAILED (locks in independence).
-      { climb_success: false, climb_level: 3 as const, auto_climb_level1: true },
-      { climb_success: true, climb_level: 1 as const, auto_climb_level1: true },
-    ];
-    const agg = aggregateTeam(
-      100,
-      inputs.map((c, i) =>
-        row({
-          match_key: `evt_qm${i + 1}`,
-          climb_success: c.climb_success,
-          climb_level: c.climb_level,
-          auto_climb_level1: c.auto_climb_level1,
-        }),
-      ),
-    );
-    const perMatch = inputs.map(climbPts);
-    const mean = perMatch.reduce((a, b) => a + b, 0) / perMatch.length;
-    const expectedSd = Math.sqrt(
-      perMatch.reduce((a, v) => a + (v - mean) ** 2, 0) / perMatch.length,
-    );
-    expect(agg.meanClimbPoints).toBeCloseTo(mean, 10);
-    expect(agg.stdDevClimbPoints).toBeCloseTo(expectedSd, 4);
-    expect(agg.minClimbPoints).toBeCloseTo(Math.min(...perMatch), 10);
-    expect(agg.maxClimbPoints).toBeCloseTo(Math.max(...perMatch), 10);
-  });
-
   it('trend improving when last-3 mean exceeds all-match mean past threshold', () => {
     // {10,10,30,30,30} → all-mean 22, last-3 mean 30, delta +8.
     const fuel = [10, 10, 30, 30, 30];
@@ -572,9 +497,6 @@ function ta(over: Partial<TeamAgg> = {}): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 40,
     meanFuelConfidence: 1,
-    climbSuccessRate: 0.5,
-    avgClimbLevel: 1,
-    meanClimbPoints: 10,
     avgDefenseRating: 0,
     noShowRate: 0,
     diedRate: 0,
@@ -589,9 +511,6 @@ function ta(over: Partial<TeamAgg> = {}): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -603,19 +522,6 @@ function ta(over: Partial<TeamAgg> = {}): TeamAgg {
 }
 
 describe('synthesizeMatchupGuidance', () => {
-  it('flags a reliable high climber as a high-severity climb threat', () => {
-    const g = synthesizeMatchupGuidance(
-      [ta({ teamNumber: 254, climbSuccessRate: 0.8, avgClimbLevel: 2.7 })],
-      [],
-    );
-    const climb = g.red.threats.find((t) => t.kind === 'climb');
-    expect(climb).toBeDefined();
-    expect(climb!.severity).toBe('high');
-    expect(climb!.text).toContain('Contest');
-    expect(climb!.text).toContain('254');
-    expect(climb!.text).toContain('L3');
-  });
-
   it('flags a fragile robot as a high-severity exploit', () => {
     // noShow 0.3 + died 0.2 => reliability clamp01(1 - 0.5) = 0.5
     const g = synthesizeMatchupGuidance(

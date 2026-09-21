@@ -24,8 +24,8 @@ import { SCORING } from '@/scoring';
 
 /**
  * Build a TeamAgg with the fields the component split + defense read; other
- * fields default to 0/null. `scoutingExpectedPoints` is derived (meanFuelPoints +
- * meanClimbPoints) so a test agg is internally consistent with aggregate.ts.
+ * fields default to 0/null. `scoutingExpectedPoints` is derived (meanFuelPoints)
+ * so a test agg is internally consistent with aggregate.ts.
  */
 function makeAgg(p: {
   teamNumber?: number;
@@ -36,14 +36,12 @@ function makeAgg(p: {
   meanEndgameFuel?: number;
   meanFuelPoints?: number;
   meanFuelConfidence?: number;
-  meanClimbPoints?: number;
   avgDefenseRating?: number;
   defenderEffectiveness?: number | null;
   defenseSampleCount?: number;
 }): TeamAgg {
   const meanFuelPoints = p.meanFuelPoints ?? 0;
   const meanFuelConfidence = p.meanFuelConfidence ?? 1;
-  const meanClimbPoints = p.meanClimbPoints ?? 0;
   return {
     teamNumber: p.teamNumber ?? 1,
     matchesScouted: p.matchesScouted ?? 0,
@@ -54,16 +52,13 @@ function makeAgg(p: {
     meanTotalFuel: 0,
     meanFuelPoints,
     meanFuelConfidence,
-    climbSuccessRate: 0,
-    avgClimbLevel: 0,
-    meanClimbPoints,
     avgDefenseRating: p.avgDefenseRating ?? 0,
     noShowRate: 0,
     diedRate: 0,
     tippedRate: 0,
     incidentMatches: 0,
     reliability: 1,
-    scoutingExpectedPoints: meanFuelPoints + meanClimbPoints,
+    scoutingExpectedPoints: meanFuelPoints,
     fuelSuppressionWhileDefended: null,
     defendedSampleMs: 0,
     defenderEffectiveness: p.defenderEffectiveness ?? null,
@@ -71,9 +66,6 @@ function makeAgg(p: {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -86,7 +78,7 @@ function makeAgg(p: {
 const EPS = 1e-9;
 
 describe('aggregateTeamComponentSplit', () => {
-  it('decomposes meanFuelPoints by raw auto/teleop proportion; climb=meanClimbPoints', () => {
+  it('decomposes meanFuelPoints by raw auto/teleop proportion', () => {
     // 10 auto fuel, 30 point-scoring teleop fuel (active + endgame).
     const agg = makeAgg({
       matchesScouted: 3,
@@ -94,15 +86,13 @@ describe('aggregateTeamComponentSplit', () => {
       meanTeleopFuelActive: 25,
       meanEndgameFuel: 5,
       meanFuelPoints: 40,
-      meanClimbPoints: 30,
     });
     const s = aggregateTeamComponentSplit(agg);
     // rawAuto = 10, rawFuel = 30 -> auto share 1/4 of 40 = 10, fuel = 30.
     expect(s.auto).toBeCloseTo(10, 9);
     expect(s.fuel).toBeCloseTo(30, 9);
-    expect(s.climb).toBeCloseTo(30, 9);
-    // Sums to scoutingExpectedPoints (meanFuelPoints + climb).
-    expect(s.auto + s.fuel + s.climb).toBeCloseTo(agg.scoutingExpectedPoints, 9);
+    // Sums to scoutingExpectedPoints (meanFuelPoints).
+    expect(s.auto + s.fuel).toBeCloseTo(agg.scoutingExpectedPoints, 9);
   });
 
   it('includes legacy inactive-bucket fuel because every observed shot scores', () => {
@@ -115,12 +105,11 @@ describe('aggregateTeamComponentSplit', () => {
       meanTeleopFuelInactive: 40,
       meanEndgameFuel: 0,
       meanFuelPoints: 70,
-      meanClimbPoints: 0,
     });
     const s = aggregateTeamComponentSplit(agg);
     expect(s.auto).toBeCloseTo(10, 9);
     expect(s.fuel).toBeCloseTo(60, 9);
-    expect(s.auto + s.fuel + s.climb).toBeCloseTo(agg.scoutingExpectedPoints, 9);
+    expect(s.auto + s.fuel).toBeCloseTo(agg.scoutingExpectedPoints, 9);
   });
 
   it('the split uses RAW fuel points — fuel_estimate_confidence does NOT down-weight', () => {
@@ -130,21 +119,19 @@ describe('aggregateTeamComponentSplit', () => {
       meanTeleopFuelActive: 30,
       meanFuelPoints: 40,
       meanFuelConfidence: 0.5, // informational only — must NOT scale the split
-      meanClimbPoints: 10,
     });
     const s = aggregateTeamComponentSplit(agg);
     // RAW 40 split 10:30 -> auto 10, fuel 30 (NOT 5/15 as the old down-weight gave).
     expect(s.auto).toBeCloseTo(10, 9);
     expect(s.fuel).toBeCloseTo(30, 9);
-    expect(s.auto + s.fuel + s.climb).toBeCloseTo(agg.scoutingExpectedPoints, 9);
+    expect(s.auto + s.fuel).toBeCloseTo(agg.scoutingExpectedPoints, 9);
   });
 
   it('routes all fuel points to the fuel bucket when raw fuel total is 0', () => {
-    const agg = makeAgg({ matchesScouted: 1, meanFuelPoints: 5, meanClimbPoints: 12 });
+    const agg = makeAgg({ matchesScouted: 1, meanFuelPoints: 5 });
     const s = aggregateTeamComponentSplit(agg);
     expect(s.auto).toBe(0);
     expect(s.fuel).toBeCloseTo(5, 9);
-    expect(s.climb).toBeCloseTo(12, 9);
   });
 });
 
@@ -173,8 +160,8 @@ describe('aggregateTeamDefensePts', () => {
 });
 
 describe('fitComponentFraction', () => {
-  it('returns a triple summing to 1 with the expected ratios from scouting means', () => {
-    // Each team: auto 10, fuel 30, climb 10 (weighted=40 split 10:30; climb 10).
+  it('returns a pair summing to 1 with the expected ratios from scouting means', () => {
+    // Each team: auto 10, fuel 30 (40 split 10:30).
     const teams = Array.from({ length: 4 }, (_, i) =>
       makeAgg({
         teamNumber: i + 1,
@@ -183,15 +170,13 @@ describe('fitComponentFraction', () => {
         meanTeleopFuelActive: 30,
         meanFuelPoints: 40,
         meanFuelConfidence: 1,
-        meanClimbPoints: 10,
       }),
     );
     const f = fitComponentFraction(teams);
-    expect(f.fAuto + f.fFuel + f.fClimb).toBeCloseTo(1, 9);
-    // total per team = 50: auto 10/50, fuel 30/50, climb 10/50.
-    expect(f.fAuto).toBeCloseTo(0.2, 9);
-    expect(f.fFuel).toBeCloseTo(0.6, 9);
-    expect(f.fClimb).toBeCloseTo(0.2, 9);
+    expect(f.fAuto + f.fFuel).toBeCloseTo(1, 9);
+    // total per team = 40: auto 10/40, fuel 30/40.
+    expect(f.fAuto).toBeCloseTo(0.25, 9);
+    expect(f.fFuel).toBeCloseTo(0.75, 9);
   });
 
   it('returns F_DEFAULT when fewer than MIN_FIT_REPORTS reports back the event', () => {
@@ -220,20 +205,18 @@ describe('fitComponentFraction', () => {
         meanTeleopFuelActive: 30,
         meanFuelPoints: 40,
         meanFuelConfidence: 1,
-        meanClimbPoints: 10,
       }),
     );
     const f = fitComponentFraction(teams);
-    // The fraction depends only on the auto:fuel:climb RATIO and weighted fuel,
-    // not on the FUEL_POINTS multiplier (which cancels in auto/(auto+fuel)).
-    expect(f.fAuto).toBeCloseTo(0.2, 9);
-    expect(f.fFuel).toBeCloseTo(0.6, 9);
-    expect(f.fClimb).toBeCloseTo(0.2, 9);
+    // The fraction depends only on the auto:fuel RATIO, not on the FUEL_POINTS
+    // multiplier (which cancels in auto/(auto+fuel)).
+    expect(f.fAuto).toBeCloseTo(0.25, 9);
+    expect(f.fFuel).toBeCloseTo(0.75, 9);
   });
 });
 
 describe('resolveComponentBreakdown', () => {
-  const F = { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 };
+  const F = { fAuto: 0.15, fFuel: 0.85 };
 
   it('scouting branch: source=scouting, split from agg rescaled to expected', () => {
     const agg = makeAgg({
@@ -242,17 +225,15 @@ describe('resolveComponentBreakdown', () => {
       meanTeleopFuelActive: 30,
       meanFuelPoints: 40,
       meanFuelConfidence: 1,
-      meanClimbPoints: 10,
       defenderEffectiveness: 0.25,
       defenseSampleCount: 2,
     });
-    // scoutingExpectedPoints = 50; scouting-only prediction -> expected = 50, k≈1.
-    const c = resolveComponentBreakdown(1, agg, 50, F, 'scouting', 5);
+    // scoutingExpectedPoints = 40; scouting-only prediction -> expected = 40, k≈1.
+    const c = resolveComponentBreakdown(1, agg, 40, F, 'scouting', 5);
     expect(c.source).toBe('scouting');
-    expect(c.auto + c.fuel + (c.climb ?? 0)).toBeCloseTo(50, 6);
+    expect(c.auto + c.fuel).toBeCloseTo(40, 6);
     expect(c.auto).toBeCloseTo(10, 6);
     expect(c.fuel).toBeCloseTo(30, 6);
-    expect(c.climb).toBeCloseTo(10, 6); // real scouted climb (not null for scouted)
     expect(c.defense).toBeCloseTo(0.25 * 40, 6);
     expect(c.provisional).toBe(false);
   });
@@ -264,44 +245,37 @@ describe('resolveComponentBreakdown', () => {
       meanTeleopFuelActive: 30,
       meanFuelPoints: 40,
       meanFuelConfidence: 1,
-      meanClimbPoints: 10,
     });
-    // scouting basis = 50; EPA expected = 80. Components must sum to 80.
+    // scouting basis = 40; EPA expected = 80. Components must sum to 80.
     const c = resolveComponentBreakdown(1, agg, 80, F, 'epa', 5);
-    expect(c.auto + c.fuel + (c.climb ?? 0)).toBeCloseTo(80, 6);
-    // proportions preserved: auto 10/50 of 80 = 16.
-    expect(c.auto).toBeCloseTo(16, 6);
+    expect(c.auto + c.fuel).toBeCloseTo(80, 6);
+    // proportions preserved: auto 10/40 of 80 = 20.
+    expect(c.auto).toBeCloseTo(20, 6);
   });
 
-  it('epa branch: climb is NEVER fabricated (null); auto+fuel carry full expected', () => {
+  it('epa branch: auto+fuel carry full expected via the fitted fraction', () => {
     const c = resolveComponentBreakdown(2, undefined, 100, F, 'epa', 5);
     expect(c.source).toBe('epa');
-    // Climb comes only from real scouting — an unscouted team shows "—" (null),
-    // never the old f.fClimb * expected fabrication.
-    expect(c.climb).toBeNull();
-    // auto:fuel re-normalized to drop climb (0.15:0.55 -> /0.70), summing to 100.
-    expect(c.auto).toBeCloseTo((0.15 / 0.7) * 100, 9);
-    expect(c.fuel).toBeCloseTo((0.55 / 0.7) * 100, 9);
+    expect(c.auto).toBeCloseTo(15, 9);
+    expect(c.fuel).toBeCloseTo(85, 9);
     expect(c.auto + c.fuel).toBeCloseTo(100, 6);
     expect(c.defense).toBeNull();
     expect(c.provisional).toBe(true);
   });
 
-  it('none branch: below MIN_EPA_MATCHES gate -> all zero, source none, climb null', () => {
+  it('none branch: below MIN_EPA_MATCHES gate -> all zero, source none', () => {
     const c = resolveComponentBreakdown(2, undefined, 100, F, 'epa', 1);
     expect(c.source).toBe('none');
     expect(c.auto).toBe(0);
     expect(c.fuel).toBe(0);
-    expect(c.climb).toBeNull();
     expect(c.defense).toBeNull();
   });
 
-  it('none branch: prediction source none -> all zero, climb null', () => {
+  it('none branch: prediction source none -> all zero', () => {
     const c = resolveComponentBreakdown(2, undefined, 0, F, 'none', 5);
     expect(c.source).toBe('none');
     expect(c.auto).toBe(0);
     expect(c.fuel).toBe(0);
-    expect(c.climb).toBeNull();
   });
 
   it('unscouted team always shows defense — (null)', () => {
@@ -315,8 +289,8 @@ describe('predictMatch — component parity & invariants', () => {
     redTeams: [1, 2, 3],
     blueTeams: [4, 5, 6],
     agg: new Map([
-      [1, makeAgg({ teamNumber: 1, matchesScouted: 4, meanFuelPoints: 20, meanClimbPoints: 10 })],
-      [2, makeAgg({ teamNumber: 2, matchesScouted: 4, meanFuelPoints: 20, meanClimbPoints: 10 })],
+      [1, makeAgg({ teamNumber: 1, matchesScouted: 4, meanFuelPoints: 30 })],
+      [2, makeAgg({ teamNumber: 2, matchesScouted: 4, meanFuelPoints: 30 })],
     ]),
     epaByTeam: new Map<number, number | null>([
       [3, 40],
@@ -337,13 +311,13 @@ describe('predictMatch — component parity & invariants', () => {
   it('with fraction: each team has components; alliance unrounded sum equals score', () => {
     const out = predictMatch({
       ...baseInput(),
-      fraction: { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 },
+      fraction: { fAuto: 0.15, fFuel: 0.85 },
       playedMatches: 5,
     });
-    // climb is REAL (scouting) or null (epa/none); auto+fuel(+climb when scouted)
-    // always carry the full `expected` so the alliance decomposes to its score.
+    // auto+fuel always carry the full `expected` so the alliance decomposes to
+    // its score.
     const partsSum = (c: NonNullable<TeamPrediction['components']>): number =>
-      c.auto + c.fuel + (c.climb ?? 0);
+      c.auto + c.fuel;
     for (const p of [...out.red.teams, ...out.blue.teams]) {
       expect(p.components).toBeDefined();
       const c = p.components!;
@@ -358,26 +332,24 @@ describe('predictMatch — component parity & invariants', () => {
     expect(redSum).toBeCloseTo(out.red.score, 6);
   });
 
-  it('unscouted (epa-source) team has climb === null; scouted team has real climb', () => {
+  it('scouted team is scouting-sourced; unscouted team is epa-sourced', () => {
     const out = predictMatch({
       ...baseInput(),
-      fraction: { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 },
+      fraction: { fAuto: 0.15, fFuel: 0.85 },
       playedMatches: 5,
     });
     const team1 = out.red.teams.find((p) => p.teamNumber === 1)!; // scouted
     const team3 = out.red.teams.find((p) => p.teamNumber === 3)!; // epa-only
     expect(team1.components?.source).toBe('scouting');
-    expect(typeof team1.components?.climb).toBe('number'); // real scouted climb (>0)
-    expect(team1.components?.climb).toBeGreaterThan(0);
     expect(team3.components?.source).toBe('epa');
-    expect(team3.components?.climb).toBeNull(); // never fabricated
+    expect(team3.components?.provisional).toBe(true);
   });
 
   it('APPLY_DEFENSE_TO_PREDICTION=false: scores identical with and without fraction', () => {
     const withoutFrac = predictMatch(baseInput());
     const withFrac = predictMatch({
       ...baseInput(),
-      fraction: { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 },
+      fraction: { fAuto: 0.15, fFuel: 0.85 },
       playedMatches: 5,
     });
     expect(withFrac.red.score).toBeCloseTo(withoutFrac.red.score, EPS);
@@ -394,8 +366,8 @@ describe('parseRebuiltBreakdown (Tier 2 — flag OFF by default)', () => {
   it('returns null while the flag is OFF even for a well-formed breakdown', () => {
     const raw = {
       score_breakdown: {
-        red: { autoFuelPoints: 18, teleopFuelPoints: 71, endgameClimbPoints: 30 },
-        blue: { autoFuelPoints: 12, teleopFuelPoints: 55, endgameClimbPoints: 20 },
+        red: { autoFuelPoints: 18, teleopFuelPoints: 71 },
+        blue: { autoFuelPoints: 12, teleopFuelPoints: 55 },
       },
     };
     expect(parseRebuiltBreakdown(raw)).toBeNull();

@@ -76,7 +76,7 @@ function pit(overrides: Partial<TeamPit>): TeamPit {
     teamNumber: 254,
     drivetrain: 'Swerve',
     mechanisms: ['Elevator', 'Pivot intake'],
-    capabilities: ['L3 climb', 'High goal'],
+    capabilities: ['Turret', 'High goal'],
     intakeSources: ['Ground', 'Corral'],
     visionSystem: 'Limelight 3',
     batteryCount: 6,
@@ -140,11 +140,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -208,15 +204,13 @@ const matches: MatchRow[] = [
 ];
 
 // Two scouted matches for team 254. fuel_estimate_confidence < 1 to surface the
-// rate-FUEL down-weight, climb_success at level 3 for a non-zero climb points.
+// rate-FUEL down-weight chip.
 const reports: MsrRow[] = [
   row({
     target_team_number: 254,
     match_key: '2026casnv_qm1',
     fuel_points: 20,
     fuel_estimate_confidence: 0.3,
-    climb_level: 3,
-    climb_success: true,
     scout_id: 's1',
     notes: 'fast cycler',
   }),
@@ -225,8 +219,6 @@ const reports: MsrRow[] = [
     match_key: '2026casnv_qm2',
     fuel_points: 10,
     fuel_estimate_confidence: 0.3,
-    climb_level: 0,
-    climb_success: false,
     defense_rating: 4,
   }),
 ];
@@ -355,9 +347,6 @@ describe('TeamView', () => {
 
     // The weighted (×confidence) stat has been removed entirely.
     expect(scope.queryByTestId('team-fuel-points-weighted')).toBeNull();
-
-    // climbSuccessRate = 1/2 = 50%
-    expect(scope.getByTestId('team-climb-success-rate').textContent).toContain('50');
 
     // reliability = 1 (no no-shows/deaths) → 100%
     expect(scope.getByTestId('team-reliability').textContent).toContain('100');
@@ -499,7 +488,6 @@ describe('TeamView', () => {
 
   it('renders the Trends charts when the team has >= the trend window of reports', () => {
     // 3 reports clears the trend window (TREND_WINDOW = 3) so Trends shows.
-    // At least one successful climb so the climb chart isn't hidden as "no climb".
     useEventReportsMock.mockReturnValue(
       querySuccess(
         [20, 10, 15].map((f, i) =>
@@ -507,8 +495,6 @@ describe('TeamView', () => {
             target_team_number: 254,
             match_key: `2026casnv_qm${i + 1}`,
             fuel_points: f,
-            climb_success: i === 0,
-            climb_level: i === 0 ? 2 : 0,
           }),
         ),
       ),
@@ -520,36 +506,9 @@ describe('TeamView', () => {
     // Fuel-points-per-match bar chart (>=3 reports => not empty).
     const fuel = getByTestId('team-trend-fuel');
     expect(fuel.getAttribute('data-chart-empty')).not.toBe('true');
-    // Fuel-by-shift stacked bar + a climb/defense line chart are present too.
+    // Fuel-by-shift stacked bar + a defense line chart are present too.
     expect(getByTestId('team-trend-shift')).toBeTruthy();
-    expect(getByTestId('team-trend-climb')).toBeTruthy();
-  });
-
-  it('hides climb stats + chart and shows a "no climb" note for a non-climbing team', () => {
-    // 3 reports (clears the trend window) with NO successful climbs.
-    useEventReportsMock.mockReturnValue(
-      querySuccess(
-        [20, 10, 15].map((f, i) =>
-          row({
-            target_team_number: 254,
-            match_key: `2026casnv_qm${i + 1}`,
-            fuel_points: f,
-            climb_success: false,
-            climb_level: 0,
-          }),
-        ),
-      ),
-    );
-    const { getByTestId, queryByTestId } = render(<TeamView eventKey="2026casnv" />);
-    selectTeam(getByTestId, '254');
-    // Climb stats are replaced by a "no climb" note; the climb trend is hidden.
-    expect(getByTestId('team-no-climb')).toBeTruthy();
-    expect(queryByTestId('team-climb-success-rate')).toBeNull();
-    expect(queryByTestId('team-avg-climb-level')).toBeNull();
-    expect(queryByTestId('team-mean-climb-points')).toBeNull();
-    expect(queryByTestId('team-trend-climb')).toBeNull();
-    // Defense/reliability stats still render.
-    expect(getByTestId('team-reliability')).toBeTruthy();
+    expect(getByTestId('team-trend-defense')).toBeTruthy();
   });
 
   it('preselects the team passed via the selectedTeam prop', () => {
@@ -588,7 +547,7 @@ describe('TeamView', () => {
     expect(getByTestId('team-detail')).toBeTruthy();
   });
 
-  it('folds mean ± σ inline into the fuel/climb/defense stats (no separate Distribution card)', () => {
+  it('folds mean ± σ inline into the fuel/defense stats (no separate Distribution card)', () => {
     // 5 matches, fuel {10,10,30,30,30} → all-mean 22, last-3 mean 30 → improving.
     useEventReportsMock.mockReturnValue(
       querySuccess(
@@ -598,8 +557,6 @@ describe('TeamView', () => {
             match_key: `2026casnv_qm${i + 1}`,
             fuel_points: f,
             defense_rating: 3,
-            climb_success: true,
-            climb_level: 2,
           }),
         ),
       ),
@@ -610,15 +567,13 @@ describe('TeamView', () => {
     // The standalone Distribution card is gone — the data now lives inline.
     expect(queryByTestId('team-distribution')).toBeNull();
     expect(queryByTestId('team-dist-fuel')).toBeNull();
-    expect(queryByTestId('team-dist-climb')).toBeNull();
     expect(queryByTestId('team-dist-defense')).toBeNull();
 
     const detail = getByTestId('team-detail');
     const scope = within(detail);
 
-    // σ now appears inline on the existing fuel/climb/defense stat blocks.
+    // σ now appears inline on the existing fuel/defense stat blocks.
     expect(scope.getByTestId('team-mean-fuel-points').textContent).toMatch(/\d+\.\d ± \d+\.\d/);
-    expect(scope.getByTestId('team-mean-climb-points').textContent).toMatch(/\d+\.\d ± \d+\.\d/);
     expect(scope.getByTestId('team-avg-defense-rating').textContent).toMatch(/\d+\.\d ± \d+\.\d/);
 
     // Recent form: improving → success tone + signed delta label, shown inline.
@@ -734,8 +689,8 @@ describe('TeamView', () => {
   describe('multi-scout conflicts', () => {
     // qm1: two scouts disagree on the SAME robot (254 red 1). qm2: single scout.
     const conflictReports: MsrRow[] = [
-      row({ target_team_number: 254, match_key: '2026casnv_qm1', station: 1, scout_id: 's1', fuel_points: 14, climb_success: true, climb_level: 3, no_show: false }),
-      row({ target_team_number: 254, match_key: '2026casnv_qm1', station: 1, scout_id: 's2', fuel_points: 4, climb_success: false, climb_level: 0, no_show: true }),
+      row({ target_team_number: 254, match_key: '2026casnv_qm1', station: 1, scout_id: 's1', fuel_points: 14, no_show: false }),
+      row({ target_team_number: 254, match_key: '2026casnv_qm1', station: 1, scout_id: 's2', fuel_points: 4, no_show: true }),
       row({ target_team_number: 254, match_key: '2026casnv_qm2', station: 1, scout_id: 's1', fuel_points: 10 }),
     ];
 

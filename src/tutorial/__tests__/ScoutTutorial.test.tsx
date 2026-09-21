@@ -55,7 +55,7 @@ async function openReview(): Promise<void> {
   await startMatch();
   placeRobot();
   fireEvent.click(screen.getByTestId('capture-to-review'));
-  await screen.findByTestId('review-climb');
+  await screen.findByTestId('review-ratings');
 }
 
 describe('ScoutTutorial module hub and production coaching', () => {
@@ -241,11 +241,6 @@ describe('ScoutTutorial module hub and production coaching', () => {
     expect(screen.queryByTestId('tutorial-exit-module-desktop')).toBeNull();
     expect(await screen.findByTestId('tutorial-target-indicator')).toHaveAttribute(
       'data-target-selector',
-      '[data-testid="review-climb"]',
-    );
-    skipOptional();
-    expect(screen.getByTestId('tutorial-target-indicator')).toHaveAttribute(
-      'data-target-selector',
       '[data-testid="review-ratings"]',
     );
     expect(screen.queryByTestId('tutorial-next-control')).toBeNull();
@@ -404,7 +399,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
   });
 
   it('defines the concise production workflow with exact step counts', () => {
-    expect(MATCH_STEP_COUNT).toBe(18);
+    expect(MATCH_STEP_COUNT).toBe(17);
     expect(PIT_STEP_COUNT).toBe(12);
 
     const matchTargets = MATCH_COACH_STEPS.map((step) => step.target);
@@ -416,7 +411,6 @@ describe('ScoutTutorial module hub and production coaching', () => {
       '[data-testid="capture-feed"]',
       '[data-testid="capture-defense"]',
       '[data-testid="capture-defended"]',
-      '[data-testid="review-climb"]',
       '[data-testid="review-ratings"]',
       '[data-testid="review-field-path"]',
       '[data-testid="review-foul-reasons"]',

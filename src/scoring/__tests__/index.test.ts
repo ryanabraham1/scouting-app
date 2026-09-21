@@ -18,8 +18,6 @@ describe('scoring public API surface', () => {
     const agg = scoring.computeAggregates({
       schemaVersion: scoring.SCHEMA_VERSION,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [{ startMs: 0, endMs: 10000, rate: 1, window: 'auto' }], // 10
     });

@@ -6,6 +6,7 @@ import { CHART_COLORS, EmptyChart } from '@/dash/charts';
 import { aggregateTeamComponentSplit, type TeamAgg } from '@/dash/aggregate';
 import { DEF_EFF_MIN_SAMPLE } from '@/dash/defenseAnalytics';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 
 export interface CompareTeam {
   agg: TeamAgg;
@@ -33,12 +34,10 @@ export interface ComparisonDatum {
   scoring: {
     auto: number;
     teleopEndgame: number;
-    climb: number;
     expected: number;
     epa: number | null;
   };
   reliability: number;
-  climbSuccess: number;
   defenseRating: number;
   fuelSlowdownWhenDefended: number | null;
   opponentSlowdownCaused: number | null;
@@ -59,12 +58,10 @@ export function buildComparisonData(teams: CompareTeam[]): ComparisonDatum[] {
       scoring: {
         auto: split.auto,
         teleopEndgame: split.fuel,
-        climb: split.climb,
         expected: team.agg.scoutingExpectedPoints,
         epa: validEpa,
       },
       reliability: team.agg.reliability,
-      climbSuccess: team.agg.climbSuccessRate,
       defenseRating: team.agg.avgDefenseRating,
       fuelSlowdownWhenDefended: team.agg.fuelSuppressionWhileDefended,
       opponentSlowdownCaused:
@@ -151,9 +148,7 @@ function TeamLegend({
             className="inline-block h-2.5 w-5 rounded-sm"
             style={{ backgroundColor: team.color }}
           />
-          <span className="font-mono font-semibold tabular-nums text-foreground">
-            {team.teamNumber}
-          </span>
+          <TeamLink team={team.teamNumber} className="font-mono font-semibold text-foreground" />
           <span className="text-xs text-muted-foreground">
             {team.matchesScouted} match{team.matchesScouted === 1 ? '' : 'es'}
           </span>
@@ -179,7 +174,7 @@ function ScoringChart({
   return (
     <ChartFrame
       title="Scoring composition"
-      subtitle="Expected points per match split into auto fuel, teleop/endgame fuel, and climb. The line marks best-available EPA on the same points scale."
+      subtitle="Expected points per match split into auto fuel and teleop/endgame fuel. The line marks best-available EPA on the same points scale."
       testid={testid}
       wide
     >
@@ -188,10 +183,9 @@ function ScoringChart({
           const { scoring } = team;
           const segments = [
             { key: 'auto', value: scoring.auto, opacity: 0.45 },
-            { key: 'teleop', value: scoring.teleopEndgame, opacity: 0.72 },
-            { key: 'climb', value: scoring.climb, opacity: 1 },
+            { key: 'teleop', value: scoring.teleopEndgame, opacity: 1 },
           ];
-          const details = `Team ${team.teamNumber}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel, ${scoring.climb.toFixed(1)} climb${scoring.epa == null ? '; EPA unavailable' : `; ${scoring.epa.toFixed(1)} EPA`}`;
+          const details = `Team ${team.teamNumber}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel${scoring.epa == null ? '; EPA unavailable' : `; ${scoring.epa.toFixed(1)} EPA`}`;
           return (
             <div
               key={team.teamNumber}
@@ -200,9 +194,10 @@ function ScoringChart({
               role="img"
               aria-label={details}
             >
-              <span className="truncate text-right font-mono text-xs font-semibold tabular-nums">
-                {team.teamNumber}
-              </span>
+              <TeamLink
+                team={team.teamNumber}
+                className="truncate text-right font-mono text-xs font-semibold text-foreground"
+              />
               <div className="relative h-7 min-w-0 rounded bg-muted/35">
                 <div className="flex h-full overflow-hidden rounded">
                   {segments.map((segment) => (
@@ -243,8 +238,7 @@ function ScoringChart({
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {[
           ['opacity-45', 'Auto fuel'],
-          ['opacity-70', 'Teleop + endgame fuel'],
-          ['opacity-100', 'Climb'],
+          ['opacity-100', 'Teleop + endgame fuel'],
         ].map(([opacity, label]) => (
           <span key={label} className="inline-flex items-center gap-1.5">
             <span
@@ -275,19 +269,18 @@ function RateChart({
 }): JSX.Element {
   return (
     <ChartFrame
-      title="Reliability & climb"
-      subtitle="Shared 0–100% scale. Reliability excludes no-shows and deaths; climb is successful climbs per scouted match."
+      title="Reliability"
+      subtitle="Shared 0–100% scale. Reliability excludes no-shows and deaths."
       testid={testid}
     >
       <div className="space-y-4">
         {data.map((team) => (
           <div key={team.teamNumber} className="space-y-1.5">
             <div className="font-mono text-xs font-semibold tabular-nums">
-              {team.teamNumber}
+              <TeamLink team={team.teamNumber} className="text-foreground" />
             </div>
             {[
               { label: 'Reliability', value: team.reliability },
-              { label: 'Climb success', value: team.climbSuccess },
             ].map((metric) => (
               <div
                 key={metric.label}
@@ -342,9 +335,10 @@ function DefenseRatingChart({
             role="img"
             aria-label={`Team ${team.teamNumber} defense rating: ${team.defenseRating.toFixed(1)} out of 10`}
           >
-            <span className="text-right font-mono font-semibold tabular-nums">
-              {team.teamNumber}
-            </span>
+            <TeamLink
+              team={team.teamNumber}
+              className="text-right font-mono font-semibold text-foreground"
+            />
             <div className="h-3 overflow-hidden rounded-sm bg-muted/40">
               <div
                 className="h-full rounded-sm"
@@ -427,7 +421,7 @@ function DefenseImpactChart({
         {data.map((team) => (
           <div key={team.teamNumber} className="space-y-1.5">
             <div className="font-mono text-xs font-semibold tabular-nums">
-              {team.teamNumber}
+              <TeamLink team={team.teamNumber} className="text-foreground" />
             </div>
             <SignedImpactRail
               team={team}

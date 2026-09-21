@@ -10,8 +10,6 @@ describe('computeAggregates with rate > 5 (0..30 BPS)', () => {
       schemaVersion: SCHEMA_VERSION,
       inactiveFirst: false,
       fuelBursts: [burst],
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
     });
     // 20 BPS for 1.0s = 20 fuel in the (always-active) transition window.
@@ -24,8 +22,6 @@ describe('computeAggregates with rate > 5 (0..30 BPS)', () => {
       schemaVersion: SCHEMA_VERSION,
       inactiveFirst: false,
       fuelBursts: [burst],
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
     });
     // 30 BPS for 2.0s = 60 fuel.

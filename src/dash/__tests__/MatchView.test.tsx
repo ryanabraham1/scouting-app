@@ -69,11 +69,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -232,7 +228,11 @@ describe('MatchView', () => {
     const timelines = getByTestId('match-timelines');
     expect(getByTestId('match-timeline-254-1')).toBeTruthy();
     expect(getByTestId('match-timeline-1678-2')).toBeTruthy();
-    expect(within(timelines).getByText(/Team 254/)).toBeTruthy();
+    // The team number is a link to that team's Analysis page.
+    expect(within(timelines).getByRole('link', { name: '254' })).toHaveAttribute(
+      'href',
+      '/analysis?tab=team&team=254',
+    );
   });
 
   it('puts the video before the report list in the detail grid (no-scroll layout)', () => {
@@ -295,8 +295,8 @@ describe('MatchView', () => {
   it('renders a multi-scout conflict header + tints member tiles when 2 scouts cover one robot', () => {
     // Two divergent reports on the SAME robot (1678, blue 2), distinct scouts.
     const conflictReports: MsrRow[] = [
-      row({ match_key: '2026casnv_qm1', target_team_number: 1678, alliance_color: 'blue', station: 2, scout_id: 's1', fuel_points: 14, climb_success: true, climb_level: 3, no_show: false }),
-      row({ match_key: '2026casnv_qm1', target_team_number: 1678, alliance_color: 'blue', station: 2, scout_id: 's2', fuel_points: 4, climb_success: false, climb_level: 0, no_show: true }),
+      row({ match_key: '2026casnv_qm1', target_team_number: 1678, alliance_color: 'blue', station: 2, scout_id: 's1', fuel_points: 14, no_show: false }),
+      row({ match_key: '2026casnv_qm1', target_team_number: 1678, alliance_color: 'blue', station: 2, scout_id: 's2', fuel_points: 4, no_show: true }),
     ];
     useEventReportsMock.mockReturnValue(querySuccess(conflictReports));
     const { getByTestId } = renderView('2026casnv');

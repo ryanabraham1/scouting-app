@@ -15,7 +15,7 @@ export type CaptureEventType =
   | 'defended' // a completed "being defended" interval
   | 'burst' // a committed fuel burst (best-effort undo)
   | 'foul' // a foul increment
-  | 'toggle' // a boolean toggle action (e.g. left-line, auto-climb)
+  | 'toggle' // a boolean toggle action (e.g. left-line)
   | 'phase'; // a phase change marker (not undoable on its own)
 
 export interface CaptureEvent<P = unknown> {

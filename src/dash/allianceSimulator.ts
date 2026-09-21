@@ -25,9 +25,6 @@ export interface TeamRoleRead {
     auto: RoleStatus;
     fuel: RoleStatus;
     defense: RoleStatus;
-    climbL1: RoleStatus;
-    /** L2 or L3 climb */
-    climbL23: RoleStatus;
   };
 }
 
@@ -55,8 +52,6 @@ export const FUEL_STRONG = 30; // meanFuelPoints >= 30 → strong fuel scorer
 export const FUEL_PARTIAL = 10; // >= 10 → partial
 export const DEFENSE_STRONG = 8; // avgDefenseRating (1–10) >= 8 → strong defender
 export const DEFENSE_PARTIAL = 5; // >= 5 → partial (matches aggregate.ts STRONG_DEFENSE)
-export const CLIMB_RATE_CONFIRM = 0.5; // climbSuccessRate >= 0.5 confirms a pit-claimed climb
-export const CLIMB_L23_POINTS = 18; // meanClimbPoints >= 18 implies a habitual L2/L3 climb
 /** auto fuel scored to confirm a pit-claimed auto routine as strong. */
 export const AUTO_FUEL_STRONG = 5;
 /** estimated auto POINTS (EPA fallback) at/above which an unscouted team is
@@ -94,9 +89,8 @@ function pitStrategy(pit: TeamPit | undefined): string[] {
 /**
  * Role read for an UNSCOUTED team (no pit, no matches) from our EPA-based
  * estimate — the auto/fuel decomposition predictMatch derives from the
- * event-wide fitted fraction. Only auto & fuel are knowable this way (climb is
- * never fabricated from EPA, defense is scouting-only), so the rest stay
- * 'unknown'. Estimated roles cap at 'partial' so an EPA guess never reads as a
+ * event-wide fitted fraction. Only auto & fuel are knowable this way (defense
+ * is scouting-only), so it stays 'unknown'. Estimated roles cap at 'partial' so an EPA guess never reads as a
  * CONFIRMED ('strong' ✓) capability. Falls back to all-unknown when there is no
  * usable estimate (Statbotics down / not enough played matches / no EPA).
  */
@@ -105,8 +99,6 @@ function rolesFromEstimate(estimate: ComponentBreakdown | undefined): TeamRoleRe
     auto: 'unknown',
     fuel: 'unknown',
     defense: 'unknown',
-    climbL1: 'unknown',
-    climbL23: 'unknown',
   };
   if (!estimate || estimate.source !== 'epa') return unknown;
   const fuel: RoleStatus = estimate.fuel >= FUEL_PARTIAL ? 'partial' : 'none';
@@ -141,13 +133,9 @@ export function classifyRoles(
   const meanAutoFuel = agg?.meanAutoFuel ?? 0;
   const meanFuelPoints = agg?.meanFuelPoints ?? 0;
   const avgDefenseRating = agg?.avgDefenseRating ?? 0;
-  const climbSuccessRate = agg?.climbSuccessRate ?? 0;
-  const avgClimbLevel = agg?.avgClimbLevel ?? 0;
-  const meanClimbPoints = agg?.meanClimbPoints ?? 0;
 
   // --- auto -----------------------------------------------------------------
-  // ONLY clean auto signals: pit `auto` capability + meanAutoFuel (NOT
-  // meanClimbPoints, which folds teleop + auto-climb bonus together).
+  // ONLY clean auto signals: pit `auto` capability + meanAutoFuel.
   const pitAuto = caps.includes('auto');
   const autoFuelSignal = meanAutoFuel > 0;
   let auto: RoleStatus;
@@ -173,25 +161,7 @@ export function classifyRoles(
   else if (avgDefenseRating >= DEFENSE_PARTIAL || (pitDefender && matches === 0)) defense = 'partial';
   else defense = 'none';
 
-  // --- climb L1 -------------------------------------------------------------
-  const pitL1 = caps.includes('climb_l1');
-  const matchClimbConfirmed = avgClimbLevel >= 1 && climbSuccessRate >= CLIMB_RATE_CONFIRM;
-  let climbL1: RoleStatus;
-  if (pitL1 && matchClimbConfirmed) climbL1 = 'strong';
-  else if (pitL1) climbL1 = 'partial';
-  else if (matchClimbConfirmed) climbL1 = 'partial';
-  else climbL1 = 'none';
-
-  // --- climb L2/L3 ----------------------------------------------------------
-  const pitL23 = caps.includes('climb_l2') || caps.includes('climb_l3');
-  const matchHighClimb = meanClimbPoints >= CLIMB_L23_POINTS;
-  let climbL23: RoleStatus;
-  if (pitL23 && (matchHighClimb || avgClimbLevel >= 2)) climbL23 = 'strong';
-  else if (pitL23) climbL23 = 'partial';
-  else if (matchHighClimb) climbL23 = 'strong';
-  else climbL23 = 'none';
-
-  return { auto, fuel, defense, climbL1, climbL23 };
+  return { auto, fuel, defense };
 }
 
 function covered(status: RoleStatus): boolean {
@@ -209,22 +179,6 @@ export function summarizeGaps(
   pits?: Map<number, TeamPit>,
 ): RoleGap[] {
   const gaps: RoleGap[] = [];
-
-  const anyClimbL23Strong = reads.filter((r) => r.roles.climbL23 === 'strong').length;
-  const anyClimbL23 = reads.some((r) => r.roles.climbL23 !== 'none' && r.roles.climbL23 !== 'unknown');
-  const anyClimbAtAll = reads.some(
-    (r) =>
-      (r.roles.climbL1 !== 'none' && r.roles.climbL1 !== 'unknown') ||
-      (r.roles.climbL23 !== 'none' && r.roles.climbL23 !== 'unknown'),
-  );
-
-  // --- Climb ----------------------------------------------------------------
-  if (!anyClimbAtAll) {
-    gaps.push({ kind: 'gap', text: 'No climber — 0 endgame points' });
-  } else {
-    if (!anyClimbL23) gaps.push({ kind: 'gap', text: 'No L2/L3 climber' });
-    if (anyClimbL23Strong >= 2) gaps.push({ kind: 'note', text: 'Double high climb available' });
-  }
 
   // --- Defense --------------------------------------------------------------
   const defenders = reads.filter((r) => covered(r.roles.defense)).length;
@@ -330,7 +284,7 @@ export function pickBaseline(
 }
 
 /** Per-axis comparison key used by the Versus head-to-head panel. */
-export type VersusAxis = 'fuel' | 'climb' | 'defense' | 'reliability';
+export type VersusAxis = 'fuel' | 'defense' | 'reliability';
 
 export interface VersusAxisCompare {
   axis: VersusAxis;
@@ -348,13 +302,12 @@ export interface VersusSimulation {
   b: AllianceSimulation;
   /** P(A beats B) over the two projected scores, via predictMatch; null until both sides have 3 teams */
   aWinProb: number | null;
-  /** per-axis comparison (fuel / climb / defense / reliability) */
+  /** per-axis comparison (fuel / defense / reliability) */
   axes: VersusAxisCompare[];
 }
 
 const VERSUS_AXES: { axis: VersusAxis; label: string }[] = [
   { axis: 'fuel', label: 'Fuel' },
-  { axis: 'climb', label: 'Climb' },
   { axis: 'defense', label: 'Defense' },
   { axis: 'reliability', label: 'Reliability' },
 ];
@@ -363,9 +316,6 @@ const VERSUS_AXES: { axis: VersusAxis; label: string }[] = [
 function axisValue(axis: VersusAxis, teams: number[], agg: Map<number, TeamAgg>): number {
   if (axis === 'fuel') {
     return teams.reduce((s, t) => s + (agg.get(t)?.meanFuelPoints ?? 0), 0);
-  }
-  if (axis === 'climb') {
-    return teams.reduce((s, t) => s + (agg.get(t)?.meanClimbPoints ?? 0), 0);
   }
   if (axis === 'defense') {
     // best (max) defender on the alliance — defense is a single-robot job

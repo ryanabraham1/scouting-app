@@ -21,11 +21,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -46,8 +42,6 @@ function row(overrides: Partial<MsrRow>): MsrRow {
 function group(severity: ConflictSeverity, div: Partial<ConflictDivergences> = {}): MultiScoutGroup {
   const divergences: ConflictDivergences = {
     fuel_spread: 0,
-    climb_success_divergent: false,
-    climb_level_spread: 0,
     defense_spread: 0,
     no_show_divergent: false,
     died_divergent: false,
@@ -61,8 +55,8 @@ function group(severity: ConflictSeverity, div: Partial<ConflictDivergences> = {
     allianceColor: 'blue',
     station: 2,
     reports: [
-      row({ scout_id: 'a', fuel_points: 14, climb_success: true, climb_level: 3 }),
-      row({ scout_id: 'b', fuel_points: 8, climb_success: false, climb_level: 0 }),
+      row({ scout_id: 'a', fuel_points: 14 }),
+      row({ scout_id: 'b', fuel_points: 8 }),
     ],
     scoutIds: ['a', 'b'],
     severity,
@@ -76,7 +70,7 @@ afterEach(cleanup);
 describe('ConflictMarker', () => {
   it('renders a severe group with destructive tone + AlertTriangle', () => {
     const { getByTestId, container } = render(
-      <ConflictMarker group={group('severe', { fuel_spread: 6, climb_success_divergent: true })} />,
+      <ConflictMarker group={group('severe', { fuel_spread: 6, no_show_divergent: true })} />,
     );
     const marker = getByTestId('conflict-marker');
     expect(marker.getAttribute('data-severity')).toBe('severe');

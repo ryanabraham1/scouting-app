@@ -101,7 +101,6 @@ test('Scenario B — Accuracy renders real numbers on a seeded overlap', async (
   clone.fuel_points = ((base.fuel_points as number) ?? 0) + 40;
   const baseDefense = Math.max(1, (base.defense_rating as number) ?? 1);
   clone.defense_rating = baseDefense >= 6 ? baseDefense - 5 : baseDefense + 5;
-  clone.climb_success = !(base.climb_success as boolean);
 
   const ins = await admin.from('match_scouting_report').insert(clone);
   test.skip(!!ins.error, `Could not seed overlap row: ${ins.error?.message ?? ''}`);

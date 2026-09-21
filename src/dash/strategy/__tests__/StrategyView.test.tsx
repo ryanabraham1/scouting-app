@@ -143,11 +143,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 10,
     fuel_estimate_confidence: 0.8,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 2,
-    climb_attempted: true,
-    climb_success: true,
     auto_left_starting_line: true,
-    auto_climb_level1: false,
     defense_rating: 3,
     pins: 0,
     no_show: false,
@@ -491,7 +487,7 @@ describe('StrategyView', () => {
     fireEvent.click(within(redAlliance).getByRole('button', {
       name: 'Edit strategy note for team 111',
     }));
-    expect(utils.getByText('Strategy note for team 111')).toBeTruthy();
+    expect(utils.getByRole('dialog', { name: 'Strategy note for team 111' })).toBeTruthy();
     expect((utils.getByTestId('matchup-notes-textarea') as HTMLTextAreaElement).value).toBe(
       'partner auto plan',
     );
@@ -500,7 +496,7 @@ describe('StrategyView', () => {
     fireEvent.click(within(blueAlliance).getByRole('button', {
       name: 'Edit strategy note for team 444',
     }));
-    expect(utils.getByText('Strategy note for team 444')).toBeTruthy();
+    expect(utils.getByRole('dialog', { name: 'Strategy note for team 444' })).toBeTruthy();
     expect((utils.getByTestId('matchup-notes-textarea') as HTMLTextAreaElement).value).toBe(
       'second opponent plan',
     );

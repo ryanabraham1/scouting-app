@@ -93,8 +93,6 @@ describe('useCaptureSession.save', () => {
       schemaVersion: SCHEMA_VERSION,
       inactiveFirst: false,
       fuelBursts: result.current.bursts,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
     });
     expect(r.fuelPoints).toBe(expected.fuelPoints);
@@ -240,13 +238,13 @@ describe('useCaptureSession draft resume', () => {
       bursts: [{ startMs: 0, endMs: 1000, rate: 2, window: 'auto' }],
       inactiveFirst: true,
       rate: 2,
-      deferred: { climbLevel: 2 },
+      deferred: { foulsMinor: 2 },
     });
     const { result } = renderHook(() => useCaptureSession(target));
     await waitFor(() => expect(result.current.draftResumed).toBe(true));
     expect(result.current.bursts).toHaveLength(1);
     expect(result.current.inactiveFirst).toBe(true);
-    expect(result.current.climbLevel).toBe(2);
+    expect(result.current.foulsMinor).toBe(2);
   });
 
   it('restores Auto frozen at the saved elapsed time until explicit re-anchor', async () => {

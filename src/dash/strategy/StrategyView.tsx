@@ -28,6 +28,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { useFullscreen } from '@/dash/useFullscreen';
 import { useSync } from '@/sync/useSync';
 import {
@@ -134,19 +135,18 @@ function MatchupAllianceChips({
         <span className="px-1 text-sm text-muted-foreground">—</span>
       ) : (
         teams.map((t) => (
-          <span
+          <TeamLink
             key={t}
+            team={t}
             className={cn(
-              'rounded-md px-1.5 py-0.5 font-mono text-base font-bold tabular-nums',
+              'rounded-md px-1.5 py-0.5 font-mono text-base font-bold hover:opacity-80',
               t === baseTeam
-                ? 'bg-amber-400 text-neutral-900'
+                ? 'bg-amber-400 text-neutral-900 hover:text-neutral-900'
                 : side === 'red'
-                  ? 'bg-red-950/80 text-red-100'
-                  : 'bg-blue-950/80 text-blue-100',
+                  ? 'bg-red-950/80 text-red-100 hover:text-red-100'
+                  : 'bg-blue-950/80 text-blue-100 hover:text-blue-100',
             )}
-          >
-            {t}
-          </span>
+          />
         ))
       )}
     </div>
@@ -297,26 +297,34 @@ function MatchupNoteCard({
                 const note = noteFor(target.team);
                 const hasNote = note.trim().length > 0;
                 return (
-                  <button
+                  // Button semantics on a div so the team number inside can be
+                  // its own link (no nested interactive elements).
+                  <div
                     key={target.team}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     data-testid="matchup-notes-btn"
                     data-team={target.team}
                     aria-label={`Edit strategy note for team ${target.team}`}
                     onClick={() => setEditing(target)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setEditing(target);
+                      }
+                    }}
                     className={cn(
-                      'flex min-h-[52px] min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent',
+                      'flex min-h-[52px] min-w-0 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                       target.side === 'red' ? 'border-red-500/30' : 'border-blue-500/30',
                     )}
                   >
-                    <span
+                    <TeamLink
+                      team={target.team}
                       className={cn(
-                        'shrink-0 font-mono text-base font-bold tabular-nums',
+                        'shrink-0 font-mono text-base font-bold',
                         target.side === 'red' ? 'text-red-400' : 'text-blue-400',
                       )}
-                    >
-                      {target.team}
-                    </span>
+                    />
                     {hasNote ? (
                       <span
                         data-testid="matchup-note-badge"
@@ -339,7 +347,7 @@ function MatchupNoteCard({
                     <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">
                       Edit
                     </span>
-                  </button>
+                  </div>
                 );
               })}
           </section>
@@ -640,7 +648,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
       : null;
 
   // Prediction inputs (moved from NextMatchView, plus the component fraction so
-  // every team row can show its auto/fuel/climb split).
+  // every team row can show its auto/fuel split).
   const epaQ = useEventEpa(sixTeams, eventKey, allMatches);
   const componentQ = useEventComponentEpas?.(sixTeams, eventKey);
   const fraction = componentQ?.data?.fraction;
@@ -1075,7 +1083,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
                           className="inline-block size-3 rounded-[3px] ring-1 ring-white/50"
                           style={{ background: color }}
                         />
-                        <span className="tabular-nums font-medium text-foreground">{t.team}</span>
+                        <TeamLink team={t.team} className="font-medium text-foreground" />
                         {t.groups.map((g, i) => (
                           <button
                             key={g.id}

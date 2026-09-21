@@ -10,7 +10,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Grid3x3,
   Flame,
-  Mountain,
   Shield,
   ChevronRight,
   AlertTriangle,
@@ -26,6 +25,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { formatMatchKeyRaw, compareMatchKeys } from '@/lib/formatMatch';
 import { tbaGetOptional, isUnavailable, type ProxyUnavailable } from '@/dash/proxies';
 import {
@@ -121,7 +121,9 @@ function MatchTimelines(props: {
             className="flex flex-col gap-1.5"
           >
             <div className="flex items-center gap-2 text-sm font-semibold tabular-nums text-foreground">
-              <span>Team {r.target_team_number}</span>
+              <span>
+                Team <TeamLink team={r.target_team_number} />
+              </span>
               <span className="text-muted-foreground">· {stationLabel(r)}</span>
             </div>
             <TeamTimeline report={r} currentTimeMs={currentTimeMs} />
@@ -274,7 +276,6 @@ function MatchDetail(props: {
               .slice()
               .sort((a, b) => a.station - b.station)
               .map((r, i) => {
-                const climb = r.climb_success ? `L${r.climb_level}` : 'no climb';
                 const flags = [
                   r.no_show ? 'no-show' : null,
                   r.died ? 'died' : null,
@@ -300,19 +301,29 @@ function MatchDetail(props: {
                   <React.Fragment key={`${r.target_team_number}-${r.station}-${i}`}>
                     {header}
                     <li>
-                    <button
-                      type="button"
+                    {/* A div with button semantics (not <button>) so the team
+                        number inside can be its own link without nesting
+                        interactive elements. */}
+                    <div
+                      role="button"
+                      tabIndex={0}
                       data-testid={`match-report-${r.target_team_number}-${r.station}-${i}`}
                       onClick={() => onOpenReport(r)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onOpenReport(r);
+                        }
+                      }}
                       style={{ minHeight: CONTROL_MIN_HEIGHT }}
                       className={cn(
-                        'flex w-full flex-col gap-1 rounded-xl border border-border bg-muted/30 px-3 py-2 text-left text-sm text-foreground hover:bg-muted/60',
+                        'flex w-full cursor-pointer flex-col gap-1 rounded-xl border border-border bg-muted/30 px-3 py-2 text-left text-sm text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                         conflictTileClass(group),
                       )}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="min-w-0 font-semibold tabular-nums">
-                          Team {r.target_team_number} ·{' '}
+                          Team <TeamLink team={r.target_team_number} /> ·{' '}
                           <span
                             className={
                               r.alliance_color === 'red' ? 'text-red-400' : 'text-blue-400'
@@ -331,14 +342,6 @@ function MatchDetail(props: {
                           <span className="inline-flex items-center gap-1">
                             <Flame className="size-4 text-energy" /> {fmt(r.fuel_points)}
                           </span>
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1',
-                              r.climb_success && 'text-success',
-                            )}
-                          >
-                            <Mountain className="size-4" /> {climb}
-                          </span>
                           <span className="inline-flex items-center gap-1">
                             <Shield className="size-4 text-brand" />{' '}
                             {r.defense_rating > 0
@@ -352,7 +355,7 @@ function MatchDetail(props: {
                           </span>
                         ) : null}
                       </div>
-                    </button>
+                    </div>
                     </li>
                   </React.Fragment>
                 );
@@ -515,7 +518,7 @@ function ValidationRow(props: { check: AllianceScoreCheck }): JSX.Element {
 /**
  * Scout-vs-official cross-check (validate-scout-data-vs-TBA). Shown only for a
  * PLAYED match that has at least one scout report: sums each alliance's scouted
- * offensive points (fuel + climb) and compares to the official TBA score,
+ * offensive points (fuel) and compares to the official TBA score,
  * flagging gaps. Honest framing — official totals include points we never scout
  * (mobility, fouls awarded), so the scouted sum runs a bit under by design; this
  * catches gross errors (a missed/duplicated robot, a fat-fingered count), not
@@ -542,8 +545,8 @@ function ScoreValidationCard(props: { match: MatchRow; reports: MsrRow[] }): JSX
         <ValidationRow check={validation.red} />
         <ValidationRow check={validation.blue} />
         <p className="text-xs text-muted-foreground">
-          Scouted = our captured fuel + climb points. Official totals also include mobility and
-          fouls we don&apos;t scout, so a small gap is normal — large gaps flag a missed robot or a
+          Scouted = our captured fuel points. Official totals also include mobility, climbs and
+          fouls we don&apos;t scout, so a gap is normal — large gaps flag a missed robot or a
           mis-captured count.
         </p>
       </CardContent>
@@ -1100,9 +1103,14 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
         onClose={() => setOpenReportId(null)}
         side="right"
         title={
-          openReport
-            ? `${formatMatchKeyRaw(openReport.match_key)} · Team ${openReport.target_team_number}`
-            : ''
+          openReport ? (
+            <>
+              {formatMatchKeyRaw(openReport.match_key)} · Team{' '}
+              <TeamLink team={openReport.target_team_number} onClick={() => setOpenReportId(null)} />
+            </>
+          ) : (
+            ''
+          )
         }
         data-testid="match-report-sheet"
       >

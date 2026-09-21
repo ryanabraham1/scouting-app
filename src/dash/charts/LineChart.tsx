@@ -1,6 +1,6 @@
 // src/dash/charts/LineChart.tsx
 // Dependency-free, responsive (viewBox) SVG line chart / sparkline. One numeric
-// series over labelled x categories (e.g. climb level or defense rating across a
+// series over labelled x categories (e.g. defense rating across a
 // team's scouted matches). Renders the shared EmptyChart when given <2 points.
 
 import { CHART_COLORS, MIN_POINTS, type ChartColorKey } from './chartColors';
@@ -16,7 +16,7 @@ export interface LineChartProps {
   color?: ChartColorKey;
   title?: string;
   yTicks?: number;
-  /** Fixed y-axis max (e.g. 3 for climb level); auto-scaled when omitted. */
+  /** Fixed y-axis max (e.g. 10 for a rating); auto-scaled when omitted. */
   yMax?: number;
   testid?: string;
   emptyMessage?: string;

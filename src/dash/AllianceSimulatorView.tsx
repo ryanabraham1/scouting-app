@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { aggregateEvent, type TeamAgg, type ComponentFraction } from '@/dash/aggregate';
 import {
   useEventReports,
@@ -44,8 +45,6 @@ const ROLE_ROWS: { key: keyof TeamRoleRead['roles']; label: string }[] = [
   { key: 'auto', label: 'Auto' },
   { key: 'fuel', label: 'Fuel' },
   { key: 'defense', label: 'Defense' },
-  { key: 'climbL1', label: 'Climb L1' },
-  { key: 'climbL23', label: 'Climb L2-3' },
 ];
 
 function roleGlyph(s: RoleStatus): string {
@@ -88,7 +87,7 @@ function sourceLabel(s: string): string {
 }
 
 // --- Scoring estimate (component-EPA, mirrors the Match tab's renderer) ------
-// Per-alliance auto/fuel/climb decomposition of the SAME `expected` the
+// Per-alliance auto/fuel decomposition of the SAME `expected` the
 // simulator already shows, reusing predictMatch(components) + the event-wide
 // fitted `fraction` from useEventComponentEpas. Pure presentation — no new math.
 
@@ -104,7 +103,7 @@ const SRC_CLASS: Record<ComponentBreakdown['source'], string> = {
 };
 
 /** Round a component for display, or '—' when there's nothing to surface
- *  (source `none`, or a `null` value — e.g. climb for an unscouted team). */
+ *  (source `none`, or a `null` value). */
 function comp(n: number | null, source: ComponentBreakdown['source']): string {
   if (source === 'none' || n == null) return EM_DASH;
   return String(Math.round(n));
@@ -137,26 +136,12 @@ function estimateAlliance(
 function sumComponent(preds: TeamPrediction[], key: 'auto' | 'fuel'): number {
   return preds.reduce((s, p) => s + (p.components?.[key] ?? 0), 0);
 }
-/** Alliance climb total — sums ONLY teams with a real (scouted) climb. Returns
- *  null when no team's climb is known, so it renders "—" rather than 0-as-known. */
-function sumClimb(preds: TeamPrediction[]): number | null {
-  let any = false;
-  let total = 0;
-  for (const p of preds) {
-    const c = p.components?.climb;
-    if (c != null) {
-      any = true;
-      total += c;
-    }
-  }
-  return any ? total : null;
-}
 /** Alliance defense = points removed from the OPPOSING alliance (scouting-only). */
 function allianceDefense(preds: TeamPrediction[]): number {
   return preds.reduce((s, p) => s + (p.components?.defense ?? 0), 0);
 }
 
-/** One team's estimate row: source badge + auto/fuel/climb + a defense sub-line. */
+/** One team's estimate row: source badge + auto/fuel + a defense sub-line. */
 function EstimateTeamRow({ pred }: { pred: TeamPrediction }): JSX.Element {
   const c = pred.components;
   const source = c?.source ?? 'none';
@@ -167,7 +152,7 @@ function EstimateTeamRow({ pred }: { pred: TeamPrediction }): JSX.Element {
       className="flex flex-col gap-0.5 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold tabular-nums text-brand">{pred.teamNumber}</span>
+        <TeamLink team={pred.teamNumber} className="font-semibold" />
         <span
           className={cn(
             'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
@@ -184,10 +169,6 @@ function EstimateTeamRow({ pred }: { pred: TeamPrediction }): JSX.Element {
         <span>·</span>
         <span>
           fuel <span className="text-foreground">{comp(c?.fuel ?? 0, source)}</span>
-        </span>
-        <span>·</span>
-        <span>
-          climb <span className="text-foreground">{comp(c?.climb ?? null, source)}</span>
         </span>
       </div>
       <div className="text-xs text-muted-foreground/80">
@@ -212,7 +193,6 @@ function AllianceEstimateBlock({
   const anyData = preds.some((p) => (p.components?.source ?? 'none') !== 'none');
   const totalAuto = sumComponent(preds, 'auto');
   const totalFuel = sumComponent(preds, 'fuel');
-  const totalClimb = sumClimb(preds);
   const defOnOther = allianceDefense(preds);
   return (
     <div data-testid={testId} className="flex min-w-0 flex-1 flex-col gap-2">
@@ -236,13 +216,6 @@ function AllianceEstimateBlock({
         <span>
           fuel <span className="text-foreground">{Math.round(totalFuel)}</span>
         </span>
-        <span>·</span>
-        <span>
-          climb{' '}
-          <span className="text-foreground">
-            {totalClimb == null ? EM_DASH : Math.round(totalClimb)}
-          </span>
-        </span>
       </div>
       <div className="text-xs text-muted-foreground/80">
         alliance defense:{' '}
@@ -255,9 +228,7 @@ function AllianceEstimateBlock({
 }
 
 const ESTIMATE_FOOTNOTE =
-  'Estimates derived from scouting (else EPA). Climb is shown only from real scouting — an unscouted ' +
-  'team shows "—" rather than a fabricated climb, and its auto/fuel carry the full estimate. The ' +
-  'auto-period L1 climb bonus is counted under climb, not auto. Defense is the points a team removes ' +
+  'Estimates derived from scouting (else EPA). Defense is the points a team removes ' +
   'from the opposing alliance — not added to its own.';
 
 export default function AllianceSimulatorView(props: AllianceSimulatorViewProps): JSX.Element {
@@ -369,7 +340,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
   );
 
   // Per-alliance component breakdowns (memoized). predictMatch over one alliance
-  // (blue empty) attaches each picked team's auto/fuel/climb (+ scouting defense).
+  // (blue empty) attaches each picked team's auto/fuel (+ scouting defense).
   const estimateSingle = useMemo(
     () => estimateAlliance(picks, agg, epaByTeam, statboticsAvailable, fraction, playedMatches),
     [picks, agg, epaByTeam, statboticsAvailable, fraction, playedMatches],
@@ -539,7 +510,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
                   data-testid={`alliance-selected-${t}`}
                   className="inline-flex items-center gap-1 rounded-full bg-brand/20 px-2 py-1 text-xs text-brand"
                 >
-                  {t}
+                  <TeamLink team={t} />
                   <button
                     type="button"
                     aria-label={`Remove team ${t}`}
@@ -624,7 +595,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
                     data-testid={`alliance-team-chip-${r.teamNumber}`}
                     className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs"
                   >
-                    <span className="font-medium tabular-nums text-brand">{r.teamNumber}</span>
+                    <TeamLink team={r.teamNumber} className="font-medium" />
                     <span className="tabular-nums">{r.expected.toFixed(0)} pts</span>
                     <span className="text-muted-foreground">· {sourceLabel(r.source)}</span>
                     {!r.hasPit && r.matchesScouted > 0 ? (
@@ -728,7 +699,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Role</th>
                       {sim.teamReads.map((r) => (
                         <th key={r.teamNumber} scope="col" className="px-3 py-2 text-center font-medium tabular-nums text-brand">
-                          {r.teamNumber}
+                          <TeamLink team={r.teamNumber} />
                         </th>
                       ))}
                     </tr>
@@ -764,7 +735,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
                   className="px-3 text-[11px] leading-snug text-muted-foreground/80 sm:px-0"
                 >
                   <span className="text-warning">~</span> Auto / Fuel for teams with no scouting
-                  data are EPA estimates; defense &amp; climb stay unknown.
+                  data are EPA estimates; defense stays unknown.
                 </p>
               ) : null}
 
@@ -877,7 +848,7 @@ function VersusPicker(props: {
                 data-testid={`alliance-vs-${side}-selected-${t}`}
                 className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs"
               >
-                <span className={cn('tabular-nums', accent)}>{t}</span>
+                <TeamLink team={t} className={accent} />
                 <button
                   type="button"
                   aria-label={`Remove team ${t}`}

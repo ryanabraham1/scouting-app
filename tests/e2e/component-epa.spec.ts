@@ -1,7 +1,7 @@
 // tests/e2e/component-epa.spec.ts
 // Component-EPA estimation (component-epa-estimation): the Match tab grows a
 // "Scoring estimate" card decomposing each team's predicted points into
-// auto/fuel/climb (+ a scouting-only defense line), and the Strategy tab carries
+// auto/fuel (+ a scouting-only defense line), and the Strategy tab carries
 // a per-team component line. Both are presentational decompositions of the value
 // the dashboard already shows — never new prediction numbers.
 //
@@ -116,7 +116,7 @@ test('Strategy tab shows per-team component lines with rounding tolerance', asyn
   const expectedNum = Number((expectedText.match(/\d+/) ?? [])[0]);
   const compNums = (compText.match(/\d+/g) ?? []).map(Number);
 
-  // Tolerate the source==='none' state ("auto — · fuel — · climb —").
+  // Tolerate the source==='none' state ("auto — · fuel —").
   if (compNums.length === 3 && Number.isFinite(expectedNum)) {
     const sum = compNums[0] + compNums[1] + compNums[2];
     expect(Math.abs(expectedNum - sum)).toBeLessThanOrEqual(3);

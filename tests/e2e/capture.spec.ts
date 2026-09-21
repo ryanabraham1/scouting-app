@@ -1,7 +1,7 @@
 // tests/e2e/capture.spec.ts
 // Offline-capture round-trip: a scouter (picked by name — no login) runs a manual
 // capture through the LIVE screen (START -> GO -> slider-shoot bursts) and the
-// DEFERRED review (climb -> SAVE), then the report lands in the local store
+// DEFERRED review (ratings -> SAVE), then the report lands in the local store
 // (Unsynced count increments). Save is purely local — offline-first end to end.
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
@@ -78,10 +78,10 @@ test('scouter captures a match offline and it queues as unsynced', async ({ page
     .poll(async () => Number(await page.getByTestId('capture-running-fuel').textContent()))
     .toBeGreaterThan(0);
 
-  // Deferred review: a multi-step wizard. Step 1 is Climb; SAVE is on the last
-  // ("Review & save") step, so set the climb then advance with Next to reach it.
+  // Deferred review: a multi-step wizard. Step 1 is Ratings; SAVE is on the last
+  // ("Review & save") step, so advance with Next to reach it.
   await page.getByTestId('capture-to-review').click();
-  await page.getByTestId('review-climb').getByRole('button', { name: '3', exact: true }).click();
+  await expect(page.getByTestId('review-ratings')).toBeVisible();
   const save = page.getByTestId('review-save');
   for (let i = 0; i < 6 && !(await save.isVisible()); i += 1) {
     await page.getByTestId('review-next').click();

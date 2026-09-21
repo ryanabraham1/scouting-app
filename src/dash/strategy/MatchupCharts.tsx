@@ -25,7 +25,7 @@ const GRID = '#2e374d';
 const RED = '#ef4444';
 const BLUE = '#3b82f6';
 const AMBER = '#f59e0b';
-const SEG = { auto: '#22d3ee', teleop: '#f59e0b', climb: '#22c55e' } as const;
+const SEG = { auto: '#22d3ee', teleop: '#f59e0b' } as const;
 
 export interface RadarDatum {
   metric: string;
@@ -40,7 +40,6 @@ export interface ContribDatum {
   isBase: boolean;
   auto: number;
   teleop: number;
-  climb: number;
 }
 
 export interface MatchupChartsProps {
@@ -119,7 +118,7 @@ export default function MatchupCharts({ radar, contrib }: MatchupChartsProps): J
         </div>
       </figure>
 
-      {/* Expected contribution — stacked auto/teleop/climb per team. */}
+      {/* Expected contribution — stacked auto/teleop per team. */}
       <figure className="m-0 flex min-h-[240px] flex-col" aria-label="Expected contribution by team">
         <figcaption className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Expected points by team
@@ -154,8 +153,7 @@ export default function MatchupCharts({ radar, contrib }: MatchupChartsProps): J
               />
               <Legend wrapperStyle={{ fontSize: 12, color: AXIS }} iconType="circle" iconSize={8} />
               <Bar dataKey="auto" name="Auto" stackId="pts" fill={SEG.auto} radius={[2, 0, 0, 2]} />
-              <Bar dataKey="teleop" name="Teleop" stackId="pts" fill={SEG.teleop} />
-              <Bar dataKey="climb" name="Climb" stackId="pts" fill={SEG.climb} radius={[0, 2, 2, 0]} />
+              <Bar dataKey="teleop" name="Teleop" stackId="pts" fill={SEG.teleop} radius={[0, 2, 2, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

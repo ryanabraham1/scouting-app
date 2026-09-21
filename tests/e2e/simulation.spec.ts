@@ -100,7 +100,7 @@ async function pick(page: Page, name: string): Promise<void> {
 }
 
 /** Drive the whole live-capture + review flow for an already-onboarded device. */
-async function capture(page: Page, matchKey: string, team: number, climb = 3): Promise<void> {
+async function capture(page: Page, matchKey: string, team: number): Promise<void> {
   await page.locator('#mp-match').fill(matchKey);
   await page.locator('#mp-team').fill(String(team));
   await expect(page.getByTestId('scout-start-capture')).toBeEnabled();
@@ -130,10 +130,7 @@ async function capture(page: Page, matchKey: string, team: number, climb = 3): P
     .toBeGreaterThan(0);
 
   await page.getByTestId('capture-to-review').click();
-  await page
-    .getByTestId('review-climb')
-    .getByRole('button', { name: String(climb), exact: true })
-    .click();
+  await expect(page.getByTestId('review-ratings')).toBeVisible();
   const save = page.getByTestId('review-save');
   for (let i = 0; i < 6 && !(await save.isVisible()); i += 1) {
     await page.getByTestId('review-next').click();
@@ -242,8 +239,8 @@ test('two scouts on the same target produce two distinct rows (no false conflict
     pages.forEach((p, i) => watch(p, `dup-target-${NAMES[i]}`));
     await Promise.all([pick(pages[0], NAMES[0]), pick(pages[1], NAMES[1])]);
     await Promise.all([
-      capture(pages[0], matchKey, team, 2),
-      capture(pages[1], matchKey, team, 1),
+      capture(pages[0], matchKey, team),
+      capture(pages[1], matchKey, team),
     ]);
     await Promise.all(pages.map((p) => expectDrained(p)));
     expect(await reportCount(matchKey, team)).toBe(2);
@@ -520,12 +517,12 @@ test('re-scouting the same target supersedes without dead-lettering', async ({ b
     const page = await ctx.newPage();
     watch(page, 'rescout');
     await pick(page, NAMES[1]);
-    await capture(page, matchKey, team, 1);
+    await capture(page, matchKey, team);
     await expectDrained(page);
     expect(await reportCount(matchKey, team)).toBe(1);
     // Capture the SAME target again (correction). Different local id → server
     // supersedes the prior active row.
-    await capture(page, matchKey, team, 3);
+    await capture(page, matchKey, team);
     await expectDrained(page);
     expect(await reportCount(matchKey, team)).toBe(1);
   } finally {

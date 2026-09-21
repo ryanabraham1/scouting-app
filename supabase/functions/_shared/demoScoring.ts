@@ -14,17 +14,14 @@ export interface DemoFuelBurst {
   window: "auto" | "shift1" | "shift2" | "shift3" | "shift4" | "endgame";
 }
 
+// Every attributed point is FUEL: the app no longer scouts climbs, so nothing
+// is subtracted before the attribution becomes bursts.
 export function demoFuelFromAttribution(
   attributedPoints: number,
-  teleopClimbPoints: number,
-  autoClimbLevel1: boolean,
   noShow: boolean,
 ): number {
   if (noShow) return 0;
-  return Math.max(
-    0,
-    attributedPoints - teleopClimbPoints - (autoClimbLevel1 ? 15 : 0),
-  );
+  return Math.max(0, attributedPoints);
 }
 
 function splitInt(total: number, count: number): number[] {

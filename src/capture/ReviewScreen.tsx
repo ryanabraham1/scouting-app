@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Mountain,
   Shield,
   Flag,
   Route,
@@ -27,10 +26,8 @@ import {
 import AutoHistoryPicker from '@/capture/AutoHistoryPicker';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
-const CLIMB_LEVELS: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3];
-
 const STEPS = [
-  { title: 'Climb & robot performance', icon: Mountain },
+  { title: 'Robot performance', icon: Shield },
   { title: 'Auto', icon: Route },
   { title: 'Review & save', icon: ClipboardCheck },
 ] as const;
@@ -38,9 +35,6 @@ const STEP_TITLES = STEPS.map((s) => s.title);
 const TOTAL_STEPS = STEPS.length;
 
 export type ReviewObservedAction =
-  | 'climb_level'
-  | 'climb_attempted'
-  | 'climb_success'
   | 'defense_rating'
   | 'driver_rating'
   | 'agility_rating'
@@ -127,8 +121,6 @@ export function ReviewScreen(props: {
     schemaVersion: SCHEMA_VERSION,
     inactiveFirst: s.inactiveFirst === null ? false : s.inactiveFirst,
     fuelBursts: s.bursts,
-    climbLevel: s.climbLevel,
-    autoClimbLevel1: s.autoClimbLevel1,
     noShow: s.noShow,
   });
 
@@ -226,70 +218,7 @@ export function ReviewScreen(props: {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto landscape:gap-4">
-        {/* Step 1: Climb */}
-        {step === 0 && (
-          <section className="flex flex-col gap-3 landscape:grid landscape:grid-cols-2 landscape:gap-4">
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
-              <p className="mb-2 flex items-center gap-2 text-base font-semibold landscape:mb-3">
-                <Mountain className="size-5 text-brand" />
-                Climb level
-              </p>
-              <div data-testid="review-climb" className="grid grid-cols-4 gap-2">
-                {CLIMB_LEVELS.map((lvl) => (
-                  <Button
-                    key={lvl}
-                    size="big"
-                    variant={s.climbLevel === lvl ? 'default' : 'outline'}
-                    aria-pressed={s.climbLevel === lvl}
-                    className="px-2 text-2xl tabular-nums landscape:px-6"
-                    onClick={() => {
-                      s.setClimbLevel(lvl);
-                      props.onAction?.('climb_level');
-                    }}
-                  >
-                    {lvl}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div
-              data-testid="review-climb-outcome"
-              className="rounded-2xl border border-border bg-card p-3 landscape:p-4"
-            >
-              <p className="mb-2 text-base font-semibold landscape:mb-3">Outcome</p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  size="big"
-                  variant={s.climbAttempted ? 'default' : 'outline'}
-                  aria-pressed={s.climbAttempted}
-                  className="px-2 landscape:px-6"
-                  onClick={() => {
-                    s.setClimbAttempted(!s.climbAttempted);
-                    props.onAction?.('climb_attempted');
-                  }}
-                >
-                  {s.climbAttempted && <Check />}
-                  Attempted
-                </Button>
-                <Button
-                  size="big"
-                  variant={s.climbSuccess ? 'default' : 'outline'}
-                  aria-pressed={s.climbSuccess}
-                  className={`px-2 landscape:px-6 ${s.climbSuccess ? 'bg-success text-success-foreground hover:bg-success' : ''}`}
-                  onClick={() => {
-                    s.setClimbSuccess(!s.climbSuccess);
-                    props.onAction?.('climb_success');
-                  }}
-                >
-                  {s.climbSuccess && <Check />}
-                  Success
-                </Button>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Step 2: Ratings */}
+        {/* Step 1: Ratings */}
         {step === 0 && (
           <section className="flex flex-col gap-3 landscape:gap-4">
             <div

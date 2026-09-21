@@ -23,11 +23,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 10,
     fuel_estimate_confidence: 0.8,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: true,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -73,20 +69,6 @@ describe('teamRedFlags', () => {
     expect(kinds([row({ tipped: true }), row({})])).toContain('tipped');
     const two = teamRedFlags([row({ tipped: true }), row({ tipped: true })]);
     expect(two.find((f) => f.kind === 'tipped')?.severity).toBe('high');
-  });
-
-  it('flags a ≥50% climb failure rate (needs ≥2 attempts); all-fail is high', () => {
-    // 1 attempt, failed → no flag (too little signal).
-    expect(kinds([row({ climb_attempted: true })])).not.toContain('climb-fails');
-    // 2 attempts, 1 fail → med.
-    const half = teamRedFlags([
-      row({ climb_attempted: true }),
-      row({ climb_attempted: true, climb_success: true }),
-    ]);
-    expect(half.find((f) => f.kind === 'climb-fails')?.severity).toBe('med');
-    // 2 attempts, both fail → high.
-    const all = teamRedFlags([row({ climb_attempted: true }), row({ climb_attempted: true })]);
-    expect(all.find((f) => f.kind === 'climb-fails')?.severity).toBe('high');
   });
 
   it('flags major fouls (high) and a minor-foul habit (med, rate-based)', () => {

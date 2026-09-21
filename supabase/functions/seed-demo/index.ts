@@ -39,8 +39,6 @@ const DEFAULT_SOURCE = "2026casnv";
 const DEFAULT_DEMO = "2026demo";
 const ALLOWED_DEMO_EVENT_KEY = "2026demo";
 
-// Frozen scoring magnitudes (mirror src/scoring/constants.ts SCORING.CLIMB).
-const CLIMB_TELEOP_POINTS: Record<number, number> = { 1: 10, 2: 20, 3: 30 };
 const SCHEMA_VERSION = 2;
 const N_SCOUTS = 10;
 const MAX_REQUEST_BYTES = 8192;
@@ -432,33 +430,8 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
       const noShow = rng() < 0.03;
       const died = rng() < 0.05;
 
-      // ── Climb: propensity & success scale with skill; subtract climb pts. ──
-      let climbAttempted = false;
-      let climbSuccess = false;
-      let climbLevel = 0;
-      if (!noShow && !died) {
-        const climbProp = 0.25 + s * 0.7; // 0.25..0.95
-        climbAttempted = rng() < climbProp;
-        if (climbAttempted) {
-          const reliability = 0.78 + s * 0.2; // 0.78..0.98
-          climbSuccess = rng() < reliability;
-          if (climbSuccess) {
-            // Higher skill ⇒ higher level. Bias toward 2/3 for strong teams.
-            const lvlRoll = rng() * 0.5 + s * 0.7;
-            climbLevel = lvlRoll > 0.85 ? 3 : lvlRoll > 0.5 ? 2 : 1;
-          }
-        }
-      }
-      const climbPts = climbSuccess ? CLIMB_TELEOP_POINTS[climbLevel] ?? 0 : 0;
-      const autoClimbLevel1 = !noShow && rng() < 0.1;
-
-      // The remainder of the attributed points is FUEL.
-      let fuelTotal = demoFuelFromAttribution(
-        attributedPoints,
-        climbPts,
-        autoClimbLevel1,
-        noShow,
-      );
+      // All attributed points are FUEL (climbs are no longer scouted).
+      let fuelTotal = demoFuelFromAttribution(attributedPoints, noShow);
       if (noShow) {
         attributedPoints = 0;
         fuelTotal = 0;
@@ -574,13 +547,9 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
         inactive_first: null,
         inactive_first_source: null,
         fuel_bursts: bursts,
-        climb_level: climbLevel,
-        climb_attempted: climbAttempted,
-        climb_success: climbSuccess,
         auto_start_position: startPos,
         auto_path: path,
         auto_left_starting_line: !noShow && rng() < 0.9,
-        auto_climb_level1: autoClimbLevel1,
         intake_sources: intakeSources,
         max_fuel_capacity_observed: maxFuelObserved,
         defense_rating: defenseRating,
@@ -616,12 +585,12 @@ async function runSeed(srcKey: string, demoKey: string): Promise<Response> {
     const drivetrain = (["swerve", "tank", "mecanum"] as const)[t.team_number % 3];
     const mechanisms =
       s > 0.6
-        ? ["fuel shooter", "climber", "fast intake"]
+        ? ["fuel shooter", "turret", "fast intake"]
         : ["fuel shooter", "floor intake"];
     const items =
       s > 0.6
-        ? ["high goal", "level 3 climb", "auto routine", "defense"]
-        : ["low goal", "level 1 climb"];
+        ? ["high goal", "auto routine", "defense"]
+        : ["low goal"];
     // Expanded pit fields (migration 0023) so the full pit panel has content.
     const r3 = (v: number) => Math.round(v * 1000) / 1000;
     const startPos = { x: r3(0.05 + rng() * 0.15), y: r3(0.15 + rng() * 0.7) };

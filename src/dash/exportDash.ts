@@ -29,7 +29,6 @@ const TEAM_AGG_HEADER = [
   'matchesScouted',
   'scoutingExpectedPoints',
   'meanFuelPoints',
-  'climbSuccessRate',
   'avgDefenseRating',
   'reliability',
 ] as const;
@@ -44,7 +43,6 @@ export function teamAggToCsv(aggs: TeamAgg[]): string {
         a.matchesScouted,
         a.scoutingExpectedPoints,
         a.meanFuelPoints,
-        a.climbSuccessRate,
         a.avgDefenseRating,
         a.reliability,
       ]),

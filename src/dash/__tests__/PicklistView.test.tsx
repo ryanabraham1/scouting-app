@@ -151,17 +151,9 @@ describe('PicklistView', () => {
     expect(getByTestId('pick-row-1678')).toBeTruthy();
   });
 
-  it('links a row team number to the Team tab via onSelectTeam', async () => {
-    const onSelectTeam = vi.fn();
-    const utils = render(<PicklistView eventKey="2026casnv" onSelectTeam={onSelectTeam} />);
-    await waitFor(() => expect(utils.getByTestId('pick-team-254')).toBeTruthy());
-    fireEvent.click(utils.getByTestId('pick-team-254'));
-    expect(onSelectTeam).toHaveBeenCalledWith(254);
-  });
-
-  it('renders team numbers as plain text without onSelectTeam', async () => {
-    const { queryByTestId } = await renderLoaded();
-    expect(queryByTestId('pick-team-254')).toBeNull();
+  it('links a row team number to its Analysis team page', async () => {
+    const { getByTestId } = await renderLoaded();
+    expect(getByTestId('pick-team-254')).toHaveAttribute('href', '/analysis?tab=team&team=254');
   });
 
   it('adds a team via the add input + button (ignoring duplicates/invalid)', async () => {
@@ -365,11 +357,7 @@ describe('PicklistView', () => {
       fuel_points: fuel,
       fuel_estimate_confidence: 1,
       fuel_by_shift: [0, 0, 0, 0],
-      climb_level: 0,
-      climb_attempted: false,
-      climb_success: false,
       auto_left_starting_line: false,
-      auto_climb_level1: false,
       defense_rating: 0,
       pins: 0,
       no_show: false,

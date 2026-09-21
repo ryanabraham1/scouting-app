@@ -72,7 +72,7 @@ export const RESULTS_RECONCILE_MS = 60_000;
 // ===========================================================================
 // Component-EPA estimation tuning (component-epa-estimation feature, §6/§11).
 //
-// The per-alliance auto/fuel/climb breakdown is a presentational DECOMPOSITION
+// The per-alliance auto/fuel breakdown is a presentational DECOMPOSITION
 // of `TeamPrediction.expected` (the number the dashboard already shows).
 // It NEVER changes the prediction's score/win-prob (defense is display-only and
 // `APPLY_DEFENSE_TO_PREDICTION` defaults OFF). These constants are heuristic and

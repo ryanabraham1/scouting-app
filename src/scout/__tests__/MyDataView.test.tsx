@@ -39,7 +39,6 @@ function mkReport(over: Partial<LocalMatchReport>): LocalMatchReport {
     matchKey: over.matchKey ?? 'qm1',
     targetTeamNumber: over.targetTeamNumber ?? 254,
     fuelPoints: over.fuelPoints ?? 42,
-    climbLevel: over.climbLevel ?? 0,
     defenseDurationMs: over.defenseDurationMs ?? 0,
     defendedDurationMs: over.defendedDurationMs ?? 0,
     notes: over.notes ?? '',

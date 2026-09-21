@@ -1,7 +1,7 @@
 // src/dash/TeamView.tsx
 // TEAMVIEW (contracts §2 TeamAgg, §5 hooks, §8 testids). A staff-facing team
 // deep-dive: pick a team from the event roster, then render that team's TeamAgg
-// (fuel breakdown with a rate-FUEL low-confidence chip, climb, defense,
+// (fuel breakdown with a rate-FUEL low-confidence chip, defense,
 // reliability, scoutingExpectedPoints), its in-house season EPA progression
 // (with Statbotics only as a fallback), and the team's scouted
 // matches. Dark theme, shadcn primitives, 44px touch targets.
@@ -18,7 +18,7 @@ import {
   Crosshair,
   ExternalLink,
   Flame,
-  Mountain,
+  Shield,
   Gauge,
   TrendingUp,
   ListChecks,
@@ -41,6 +41,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { formatMatchKeyRaw, compareMatchKeys } from '@/lib/formatMatch';
 import { foulReasonLabel } from '@/scoring/fouls';
 import {
@@ -781,8 +782,8 @@ function TeamPhotoThumb(props: {
  * Charts degrade to a "Not enough data to chart" state under 2 reports. Uses the
  * dependency-free SVG chart set with design tokens (brand/energy/success/warning).
  */
-function TeamTrends(props: { matches: MsrRow[]; showClimb: boolean }): JSX.Element {
-  const { matches, showClimb } = props;
+function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
+  const { matches } = props;
 
   // Stable chronological order so x-axis labels read left→right by match. Sort by
   // (comp-level, match number) parsed from the key — a plain string localeCompare
@@ -801,10 +802,6 @@ function TeamTrends(props: { matches: MsrRow[]; showClimb: boolean }): JSX.Eleme
   }));
   const shiftCount = Math.max(0, ...shiftData.map((d) => d.values.length));
   const shiftNames = Array.from({ length: shiftCount }, (_, i) => `Shift ${i + 1}`);
-  const climbData = ordered.map((m, i) => ({
-    label: labels[i],
-    value: m.climb_success ? m.climb_level : 0,
-  }));
   const defenseData = ordered.map((m, i) => ({ label: labels[i], value: m.defense_rating }));
 
   return (
@@ -828,15 +825,6 @@ function TeamTrends(props: { matches: MsrRow[]; showClimb: boolean }): JSX.Eleme
           title="Fuel by shift"
           testid="team-trend-shift"
         />
-        {showClimb ? (
-          <LineChart
-            data={climbData}
-            color="success"
-            yMax={3}
-            title="Climb level per match (success-gated)"
-            testid="team-trend-climb"
-          />
-        ) : null}
         <LineChart
           data={defenseData}
           color="brand"
@@ -1015,9 +1003,6 @@ function TeamDetail(props: {
 }): JSX.Element {
   const { agg, matches, scoutName, conflictByRobotKey, robotKey, conflictCount } = props;
   const lowConfidence = agg.meanFuelConfidence < LOW_CONFIDENCE_THRESHOLD;
-  // A team that has never climbed (no successful climb at any level) — hide all
-  // its climb stats/graphs and just say "no climb" instead of showing zeros.
-  const neverClimbs = agg.climbSuccessRate <= 0 && agg.avgClimbLevel <= 0;
   // Index of the expanded scouted-match row (click to reveal that report's detail).
   const [openRow, setOpenRow] = useState<number | null>(null);
   // "Show conflicts only" filter. Flipping it RESETS openRow (the index-based
@@ -1115,46 +1100,15 @@ function TeamDetail(props: {
         </CardContent>
       </Card>
 
-      {/* Climb / defense / reliability */}
+      {/* Defense / reliability */}
       <Card className="border-zinc-800 bg-zinc-950">
         <CardHeader className="space-y-0">
           <CardTitle className="flex items-center gap-2 text-zinc-100">
-            <Mountain className="size-5 text-success" />
-            {neverClimbs ? 'Defense · Reliability' : 'Climb · Defense · Reliability'}
+            <Shield className="size-5 text-brand" />
+            Defense · Reliability
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {neverClimbs ? (
-            <div
-              data-testid="team-no-climb"
-              className="col-span-2 flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-400 sm:col-span-3"
-            >
-              <Mountain className="size-4 text-zinc-500" />
-              No climb — this team hasn’t climbed in any scouted match.
-            </div>
-          ) : (
-            <>
-              <Stat
-                label="Climb success"
-                value={pct(agg.climbSuccessRate)}
-                testid="team-climb-success-rate"
-                tone={
-                  agg.climbSuccessRate >= 0.6
-                    ? 'success'
-                    : agg.climbSuccessRate >= 0.3
-                      ? 'warning'
-                      : 'default'
-                }
-              />
-              <Stat label="Avg climb level" value={fmt(agg.avgClimbLevel)} testid="team-avg-climb-level" />
-              <Stat
-                label="Mean climb points"
-                value={fmtPM(agg.meanClimbPoints, agg.stdDevClimbPoints)}
-                testid="team-mean-climb-points"
-                hint={`range ${fmt(agg.minClimbPoints)} – ${fmt(agg.maxClimbPoints)}`}
-              />
-            </>
-          )}
           <Stat
             label="Avg defense"
             value={fmtPM(agg.avgDefenseRating, agg.stdDevDefenseRating)}
@@ -1233,7 +1187,7 @@ function TeamDetail(props: {
             label="Scouted expected pts"
             value={fmt(agg.scoutingExpectedPoints)}
             testid="team-scouting-expected"
-            hint="From our scouting reports only (fuel + climb means) — separate from EPA, which uses posted match scores."
+            hint="From our scouting reports only (fuel means) — separate from EPA, which uses posted match scores."
           />
           {/* Per-match incident trend (green clean / amber tipped / red died). */}
           <ReliabilityStrip matches={matches} />
@@ -1247,7 +1201,7 @@ function TeamDetail(props: {
           entirely when there isn't enough data to draw a meaningful trend
           (fewer than the trend window of matches) — no empty placeholder. */}
       {agg.recentTrend !== 'insufficient' && agg.matchesScouted >= TREND_WINDOW ? (
-        <TeamTrends matches={matches} showClimb={!neverClimbs} />
+        <TeamTrends matches={matches} />
       ) : null}
 
       {/* Current in-house EPA (Statbotics only when match results are unavailable). */}
@@ -1324,7 +1278,6 @@ function TeamDetail(props: {
           ) : null}
           <ul data-testid="team-match-list" className="flex flex-col gap-2">
             {visibleMatches.map((m, i) => {
-              const climb = m.climb_success ? `L${m.climb_level}` : 'no climb';
               const open = openRow === i;
               const conflict = conflictFor(m);
               // Split flags by severity: no-show/died are hard failures (destructive
@@ -1353,10 +1306,7 @@ function TeamDetail(props: {
                       ) : null}
                       {formatMatchKeyRaw(m.match_key)}
                     </span>
-                    <span className="text-zinc-400">
-                      fuel {fmt(m.fuel_points)} ·{' '}
-                      <span className={m.climb_success ? 'text-success' : undefined}>{climb}</span>
-                    </span>
+                    <span className="text-zinc-400">fuel {fmt(m.fuel_points)}</span>
                   </button>
                   {open ? (
                     <div
@@ -1913,9 +1863,14 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         onClose={() => setOpenReportId(null)}
         side="right"
         title={
-          openReport
-            ? `${formatMatchKeyRaw(openReport.match_key)} · Team ${openReport.target_team_number}`
-            : ''
+          openReport ? (
+            <>
+              {formatMatchKeyRaw(openReport.match_key)} · Team{' '}
+              <TeamLink team={openReport.target_team_number} onClick={() => setOpenReportId(null)} />
+            </>
+          ) : (
+            ''
+          )
         }
         data-testid="team-report-sheet"
       >

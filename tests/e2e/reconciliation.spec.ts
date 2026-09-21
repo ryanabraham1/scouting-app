@@ -29,7 +29,7 @@ const scoutIds: string[] = [];
 /**
  * Minimal valid match_scouting_report row shape (snake_case wire columns). The
  * server recomputes aggregates; these are the raw NOT-NULL fields plus the two
- * we diverge on (fuel_points, climb_*, no_show).
+ * we diverge on (fuel_points, no_show).
  */
 function reportRow(scoutId: string, overrides: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -48,11 +48,7 @@ function reportRow(scoutId: string, overrides: Record<string, unknown>): Record<
     endgame_fuel: 0,
     fuel_points: 0,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -88,11 +84,11 @@ test.beforeAll(async () => {
     scoutIds.push(data.id as string);
   }
   // 4. two divergent ACTIVE reports on the SAME robot, distinct scout_id:
-  //    A: fuel 14, climb L3 success, no_show false
-  //    B: fuel 4,  no climb,         no_show true   → severe (no-show + climb)
+  //    A: fuel 14, no_show false
+  //    B: fuel 4,  no_show true   → severe (no-show)
   const rows = [
-    reportRow(scoutIds[0], { fuel_points: 14, climb_attempted: true, climb_success: true, climb_level: 3, no_show: false }),
-    reportRow(scoutIds[1], { fuel_points: 4, climb_attempted: false, climb_success: false, climb_level: 0, no_show: true }),
+    reportRow(scoutIds[0], { fuel_points: 14, no_show: false }),
+    reportRow(scoutIds[1], { fuel_points: 4, no_show: true }),
   ];
   const { error } = await admin.from('match_scouting_report').insert(rows);
   if (error) throw error;

@@ -75,10 +75,8 @@ test('captured report syncs to the server on reconnect with no duplicate', async
   await hold.dispatchEvent('pointerdown');
   await hold.dispatchEvent('pointerup');
 
-  // Multi-step review wizard: climb is step 1; qualitative ratings are step 2.
+  // Multi-step review wizard: qualitative ratings are step 1.
   await page.getByTestId('capture-to-review').click();
-  await page.getByTestId('review-climb').getByRole('button', { name: '3', exact: true }).click();
-  await page.getByTestId('review-next').click();
   const defenseRating = page.getByTestId('review-defense-rating');
   await defenseRating.press('End');
   await defenseRating.press('ArrowLeft');

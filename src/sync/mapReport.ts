@@ -31,13 +31,11 @@ export function toUpsertPayload(r: LocalMatchReport): Record<string, unknown> {
     teleop_clock_unconfirmed: safe.teleopClockUnconfirmed,
     fuel_bursts: safe.fuelBursts,
     feeding_bursts: safe.feedingBursts,
-    climb_level: safe.climbLevel,
-    climb_attempted: safe.climbAttempted,
-    climb_success: safe.climbSuccess,
+    // climb_* / auto_climb_level1 are intentionally omitted: the app no longer
+    // captures climbs and the RPC coalesces the absent keys to 0/false.
     auto_start_position: safe.autoStartPosition,
     auto_path: safe.autoPath,
     auto_left_starting_line: safe.autoLeftStartingLine,
-    auto_climb_level1: safe.autoClimbLevel1,
     intake_sources: safe.intakeSources,
     max_fuel_capacity_observed: safe.maxFuelCapacityObserved,
     defense_rating: safe.defenseRating,

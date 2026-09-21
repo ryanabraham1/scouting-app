@@ -38,9 +38,6 @@ function ta(over: Partial<TeamAgg> = {}): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 40,
     meanFuelConfidence: 1,
-    climbSuccessRate: 0.5,
-    avgClimbLevel: 1,
-    meanClimbPoints: 10,
     avgDefenseRating: 0,
     noShowRate: 0,
     diedRate: 0,
@@ -55,9 +52,6 @@ function ta(over: Partial<TeamAgg> = {}): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -77,7 +71,7 @@ function renderPanel(props: Partial<React.ComponentProps<typeof MatchupPanel>> =
         redTeams={[254, 100, 200]}
         blueTeams={[3256, 300, 400]}
         ourSide="blue"
-        redAggs={[ta({ teamNumber: 254, climbSuccessRate: 0.8, avgClimbLevel: 2.7 })]}
+        redAggs={[ta({ teamNumber: 254, meanFuelPoints: 70 })]}
         blueAggs={[ta({ teamNumber: 3256 })]}
         {...props}
       />
@@ -102,8 +96,8 @@ describe('MatchupPanel', () => {
     const panel = getByTestId('dash-matchup-panel');
     expect(panel).toBeTruthy();
     expect(within(panel).getByText('Alliance Matchup')).toBeTruthy();
-    // The reliable high climber threat renders.
-    expect(within(panel).getByText(/Contest 254's L3 climb/)).toBeTruthy();
+    // The heavy-scorer threat renders.
+    expect(within(panel).getByText(/254 is a heavy scorer/)).toBeTruthy();
     // The badge appears for the matchup with a note.
     expect(within(panel).getAllByTestId('matchup-note-badge').length).toBeGreaterThan(0);
     expect(within(panel).getByTestId('matchup-note-text').textContent).toContain('scout it');

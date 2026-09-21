@@ -33,13 +33,9 @@ export interface LocalMatchReport {
   fuelByShift: [number, number, number, number];
   fuelPoints: number;
   fuelEstimateConfidence: number;
-  climbLevel: 0 | 1 | 2 | 3;
-  climbAttempted: boolean;
-  climbSuccess: boolean;
   autoStartPosition: { x: number; y: number } | null;
   autoPath: { x: number; y: number }[] | null;
   autoLeftStartingLine: boolean;
-  autoClimbLevel1: boolean;
   intakeSources: string[];
   maxFuelCapacityObserved: number;
   defenseRating: QualitativeRating;

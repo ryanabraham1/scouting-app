@@ -40,12 +40,6 @@ export interface TeamAgg {
   /** mean fuel_estimate_confidence (0..1) — a DATA-QUALITY flag only (surfaces the
    *  rate-FUEL chip); no longer down-weights any points. */
   meanFuelConfidence: number;
-  /** count(climb_success) / matchesScouted */
-  climbSuccessRate: number;
-  /** mean climb_level */
-  avgClimbLevel: number;
-  /** mean of per-match climb points: SCORING.CLIMB[level].teleop when climb_success, else 0 */
-  meanClimbPoints: number;
   /** mean defense_rating */
   avgDefenseRating: number;
   noShowRate: number;
@@ -58,7 +52,7 @@ export interface TeamAgg {
   incidentMatches: number;
   /** clamp01(1 - (noShowRate + diedRate)) */
   reliability: number;
-  /** per-match expected from OUR scouted data: meanFuelPoints + meanClimbPoints (RAW). */
+  /** per-match expected from OUR scouted data: meanFuelPoints (RAW). */
   scoutingExpectedPoints: number;
 
   // --- Defense analytics (display-only, derived from raw bursts/intervals) -----
@@ -88,11 +82,6 @@ export interface TeamAgg {
   stdDevFuelPoints: number;
   minFuelPoints: number;
   maxFuelPoints: number;
-
-  /** population std-dev of per-match climb points (climbPointsForMatch). */
-  stdDevClimbPoints: number;
-  minClimbPoints: number;
-  maxClimbPoints: number;
 
   /** population std-dev of per-match defense_rating. */
   stdDevDefenseRating: number;
@@ -184,31 +173,6 @@ function clamp01(x: number): number {
 }
 
 /**
- * Climb points for a single match: the success-gated teleop/endgame climb PLUS
- * the auto-climb bonus. A level-1 auto climb (auto_climb_level1) scores the auto
- * bonus regardless of the teleop climb outcome — it was previously dropped, so
- * auto climbs went uncounted in scoutingExpectedPoints.
- *
- * Exported so the TBA-validation module (`validateVsTba.ts`) reuses the SAME
- * per-match climb math when summing a scouted alliance's offensive points —
- * never re-implementing the frozen `SCORING.CLIMB` magnitudes.
- */
-export function climbPointsForMatch(r: MsrRow): number {
-  if (r.no_show) return 0;
-  const climb = SCORING.CLIMB as Record<number, { auto: number; teleop: number }>;
-  let pts = 0;
-  if (r.climb_success) {
-    const entry = climb[r.climb_level as 1 | 2 | 3];
-    if (entry) pts += entry.teleop;
-  }
-  // Auto-period level-1 climb bonus (independent of the teleop climb result).
-  if (r.auto_climb_level1) {
-    pts += climb[1].auto;
-  }
-  return pts;
-}
-
-/**
  * Aggregate the (already team-filtered, non-deleted) reports for one team.
  * Caller guarantees reports.length >= 1.
  */
@@ -223,9 +187,6 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
   let sumTotal = 0;
   let sumFuelPoints = 0;
   let sumFuelConfidence = 0;
-  let climbSuccessCount = 0;
-  let sumClimbLevel = 0;
-  let sumClimbPoints = 0;
   let sumDefense = 0;
   let noShowCount = 0;
   let diedCount = 0;
@@ -234,7 +195,6 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
 
   // Distribution: per-match value arrays collected during the single loop.
   const fuelPts: number[] = [];
-  const climbPts: number[] = [];
   const defense: number[] = [];
 
   // Metric A pooling: ball-time/duration while defended vs. baseline (undefended).
@@ -261,16 +221,11 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
     // low-confidence chip still fires for pre-0008 rows. Display flag only —
     // confidence no longer weights any points. (0008 backfills the column.)
     sumFuelConfidence += r.fuel_estimate_confidence ?? 0.3;
-    if (!r.no_show && r.climb_success) climbSuccessCount += 1;
-    sumClimbLevel += r.no_show ? 0 : r.climb_level;
-    const cp = climbPointsForMatch(r);
-    sumClimbPoints += cp;
     if (!r.no_show && r.defense_rating > 0) {
       sumDefense += r.defense_rating;
       defense.push(r.defense_rating);
     }
     fuelPts.push(fuelPoints);
-    climbPts.push(cp);
     if (r.no_show) noShowCount += 1;
     if (r.died) diedCount += 1;
     if (r.tipped) tippedCount += 1;
@@ -296,13 +251,11 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
 
   const meanFuelPoints = sumFuelPoints / n;
   const meanFuelConfidence = sumFuelConfidence / n;
-  const meanClimbPoints = sumClimbPoints / n;
   const noShowRate = noShowCount / n;
   const diedRate = diedCount / n;
 
   // Distribution: population std-dev + floor/ceiling per metric.
   const stdDevFuelPoints = stdDev(fuelPts, meanFuelPoints);
-  const stdDevClimbPoints = stdDev(climbPts, meanClimbPoints);
   const avgDefenseRating = defense.length > 0 ? sumDefense / defense.length : 0;
   const stdDevDefenseRating = stdDev(defense, avgDefenseRating);
 
@@ -323,16 +276,13 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
     meanTotalFuel: sumTotal / n,
     meanFuelPoints,
     meanFuelConfidence,
-    climbSuccessRate: climbSuccessCount / n,
-    avgClimbLevel: sumClimbLevel / n,
-    meanClimbPoints,
     avgDefenseRating,
     noShowRate,
     diedRate,
     tippedRate: tippedCount / n,
     incidentMatches: incidentCount,
     reliability: clamp01(1 - (noShowRate + diedRate)),
-    scoutingExpectedPoints: meanFuelPoints + meanClimbPoints,
+    scoutingExpectedPoints: meanFuelPoints,
     fuelSuppressionWhileDefended,
     defendedSampleMs: defendedDurIn,
     // Metric B is filled by attachDefenderEffectiveness (needs cross-team reports).
@@ -342,9 +292,6 @@ export function aggregateTeam(teamNumber: number, reports: MsrRow[]): TeamAgg {
     stdDevFuelPoints,
     minFuelPoints: safeMin(fuelPts),
     maxFuelPoints: safeMax(fuelPts),
-    stdDevClimbPoints,
-    minClimbPoints: safeMin(climbPts),
-    maxClimbPoints: safeMax(climbPts),
     stdDevDefenseRating,
     minDefenseRating: safeMin(defense),
     maxDefenseRating: safeMax(defense),
@@ -409,9 +356,6 @@ export function emptyTeamAgg(teamNumber: number): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 0,
     meanFuelConfidence: 0,
-    climbSuccessRate: 0,
-    avgClimbLevel: 0,
-    meanClimbPoints: 0,
     avgDefenseRating: 0,
     noShowRate: 0,
     diedRate: 0,
@@ -426,9 +370,6 @@ export function emptyTeamAgg(teamNumber: number): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -541,44 +482,36 @@ export function aggregateEvent(reports: MsrRow[]): Map<number, TeamAgg> {
 //
 // Pure helpers over already-aggregated `TeamAgg`. They feed `predict.ts`'s
 // `resolveComponentBreakdown`, which presentationally decomposes a team's
-// `expected` into auto/fuel/climb. NO scoring magnitudes are re-implemented — the
-// split reuses `SCORING.FUEL_POINTS` + the existing `meanFuelPoints` /
-// `meanClimbPoints` already on `TeamAgg`. Defense is SCOUTING-ONLY (no
+// `expected` into auto/fuel. NO scoring magnitudes are re-implemented — the
+// split reuses `SCORING.FUEL_POINTS` + the existing `meanFuelPoints` already
+// on `TeamAgg`. Defense is SCOUTING-ONLY (no
 // results-residual path; that was dropped as circular — plan §7).
 // ===========================================================================
 
 export interface ComponentSplit {
   auto: number;
   fuel: number;
-  climb: number;
 }
 
 export interface ComponentFraction {
   fAuto: number;
   fFuel: number;
-  fClimb: number;
 }
 
 /**
- * Cold-start REBUILT component fraction used for the no-scouting (EPA) branch
- * when the event has too little scouting to fit one. NOTE: `fClimb` is NO LONGER
- * read by the breakdown resolver — climb is surfaced ONLY from real scouting
- * (`resolveComponentBreakdown` re-normalizes the auto:fuel ratio and shows climb
- * as "—" for unscouted teams, rather than fabricating ~30% climb). `fClimb` is
- * kept only so the fitted fraction shape stays whole. FLAGGED (plan §3A/§11).
+ * Cold-start REBUILT auto:fuel fraction used for the no-scouting (EPA) branch
+ * when the event has too little scouting to fit one. FLAGGED (plan §3A/§11).
  */
-export const F_DEFAULT: ComponentFraction = { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 };
+export const F_DEFAULT: ComponentFraction = { fAuto: 0.2, fFuel: 0.8 };
 
 /**
- * Decompose ONE team's scouting into auto / teleop-fuel / climb points on the
- * SAME basis the prediction's scouting term uses (`scoutingExpectedPoints =
- * meanFuelPoints + meanClimbPoints`). The RAW `meanFuelPoints` is split by the
- * team's auto-vs-teleop FUEL proportion, so the split is INSENSITIVE to
- * `SCORING.FUEL_POINTS` (it's a ratio). `climb` is `meanClimbPoints` (already
- * points; the L1 auto-climb bonus lands here, NOT in auto — surfaced as a UI
- * footnote, plan §3A/§4).
+ * Decompose ONE team's scouting into auto / teleop-fuel points on the SAME
+ * basis the prediction's scouting term uses (`scoutingExpectedPoints =
+ * meanFuelPoints`). The RAW `meanFuelPoints` is split by the team's
+ * auto-vs-teleop FUEL proportion, so the split is INSENSITIVE to
+ * `SCORING.FUEL_POINTS` (it's a ratio).
  *
- * `auto + fuel + climb === scoutingExpectedPoints` (within float epsilon) by
+ * `auto + fuel === scoutingExpectedPoints` (within float epsilon) by
  * construction. Returns all-zero for a team with no scouting.
  */
 export function aggregateTeamComponentSplit(agg: TeamAgg): ComponentSplit {
@@ -594,7 +527,7 @@ export function aggregateTeamComponentSplit(agg: TeamAgg): ComponentSplit {
   // never divide by zero (and never silently shift it into auto).
   const autoPts = fuelTot > 0 ? fuelBasis * (rawAuto / fuelTot) : 0;
   const fuelPts = fuelTot > 0 ? fuelBasis * (rawFuel / fuelTot) : fuelBasis;
-  return { auto: autoPts, fuel: fuelPts, climb: agg.meanClimbPoints };
+  return { auto: autoPts, fuel: fuelPts };
 }
 
 /**
@@ -615,7 +548,7 @@ export function aggregateTeamDefensePts(agg: TeamAgg): number | null {
 }
 
 /**
- * Fit the event-wide component fraction `f=(fAuto,fFuel,fClimb)` (sums to 1) from
+ * Fit the event-wide component fraction `f=(fAuto,fFuel)` (sums to 1) from
  * the scouted teams' component means (on the `scoutingExpectedPoints` basis).
  * Used ONLY for the no-scouting (EPA) split branch — scouted teams use their own
  * means. Returns {@link F_DEFAULT} when fewer than `MIN_FIT_REPORTS` reports back
@@ -625,7 +558,6 @@ export function fitComponentFraction(aggs: Iterable<TeamAgg>): ComponentFraction
   let totalReports = 0;
   let sumAuto = 0;
   let sumFuel = 0;
-  let sumClimb = 0;
   let scoutedTeams = 0;
   for (const agg of aggs) {
     if (agg.matchesScouted <= 0) continue;
@@ -633,16 +565,14 @@ export function fitComponentFraction(aggs: Iterable<TeamAgg>): ComponentFraction
     const s = aggregateTeamComponentSplit(agg);
     sumAuto += s.auto;
     sumFuel += s.fuel;
-    sumClimb += s.climb;
     scoutedTeams += 1;
   }
   if (scoutedTeams === 0 || totalReports < MIN_FIT_REPORTS) return F_DEFAULT;
   const meanAuto = sumAuto / scoutedTeams;
   const meanFuel = sumFuel / scoutedTeams;
-  const meanClimb = sumClimb / scoutedTeams;
-  const T = meanAuto + meanFuel + meanClimb;
+  const T = meanAuto + meanFuel;
   if (!(T > 0)) return F_DEFAULT;
-  return { fAuto: meanAuto / T, fFuel: meanFuel / T, fClimb: meanClimb / T };
+  return { fAuto: meanAuto / T, fFuel: meanFuel / T };
 }
 
 // ===========================================================================
@@ -694,12 +624,9 @@ export interface ScouterAccuracyAgg {
   overlaps: number; // # of this scout's reports sharing (match,team) with >=1 other scout
   fuelAgree: number;
   fuelElig: number;
-  climbAgree: number;
-  climbElig: number;
   defenseAgree: number;
   defenseElig: number;
   fuelAgreeRate: number | null;
-  climbAgreeRate: number | null;
   defenseAgreeRate: number | null;
   overallAgreeRate: number | null; // mean of the non-null signal rates
   provisional: boolean; // overlaps < ACCURACY_MIN_OVERLAPS
@@ -783,16 +710,13 @@ function finalizeAccuracy(
     overlaps: number;
     fuelAgree: number;
     fuelElig: number;
-    climbAgree: number;
-    climbElig: number;
     defenseAgree: number;
     defenseElig: number;
   },
 ): ScouterAccuracyAgg {
   const fuelAgreeRate = raw.fuelElig > 0 ? raw.fuelAgree / raw.fuelElig : null;
-  const climbAgreeRate = raw.climbElig > 0 ? raw.climbAgree / raw.climbElig : null;
   const defenseAgreeRate = raw.defenseElig > 0 ? raw.defenseAgree / raw.defenseElig : null;
-  const signals = [fuelAgreeRate, climbAgreeRate, defenseAgreeRate].filter(
+  const signals = [fuelAgreeRate, defenseAgreeRate].filter(
     (x): x is number => x != null,
   );
   const overallAgreeRate =
@@ -802,12 +726,9 @@ function finalizeAccuracy(
     overlaps: raw.overlaps,
     fuelAgree: raw.fuelAgree,
     fuelElig: raw.fuelElig,
-    climbAgree: raw.climbAgree,
-    climbElig: raw.climbElig,
     defenseAgree: raw.defenseAgree,
     defenseElig: raw.defenseElig,
     fuelAgreeRate,
-    climbAgreeRate,
     defenseAgreeRate,
     overallAgreeRate,
     provisional: raw.overlaps < ACCURACY_MIN_OVERLAPS,
@@ -818,7 +739,7 @@ function finalizeAccuracy(
  * Agreement-vs-consensus accuracy per scout_id, computed only over (match,team)
  * groups covered by >= 2 scouts. Consensus is over the FULL group (including
  * this scout) so it is order-independent. no_show/died reports are excluded
- * from the fuel + climb consensus and eligibility (ground truth undefined), but
+ * from the fuel consensus and eligibility (ground truth undefined), but
  * still count toward defense consensus when rated. O(n) build + O(Σ group²)
  * compare (groups are tiny).
  */
@@ -830,8 +751,6 @@ export function aggregateScouterAccuracy(reports: MsrRow[]): Map<string, Scouter
       overlaps: number;
       fuelAgree: number;
       fuelElig: number;
-      climbAgree: number;
-      climbElig: number;
       defenseAgree: number;
       defenseElig: number;
     }
@@ -843,8 +762,6 @@ export function aggregateScouterAccuracy(reports: MsrRow[]): Map<string, Scouter
         overlaps: 0,
         fuelAgree: 0,
         fuelElig: 0,
-        climbAgree: 0,
-        climbElig: 0,
         defenseAgree: 0,
         defenseElig: 0,
       };
@@ -861,9 +778,6 @@ export function aggregateScouterAccuracy(reports: MsrRow[]): Map<string, Scouter
       scored.length > 0
         ? scored.reduce((a, r) => a + r.fuel_points, 0) / scored.length
         : null;
-    const climbConsensus = mode(
-      scored.map((r) => `${r.climb_success ? 1 : 0}:${r.climb_level}`),
-    );
     const defenseConsensus = mode(
       group
         .map((r) => r.defense_rating)
@@ -880,13 +794,6 @@ export function aggregateScouterAccuracy(reports: MsrRow[]): Map<string, Scouter
         acc.fuelElig += 1;
         const tol = Math.max(FUEL_ABS_TOL, FUEL_REL_TOL * fuelConsensus);
         if (Math.abs(r.fuel_points - fuelConsensus) <= tol) acc.fuelAgree += 1;
-      }
-      // Climb — exclude no_show/died from eligibility.
-      if (!(r.no_show || r.died) && climbConsensus != null) {
-        acc.climbElig += 1;
-        if (`${r.climb_success ? 1 : 0}:${r.climb_level}` === climbConsensus) {
-          acc.climbAgree += 1;
-        }
       }
       // Defense — 0 is "not rated"; rated values within ±1 of the mode agree.
       if (r.defense_rating > 0 && defenseConsensus != null) {
@@ -915,8 +822,6 @@ export function mergeAccuracy(aggs: ScouterAccuracyAgg[]): ScouterAccuracyAgg | 
     overlaps: 0,
     fuelAgree: 0,
     fuelElig: 0,
-    climbAgree: 0,
-    climbElig: 0,
     defenseAgree: 0,
     defenseElig: 0,
   };
@@ -924,8 +829,6 @@ export function mergeAccuracy(aggs: ScouterAccuracyAgg[]): ScouterAccuracyAgg | 
     sum.overlaps += a.overlaps;
     sum.fuelAgree += a.fuelAgree;
     sum.fuelElig += a.fuelElig;
-    sum.climbAgree += a.climbAgree;
-    sum.climbElig += a.climbElig;
     sum.defenseAgree += a.defenseAgree;
     sum.defenseElig += a.defenseElig;
   }
@@ -946,7 +849,7 @@ export type TacticSeverity = 'high' | 'med';
 
 export interface Tactic {
   teamNumber: number; // the robot the tactic is about (0 = alliance-wide rollup)
-  kind: 'climb' | 'feed' | 'fuel' | 'defense' | 'fragile';
+  kind: 'feed' | 'fuel' | 'defense' | 'fragile';
   severity: TacticSeverity;
   text: string; // imperative coaching phrase
 }
@@ -962,11 +865,8 @@ export interface MatchupGuidance {
   blue: AllianceGuidance;
 }
 
-// Thresholds tuned for REBUILT magnitudes (SCORING.CLIMB L3 teleop = 30). These
-// are DISPLAY heuristics, NOT scoring values.
-const RELIABLE_CLIMB_RATE = 0.6; // climbSuccessRate
-const HIGH_CLIMB_LEVEL = 2.5; // avgClimbLevel
-const UNRELIABLE_CLIMB_RATE = 0.4;
+// Thresholds tuned for REBUILT magnitudes. These are DISPLAY heuristics, NOT
+// scoring values.
 const HEAVY_FEED_FUEL = 25; // meanTeleopFuelInactive
 const LOW_FUEL_PTS = 30; // meanFuelPoints per match
 const STRONG_DEFENSE = 5; // avgDefenseRating (1–10; 0 = not rated)
@@ -1003,14 +903,6 @@ function guidanceForAlliance(aggs: (TeamAgg | undefined)[]): AllianceGuidance {
     const t = a.teamNumber;
 
     // --- THREATS (their strengths to WATCH) ---
-    if (a.climbSuccessRate >= RELIABLE_CLIMB_RATE && a.avgClimbLevel >= HIGH_CLIMB_LEVEL) {
-      threats.push({
-        teamNumber: t,
-        kind: 'climb',
-        severity: 'high',
-        text: `Contest ${t}'s L${Math.round(a.avgClimbLevel)} climb`,
-      });
-    }
     if (a.meanTeleopFuelInactive >= HEAVY_FEED_FUEL) {
       threats.push({
         teamNumber: t,
@@ -1045,20 +937,12 @@ function guidanceForAlliance(aggs: (TeamAgg | undefined)[]): AllianceGuidance {
         text: `${t} is fragile (${pctText(a.reliability)} reliable) — pressure early`,
       });
     }
-    if (a.climbSuccessRate < UNRELIABLE_CLIMB_RATE) {
-      exploits.push({
-        teamNumber: t,
-        kind: 'climb',
-        severity: 'med',
-        text: `${t} rarely climbs (${pctText(a.climbSuccessRate)}) — they may forfeit endgame`,
-      });
-    }
     if (a.meanFuelPoints < LOW_FUEL_PTS) {
       exploits.push({
         teamNumber: t,
         kind: 'fuel',
         severity: 'med',
-        text: `${t} scores little fuel (~${Math.round(a.meanFuelPoints)} pts) — leans on climb/defense`,
+        text: `${t} scores little fuel (~${Math.round(a.meanFuelPoints)} pts) — leans on defense`,
       });
     }
   }

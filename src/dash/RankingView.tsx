@@ -9,6 +9,7 @@ import { SlidersHorizontal, ChevronUp, ChevronDown, ClipboardList } from 'lucide
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { aggregateEvent, emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
 import { pctSigned, DEF_EFF_MIN_SAMPLE } from '@/dash/defenseAnalytics';
 import {
@@ -27,12 +28,6 @@ import {
 
 export interface RankingViewProps {
   eventKey: string;
-  /**
-   * Open a team's Team page. When provided, each row's team number becomes a
-   * button that calls this with the team number (the Dashboard then switches to
-   * the Team tab with that team preselected).
-   */
-  onSelectTeam?: (teamNumber: number) => void;
 }
 
 /** Standard TBA `/event/{key}/rankings` payload (read defensively). */
@@ -95,7 +90,6 @@ type SortKey =
   | 'teamNumber'
   | 'matchesScouted'
   | 'scoutingExpectedPoints'
-  | 'climbSuccessRate'
   | 'avgDefenseRating'
   | 'reliability'
   | 'fuelSuppression'
@@ -163,8 +157,8 @@ function buildTbaRankMap(data: unknown): Map<number, number> {
 }
 
 /**
- * Numeric value used to sort a row by a given column. The four columns shared
- * with the picklist seeder (`scoutingExpectedPoints`, `climbSuccessRate`,
+ * Numeric value used to sort a row by a given column. The three columns shared
+ * with the picklist seeder (`scoutingExpectedPoints`,
  * `avgDefenseRating`, `epa`) delegate to `rankSortValue` in `sorting.ts` — the
  * single source of truth — so the table order and the seed order cannot drift.
  * The remaining columns stay local to this table.
@@ -187,7 +181,6 @@ function sortValue(row: Row, key: SortKey): number {
       // Lower rank is better; unknown ranks sort to the bottom.
       return row.tbaRank ?? Number.POSITIVE_INFINITY;
     case 'scoutingExpectedPoints':
-    case 'climbSuccessRate':
     case 'avgDefenseRating':
     case 'epa':
       // Shared with the picklist seeder — delegate to the single source of truth.
@@ -212,7 +205,6 @@ function sortValueMissing(row: Row, key: SortKey): boolean {
     case 'epa':
       return row.epa == null || !Number.isFinite(row.epa);
     case 'scoutingExpectedPoints':
-    case 'climbSuccessRate':
     case 'avgDefenseRating':
     case 'reliability':
       return !hasScouting(row);
@@ -263,12 +255,6 @@ const COMPARE_ROWS: CompareRow[] = [
     better: 'higher',
   },
   {
-    label: 'Climb %',
-    get: (r) => (hasScouting(r) ? pct(r.agg.climbSuccessRate) : EM_DASH),
-    value: (r) => (hasScouting(r) ? r.agg.climbSuccessRate : null),
-    better: 'higher',
-  },
-  {
     label: 'Defense',
     get: (r) => (hasScouting(r) ? fmt(r.agg.avgDefenseRating) : EM_DASH),
     value: (r) => (hasScouting(r) ? r.agg.avgDefenseRating : null),
@@ -306,12 +292,6 @@ const COMPARE_ROWS: CompareRow[] = [
     better: 'lower',
   },
   {
-    label: 'Climb σ',
-    get: (r) => (hasScouting(r) ? fmt(r.agg.stdDevClimbPoints) : EM_DASH),
-    value: (r) => (hasScouting(r) ? r.agg.stdDevClimbPoints : null),
-    better: 'lower',
-  },
-  {
     label: 'Defense σ',
     get: (r) => (hasScouting(r) ? fmt(r.agg.stdDevDefenseRating) : EM_DASH),
     value: (r) => (hasScouting(r) ? r.agg.stdDevDefenseRating : null),
@@ -340,7 +320,7 @@ const COMPARE_ROWS: CompareRow[] = [
 ];
 
 export default function RankingView(props: RankingViewProps): JSX.Element {
-  const { eventKey, onSelectTeam } = props;
+  const { eventKey } = props;
 
   const reportsQuery = useEventReports(eventKey);
   const reports = reportsQuery.data;
@@ -500,7 +480,6 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     { key: 'teamNumber', label: 'Team' },
     { key: 'matchesScouted', label: 'Matches' },
     { key: 'scoutingExpectedPoints', label: 'Scouted Pts' },
-    { key: 'climbSuccessRate', label: 'Climb %' },
     { key: 'avgDefenseRating', label: 'Defense' },
     { key: 'reliability', label: 'Reliability' },
     { key: 'fuelSuppression', label: 'Def ↓' },
@@ -727,19 +706,11 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                           >
                             #{rank}
                           </span>
-                          {onSelectTeam ? (
-                            <button
-                              type="button"
-                              data-testid={`ranking-team-${t}`}
-                              onClick={() => onSelectTeam(t)}
-                              aria-label={`Open team ${t}`}
-                              className="inline-flex min-h-[44px] items-center rounded font-mono tabular-nums text-base font-semibold text-brand hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            >
-                              {t}
-                            </button>
-                          ) : (
-                            <span className="font-mono tabular-nums text-base font-semibold text-brand">{t}</span>
-                          )}
+                          <TeamLink
+                            team={t}
+                            data-testid={`ranking-team-${t}`}
+                            className="inline-flex min-h-[44px] items-center font-mono text-base font-semibold"
+                          />
                         </span>
                       </td>
                       {isVisible('matchesScouted') && (
@@ -748,18 +719,6 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                       {isVisible('scoutingExpectedPoints') && (
                         <td data-testid={`exp-${t}`} className="px-2 py-2 font-mono tabular-nums">
                           {hasScouting(r) ? fmt(r.agg.scoutingExpectedPoints) : EM_DASH}
-                        </td>
-                      )}
-                      {isVisible('climbSuccessRate') && (
-                        <td
-                          className={cn(
-                            'px-2 py-2 font-mono tabular-nums',
-                            hasScouting(r) && r.agg.climbSuccessRate > 0
-                              ? 'text-success'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          {hasScouting(r) ? pct(r.agg.climbSuccessRate) : EM_DASH}
                         </td>
                       )}
                       {isVisible('avgDefenseRating') && (

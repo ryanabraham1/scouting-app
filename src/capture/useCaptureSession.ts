@@ -40,9 +40,6 @@ export interface CaptureTarget {
 }
 
 interface DeferredState {
-  climbLevel: 0 | 1 | 2 | 3;
-  climbAttempted: boolean;
-  climbSuccess: boolean;
   intakeSources: string[];
   maxFuelCapacityObserved: number;
   defenseRating: QualitativeRating;
@@ -64,14 +61,10 @@ interface DeferredState {
   autoStartPosition: { x: number; y: number } | null;
   autoPath: { x: number; y: number }[] | null;
   autoLeftStartingLine: boolean;
-  autoClimbLevel1: boolean;
   notes: string;
 }
 
 const initialDeferred: DeferredState = {
-  climbLevel: 0,
-  climbAttempted: false,
-  climbSuccess: false,
   intakeSources: [],
   maxFuelCapacityObserved: 0,
   defenseRating: 0,
@@ -93,7 +86,6 @@ const initialDeferred: DeferredState = {
   autoStartPosition: null,
   autoPath: null,
   autoLeftStartingLine: false,
-  autoClimbLevel1: false,
   notes: '',
 };
 
@@ -221,7 +213,6 @@ function isDraftInterval(value: unknown): boolean {
 
 function deferredValidationError(value: Record<string, unknown>): string | null {
   const numericFields = [
-    'climbLevel',
     'maxFuelCapacityObserved',
     'defenseRating',
     'driverSkill',
@@ -243,15 +234,12 @@ function deferredValidationError(value: Record<string, unknown>): string | null 
   }
 
   const booleanFields = [
-    'climbAttempted',
-    'climbSuccess',
     'noShow',
     'died',
     'tipped',
     'droppedFuel',
     'fedCorral',
     'autoLeftStartingLine',
-    'autoClimbLevel1',
   ];
   if (
     booleanFields.some(
@@ -589,9 +577,6 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       setInactiveFirstState(r.inactiveFirst);
       setDeferred({
         ...initialDeferred,
-        climbLevel: r.climbLevel,
-        climbAttempted: r.climbAttempted,
-        climbSuccess: r.climbSuccess,
         intakeSources: Array.isArray(r.intakeSources) ? r.intakeSources : [],
         maxFuelCapacityObserved: r.maxFuelCapacityObserved,
         defenseRating: r.defenseRating,
@@ -613,7 +598,6 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
         autoStartPosition: r.autoStartPosition,
         autoPath: r.autoPath,
         autoLeftStartingLine: r.autoLeftStartingLine,
-        autoClimbLevel1: r.autoClimbLevel1,
         notes: r.notes,
       });
       // save() reads clock.state.teleopClockUnconfirmed for fresh captures; in edit
@@ -1214,8 +1198,6 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       // longer depends on which alliance won Auto.
       inactiveFirst: false,
       fuelBursts: bursts,
-      climbLevel: deferred.climbLevel,
-      autoClimbLevel1: deferred.autoClimbLevel1,
       noShow: deferred.noShow,
     };
     const agg = computeAggregates(inputs);
@@ -1249,13 +1231,9 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       endgameFuel: agg.endgameFuel,
       fuelByShift: agg.fuelByShift,
       fuelPoints: agg.fuelPoints,
-      climbLevel: deferred.climbLevel,
-      climbAttempted: deferred.climbAttempted,
-      climbSuccess: deferred.climbSuccess,
       autoStartPosition: deferred.autoStartPosition,
       autoPath: deferred.autoPath,
       autoLeftStartingLine: deferred.autoLeftStartingLine,
-      autoClimbLevel1: deferred.autoClimbLevel1,
       intakeSources: deferred.intakeSources,
       maxFuelCapacityObserved: deferred.maxFuelCapacityObserved,
       defenseRating: deferred.defenseRating,
@@ -1346,12 +1324,6 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     setRate,
     inactiveFirst,
     setInactiveFirst,
-    climbLevel: deferred.climbLevel,
-    setClimbLevel: (v: 0 | 1 | 2 | 3) => updateDeferred('climbLevel', v),
-    climbAttempted: deferred.climbAttempted,
-    setClimbAttempted: (v: boolean) => updateDeferred('climbAttempted', v),
-    climbSuccess: deferred.climbSuccess,
-    setClimbSuccess: (v: boolean) => updateDeferred('climbSuccess', v),
     intakeSources: deferred.intakeSources,
     setIntakeSources: (v: string[]) => updateDeferred('intakeSources', v),
     maxFuelCapacityObserved: deferred.maxFuelCapacityObserved,
@@ -1407,8 +1379,6 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     setAutoPath: (v: { x: number; y: number }[] | null) => updateDeferred('autoPath', v),
     autoLeftStartingLine: deferred.autoLeftStartingLine,
     setAutoLeftStartingLine: (v: boolean) => updateDeferred('autoLeftStartingLine', v),
-    autoClimbLevel1: deferred.autoClimbLevel1,
-    setAutoClimbLevel1: (v: boolean) => updateDeferred('autoClimbLevel1', v),
     notes: deferred.notes,
     setNotes: (v: string) => updateDeferred('notes', v),
     save,

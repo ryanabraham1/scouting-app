@@ -24,7 +24,6 @@ import {
   ClipboardList,
   Flame,
   AlertTriangle,
-  Mountain,
   ChevronRight,
   Eye,
   EyeOff,
@@ -44,6 +43,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatTile } from '@/components/ui/StatTile';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import {
   useEventScouts,
@@ -196,14 +196,10 @@ function ScouterAccuracy(props: { agg: ScouterAccuracyAgg | null }): JSX.Element
           </span>
         ) : null}
       </div>
-      <div className="grid grid-cols-3 gap-2 text-center tabular-nums">
+      <div className="grid grid-cols-2 gap-2 text-center tabular-nums">
         <div data-testid="scouter-accuracy-fuel" className="rounded-lg bg-muted/30 px-2 py-1">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Fuel</div>
           <div className="text-base font-semibold text-foreground">{pct(agg.fuelAgreeRate)}</div>
-        </div>
-        <div data-testid="scouter-accuracy-climb" className="rounded-lg bg-muted/30 px-2 py-1">
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Climb</div>
-          <div className="text-base font-semibold text-foreground">{pct(agg.climbAgreeRate)}</div>
         </div>
         <div data-testid="scouter-accuracy-defense" className="rounded-lg bg-muted/30 px-2 py-1">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Defense</div>
@@ -396,12 +392,11 @@ function ScouterProfile(props: {
         {pitTeams.length ? (
           <span className="flex flex-wrap gap-1.5">
             {pitTeams.map((t) => (
-              <span
+              <TeamLink
                 key={t}
-                className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-xs font-medium tabular-nums text-foreground"
-              >
-                {t}
-              </span>
+                team={t}
+                className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-xs font-medium text-foreground"
+              />
             ))}
           </span>
         ) : (
@@ -440,34 +435,35 @@ function ScouterProfile(props: {
           ) : (
             <ul data-testid="scouter-report-list" className="flex flex-col gap-2">
               {reports.map((m, i) => {
-                const climb = m.climb_success ? `L${m.climb_level}` : 'no climb';
                 return (
                   <li key={`${m.match_key}-${m.target_team_number}-${i}`}>
-                    <button
-                      type="button"
+                    {/* Button semantics on a div so the team number can be its
+                        own link (no nested interactive elements). */}
+                    <div
+                      role="button"
+                      tabIndex={0}
                       data-testid={`scouter-report-${i}`}
                       onClick={() => onOpenReport(m)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onOpenReport(m);
+                        }
+                      }}
                       style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                      className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-left text-sm text-foreground hover:bg-muted/60"
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-left text-sm text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
                       <span className="min-w-0 truncate font-semibold tabular-nums">
-                        {formatMatchKeyRaw(m.match_key)} · Team {m.target_team_number}
+                        {formatMatchKeyRaw(m.match_key)} · Team{' '}
+                        <TeamLink team={m.target_team_number} />
                       </span>
                       <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
                           <Flame className="size-4 text-energy" /> {fmt(m.fuel_points)}
                         </span>
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1',
-                            m.climb_success && 'text-success',
-                          )}
-                        >
-                          <Mountain className="size-4" /> {climb}
-                        </span>
                         <ChevronRight className="size-4" />
                       </span>
-                    </button>
+                    </div>
                   </li>
                 );
               })}
@@ -983,9 +979,14 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
         onClose={() => setOpenReport(null)}
         side="right"
         title={
-          openReport
-            ? `${formatMatchKeyRaw(openReport.match_key)} · Team ${openReport.target_team_number}`
-            : ''
+          openReport ? (
+            <>
+              {formatMatchKeyRaw(openReport.match_key)} · Team{' '}
+              <TeamLink team={openReport.target_team_number} onClick={() => setOpenReport(null)} />
+            </>
+          ) : (
+            ''
+          )
         }
         data-testid="scouter-report-sheet"
       >

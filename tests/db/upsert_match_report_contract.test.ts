@@ -82,13 +82,9 @@ function buildReport(inputs: RawInputs): LocalMatchReport {
     fuelByShift: [0, 0, 0, 0],
     fuelPoints: 0,
     fuelEstimateConfidence: 1,
-    climbLevel: 0,
-    climbAttempted: false,
-    climbSuccess: false,
     autoStartPosition: null,
     autoPath: null,
     autoLeftStartingLine: true,
-    autoClimbLevel1: false,
     intakeSources: ['ground'],
     maxFuelCapacityObserved: 0,
     defenseRating: 0,
@@ -228,8 +224,6 @@ describe('upsert_match_report live client<->server contract', () => {
       schemaVersion: SCHEMA_VERSION,
       inactiveFirst: inputs.inactiveFirst ?? false,
       fuelBursts: inputs.fuelBursts,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
     });
 
@@ -279,8 +273,6 @@ describe('upsert_match_report live client<->server contract', () => {
       schemaVersion: SCHEMA_VERSION,
       inactiveFirst: false,
       fuelBursts: report.fuelBursts,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
     });
     expect((row as { auto_fuel: number }).auto_fuel).toBe(expected.autoFuel);

@@ -27,7 +27,6 @@ export interface PicklistSeedDialogProps {
 const METRIC_OPTIONS: Array<{ value: RankSortKey; label: string }> = [
   { value: 'epa', label: 'EPA' },
   { value: 'scoutingExpectedPoints', label: 'Scouted Pts' },
-  { value: 'climbSuccessRate', label: 'Climb %' },
   { value: 'avgDefenseRating', label: 'Defense' },
 ];
 

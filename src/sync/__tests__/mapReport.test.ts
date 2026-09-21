@@ -20,13 +20,9 @@ const EXPECTED_KEYS = [
   'teleop_clock_unconfirmed',
   'fuel_bursts',
   'feeding_bursts',
-  'climb_level',
-  'climb_attempted',
-  'climb_success',
   'auto_start_position',
   'auto_path',
   'auto_left_starting_line',
-  'auto_climb_level1',
   'intake_sources',
   'max_fuel_capacity_observed',
   'defense_rating',
@@ -76,16 +72,12 @@ function makeReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchReport
     fuelByShift: [1, 2, 3, 4],
     fuelPoints: 99,
     fuelEstimateConfidence: 0.3,
-    climbLevel: 2,
-    climbAttempted: true,
-    climbSuccess: true,
     autoStartPosition: { x: 1, y: 2 },
     autoPath: [
       { x: 0, y: 0 },
       { x: 3, y: 4 },
     ],
     autoLeftStartingLine: true,
-    autoClimbLevel1: true,
     intakeSources: ['ground', 'station'],
     maxFuelCapacityObserved: 7,
     defenseRating: 8,
@@ -161,11 +153,7 @@ describe('toUpsertPayload', () => {
     expect(p.inactive_first).toBe(true);
     expect(p.inactive_first_source).toBe('scout');
     expect(p.teleop_clock_unconfirmed).toBe(true);
-    expect(p.climb_level).toBe(2);
-    expect(p.climb_attempted).toBe(true);
-    expect(p.climb_success).toBe(true);
     expect(p.auto_left_starting_line).toBe(true);
-    expect(p.auto_climb_level1).toBe(true);
     expect(p.max_fuel_capacity_observed).toBe(7);
     expect(p.defense_rating).toBe(8);
     expect(p.driver_skill).toBe(10);

@@ -37,7 +37,6 @@ export interface PresetRow {
   matchesScouted: number | null;
   expPts: number | null; // agg.scoutingExpectedPoints
   fuelPts: number | null; // agg.meanFuelPoints
-  climbRate: number | null; // agg.climbSuccessRate (0..1)
   defense: number | null; // agg.avgDefenseRating
   reliability: number | null; // agg.reliability (0..1)
   epa: number | null;
@@ -112,7 +111,6 @@ export function buildPresetRows(
       matchesScouted: agg ? agg.matchesScouted : null,
       expPts: agg ? agg.scoutingExpectedPoints : null,
       fuelPts: agg ? agg.meanFuelPoints : null,
-      climbRate: agg ? agg.climbSuccessRate : null,
       defense: agg ? agg.avgDefenseRating : null,
       reliability: agg ? agg.reliability : null,
       epa,
@@ -135,7 +133,7 @@ function pct(n: number | null, dash: string): string {
 }
 
 const ALLIANCE_HEADER =
-  'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Climb %,Defense,Reliability,EPA,EPA Source';
+  'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Defense,Reliability,EPA,EPA Source';
 
 /**
  * Human-readable, printable alliance-selection sheet CSV. Numbers formatted for
@@ -156,7 +154,6 @@ export function allianceSheetToCsv(rows: PresetRow[], _eventKey?: string): strin
         r.matchesScouted == null ? EM_DASH : r.matchesScouted,
         fixed(r.expPts, 1, EM_DASH),
         fixed(r.fuelPts, 1, EM_DASH),
-        pct(r.climbRate, EM_DASH),
         fixed(r.defense, 1, EM_DASH),
         pct(r.reliability, EM_DASH),
         fixed(r.epa, 0, EM_DASH),
@@ -168,7 +165,7 @@ export function allianceSheetToCsv(rows: PresetRow[], _eventKey?: string): strin
 }
 
 const TOOL_HEADER =
-  'rank,team_number,nickname,tier,note,epa,epa_source,exp_points,fuel_points,climb_rate,defense,reliability,matches_scouted';
+  'rank,team_number,nickname,tier,note,epa,epa_source,exp_points,fuel_points,defense,reliability,matches_scouted';
 
 /**
  * Machine-friendly, snake_case flat CSV keyed by team_number for import into a
@@ -190,7 +187,6 @@ export function picklistToolCsv(rows: PresetRow[]): string {
         r.epaSource,
         fixed(r.expPts, 1, ''),
         fixed(r.fuelPts, 1, ''),
-        r.climbRate == null ? '' : String(r.climbRate),
         fixed(r.defense, 1, ''),
         r.reliability == null ? '' : String(r.reliability),
         r.matchesScouted == null ? '' : String(r.matchesScouted),
@@ -250,7 +246,6 @@ export function allianceSheetToHtml(
     'Matches',
     'Exp Pts',
     'FUEL Pts',
-    'Climb %',
     'Defense',
     'Reliability',
     'EPA',
@@ -271,7 +266,6 @@ export function allianceSheetToHtml(
         r.matchesScouted == null ? EM_DASH : String(r.matchesScouted),
         fixed(r.expPts, 1, EM_DASH),
         fixed(r.fuelPts, 1, EM_DASH),
-        pct(r.climbRate, EM_DASH),
         fixed(r.defense, 1, EM_DASH),
         pct(r.reliability, EM_DASH),
         fixed(r.epa, 0, EM_DASH),

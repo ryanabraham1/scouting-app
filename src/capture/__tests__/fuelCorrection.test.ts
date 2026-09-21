@@ -22,8 +22,6 @@ function agg(b: FuelBurst[]) {
     schemaVersion: SCHEMA_VERSION,
     inactiveFirst: false,
     fuelBursts: b,
-    climbLevel: 0,
-    autoClimbLevel1: false,
     noShow: false,
   });
 }

@@ -189,29 +189,13 @@ export default function MyDataView(): JSX.Element {
                 </p>
               ) : null}
               <div className="mt-3 flex items-end justify-between gap-3">
-                <dl className="grid flex-1 grid-cols-4 gap-x-3">
+                <dl className="grid flex-1 grid-cols-3 gap-x-3">
                   <div className="flex flex-col gap-0.5">
                     <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       Fuel
                     </dt>
                     <dd className="font-mono text-base font-semibold text-energy tabular-nums">
                       {r.fuelPoints}
-                    </dd>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                      Climb
-                    </dt>
-                    <dd className="font-mono text-base font-semibold tabular-nums">
-                      <span
-                        className={
-                          r.climbLevel > 0
-                            ? "text-success"
-                            : "text-muted-foreground"
-                        }
-                      >
-                        {r.climbLevel > 0 ? `L${r.climbLevel}` : "—"}
-                      </span>
                     </dd>
                   </div>
                   <div className="flex flex-col gap-0.5">

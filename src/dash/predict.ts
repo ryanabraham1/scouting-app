@@ -23,16 +23,14 @@ import {
 
 /**
  * Presentational decomposition of a team's `expected` into additive
- * auto / teleop-fuel / climb points, plus a scouting-only defense figure. NOT a
+ * auto / teleop-fuel points, plus a scouting-only defense figure. NOT a
  * new prediction so it can never disagree with the score the dashboard shows.
  *
- * `climb` comes ONLY from real scouting — we never invent it from a fitted
- * fraction (most teams climb ~0, so a fabricated ~30% climb is misleading):
- *  - SCOUTED branch: `climb` is the team's real (k-rescaled) scouted climb, and
- *    `auto + fuel + climb === expected` (unrounded; plan §8).
- *  - EPA (unscouted) branch: `climb` is `null` (renders "—"); `auto + fuel`
- *    carry the full `expected` (climb is folded into the fuel/auto estimate).
- *  - NONE branch: all zero, `climb` null.
+ *  - SCOUTED branch: split from the team's own means, rescaled so
+ *    `auto + fuel === expected` (unrounded; plan §8).
+ *  - EPA (unscouted) branch: `auto + fuel` carry the full `expected` via the
+ *    event-wide fitted auto:fuel fraction.
+ *  - NONE branch: all zero.
  *
  * `defense` is the points this team removes from the OPPOSING alliance (a
  * subtraction, NOT added to its own components); `null` when unscouted. §6/§7.
@@ -40,8 +38,6 @@ import {
 export interface ComponentBreakdown {
   auto: number;
   fuel: number;
-  /** Real scouted climb points; `null`/`—` for unscouted teams (never fabricated). */
-  climb: number | null;
   /** Points removed from the OPPOSING alliance (>=0); null/`—` when unknown. */
   defense: number | null;
   source: 'scouting' | 'epa' | 'none';
@@ -60,7 +56,7 @@ export interface TeamPrediction {
   w: number;
   source: 'scouting' | 'epa' | 'none';
   /**
-   * OPTIONAL additive auto/fuel/climb decomposition of `expected` (+ scouting
+   * OPTIONAL additive auto/fuel decomposition of `expected` (+ scouting
    * defense). Present only when `predictMatch` is given a `fraction`; absent
    * means byte-identical legacy behavior. Sums to `expected` on unrounded floats.
    */
@@ -146,23 +142,17 @@ function asEpaMap(epaByTeam: PredictInput['epaByTeam']): Map<number, number | nu
 }
 
 /**
- * Decompose a team's `expected` into additive auto/fuel (+ a real
- * scouted climb and a scouting-only defense figure). PURE. Never throws; never
- * mutates inputs. Plan §6/§7.
- *
- * CLIMB HONESTY: climb is surfaced ONLY from real scouting. We never invent it
- * from the fitted `fraction` — most teams climb ~0, so a fabricated ~30% climb
- * (the old `f.fClimb * expected`) is misleading.
+ * Decompose a team's `expected` into additive auto/fuel (+ a scouting-only
+ * defense figure). PURE. Never throws; never mutates inputs. Plan §6/§7.
  *
  * Branches:
  *  - SCOUTING (this team has reports): split from its own means, rescaled to
- *    `expected`. Invariant: `auto + fuel + climb === expected` (unrounded).
- *  - EPA (unscouted): `climb = null` ("—"); `auto + fuel` carry the FULL
- *    `expected` (the auto/fuel fraction re-normalized to drop climb), so the
- *    alliance score is still fully decomposed without inventing climb.
- *  - NONE: all zero, climb null.
+ *    `expected`. Invariant: `auto + fuel === expected` (unrounded).
+ *  - EPA (unscouted): `auto + fuel` carry the FULL `expected` via the fitted
+ *    auto:fuel fraction, so the alliance score is still fully decomposed.
+ *  - NONE: all zero.
  *
- * Defense is orthogonal and never enters the auto/fuel/climb sum.
+ * Defense is orthogonal and never enters the auto/fuel sum.
  */
 export function resolveComponentBreakdown(
   _teamNumber: number,
@@ -174,43 +164,36 @@ export function resolveComponentBreakdown(
 ): ComponentBreakdown {
   const f = fraction ?? F_DEFAULT;
 
-  // 1. SCOUTING: split from this team's own means, rescaled to `expected`. Climb
-  // is REAL here (the k-rescaled scouted climb — near 0 for non-climbers).
+  // 1. SCOUTING: split from this team's own means, rescaled to `expected`.
   if (agg && agg.matchesScouted > 0) {
     const split = aggregateTeamComponentSplit(agg);
-    const s = split.auto + split.fuel + split.climb;
+    const s = split.auto + split.fuel;
     let auto: number;
     let fuel: number;
-    let climb: number;
     if (s > 0 && expected > 0) {
       const k = expected / s;
       auto = split.auto * k;
       fuel = split.fuel * k;
-      climb = split.climb * k;
     } else {
       // Degenerate scouted split (all-zero) or non-positive expected: route the
-      // whole estimate through auto/fuel (no fabricated climb), preserving the
-      // auto:fuel ratio of the fitted fraction so the sum invariant still holds.
+      // whole estimate through auto/fuel, preserving the auto:fuel ratio of the
+      // fitted fraction so the sum invariant still holds.
       const base = Math.max(0, expected);
       const af = f.fAuto + f.fFuel;
       auto = af > 0 ? (f.fAuto / af) * base : 0;
       fuel = af > 0 ? (f.fFuel / af) * base : base;
-      climb = 0;
     }
     return {
       auto,
       fuel,
-      climb,
       defense: aggregateTeamDefensePts(agg),
       source: 'scouting',
       provisional: false,
     };
   }
 
-  // 2. EPA (unscouted): we have NO climb signal, so climb is null ("—"). Split
-  // the full `expected` across auto/fuel only, re-normalizing the fitted
-  // auto:fuel ratio so the alliance score is still fully decomposed — but we
-  // never invent a climb number from `f.fClimb`.
+  // 2. EPA (unscouted): split the full `expected` across auto/fuel with the
+  // fitted auto:fuel ratio so the alliance score is still fully decomposed.
   if (
     predictionSource !== 'none' &&
     expected > 0 &&
@@ -220,7 +203,6 @@ export function resolveComponentBreakdown(
     return {
       auto: af > 0 ? (f.fAuto / af) * expected : 0,
       fuel: af > 0 ? (f.fFuel / af) * expected : expected,
-      climb: null,
       defense: null,
       source: 'epa',
       provisional: true,
@@ -228,7 +210,7 @@ export function resolveComponentBreakdown(
   }
 
   // 3. NONE: nothing to surface.
-  return { auto: 0, fuel: 0, climb: null, defense: null, source: 'none', provisional: false };
+  return { auto: 0, fuel: 0, defense: null, source: 'none', provisional: false };
 }
 
 export function predictMatch(input: PredictInput): MatchPrediction {

@@ -722,9 +722,9 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
     queueDraftSave(reportRef.current, { ...photoBlobsRef.current });
   }
 
-  // Semantic tone per option group: capabilities split between climb (success
-  // green = scored end-game), defense (brand cyan = defense convention) and
-  // autonomous (energy orange); intake sourcing (fuel) is energy orange.
+  // Semantic tone per option group: capabilities split between scoring (success
+  // green), defense (brand cyan = defense convention) and autonomous (energy
+  // orange); intake sourcing (fuel) is energy orange.
   type ChipTone = 'success' | 'brand' | 'energy';
   const TONE_CHIP: Record<ChipTone, string> = {
     success: 'border-success/40 bg-success/15 text-success',

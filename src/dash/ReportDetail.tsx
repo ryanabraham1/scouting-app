@@ -1,7 +1,7 @@
 // src/dash/ReportDetail.tsx
 // REPORTDETAIL — full per-report drill-down for the lead/admin. Given ONE
 // match_scouting_report row (MsrRow) and the resolved scouter name, render
-// EVERY captured field, clearly grouped: identity, fuel breakdown, climb,
+// EVERY captured field, clearly grouped: identity, fuel breakdown, auto,
 // defense, fouls/flags, notes, and the auto start position + path drawn
 // read-only on the field diagram. Wired into a Sheet by ScouterView & MatchView
 // so tapping a report row opens the complete report.
@@ -10,13 +10,14 @@ import * as React from 'react';
 import {
   Hash,
   Flame,
-  Mountain,
   Shield,
   AlertTriangle,
   StickyNote,
   Map as MapIcon,
+  Route,
 } from 'lucide-react';
 import { StatTile } from '@/components/ui/StatTile';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { formatMatchKeyRaw } from '@/lib/formatMatch';
 import { foulReasonLabel } from '@/scoring/fouls';
@@ -155,7 +156,12 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
       <section className="flex flex-col gap-2">
         <SectionHeading icon={<Hash />}>Identity</SectionHeading>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <StatTile label="Team" value={r.target_team_number} tone="brand" icon={<Hash />} />
+          <StatTile
+            label="Team"
+            value={<TeamLink team={r.target_team_number} className="text-inherit" />}
+            tone="brand"
+            icon={<Hash />}
+          />
           <StatTile label="Match" value={<span data-testid="report-match-label">{matchLabel}</span>} />
           <StatTile
             label="Alliance"
@@ -217,30 +223,14 @@ export default function ReportDetail(props: ReportDetailProps): JSX.Element {
         </div>
       </section>
 
-      {/* Climb */}
+      {/* Auto */}
       <section className="flex flex-col gap-2">
-        <SectionHeading icon={<Mountain />}>Climb</SectionHeading>
+        <SectionHeading icon={<Route />}>Auto</SectionHeading>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <StatTile label="Climb level" value={`L${r.climb_level}`} />
-          <StatTile
-            label="Attempted"
-            value={yesNo(r.climb_attempted)}
-            tone={r.climb_attempted ? 'brand' : 'default'}
-          />
-          <StatTile
-            label="Success"
-            value={yesNo(r.climb_success)}
-            tone={r.climb_success ? 'success' : 'default'}
-          />
           <StatTile
             label="Left starting line"
             value={yesNo(r.auto_left_starting_line)}
             tone={r.auto_left_starting_line ? 'success' : 'default'}
-          />
-          <StatTile
-            label="Auto L1 climb"
-            value={yesNo(r.auto_climb_level1)}
-            tone={r.auto_climb_level1 ? 'success' : 'default'}
           />
         </div>
       </section>

@@ -1,6 +1,6 @@
 // src/dash/__tests__/ReportDetail.test.tsx
 // REPORTDETAIL test. The full per-report drill-down must surface EVERY captured
-// field: friendly match label, identity, fuel breakdown + confidence, climb,
+// field: friendly match label, identity, fuel breakdown + confidence, auto,
 // defense, fouls/flags, notes, and the read-only auto field diagram.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -21,11 +21,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 22,
     fuel_estimate_confidence: 0.3,
     fuel_by_shift: [1, 2, 3, 4],
-    climb_level: 3,
-    climb_attempted: true,
-    climb_success: true,
     auto_left_starting_line: true,
-    auto_climb_level1: false,
     defense_rating: 8,
     driver_skill: 10,
     agility: 7,
@@ -75,10 +71,10 @@ describe('ReportDetail', () => {
     expect(text).toContain('Fed corral');
   });
 
-  it('shows climb, defense, pins', () => {
+  it('shows auto, defense, pins', () => {
     const { getByTestId } = render(<ReportDetail report={row({})} />);
     const text = getByTestId('report-detail').textContent ?? '';
-    expect(text).toContain('L3');
+    expect(text).toContain('Left starting line');
     expect(text).toContain('Defense rating');
     expect(text).toContain('8/10');
     expect(text).toContain('10/10');
@@ -151,8 +147,6 @@ describe('ReportDetail', () => {
       isConflicted: severity === 'minor' || severity === 'severe',
       divergences: {
         fuel_spread: 6,
-        climb_success_divergent: true,
-        climb_level_spread: 0,
         defense_spread: 0,
         no_show_divergent: false,
         died_divergent: false,
@@ -162,8 +156,8 @@ describe('ReportDetail', () => {
     };
   }
 
-  const a = row({ scout_id: 'a', fuel_points: 14, climb_success: true, climb_level: 3 });
-  const b = row({ scout_id: 'b', fuel_points: 8, climb_success: false, climb_level: 0 });
+  const a = row({ scout_id: 'a', fuel_points: 14 });
+  const b = row({ scout_id: 'b', fuel_points: 8 });
 
   it('renders the conflict banner + a sibling button per sibling, and fires onOpenSibling', () => {
     const onOpenSibling = vi.fn();

@@ -24,7 +24,7 @@ describe('buildComparisonData', () => {
     );
   });
 
-  it('splits expected points into auto fuel, later fuel, and climb without changing the total', () => {
+  it('splits expected points into auto fuel and later fuel without changing the total', () => {
     const [data] = buildComparisonData([
       team(
         254,
@@ -34,8 +34,7 @@ describe('buildComparisonData', () => {
           meanTeleopFuelActive: 30,
           meanEndgameFuel: 10,
           meanFuelPoints: 80,
-          meanClimbPoints: 20,
-          scoutingExpectedPoints: 100,
+          scoutingExpectedPoints: 80,
         },
         94,
       ),
@@ -43,9 +42,8 @@ describe('buildComparisonData', () => {
 
     expect(data.scoring.auto).toBeCloseTo(16);
     expect(data.scoring.teleopEndgame).toBeCloseTo(64);
-    expect(data.scoring.climb).toBe(20);
     expect(
-      data.scoring.auto + data.scoring.teleopEndgame + data.scoring.climb,
+      data.scoring.auto + data.scoring.teleopEndgame,
     ).toBeCloseTo(data.scoring.expected);
     expect(data.scoring.epa).toBe(94);
   });
@@ -54,12 +52,10 @@ describe('buildComparisonData', () => {
     const [data] = buildComparisonData([
       team(1678, {
         reliability: 0.75,
-        climbSuccessRate: 0.5,
         avgDefenseRating: 8,
       }),
     ]);
     expect(data.reliability).toBe(0.75);
-    expect(data.climbSuccess).toBe(0.5);
     expect(data.defenseRating).toBe(8);
   });
 

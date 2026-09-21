@@ -34,7 +34,7 @@ beforeEach(async () => {
   await db.drafts.clear();
 });
 
-// The wizard is a 5-step flow: Climb -> Defense -> Fouls/flags -> Auto -> Summary.
+// The wizard is a 3-step flow: Ratings -> Auto -> Fouls/flags + Summary.
 // `goToFinalStep` clicks Next until the SAVE step is reached.
 async function goToFinalStep() {
   // 4 Next clicks: step 1 -> 2 -> 3 -> 4 -> 5.
@@ -47,12 +47,12 @@ async function goToFinalStep() {
 }
 
 describe('ReviewScreen', () => {
-  it('renders climb on step 1 and saves from final step, calling onSaved with an id', async () => {
+  it('renders ratings on step 1 and saves from final step, calling onSaved with an id', async () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);
 
-    // Step 1 shows climb; summary/save live on the final step.
-    expect(screen.getByTestId('review-climb')).toBeTruthy();
+    // Step 1 shows ratings; summary/save live on the final step.
+    expect(screen.getByTestId('review-ratings')).toBeTruthy();
     expect(screen.getByTestId('review-step')).toBeTruthy();
     expect(screen.queryByTestId('review-save')).toBeNull();
 
@@ -86,20 +86,20 @@ describe('ReviewScreen', () => {
     const onSaved = vi.fn();
     render(<Host onSaved={onSaved} initInactiveFirst={false} />);
 
-    expect(screen.getByTestId('review-climb')).toBeTruthy();
+    expect(screen.getByTestId('review-ratings')).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('review-next'));
     });
-    // Step 2 shows defense fields, not climb.
+    // Step 2 shows the auto path, not ratings.
     expect(screen.getByTestId('review-field-path')).toBeTruthy();
-    expect(screen.queryByTestId('review-climb')).toBeNull();
+    expect(screen.queryByTestId('review-ratings')).toBeNull();
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('review-back'));
     });
     // Back to step 1.
-    expect(screen.getByTestId('review-climb')).toBeTruthy();
+    expect(screen.getByTestId('review-ratings')).toBeTruthy();
   });
 
   it('captures and persists granular 1–10 qualitative ratings', async () => {
@@ -255,29 +255,3 @@ describe('ReviewScreen', () => {
   });
 });
 
-describe('ReviewScreen climb', () => {
-  it('updates climb level on click and persists into saved report', async () => {
-    const onSaved = vi.fn();
-    render(<Host onSaved={onSaved} />);
-
-    const climb = screen.getByTestId('review-climb');
-    await act(async () => {
-      fireEvent.click(climb.querySelectorAll('button')[3]); // level 3
-    });
-    await waitFor(() =>
-      expect((climb.querySelectorAll('button')[3] as HTMLButtonElement).className).toContain(
-        'bg-primary',
-      ),
-    );
-
-    await goToFinalStep();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('review-save'));
-    });
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-
-    const reports = await listReports();
-    expect(reports[0].climbLevel).toBe(3);
-  });
-});

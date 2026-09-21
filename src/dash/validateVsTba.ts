@@ -5,20 +5,18 @@
 // lead can spot a missed robot, a fat-fingered fuel count, or a double-count.
 //
 // NO React, NO I/O. NO new wire fields (mapReport.ts untouched), NO scoring
-// duplication — the climb math is REUSED from aggregate.ts (`climbPointsForMatch`,
-// which reads the frozen SCORING.CLIMB table), and `fuel_points` is the
-// server-recomputed aggregate the dashboard already displays. This is a PARALLEL
-// read of the same MsrRow rows + the official score off the MatchRow.
+// duplication — `fuel_points` is the server-recomputed aggregate the dashboard
+// already displays. This is a PARALLEL read of the same MsrRow rows + the
+// official score off the MatchRow.
 //
 // IMPORTANT — what this compares (and what it does NOT): our scouted "offensive"
-// points = Σ(fuel_points + climb) across the alliance's robots. The OFFICIAL TBA
-// score also includes points we never scout (auto mobility, fouls AWARDED from
-// the opposing alliance, etc.), so a scouted sum is expected to run a bit UNDER
+// points = Σ(fuel_points) across the alliance's robots. The OFFICIAL TBA
+// score also includes points we never scout (auto mobility, climbs, fouls
+// AWARDED from the opposing alliance, etc.), so a scouted sum is expected to run UNDER
 // the official total. The tolerances below are therefore generous: this is a
 // gross-error sanity check, not an exact reconciliation. The labels say as much.
 
 import type { MsrRow } from './types';
-import { climbPointsForMatch } from './aggregate';
 
 // --- Tunable thresholds (exported so tests + UI share the exact same numbers).
 /** Absolute points band: within ± this of the official score is a match. */
@@ -54,7 +52,7 @@ export interface AllianceScoreCheck {
   allianceColor: 'red' | 'blue';
   /** distinct robots (by station) with a live report on this alliance. */
   scoutedRobots: number;
-  /** Σ(fuel_points + climb) across the deduped reports — our scouted offense. */
+  /** Σ(fuel_points) across the deduped reports — our scouted offense. */
   scoutedOffensePoints: number;
   /** official alliance score off the MatchRow, or null when unplayed. */
   officialScore: number | null;
@@ -108,10 +106,9 @@ function dedupeByStation(reports: MsrRow[]): MsrRow[] {
   return Array.from(byStation.values());
 }
 
-/** Scouted offensive points for one report = fuel_points + per-match climb. */
+/** Scouted offensive points for one report = fuel_points. */
 function offenseOf(r: MsrRow): number {
-  const fuel = Number.isFinite(r.fuel_points) ? r.fuel_points : 0;
-  return fuel + climbPointsForMatch(r);
+  return Number.isFinite(r.fuel_points) ? r.fuel_points : 0;
 }
 
 /**

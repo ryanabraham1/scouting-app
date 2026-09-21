@@ -14,9 +14,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 12.5,
     meanFuelConfidence: 1,
-    climbSuccessRate: 0.5,
-    avgClimbLevel: 2,
-    meanClimbPoints: 8,
     avgDefenseRating: 3,
     noShowRate: 0,
     diedRate: 0,
@@ -31,9 +28,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -46,9 +40,8 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
 
 describe('rankSortValue', () => {
   it('returns the agg field for each non-EPA key', () => {
-    const a = agg({ scoutingExpectedPoints: 30, climbSuccessRate: 0.75, avgDefenseRating: 4 });
+    const a = agg({ scoutingExpectedPoints: 30, avgDefenseRating: 4 });
     expect(rankSortValue({ agg: a, epa: 99 }, 'scoutingExpectedPoints')).toBe(30);
-    expect(rankSortValue({ agg: a, epa: 99 }, 'climbSuccessRate')).toBe(0.75);
     expect(rankSortValue({ agg: a, epa: 99 }, 'avgDefenseRating')).toBe(4);
   });
 

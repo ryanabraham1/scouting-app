@@ -49,11 +49,7 @@ export interface MsrRow {
   fuel_estimate_confidence: number | null;
   fuel_by_shift: number[];
 
-  climb_level: number;
-  climb_attempted: boolean;
-  climb_success: boolean;
   auto_left_starting_line: boolean;
-  auto_climb_level1: boolean;
 
   defense_rating: number;
   // Subjective super-scout ratings (1–10; 0 = not rated). Optional: legacy rows /
@@ -167,8 +163,8 @@ export interface MatchScoutCoverage {
  *                boolean disagreement). Distinct from `agree` so absence of
  *                evidence isn't conflated with a confirmed match.
  *  - `minor`   — at least one metric diverges, below the severe threshold.
- *  - `severe`  — a categorical disagreement (no-show, died, climb success, or a
- *                large fuel/defense spread).
+ *  - `severe`  — a categorical disagreement (no-show, died, or a large
+ *                fuel/defense spread).
  */
 export type ConflictSeverity = 'agree' | 'unknown' | 'minor' | 'severe';
 
@@ -176,10 +172,6 @@ export type ConflictSeverity = 'agree' | 'unknown' | 'minor' | 'severe';
 export interface ConflictDivergences {
   /** max−min of comparable `fuel_points` across the deduped reports (0 when <2). */
   fuel_spread: number;
-  /** scouts disagree on whether the climb succeeded. */
-  climb_success_divergent: boolean;
-  /** max−min of `climb_level` among the successful climbs (0 when <2). */
-  climb_level_spread: number;
   /** max−min of comparable `defense_rating` (0 when <2). */
   defense_spread: number;
   no_show_divergent: boolean;

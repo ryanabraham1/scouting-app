@@ -12,8 +12,6 @@ describe('seed-demo canonical report generation', () => {
       schemaVersion: SCHEMA_VERSION,
       inactiveFirst: false,
       fuelBursts: bursts,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
     });
 
@@ -28,9 +26,9 @@ describe('seed-demo canonical report generation', () => {
     expect(bursts.every((burst) => burst.rate >= 0 && burst.rate <= 30)).toBe(true);
   });
 
-  it('subtracts both climb phases and zeroes no-shows', () => {
-    expect(demoFuelFromAttribution(100, 30, true, false)).toBe(55);
-    expect(demoFuelFromAttribution(10, 30, true, false)).toBe(0);
-    expect(demoFuelFromAttribution(100, 30, true, true)).toBe(0);
+  it('passes attributed points through as fuel and zeroes no-shows', () => {
+    expect(demoFuelFromAttribution(100, false)).toBe(100);
+    expect(demoFuelFromAttribution(-5, false)).toBe(0);
+    expect(demoFuelFromAttribution(100, true)).toBe(0);
   });
 });

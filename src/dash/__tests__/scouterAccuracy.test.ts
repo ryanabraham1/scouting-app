@@ -27,11 +27,7 @@ function makeRow(over: Partial<MsrRow> = {}): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -148,18 +144,6 @@ describe('aggregateScouterAccuracy', () => {
     expect(acc.get('c')!.fuelAgreeRate).toBe(0); // |12-6|=6 > 5
   });
 
-  it('climb mode: two say (success,L2), one (fail,L0) → consensus 1:2', () => {
-    const reports = [
-      makeRow({ scout_id: 'a', match_key: 'qm1', target_team_number: 1, climb_success: true, climb_level: 2 }),
-      makeRow({ scout_id: 'b', match_key: 'qm1', target_team_number: 1, climb_success: true, climb_level: 2 }),
-      makeRow({ scout_id: 'c', match_key: 'qm1', target_team_number: 1, climb_success: false, climb_level: 0 }),
-    ];
-    const acc = aggregateScouterAccuracy(reports);
-    expect(acc.get('a')!.climbAgreeRate).toBe(1);
-    expect(acc.get('b')!.climbAgreeRate).toBe(1);
-    expect(acc.get('c')!.climbAgreeRate).toBe(0);
-  });
-
   it('defense ±1: unrated 0 is excluded; 1/1/2 agree with mode 1 and 3 disagrees', () => {
     const reports = [
       makeRow({ scout_id: 'a', match_key: 'qm1', target_team_number: 1, defense_rating: 0 }),
@@ -197,7 +181,7 @@ describe('aggregateScouterAccuracy', () => {
     expect(acc.get('a')!.provisional).toBe(false);
   });
 
-  it('no_show/died excluded from fuel/climb eligibility but not defense', () => {
+  it('no_show/died excluded from fuel eligibility but not defense', () => {
     // Two scouts: 'a' reports normally, 'b' is a no-show on the same robot.
     const reports = [
       makeRow({
@@ -205,8 +189,6 @@ describe('aggregateScouterAccuracy', () => {
         match_key: 'qm1',
         target_team_number: 1,
         fuel_points: 50,
-        climb_success: true,
-        climb_level: 1,
         defense_rating: 2,
       }),
       makeRow({
@@ -215,8 +197,6 @@ describe('aggregateScouterAccuracy', () => {
         target_team_number: 1,
         no_show: true,
         fuel_points: 0,
-        climb_success: false,
-        climb_level: 0,
         defense_rating: 2,
       }),
     ];
@@ -225,17 +205,14 @@ describe('aggregateScouterAccuracy', () => {
     expect(b.overlaps).toBe(1);
     expect(b.fuelElig).toBe(0); // excluded from fuel
     expect(b.fuelAgreeRate).toBeNull();
-    expect(b.climbElig).toBe(0); // excluded from climb
-    expect(b.climbAgreeRate).toBeNull();
     expect(b.defenseElig).toBe(1); // still defense-eligible
     expect(b.defenseAgreeRate).toBe(1); // both rated 2 → consensus 2, agrees
     // 'a' fuel consensus is over only the one scored report → mean 50, agrees
     const a = acc.get('a')!;
     expect(a.fuelAgreeRate).toBe(1);
-    expect(a.climbAgreeRate).toBe(1);
   });
 
-  it('all-eligible-but-undefined fuel/climb (both no_show) → those rates null, no throw', () => {
+  it('all-eligible-but-undefined fuel (both no_show) → that rate null, no throw', () => {
     const reports = [
       makeRow({ scout_id: 'a', match_key: 'qm1', target_team_number: 1, no_show: true, defense_rating: 1 }),
       makeRow({ scout_id: 'b', match_key: 'qm1', target_team_number: 1, no_show: true, defense_rating: 1 }),
@@ -243,7 +220,6 @@ describe('aggregateScouterAccuracy', () => {
     const acc = aggregateScouterAccuracy(reports);
     const a = acc.get('a')!;
     expect(a.fuelAgreeRate).toBeNull();
-    expect(a.climbAgreeRate).toBeNull();
     expect(a.defenseAgreeRate).toBe(1);
     // overall = mean of only the defense signal
     expect(a.overallAgreeRate).toBe(1);
@@ -256,12 +232,9 @@ describe('aggregateScouterAccuracy', () => {
       overlaps: 1,
       fuelAgree: 0,
       fuelElig: 0,
-      climbAgree: 0,
-      climbElig: 0,
       defenseAgree: 0,
       defenseElig: 0,
       fuelAgreeRate: null,
-      climbAgreeRate: null,
       defenseAgreeRate: null,
       overallAgreeRate: null,
       provisional: true,
@@ -291,12 +264,9 @@ describe('mergeAccuracy', () => {
       overlaps: 2,
       fuelAgree: 1,
       fuelElig: 2,
-      climbAgree: 0,
-      climbElig: 0,
       defenseAgree: 0,
       defenseElig: 0,
       fuelAgreeRate: 0.5,
-      climbAgreeRate: null,
       defenseAgreeRate: null,
       overallAgreeRate: 0.5,
       provisional: true,
@@ -306,12 +276,9 @@ describe('mergeAccuracy', () => {
       overlaps: 3,
       fuelAgree: 2,
       fuelElig: 3,
-      climbAgree: 0,
-      climbElig: 0,
       defenseAgree: 0,
       defenseElig: 0,
       fuelAgreeRate: 2 / 3,
-      climbAgreeRate: null,
       defenseAgreeRate: null,
       overallAgreeRate: 2 / 3,
       provisional: false,

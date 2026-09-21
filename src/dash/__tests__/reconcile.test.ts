@@ -29,11 +29,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -87,8 +83,8 @@ describe('detectMultiScoutReports — grouping', () => {
 describe('detectMultiScoutReports — severity', () => {
   it('two scouts agree → one group, severity agree, not conflicted', () => {
     const reports = [
-      row({ ...ROBOT, scout_id: 'a', fuel_points: 12, climb_success: true, climb_level: 2, defense_rating: 1 }),
-      row({ ...ROBOT, scout_id: 'b', fuel_points: 12, climb_success: true, climb_level: 2, defense_rating: 1 }),
+      row({ ...ROBOT, scout_id: 'a', fuel_points: 12, defense_rating: 1 }),
+      row({ ...ROBOT, scout_id: 'b', fuel_points: 12, defense_rating: 1 }),
     ];
     const groups = detectMultiScoutReports(reports);
     expect(groups).toHaveLength(1);
@@ -118,16 +114,6 @@ describe('detectMultiScoutReports — severity', () => {
       row({ ...ROBOT, scout_id: 'b', fuel_points: 14 }),
     ];
     expect(detectMultiScoutReports(reports)[0].severity).toBe('severe');
-  });
-
-  it('climb success disagreement → severe', () => {
-    const reports = [
-      row({ ...ROBOT, scout_id: 'a', climb_success: true, climb_level: 3, fuel_points: 10 }),
-      row({ ...ROBOT, scout_id: 'b', climb_success: false, climb_level: 0, fuel_points: 10 }),
-    ];
-    const g = detectMultiScoutReports(reports)[0];
-    expect(g.divergences.climb_success_divergent).toBe(true);
-    expect(g.severity).toBe('severe');
   });
 
   it('no-show disagreement → severe', () => {
@@ -169,8 +155,7 @@ describe('detectMultiScoutReports — null guards & comparand', () => {
   });
 
   it('all-null numeric overlap with no boolean divergence → unknown (false-negative guard)', () => {
-    // fuel_points null on both, climb both unsuccessful (no level overlap),
-    // defense_rating null on at least one side, no flag disagreement.
+    // fuel_points null on both, defense_rating null on at least one side, no flag disagreement.
     const reports = [
       row({ ...ROBOT, scout_id: 'a', fuel_points: null as unknown as number, defense_rating: null as unknown as number }),
       row({ ...ROBOT, scout_id: 'b', fuel_points: null as unknown as number, defense_rating: null as unknown as number }),
@@ -254,12 +239,11 @@ describe('classifySeverity — threshold branches', () => {
 describe('formatDivergences', () => {
   it('emits real-value lines for the divergent metrics', () => {
     const g = detectMultiScoutReports([
-      row({ ...ROBOT, scout_id: 'a', fuel_points: 14, climb_success: true, climb_level: 3, defense_rating: 4, no_show: false }),
-      row({ ...ROBOT, scout_id: 'b', fuel_points: 8, climb_success: false, climb_level: 0, defense_rating: 1, no_show: true }),
+      row({ ...ROBOT, scout_id: 'a', fuel_points: 14, defense_rating: 4, no_show: false }),
+      row({ ...ROBOT, scout_id: 'b', fuel_points: 8, defense_rating: 1, no_show: true }),
     ])[0];
     const lines = formatDivergences(g);
     expect(lines).toContain('Fuel: 14 vs 8 pts');
-    expect(lines.some((l) => l.startsWith('Climb:'))).toBe(true);
     expect(lines.some((l) => l.startsWith('Defense:'))).toBe(true);
     expect(lines.some((l) => l.startsWith('No-show:'))).toBe(true);
   });

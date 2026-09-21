@@ -62,14 +62,6 @@ export function computeDivergences(reports: MsrRow[]): ConflictDivergences {
   const fuels = num(reports.map((r) => r.fuel_points));
   const fuel_spread = fuels.length >= 2 ? Math.max(...fuels) - Math.min(...fuels) : 0;
 
-  // Climb: categorical success disagreement OR level spread among successes.
-  const climbSuccesses = reports.map((r) => r.climb_success === true);
-  const climb_success_divergent =
-    climbSuccesses.some((x) => x) && climbSuccesses.some((x) => !x);
-  const climbLevels = num(reports.filter((r) => r.climb_success).map((r) => r.climb_level));
-  const climb_level_spread =
-    climbLevels.length >= 2 ? Math.max(...climbLevels) - Math.min(...climbLevels) : 0;
-
   const defenses = num(reports.map((r) => r.defense_rating)).filter((rating) => rating > 0);
   const defense_spread = defenses.length >= 2 ? Math.max(...defenses) - Math.min(...defenses) : 0;
 
@@ -84,18 +76,14 @@ export function computeDivergences(reports: MsrRow[]): ConflictDivergences {
 
   // How many metrics were actually comparable (≥2 scouts had a usable value).
   // Booleans are always defined-vs-default comparable; the 3 below are
-  // no_show / died / tipped. climb_success is a tri-state covered by
-  // climb_success_divergent and not counted here.
+  // no_show / died / tipped.
   const comparable_metric_count =
     (fuels.length >= 2 ? 1 : 0) +
-    (climbLevels.length >= 2 ? 1 : 0) +
     (defenses.length >= 2 ? 1 : 0) +
     3;
 
   return {
     fuel_spread,
-    climb_success_divergent,
-    climb_level_spread,
     defense_spread,
     no_show_divergent,
     died_divergent,
@@ -114,14 +102,12 @@ export function classifySeverity(d: ConflictDivergences): ConflictSeverity {
   const severe =
     d.no_show_divergent ||
     d.died_divergent ||
-    d.climb_success_divergent ||
     d.fuel_spread >= FUEL_SEVERE_PTS ||
     d.defense_spread >= DEFENSE_SEVERE;
   if (severe) return 'severe';
 
   const minor =
     d.fuel_spread >= FUEL_MINOR_PTS ||
-    d.climb_level_spread >= 1 ||
     d.defense_spread >= 1 ||
     d.tipped_divergent;
   if (minor) return 'minor';
@@ -131,14 +117,12 @@ export function classifySeverity(d: ConflictDivergences): ConflictSeverity {
   // disagreement) — see the comparand/false-negative note above.
   const noNumericOverlap =
     !(d.fuel_spread > 0) &&
-    !(d.climb_level_spread > 0) &&
     !(d.defense_spread > 0) &&
     d.comparable_metric_count <= 3; // only the always-on booleans were comparable
   const noBooleanDivergence =
     !d.no_show_divergent &&
     !d.died_divergent &&
-    !d.tipped_divergent &&
-    !d.climb_success_divergent;
+    !d.tipped_divergent;
   if (noNumericOverlap && noBooleanDivergence) return 'unknown';
   return 'agree';
 }
@@ -214,15 +198,10 @@ export function severityLabel(s: ConflictSeverity): string {
   }
 }
 
-/** "L3" / "none" — climb summary for one report. */
-function climbText(r: MsrRow): string {
-  return r.climb_success ? `L${r.climb_level}` : 'none';
-}
-
 /**
  * Build the per-metric divergence lines for the tooltip / banner from the
  * deduped reports' ACTUAL values (not the spread numbers), so the lead sees the
- * real figures, e.g. `Fuel: 14 vs 8 pts`, `Climb: L3 vs none`, `Defense: 4 vs 1`.
+ * real figures, e.g. `Fuel: 14 vs 8 pts`, `Defense: 4 vs 1`.
  * Only lines for metrics that actually diverge are emitted.
  */
 export function formatDivergences(group: MultiScoutGroup): string[] {
@@ -232,9 +211,6 @@ export function formatDivergences(group: MultiScoutGroup): string[] {
   if (d.fuel_spread > 0) {
     const fuels = num(reports.map((r) => r.fuel_points));
     lines.push(`Fuel: ${fuels.map((x) => Math.round(x)).join(' vs ')} pts`);
-  }
-  if (d.climb_success_divergent || d.climb_level_spread > 0) {
-    lines.push(`Climb: ${reports.map(climbText).join(' vs ')}`);
   }
   if (d.defense_spread > 0) {
     const defs = num(reports.map((r) => r.defense_rating));

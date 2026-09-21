@@ -138,11 +138,11 @@ export interface NexusStatusResult {
 }
 
 /**
- * A full reports download is re-done at most this often; every other refetch
- * is incremental (only rows whose `server_received_at` moved past the newest
- * cached one). The full pass is the belt-and-braces reconcile for anything an
- * incremental pass cannot see (a hard delete, a row edited without its stamp
- * moving). Exported for tests.
+ * Incremental refetches (only rows whose `server_received_at` moved past the
+ * newest cached one) run for this long before the next reconcile pass. The
+ * reconcile catches what an incremental pass cannot see — a hard delete
+ * (`delete_scout` / roster removal) — by listing the live ids (~15 KB) instead
+ * of re-downloading every row (multi-MB). Exported for tests.
  */
 export const REPORTS_FULL_REFRESH_MS = 10 * 60_000;
 const reportsLastFullFetchAt = new Map<string, number>();
@@ -185,11 +185,14 @@ export function mergeReportRows(cached: MsrRow[], changed: MsrRow[]): MsrRow[] {
  * auto path polyline and fuel-burst timelines), and the live dashboard refetches
  * this query on EVERY report that lands — six times a match. On venue wifi that
  * was the lag: each realtime tick re-pulled everything, and a slow pull could
- * even hit the request timeout and fail. So after the first full load, a refetch
- * asks only for rows whose `server_received_at` is at or past the newest one we
- * hold (the RPC bumps that stamp on every insert, edit and soft-delete) and
- * merges them into the cached list — typically a few KB. A full download is
- * repeated every REPORTS_FULL_REFRESH_MS as the reconcile.
+ * even hit the request timeout and fail. So the full download happens ONCE per
+ * event per device (the persisted React Query cache carries it across reloads);
+ * every later refetch asks only for rows whose `server_received_at` is at or
+ * past the newest one we hold (the RPC bumps that stamp on every insert, edit
+ * and soft-delete) and merges them into the cached list — typically a few KB.
+ * Every REPORTS_FULL_REFRESH_MS the incremental pass is paired with a live id
+ * list so hard-deleted rows drop out; only an id we cannot account for (a row
+ * whose stamp landed behind our high-water mark) forces a real full download.
  */
 export function useEventReports(eventKey: string | null): UseQueryResult<MsrRow[]> {
   const client = useQueryClient();
@@ -202,33 +205,57 @@ export function useEventReports(eventKey: string | null): UseQueryResult<MsrRow[
       const cached = client.getQueryData<MsrRow[]>(['reports', key]);
       const since = cached && cached.length > 0 ? newestServerReceivedAt(cached) : null;
       const lastFull = reportsLastFullFetchAt.get(key) ?? 0;
-      const incremental = since !== null && Date.now() - lastFull < REPORTS_FULL_REFRESH_MS;
+      const reconcile = since !== null && Date.now() - lastFull >= REPORTS_FULL_REFRESH_MS;
 
-      if (incremental) {
+      const fetchFull = async (): Promise<MsrRow[]> => {
         const { data, error } = await supabase
           .from('match_scouting_report')
           .select('*')
           .eq('event_key', key)
-          .gte('server_received_at', since as string);
-        if (error) throw error;
-        return mergeReportRows(cached as MsrRow[], (data ?? []) as MsrRow[]);
-      }
+          .eq('deleted', false);
+        if (error) {
+          throw error;
+        }
+        reportsLastFullFetchAt.set(key, Date.now());
+        return (data ?? []) as MsrRow[];
+      };
 
+      if (since === null) return fetchFull();
+
+      // Reconcile: the live id list is issued first so a hard delete that
+      // raced the incremental pull still drops out.
+      const liveIdsPromise = reconcile
+        ? supabase
+            .from('match_scouting_report')
+            .select('id')
+            .eq('event_key', key)
+            .eq('deleted', false)
+        : null;
       const { data, error } = await supabase
         .from('match_scouting_report')
         .select('*')
         .eq('event_key', key)
-        .eq('deleted', false);
-      if (error) {
-        throw error;
+        .gte('server_received_at', since);
+      if (error) throw error;
+      const merged = mergeReportRows(cached as MsrRow[], (data ?? []) as MsrRow[]);
+      if (!liveIdsPromise) return merged;
+
+      const { data: idRows, error: idError } = await liveIdsPromise;
+      if (idError) throw idError;
+      const liveIds = new Set<string>();
+      for (const row of (idRows ?? []) as { id?: unknown }[]) {
+        if (typeof row.id === 'string') liveIds.add(row.id);
+      }
+      const known = new Set(merged.map((row) => row.id));
+      for (const id of liveIds) {
+        if (!known.has(id)) return fetchFull();
       }
       reportsLastFullFetchAt.set(key, Date.now());
-      return (data ?? []) as MsrRow[];
+      return merged.filter((row) => typeof row.id !== 'string' || liveIds.has(row.id));
     },
   });
 }
 
-/** Merge server notes with the local outbox without hiding a newer server edit. */
 export function mergeMatchupNotes(
   serverRows: MatchupNoteRow[],
   localRows: LocalMatchupNote[],
@@ -823,7 +850,7 @@ export function useEventEpa(
 
 /**
  * Component-EPA split inputs for a match (component-epa-estimation feature §9).
- *  - `fraction`: the event-wide fitted auto/fuel/climb fraction (plain OBJECT, no
+ *  - `fraction`: the event-wide fitted auto/fuel fraction (plain OBJECT, no
  *    Map-rehydration concern) used for the no-scouting (EPA) split branch.
  *  - `defenseByTeam`: scouting-only defender suppression points per team (null
  *    when unscouted → renders `—`). A nested Map that round-trips via

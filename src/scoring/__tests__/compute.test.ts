@@ -14,8 +14,6 @@ describe('computeAggregates — multi-burst, boundary-straddle, round-half-up pe
   const input: MatchReportInputs = {
     schemaVersion: 1,
     inactiveFirst: true, // Legacy field is intentionally ignored.
-    climbLevel: 0,
-    autoClimbLevel1: false,
     noShow: false,
     fuelBursts: [
       // auto: 4.5 fuel -> rounds half-up to 5
@@ -73,8 +71,6 @@ describe('computeAggregates — round-half-up boundary (.5 always up, not banker
     const agg = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [{ startMs: 0, endMs: 1000, rate: 0.5, window: 'auto' }], // 0.5
     });
@@ -85,8 +81,6 @@ describe('computeAggregates — round-half-up boundary (.5 always up, not banker
     const agg = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: true,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [],
     });
@@ -113,8 +107,6 @@ describe('computeAggregates — no-show server parity', () => {
     const agg = computeAggregates({
       schemaVersion: 2,
       inactiveFirst: false,
-      climbLevel: 3,
-      autoClimbLevel1: true,
       noShow: true,
       fuelBursts,
     });
@@ -136,8 +128,6 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
     const agg = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [{
         startMs: 0,
@@ -156,8 +146,6 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
     const below = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [{
         startMs: 0,
@@ -169,8 +157,6 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
     const atBoundary = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [{
         startMs: 0,
@@ -188,8 +174,6 @@ describe('computeAggregates — PostgreSQL nano-rate fixed-point parity', () => 
     const agg = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [
         { startMs: 0, endMs: 1000, rate: 0.24999999975, window: 'auto' },
@@ -206,8 +190,6 @@ describe('computeAggregates — legacy inactiveFirst does not change scoring', (
   const input: MatchReportInputs = {
     schemaVersion: 1,
     inactiveFirst: false,
-    climbLevel: 0,
-    autoClimbLevel1: false,
     noShow: false,
     fuelBursts: [
       // auto: 4.5 fuel -> rounds half-up to 5
@@ -260,8 +242,6 @@ describe('computeAggregates — negative-duration bursts contribute ZERO fuel', 
     const agg = computeAggregates({
       schemaVersion: 1,
       inactiveFirst: false,
-      climbLevel: 0,
-      autoClimbLevel1: false,
       noShow: false,
       fuelBursts: [
         { startMs: 0, endMs: 4000, rate: 1.0, window: 'auto' }, // 4.0 fuel

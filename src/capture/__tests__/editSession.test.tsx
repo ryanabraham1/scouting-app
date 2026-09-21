@@ -49,13 +49,9 @@ function makeSavedReport(overrides: Partial<LocalMatchReport> = {}): LocalMatchR
     fuelByShift: [0, 0, 0, 0],
     fuelPoints: 0,
     fuelEstimateConfidence: 0.3,
-    climbLevel: 2,
-    climbAttempted: true,
-    climbSuccess: true,
     autoStartPosition: null,
     autoPath: null,
     autoLeftStartingLine: false,
-    autoClimbLevel1: false,
     intakeSources: [],
     maxFuelCapacityObserved: 0,
     defenseRating: 0,
@@ -125,13 +121,12 @@ describe('getReport round-trip (case 1)', () => {
 });
 
 describe('edit mode reconstitutes state (case 2)', () => {
-  it('loads climb/defense/notes/bursts from the existing report', async () => {
+  it('loads defense/notes/bursts from the existing report', async () => {
     await saveReport(makeSavedReport());
     const { result } = renderHook(() =>
       useCaptureSession({ ...target, editingReportId: 'report-edit-1' }),
     );
     await waitFor(() => expect(result.current.bursts.length).toBe(2));
-    expect(result.current.climbLevel).toBe(2);
     expect(result.current.defenseDurationMs).toBe(5000);
     expect(result.current.notes).toBe('x');
   });
@@ -271,7 +266,7 @@ describe('no draft leakage (case 5)', () => {
       bursts: [{ startMs: 0, endMs: 500, rate: 4, window: 'auto' }],
       inactiveFirst: true,
       rate: 2,
-      deferred: { climbLevel: 1 },
+      deferred: { foulsMinor: 1 },
     });
     await saveReport(makeSavedReport());
 
@@ -285,9 +280,9 @@ describe('no draft leakage (case 5)', () => {
 
     const draft = await getDraft(draftKey);
     expect(draft).toBeDefined();
-    const state = draft!.state as { bursts: FuelBurst[]; deferred: { climbLevel: number } };
+    const state = draft!.state as { bursts: FuelBurst[]; deferred: { foulsMinor: number } };
     expect(state.bursts).toHaveLength(1);
-    expect(state.deferred.climbLevel).toBe(1);
+    expect(state.deferred.foulsMinor).toBe(1);
   });
 });
 

@@ -16,9 +16,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 12.5,
     meanFuelConfidence: 1,
-    climbSuccessRate: 0.5,
-    avgClimbLevel: 2,
-    meanClimbPoints: 8,
     avgDefenseRating: 3,
     noShowRate: 0,
     diedRate: 0,
@@ -33,9 +30,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -51,19 +45,19 @@ describe('teamAggToCsv', () => {
     const csv = teamAggToCsv([]);
     const header = csv.split('\n')[0];
     expect(header).toBe(
-      'teamNumber,matchesScouted,scoutingExpectedPoints,meanFuelPoints,climbSuccessRate,avgDefenseRating,reliability',
+      'teamNumber,matchesScouted,scoutingExpectedPoints,meanFuelPoints,avgDefenseRating,reliability',
     );
   });
 
   it('emits one row per TeamAgg with the selected columns', () => {
     const csv = teamAggToCsv([
-      agg({ teamNumber: 254, matchesScouted: 3, scoutingExpectedPoints: 20.5, meanFuelPoints: 12.5, climbSuccessRate: 0.5, avgDefenseRating: 3, reliability: 1 }),
-      agg({ teamNumber: 1678, matchesScouted: 2, scoutingExpectedPoints: 10, meanFuelPoints: 6, climbSuccessRate: 0, avgDefenseRating: 2, reliability: 0.5 }),
+      agg({ teamNumber: 254, matchesScouted: 3, scoutingExpectedPoints: 20.5, meanFuelPoints: 12.5, avgDefenseRating: 3, reliability: 1 }),
+      agg({ teamNumber: 1678, matchesScouted: 2, scoutingExpectedPoints: 10, meanFuelPoints: 6, avgDefenseRating: 2, reliability: 0.5 }),
     ]);
     const lines = csv.split('\n');
     expect(lines.length).toBe(3); // header + 2
-    expect(lines[1]).toBe('254,3,20.5,12.5,0.5,3,1');
-    expect(lines[2]).toBe('1678,2,10,6,0,2,0.5');
+    expect(lines[1]).toBe('254,3,20.5,12.5,3,1');
+    expect(lines[2]).toBe('1678,2,10,6,2,0.5');
   });
 });
 

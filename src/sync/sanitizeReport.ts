@@ -1,5 +1,6 @@
 import { computeAggregates, type FuelBurst, type MatchWindow, type TimeInterval } from '@/scoring';
 import type { LocalMatchReport } from '@/db/types';
+import { roundFieldCoord } from '@/lib/fieldPoint';
 
 const AUTO_MS = 20_000;
 const TELEOP_MS = 140_000;
@@ -86,7 +87,10 @@ function sanitizePoint(value: unknown): { x: number; y: number } | null {
   ) {
     return null;
   }
-  return { x: clamp(point.x, -10, 10), y: clamp(point.y, -10, 10) };
+  return {
+    x: roundFieldCoord(clamp(point.x, -10, 10)),
+    y: roundFieldCoord(clamp(point.y, -10, 10)),
+  };
 }
 
 /** Keep both endpoints while reducing a long pointer trail to the DB limit. */
@@ -136,15 +140,11 @@ function sanitizeIntervals(value: unknown): TimeInterval[] {
 export function sanitizeMatchReport(report: LocalMatchReport): LocalMatchReport {
   const fuelBursts = sanitizeBursts(report.fuelBursts, 512);
   const feedingBursts = sanitizeBursts(report.feedingBursts, 256);
-  const climbLevel = boundedInteger(report.climbLevel, 0, 3) as 0 | 1 | 2 | 3;
   const noShow = report.noShow === true;
-  const autoClimbLevel1 = report.autoClimbLevel1 === true;
   const aggregates = computeAggregates({
     schemaVersion: report.schemaVersion,
     inactiveFirst: report.inactiveFirst === true,
     fuelBursts,
-    climbLevel,
-    autoClimbLevel1,
     noShow,
   });
 
@@ -165,13 +165,9 @@ export function sanitizeMatchReport(report: LocalMatchReport): LocalMatchReport 
     fuelBursts,
     feedingBursts,
     ...aggregates,
-    climbLevel,
-    climbAttempted: report.climbAttempted === true,
-    climbSuccess: report.climbSuccess === true,
     autoStartPosition: sanitizePoint(report.autoStartPosition),
     autoPath: sanitizeAutoPath(report.autoPath),
     autoLeftStartingLine: report.autoLeftStartingLine === true,
-    autoClimbLevel1,
     intakeSources: sanitizeStringArray(report.intakeSources, 16),
     maxFuelCapacityObserved: boundedInteger(report.maxFuelCapacityObserved, 0, 10_000),
     defenseRating: boundedInteger(report.defenseRating, 0, 10) as LocalMatchReport['defenseRating'],

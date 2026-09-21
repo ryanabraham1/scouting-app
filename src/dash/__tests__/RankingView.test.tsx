@@ -62,11 +62,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -85,10 +81,10 @@ function row(overrides: Partial<MsrRow>): MsrRow {
 /** Two scouted teams with clearly different fuel points so sort order is observable. */
 const reports: MsrRow[] = [
   // Team 254: high fuel points
-  row({ target_team_number: 254, fuel_points: 40, fuel_estimate_confidence: 1, climb_level: 3, climb_success: true, defense_rating: 4 }),
-  row({ target_team_number: 254, fuel_points: 50, fuel_estimate_confidence: 1, climb_level: 3, climb_success: true, defense_rating: 4 }),
+  row({ target_team_number: 254, fuel_points: 40, fuel_estimate_confidence: 1, defense_rating: 4 }),
+  row({ target_team_number: 254, fuel_points: 50, fuel_estimate_confidence: 1, defense_rating: 4 }),
   // Team 1678: lower fuel points
-  row({ target_team_number: 1678, fuel_points: 10, fuel_estimate_confidence: 1, climb_level: 1, climb_success: false, defense_rating: 2 }),
+  row({ target_team_number: 1678, fuel_points: 10, fuel_estimate_confidence: 1, defense_rating: 2 }),
 ];
 
 describe('RankingView', () => {
@@ -135,9 +131,8 @@ describe('RankingView', () => {
     expect(within(row9999).getByText('0')).toBeTruthy();
     const cells = within(row9999).getAllByRole('cell');
     expect(cells[3].textContent).toBe('—'); // expected points
-    expect(cells[4].textContent).toBe('—'); // climb
-    expect(cells[5].textContent).toBe('—'); // defense
-    expect(cells[6].textContent).toBe('—'); // reliability
+    expect(cells[4].textContent).toBe('—'); // defense
+    expect(cells[5].textContent).toBe('—'); // reliability
     // All three roster teams render (254 scouted, 1678 + 9999 EPA-only).
     const rows = getAllByTestId(/^ranking-row-/);
     const ids = rows.map((r) => r.getAttribute('data-testid'));
@@ -261,22 +256,12 @@ describe('RankingView', () => {
     expect(within(getByTestId('ranking-row-1678')).getByTestId('tba-1678').textContent).toBe('7');
   });
 
-  it('calls onSelectTeam with the team number when its cell button is clicked', () => {
+  it('links each row team number to its Analysis team page', () => {
     reportsReturn = { data: reports, isLoading: false };
-    const onSelectTeam = vi.fn();
-    const { getByTestId } = render(
-      <RankingView eventKey="2026casnv" onSelectTeam={onSelectTeam} />,
-    );
-    fireEvent.click(getByTestId('ranking-team-254'));
-    expect(onSelectTeam).toHaveBeenCalledWith(254);
-  });
-
-  it('renders the team number as plain text when onSelectTeam is absent', () => {
-    reportsReturn = { data: reports, isLoading: false };
-    const { queryByTestId, getByTestId } = render(<RankingView eventKey="2026casnv" />);
-    expect(queryByTestId('ranking-team-254')).toBeNull();
-    // The number is still shown in the row.
-    expect(within(getByTestId('ranking-row-254')).getByText('254')).toBeTruthy();
+    const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
+    const link = getByTestId('ranking-team-254');
+    expect(link.textContent).toBe('254');
+    expect(link).toHaveAttribute('href', '/analysis?tab=team&team=254');
   });
 
   it('shows helpful empty and single-team comparison states', () => {
@@ -323,7 +308,7 @@ describe('RankingView', () => {
       const { getByTestId, getAllByTestId } = render(<RankingView eventKey="2026casnv" />);
       // Default: every stat header renders.
       expect(getByTestId('sort-matchesScouted')).toBeTruthy();
-      expect(getByTestId('sort-climbSuccessRate')).toBeTruthy();
+      expect(getByTestId('sort-avgDefenseRating')).toBeTruthy();
       expect(getByTestId('sort-epa')).toBeTruthy();
       // The identity column is shown…
       expect(getByTestId('sort-teamNumber')).toBeTruthy();
@@ -338,7 +323,7 @@ describe('RankingView', () => {
       const { getByTestId, queryByTestId } = render(<RankingView eventKey="2026casnv" />);
       fireEvent.click(getByTestId('ranking-columns-toggle'));
       // A toggleable stat option exists…
-      expect(getByTestId('ranking-col-opt-climbSuccessRate')).toBeTruthy();
+      expect(getByTestId('ranking-col-opt-avgDefenseRating')).toBeTruthy();
       // …but the identity column has no checkbox.
       expect(queryByTestId('ranking-col-opt-teamNumber')).toBeNull();
     });
@@ -346,14 +331,14 @@ describe('RankingView', () => {
     it('toggling a column off hides its header and every body cell', () => {
       reportsReturn = { data: reports, isLoading: false };
       const { getByTestId, queryByTestId } = render(<RankingView eventKey="2026casnv" />);
-      // Climb % is visible to start.
-      expect(getByTestId('sort-climbSuccessRate')).toBeTruthy();
+      // Defense is visible to start.
+      expect(getByTestId('sort-avgDefenseRating')).toBeTruthy();
 
       fireEvent.click(getByTestId('ranking-columns-toggle'));
-      fireEvent.click(getByTestId('ranking-col-opt-climbSuccessRate'));
+      fireEvent.click(getByTestId('ranking-col-opt-avgDefenseRating'));
 
       // Header gone — the column is hidden for every row.
-      expect(queryByTestId('sort-climbSuccessRate')).toBeNull();
+      expect(queryByTestId('sort-avgDefenseRating')).toBeNull();
     });
 
     it('toggling a testid-bearing column off removes its body cells', () => {
@@ -373,13 +358,13 @@ describe('RankingView', () => {
       reportsReturn = { data: reports, isLoading: false };
       const first = render(<RankingView eventKey="2026casnv" />);
       fireEvent.click(first.getByTestId('ranking-columns-toggle'));
-      fireEvent.click(first.getByTestId('ranking-col-opt-climbSuccessRate'));
-      expect(first.queryByTestId('sort-climbSuccessRate')).toBeNull();
+      fireEvent.click(first.getByTestId('ranking-col-opt-avgDefenseRating'));
+      expect(first.queryByTestId('sort-avgDefenseRating')).toBeNull();
 
       // Re-mount fresh: the hidden choice is read back from localStorage.
       cleanup();
       const second = render(<RankingView eventKey="2026casnv" />);
-      expect(second.queryByTestId('sort-climbSuccessRate')).toBeNull();
+      expect(second.queryByTestId('sort-avgDefenseRating')).toBeNull();
       // Other columns are still visible.
       expect(second.getByTestId('sort-epa')).toBeTruthy();
     });
@@ -398,7 +383,7 @@ describe('RankingView', () => {
       localStorage.setItem('ranking-visible-columns', '{not valid json');
       reportsReturn = { data: reports, isLoading: false };
       const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
-      expect(getByTestId('sort-climbSuccessRate')).toBeTruthy();
+      expect(getByTestId('sort-avgDefenseRating')).toBeTruthy();
       expect(getByTestId('sort-epa')).toBeTruthy();
     });
   });

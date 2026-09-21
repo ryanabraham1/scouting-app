@@ -24,9 +24,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 12.5,
     meanFuelConfidence: 1,
-    climbSuccessRate: 0.5,
-    avgClimbLevel: 2,
-    meanClimbPoints: 8,
     avgDefenseRating: 3,
     noShowRate: 0,
     diedRate: 0,
@@ -41,9 +38,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -257,7 +251,6 @@ function row(overrides: Partial<PresetRow> & { rank: number; teamNumber: number 
     matchesScouted: null,
     expPts: null,
     fuelPts: null,
-    climbRate: null,
     defense: null,
     reliability: null,
     epa: null,
@@ -269,7 +262,7 @@ function row(overrides: Partial<PresetRow> & { rank: number; teamNumber: number 
 describe('allianceSheetToCsv', () => {
   it('emits the exact header', () => {
     expect(allianceSheetToCsv([], '2026demo').split('\n')[0]).toBe(
-      'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Climb %,Defense,Reliability,EPA,EPA Source',
+      'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Defense,Reliability,EPA,EPA Source',
     );
   });
 
@@ -287,7 +280,6 @@ describe('allianceSheetToCsv', () => {
           matchesScouted: 3,
           expPts: 20.5,
           fuelPts: 12.5,
-          climbRate: 0.5,
           defense: 3,
           reliability: 1,
           epa: 45.4,
@@ -298,9 +290,9 @@ describe('allianceSheetToCsv', () => {
       '2026demo',
     );
     const lines = csv.split('\n');
-    expect(lines[1]).toBe('1,254,Poofs,"San Jose, CA",A,shooter,3,20.5,12.5,50%,3.0,100%,45,statbotics');
+    expect(lines[1]).toBe('1,254,Poofs,"San Jose, CA",A,shooter,3,20.5,12.5,3.0,100%,45,statbotics');
     // unscouted row: numerics render em-dash
-    expect(lines[2]).toBe('2,9999,—,—,—,—,—,—,—,—,—,—,—,none');
+    expect(lines[2]).toBe('2,9999,—,—,—,—,—,—,—,—,—,—,none');
   });
 
   it('escapes commas/quotes in nickname and note like csvField', () => {
@@ -317,7 +309,7 @@ describe('allianceSheetToCsv', () => {
 describe('picklistToolCsv', () => {
   it('emits exact snake_case header', () => {
     expect(picklistToolCsv([]).split('\n')[0]).toBe(
-      'rank,team_number,nickname,tier,note,epa,epa_source,exp_points,fuel_points,climb_rate,defense,reliability,matches_scouted',
+      'rank,team_number,nickname,tier,note,epa,epa_source,exp_points,fuel_points,defense,reliability,matches_scouted',
     );
   });
 
@@ -330,7 +322,6 @@ describe('picklistToolCsv', () => {
         epaSource: 'local',
         expPts: 20.5,
         fuelPts: 12.5,
-        climbRate: 0.5,
         defense: 3,
         reliability: 0.8,
         matchesScouted: 3,
@@ -338,8 +329,8 @@ describe('picklistToolCsv', () => {
       row({ rank: 2, teamNumber: 9999 }), // unscouted → blanks
     ]);
     const lines = csv.split('\n');
-    expect(lines[1]).toBe('1,254,,,,45.4,local,20.5,12.5,0.5,3.0,0.8,3');
-    expect(lines[2]).toBe('2,9999,,,,,none,,,,,,');
+    expect(lines[1]).toBe('1,254,,,,45.4,local,20.5,12.5,3.0,0.8,3');
+    expect(lines[2]).toBe('2,9999,,,,,none,,,,,');
   });
 });
 

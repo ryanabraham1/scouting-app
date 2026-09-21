@@ -374,14 +374,13 @@ export const ENABLE_TBA_BREAKDOWN = false;
 
 /** Per-alliance component scores extracted from a single match's score_breakdown. */
 export interface RebuiltBreakdown {
-  red: { auto: number; fuelTeleop: number; climb: number };
-  blue: { auto: number; fuelTeleop: number; climb: number };
+  red: { auto: number; fuelTeleop: number };
+  blue: { auto: number; fuelTeleop: number };
 }
 
 /** Inferred 2026 REBUILT key candidates (TBA research; UNCONFIRMED). */
 const AUTO_FUEL_KEYS = ['autoFuelPoints', 'autoPoints'];
 const TELEOP_FUEL_KEYS = ['teleopFuelPoints', 'teleopPoints'];
-const CLIMB_KEYS = ['endgameClimbPoints', 'endgamePoints'];
 
 function firstFiniteKey(obj: Record<string, unknown>, keys: string[]): number | null {
   for (const k of keys) {
@@ -393,17 +392,16 @@ function firstFiniteKey(obj: Record<string, unknown>, keys: string[]): number | 
 
 function parseAlliance(
   raw: unknown,
-): { auto: number; fuelTeleop: number; climb: number } | null {
+): { auto: number; fuelTeleop: number } | null {
   if (!isObject(raw)) return null;
   const auto = firstFiniteKey(raw, AUTO_FUEL_KEYS);
   const fuelTeleop = firstFiniteKey(raw, TELEOP_FUEL_KEYS);
-  const climb = firstFiniteKey(raw, CLIMB_KEYS);
-  if (auto == null || fuelTeleop == null || climb == null) return null;
-  return { auto, fuelTeleop, climb };
+  if (auto == null || fuelTeleop == null) return null;
+  return { auto, fuelTeleop };
 }
 
 /**
- * Read per-alliance auto / teleop-fuel / climb points off ONE raw TBA match's
+ * Read per-alliance auto / teleop-fuel points off ONE raw TBA match's
  * `score_breakdown`. Returns `null` when the flag is off, the input is not a
  * usable object, or ANY expected key is missing/renamed (schema drift) — callers
  * fall back to the Tier-1 split. Pure; never throws. Plan §3B/§4.

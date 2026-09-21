@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, Plane, MoveUpRight, MapPin, X } from 'lucide-react';
+import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, MoveUpRight, MapPin, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import {
@@ -68,7 +68,6 @@ function undoActionLabel(event: CaptureEvent | undefined): string | null {
     case 'toggle': {
       const key = (event.payload as TogglePayload).key;
       if (key === 'autoLeftStartingLine') return 'left line';
-      if (key === 'autoClimbLevel1') return 'auto climb';
       return 'change';
     }
     default:
@@ -87,7 +86,6 @@ export type CaptureObservedAction =
   | 'go_pressed'
   | 'fuel_burst'
   | 'left_line'
-  | 'auto_climb'
   | 'feeding_burst'
   | 'defense_started'
   | 'defense_locked'
@@ -178,7 +176,6 @@ export function CaptureScreen(props: {
     onUndoFoul: () => s.setFoulsMinor(Math.max(0, s.foulsMinor - 1)),
     onUndoToggle: (p) => {
       if (p.key === 'autoLeftStartingLine') s.setAutoLeftStartingLine(p.prev);
-      if (p.key === 'autoClimbLevel1') s.setAutoClimbLevel1(p.prev);
     },
   });
 
@@ -675,18 +672,6 @@ export function CaptureScreen(props: {
               onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); props.onAction?.('left_line'); buzz(); }}
             >
               <MoveUpRight /> Left Line
-            </Button>
-          )}
-          {inAuto && (
-            <Button
-              data-testid="capture-auto-climb"
-              variant={s.autoClimbLevel1 ? 'default' : 'outline'}
-              aria-pressed={s.autoClimbLevel1}
-              size="big"
-              className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
-              onClick={() => { const prev = s.autoClimbLevel1; s.setAutoClimbLevel1(!prev); events.recordToggle({ key: 'autoClimbLevel1', value: !prev, prev }); props.onAction?.('auto_climb'); buzz(); }}
-            >
-              <Plane /> Auto Climb
             </Button>
           )}
         </div>

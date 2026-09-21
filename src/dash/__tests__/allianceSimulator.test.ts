@@ -10,7 +10,6 @@ import {
   FUEL_PARTIAL,
   DEFENSE_STRONG,
   DEFENSE_PARTIAL,
-  CLIMB_L23_POINTS,
   type SimulateInput,
 } from '@/dash/allianceSimulator';
 import { predictMatch } from '@/dash/predict';
@@ -30,9 +29,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     meanTotalFuel: 0,
     meanFuelPoints: 0,
     meanFuelConfidence: 1,
-    climbSuccessRate: 0,
-    avgClimbLevel: 0,
-    meanClimbPoints: 0,
     avgDefenseRating: 0,
     noShowRate: 0,
     diedRate: 0,
@@ -47,9 +43,6 @@ function agg(overrides: Partial<TeamAgg>): TeamAgg {
     stdDevFuelPoints: 0,
     minFuelPoints: 0,
     maxFuelPoints: 0,
-    stdDevClimbPoints: 0,
-    minClimbPoints: 0,
-    maxClimbPoints: 0,
     stdDevDefenseRating: 0,
     minDefenseRating: 0,
     maxDefenseRating: 0,
@@ -250,17 +243,6 @@ describe('classifyRoles thresholds', () => {
     expect(classifyRoles(agg({ avgDefenseRating: DEFENSE_STRONG }), undefined).defense).toBe('strong');
   });
 
-  it('climbL23 from pit climb_l3 + meanClimbPoints 17.9/18 → partial/strong', () => {
-    const p = pit({ capabilities: ['climb_l3'] });
-    expect(classifyRoles(agg({ meanClimbPoints: 17.9, avgClimbLevel: 1 }), p).climbL23).toBe('partial');
-    expect(classifyRoles(agg({ meanClimbPoints: CLIMB_L23_POINTS, avgClimbLevel: 1 }), p).climbL23).toBe('strong');
-  });
-
-  it('pit-claimed climb with 0 matches → partial', () => {
-    const p = pit({ capabilities: ['climb_l1'] });
-    expect(classifyRoles(agg({ matchesScouted: 0 }), p).climbL1).toBe('partial');
-  });
-
   it('auto: pit-claimed + meanAutoFuel >= 5 → strong; one signal → partial', () => {
     expect(classifyRoles(agg({ meanAutoFuel: 6 }), pit({ capabilities: ['auto'] })).auto).toBe('strong');
     expect(classifyRoles(agg({ meanAutoFuel: 0 }), pit({ capabilities: ['auto'] })).auto).toBe('partial');
@@ -278,14 +260,12 @@ describe('unknown roles', () => {
       auto: 'unknown',
       fuel: 'unknown',
       defense: 'unknown',
-      climbL1: 'unknown',
-      climbL23: 'unknown',
     });
   });
 });
 
 describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
-  const fraction = { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 };
+  const fraction = { fAuto: 0.2, fFuel: 0.8 };
 
   it('fills auto/fuel from the EPA estimate for an unscouted team; rest stay unknown', () => {
     const sim = simulateAlliance(
@@ -301,10 +281,8 @@ describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
     expect(r.source).toBe('epa');
     expect(r.roles.auto).toBe('partial');
     expect(r.roles.fuel).toBe('partial');
-    // EPA can't speak to defense/climb — those stay unknown ("?").
+    // EPA can't speak to defense — it stays unknown ("?").
     expect(r.roles.defense).toBe('unknown');
-    expect(r.roles.climbL1).toBe('unknown');
-    expect(r.roles.climbL23).toBe('unknown');
   });
 
   it('without a fitted fraction the estimate is absent → roles stay unknown', () => {
@@ -324,7 +302,6 @@ describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
     const roles = classifyRoles(undefined, undefined, {
       auto: 11,
       fuel: 39,
-      climb: null,
       defense: null,
       source: 'epa',
       provisional: true,
@@ -337,7 +314,6 @@ describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
     const roles = classifyRoles(undefined, undefined, {
       auto: 1,
       fuel: 5,
-      climb: null,
       defense: null,
       source: 'epa',
       provisional: true,
@@ -350,7 +326,6 @@ describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
     const roles = classifyRoles(undefined, undefined, {
       auto: 0,
       fuel: 0,
-      climb: null,
       defense: null,
       source: 'none',
       provisional: false,
@@ -368,7 +343,7 @@ describe('summarizeGaps', () => {
       hasPit: true,
       source: 'scouting',
       expected: 50,
-      roles: { auto: 'none', fuel: 'none', defense: 'none', climbL1: 'none', climbL23: 'none', ...roles },
+      roles: { auto: 'none', fuel: 'none', defense: 'none', ...roles },
       ...over,
     };
   }
@@ -377,8 +352,8 @@ describe('summarizeGaps', () => {
 
   it('two feeders + no scorer → gap text includes "feeders"', () => {
     const reads = [
-      read(1, { climbL23: 'strong' }),
-      read(2, { climbL23: 'strong' }),
+      read(1, { auto: 'strong' }),
+      read(2, { auto: 'strong' }),
       read(3, { defense: 'strong' }),
     ];
     const pits = new Map<number, TeamPit>([
@@ -390,41 +365,22 @@ describe('summarizeGaps', () => {
     expect(gaps.some((g) => g.text.toLowerCase().includes('feeder'))).toBe(true);
   });
 
-  it('no L2/L3 climber → "No L2/L3 climber"', () => {
-    const reads = [
-      read(1, { climbL1: 'strong', fuel: 'strong', defense: 'strong' }),
-      read(2, { climbL1: 'strong', fuel: 'strong' }),
-      read(3, { climbL1: 'strong', fuel: 'strong' }),
-    ];
-    const gaps = summarizeGaps(reads, new Map());
-    expect(gaps.some((g) => g.text === 'No L2/L3 climber')).toBe(true);
-  });
-
   it('all core roles covered → single Balanced alliance note', () => {
     const reads = [
-      read(1, { fuel: 'strong', defense: 'strong', climbL23: 'strong' }),
-      read(2, { fuel: 'strong', defense: 'strong', climbL23: 'strong' }),
-      read(3, { fuel: 'strong', defense: 'strong', climbL23: 'strong' }),
+      read(1, { fuel: 'strong', defense: 'strong' }),
+      read(2, { fuel: 'strong', defense: 'strong' }),
+      read(3, { fuel: 'strong', defense: 'strong' }),
     ];
-    // hasPit true so no match-only note; double-climb note also fires though →
-    // so check Balanced only fires when truly no gaps. Use single climbers to
-    // avoid the double-high note.
-    const reads2 = [
-      read(1, { fuel: 'strong', defense: 'strong', climbL23: 'strong' }),
-      read(2, { fuel: 'strong', defense: 'strong', climbL1: 'strong' }),
-      read(3, { fuel: 'strong', defense: 'strong', climbL1: 'strong' }),
-    ];
-    const gaps = summarizeGaps(reads2, new Map());
+    const gaps = summarizeGaps(reads, new Map());
     expect(gaps).toHaveLength(1);
     expect(gaps[0].kind).toBe('note');
     expect(gaps[0].text).toMatch(/Balanced alliance/);
-    void reads;
   });
 
   it('team with no data → "no data" gap naming the team number', () => {
     const reads = [
-      read(1, { fuel: 'strong', defense: 'strong', climbL23: 'strong' }),
-      read(2, { fuel: 'strong', defense: 'strong', climbL1: 'strong' }),
+      read(1, { fuel: 'strong', defense: 'strong' }),
+      read(2, { fuel: 'strong', defense: 'strong' }),
       read(3, {}, { source: 'none', hasPit: false, matchesScouted: 0 }),
     ];
     const gaps = summarizeGaps(reads, new Map());
@@ -434,12 +390,12 @@ describe('summarizeGaps', () => {
 
 describe('simulateVersus', () => {
   const a = new Map<number, TeamAgg>([
-    [1, agg({ teamNumber: 1, matchesScouted: 5, scoutingExpectedPoints: 120, meanFuelPoints: 40, meanClimbPoints: 20, avgDefenseRating: 1, reliability: 1 })],
-    [2, agg({ teamNumber: 2, matchesScouted: 5, scoutingExpectedPoints: 110, meanFuelPoints: 35, meanClimbPoints: 18, avgDefenseRating: 0.5, reliability: 0.9 })],
-    [3, agg({ teamNumber: 3, matchesScouted: 5, scoutingExpectedPoints: 100, meanFuelPoints: 30, meanClimbPoints: 16, avgDefenseRating: 0.2, reliability: 0.95 })],
-    [4, agg({ teamNumber: 4, matchesScouted: 5, scoutingExpectedPoints: 30, meanFuelPoints: 10, meanClimbPoints: 6, avgDefenseRating: 4, reliability: 0.6 })],
-    [5, agg({ teamNumber: 5, matchesScouted: 5, scoutingExpectedPoints: 25, meanFuelPoints: 8, meanClimbPoints: 4, avgDefenseRating: 3.5, reliability: 0.5 })],
-    [6, agg({ teamNumber: 6, matchesScouted: 5, scoutingExpectedPoints: 20, meanFuelPoints: 6, meanClimbPoints: 2, avgDefenseRating: 3, reliability: 0.7 })],
+    [1, agg({ teamNumber: 1, matchesScouted: 5, scoutingExpectedPoints: 120, meanFuelPoints: 40, avgDefenseRating: 1, reliability: 1 })],
+    [2, agg({ teamNumber: 2, matchesScouted: 5, scoutingExpectedPoints: 110, meanFuelPoints: 35, avgDefenseRating: 0.5, reliability: 0.9 })],
+    [3, agg({ teamNumber: 3, matchesScouted: 5, scoutingExpectedPoints: 100, meanFuelPoints: 30, avgDefenseRating: 0.2, reliability: 0.95 })],
+    [4, agg({ teamNumber: 4, matchesScouted: 5, scoutingExpectedPoints: 30, meanFuelPoints: 10, avgDefenseRating: 4, reliability: 0.6 })],
+    [5, agg({ teamNumber: 5, matchesScouted: 5, scoutingExpectedPoints: 25, meanFuelPoints: 8, avgDefenseRating: 3.5, reliability: 0.5 })],
+    [6, agg({ teamNumber: 6, matchesScouted: 5, scoutingExpectedPoints: 20, meanFuelPoints: 6, avgDefenseRating: 3, reliability: 0.7 })],
   ]);
   const empty = new Map<number, number | null>();
   const pits = new Map<number, TeamPit>();
@@ -467,11 +423,10 @@ describe('simulateVersus', () => {
     expect(simulateVersus([], [], a, empty, pits, false).aWinProb).toBeNull();
   });
 
-  it('per-axis winner: A leads fuel/climb, B leads defense', () => {
+  it('per-axis winner: A leads fuel, B leads defense', () => {
     const vs = simulateVersus([1, 2, 3], [4, 5, 6], a, empty, pits, false);
     const byAxis = Object.fromEntries(vs.axes.map((x) => [x.axis, x]));
     expect(byAxis.fuel.winner).toBe('a'); // 105 vs 24
-    expect(byAxis.climb.winner).toBe('a'); // 54 vs 12
     expect(byAxis.defense.winner).toBe('b'); // best defender 1 vs 4
   });
 
@@ -480,7 +435,7 @@ describe('simulateVersus', () => {
     expect(vs.a.projectedScore).toBe(0);
     expect(vs.b.projectedScore).toBe(0);
     expect(vs.aWinProb).toBeNull();
-    expect(vs.axes).toHaveLength(4);
+    expect(vs.axes).toHaveLength(3);
     expect(vs.axes.every((x) => x.winner === 'tie')).toBe(true);
   });
 });

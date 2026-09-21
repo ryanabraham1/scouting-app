@@ -18,7 +18,6 @@ export interface RedFlag {
     | 'died'
     | 'no-show'
     | 'tipped'
-    | 'climb-fails'
     | 'major-fouls'
     | 'foul-prone'
     | 'defense-specialist'
@@ -112,17 +111,6 @@ export function teamRedFlags(reports: MsrRow[], agg?: TeamAgg): RedFlag[] {
       kind: 'tipped',
       severity: tipped >= 2 ? 'high' : 'med',
       text: `Tipped over in ${tipped} of ${n} scouted matches`,
-    });
-  }
-
-  // Climb attempts that fail half the time are endgame points you can't plan on.
-  const attempts = reports.filter((r) => r.climb_attempted).length;
-  const fails = reports.filter((r) => r.climb_attempted && !r.climb_success).length;
-  if (attempts >= 2 && fails / attempts >= 0.5) {
-    flags.push({
-      kind: 'climb-fails',
-      severity: fails === attempts ? 'high' : 'med',
-      text: `Failed ${fails} of ${attempts} climb attempts`,
     });
   }
 

@@ -1,6 +1,6 @@
 // src/dash/__tests__/validateVsTba.test.ts
 // Unit tests for the scout-vs-official-TBA cross-check: per-alliance offense
-// summation (fuel + climb), dedupe-by-station, tolerance bands, and severity
+// summation (fuel), dedupe-by-station, tolerance bands, and severity
 // tiers (match / minor / severe / incomplete / unscouted / unscored).
 
 import { describe, it, expect } from 'vitest';
@@ -11,7 +11,6 @@ import {
   TBA_VALIDATE_ABS_TOL,
   TBA_VALIDATE_SEVERE_REL,
 } from '@/dash/validateVsTba';
-import { SCORING } from '@/scoring';
 import type { MsrRow } from '@/dash/types';
 
 /** Minimal MsrRow factory (mirrors reconcile.test.ts). */
@@ -28,11 +27,7 @@ function row(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
@@ -58,16 +53,15 @@ function fullAlliance(color: 'red' | 'blue', perRobot: number): MsrRow[] {
 }
 
 describe('checkAlliance — offense summation', () => {
-  it('sums fuel_points + climb across deduped robots', () => {
-    const climbPts = SCORING.CLIMB[3].teleop; // L3 teleop climb
+  it('sums fuel_points across deduped robots', () => {
     const reports = [
       row({ station: 1, fuel_points: 40 }),
-      row({ station: 2, fuel_points: 30, climb_success: true, climb_level: 3 }),
+      row({ station: 2, fuel_points: 30 }),
       row({ station: 3, fuel_points: 20 }),
     ];
     const check = checkAlliance('red', reports, 200);
     expect(check.scoutedRobots).toBe(3);
-    expect(check.scoutedOffensePoints).toBe(40 + 30 + 20 + climbPts);
+    expect(check.scoutedOffensePoints).toBe(40 + 30 + 20);
   });
 
   it('keeps the latest report per station (no double-count on multi-scout)', () => {

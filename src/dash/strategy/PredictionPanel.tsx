@@ -4,12 +4,13 @@
 // AllianceColumn / TeamRowView keep their legacy `dash-next-*` testids so the
 // existing unit + e2e assertions retarget with a tab click, not a rewrite.
 // TeamRowView is ENRICHED for strategy meetings: per-team component split
-// (auto/fuel/climb + defense), super-scout ratings, and pit-scouting facts.
+// (auto/fuel + defense), super-scout ratings, and pit-scouting facts.
 
 import { useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import { ratedMeanText, type TeamAgg } from '@/dash/aggregate';
 import { teamRedFlags, defenseTimeShare, type RedFlag } from '@/dash/strategy/redFlags';
 import type { TeamPrediction, ComponentBreakdown } from '@/dash/predict';
@@ -89,7 +90,7 @@ export function TeamRowView({
   const driver = reports ? ratedMeanText(reports, (m) => m.driver_skill) : EM_DASH;
   const agility = reports ? ratedMeanText(reports, (m) => m.agility) : EM_DASH;
   const defShare = defenseTimeShare(reports ?? []);
-  // Red flags a coach must know pre-match (died/no-show/tips/climb fails/fouls/
+  // Red flags a coach must know pre-match (died/no-show/tips/fouls/
   // defense identity/scoring trend/role switch) derived from this team's
   // scouted reports + agg, merged with async extras (season EPA drop).
   const redFlags = useMemo(() => {
@@ -113,7 +114,7 @@ export function TeamRowView({
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-foreground">
-          {pred.teamNumber}
+          <TeamLink team={pred.teamNumber} className="text-foreground" />
           {nickname ? (
             <span className="ml-2 text-xs font-normal text-muted-foreground">{nickname}</span>
           ) : null}
@@ -152,13 +153,9 @@ export function TeamRowView({
         </span>
         <span>·</span>
         {/* The `fuel` component is TELEOP fuel points — labeled teleop so the
-            auto/teleop/climb split reads as game phases. */}
+            auto/teleop split reads as game phases. */}
         <span>
           teleop <span className="text-foreground">{comp(c?.fuel, source)}</span>
-        </span>
-        <span>·</span>
-        <span>
-          climb <span className="text-foreground">{comp(c?.climb, source)}</span>
         </span>
         {hasDefense ? (
           <>
@@ -172,23 +169,6 @@ export function TeamRowView({
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>scouted: {hasScouting ? matchesScouted : EM_DASH}</span>
-        <span>
-          climb:{' '}
-          <span
-            className={cn(
-              'font-medium',
-              hasScouting
-                ? agg!.climbSuccessRate >= 0.7
-                  ? 'text-success'
-                  : 'text-warning'
-                : 'text-muted-foreground',
-            )}
-          >
-            {hasScouting && Number.isFinite(agg?.climbSuccessRate)
-              ? pct(agg!.climbSuccessRate)
-              : EM_DASH}
-          </span>
-        </span>
         <span>
           defense:{' '}
           <span className={cn('font-medium', hasScouting ? 'text-brand' : 'text-muted-foreground')}>

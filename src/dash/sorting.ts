@@ -11,7 +11,6 @@ import type { TeamAgg } from '@/dash/aggregate';
 /** The seed-able subset of rank columns (numeric, higher-is-better, desc). */
 export type RankSortKey =
   | 'scoutingExpectedPoints'
-  | 'climbSuccessRate'
   | 'avgDefenseRating'
   | 'epa';
 
@@ -26,8 +25,6 @@ export function rankSortValue(r: RankInput, key: RankSortKey): number {
   switch (key) {
     case 'scoutingExpectedPoints':
       return r.agg.scoutingExpectedPoints;
-    case 'climbSuccessRate':
-      return r.agg.climbSuccessRate;
     case 'avgDefenseRating':
       return r.agg.avgDefenseRating;
     case 'epa':

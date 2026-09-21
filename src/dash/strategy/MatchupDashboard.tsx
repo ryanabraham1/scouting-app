@@ -11,6 +11,7 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { TeamLink } from '@/components/ui/TeamLink';
 import type { TeamAgg } from '@/dash/aggregate';
 import type { MatchPrediction, TeamPrediction } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
@@ -48,7 +49,7 @@ function ratedMeanNum(
 
 function sumComponent(
   teams: TeamPrediction[],
-  key: 'auto' | 'fuel' | 'climb' | 'defense',
+  key: 'auto' | 'fuel' | 'defense',
 ): number | null {
   const values = teams
     .map((prediction) => prediction.components?.[key])
@@ -146,7 +147,6 @@ interface TeamMetrics {
   /** Mean teleop INACTIVE-period fuel — the feeding workload signal that used
    *  to live only in the removed Alliance Matchup prose ("feeds heavily"). */
   feed: number | null;
-  climbRate: number | null;
   defense: number | null;
   /** Fraction of teleop spent playing defense (timed intervals); null untimed. */
   defTime: number | null;
@@ -161,7 +161,6 @@ interface MetricCol {
     | 'expected'
     | 'fuel'
     | 'feed'
-    | 'climbRate'
     | 'defense'
     | 'defTime'
     | 'driver'
@@ -178,7 +177,6 @@ const METRIC_COLS: MetricCol[] = [
   { key: 'expected', label: 'Exp pts', fmt: (v) => String(Math.round(v)) },
   { key: 'fuel', label: 'Teleop', fmt: (v) => v.toFixed(0) },
   { key: 'feed', label: 'Feed', fmt: (v) => v.toFixed(0) },
-  { key: 'climbRate', label: 'Climb', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'defense', label: 'Def', max: 10, fmt: (v) => v.toFixed(1) },
   { key: 'defTime', label: 'Def time', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'driver', label: 'Driver', max: 10, fmt: (v) => v.toFixed(1) },
@@ -257,14 +255,13 @@ function TeamMetricRow({
       )}
     >
       <div className="col-span-3 flex min-w-0 flex-col md:col-span-1">
-        <span
+        <TeamLink
+          team={m.team}
           className={cn(
-            'font-mono text-sm font-bold tabular-nums',
+            'self-start font-mono text-sm font-bold',
             m.side === 'red' ? 'text-red-400' : 'text-blue-400',
           )}
-        >
-          {m.team}
-        </span>
+        />
         <span className="truncate text-[10px] text-muted-foreground">
           {m.nickname ?? ''}
           {m.scouted === 0 ? ' · unscouted' : ` · ${m.scouted} scouted`}
@@ -312,20 +309,9 @@ export default function MatchupDashboard({
       // The `fuel` component is TELEOP fuel points — labeled teleop everywhere.
       { label: 'Teleop pts', red: sumComponent(pred.red.teams, 'fuel'), blue: sumComponent(pred.blue.teams, 'fuel') },
       {
-        label: 'Climb pts',
-        red: sumComponent(pred.red.teams, 'climb'),
-        blue: sumComponent(pred.blue.teams, 'climb'),
-      },
-      {
         label: 'Defense impact',
         red: sumComponent(pred.red.teams, 'defense'),
         blue: sumComponent(pred.blue.teams, 'defense'),
-      },
-      {
-        label: 'Climb success',
-        red: scoutedMean(redTeams, agg, (a) => a.climbSuccessRate),
-        blue: scoutedMean(blueTeams, agg, (a) => a.climbSuccessRate),
-        fmt: pct,
       },
       {
         label: 'Reliability',
@@ -356,7 +342,6 @@ export default function MatchupDashboard({
             : null,
         fuel: scouted > 0 && a ? a.meanFuelPoints : null,
         feed: scouted > 0 && a ? a.meanTeleopFuelInactive : null,
-        climbRate: scouted > 0 && a ? a.climbSuccessRate : null,
         defense: scouted > 0 && a ? a.avgDefenseRating : null,
         defTime: defenseTimeShare(reports ?? []),
         driver: ratedMeanNum(reports, (m) => m.driver_skill),
@@ -395,7 +380,6 @@ export default function MatchupDashboard({
     return [
       axis('Auto', sumComponent(pred.red.teams, 'auto'), sumComponent(pred.blue.teams, 'auto')),
       axis('Teleop', sumComponent(pred.red.teams, 'fuel'), sumComponent(pred.blue.teams, 'fuel')),
-      axis('Climb', sumComponent(pred.red.teams, 'climb'), sumComponent(pred.blue.teams, 'climb')),
       axis('Defense', sumComponent(pred.red.teams, 'defense'), sumComponent(pred.blue.teams, 'defense')),
       axis(
         'Reliability',
@@ -412,7 +396,6 @@ export default function MatchupDashboard({
       isBase: p.teamNumber === baseTeam,
       auto: p.components?.auto ?? 0,
       teleop: p.components?.fuel ?? 0,
-      climb: p.components?.climb ?? 0,
     });
     return [
       ...pred.red.teams.map((p) => build(p, 'red')),
@@ -482,7 +465,7 @@ export default function MatchupDashboard({
             ))}
           </div>
           <p className="px-2 pt-1 text-[10px] text-muted-foreground/70">
-            Bars for Exp/Teleop/Feed scale to this matchup's best; Climb/Reliab are 0–100%; Def/Driver/Agility are 1–10.
+            Bars for Exp/Teleop/Feed scale to this matchup's best; Reliab is 0–100%; Def/Driver/Agility are 1–10.
           </p>
         </div>
       </CardContent>

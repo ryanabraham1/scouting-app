@@ -65,7 +65,7 @@ beforeEach(() => {
     source: 'statbotics',
   };
   componentFixture = {
-    fraction: { fAuto: 0.15, fFuel: 0.55, fClimb: 0.3 },
+    fraction: { fAuto: 0.15 / 0.7, fFuel: 0.55 / 0.7 },
     defenseByTeam: new Map(),
     available: true,
   };
@@ -74,13 +74,13 @@ beforeEach(() => {
   ] satisfies PicklistEntry[]);
 });
 
-function renderBoard(onSelectTeam?: (team: number) => void) {
+function renderBoard() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DraftBoardView eventKey="2026casnv" onSelectTeam={onSelectTeam} />
+      <DraftBoardView eventKey="2026casnv" />
     </QueryClientProvider>,
   );
 }
@@ -165,13 +165,11 @@ describe('DraftBoardView team pool', () => {
     expect(queryByTestId('draft-best-254')).toBeNull();
   });
 
-  it('keeps the stable team-link interaction', async () => {
-    const onSelectTeam = vi.fn();
-    const { getByTestId } = renderBoard(onSelectTeam);
+  it('links every board team number to its Analysis team page', async () => {
+    const { getByTestId } = renderBoard();
     await waitFor(() => getByTestId('draft-row-254'));
 
-    fireEvent.click(getByTestId('draft-team-254'));
-    expect(onSelectTeam).toHaveBeenCalledWith(254);
+    expect(getByTestId('draft-team-254')).toHaveAttribute('href', '/analysis?tab=team&team=254');
   });
 });
 
@@ -188,11 +186,7 @@ function report(overrides: Partial<MsrRow>): MsrRow {
     fuel_points: 0,
     fuel_estimate_confidence: 1,
     fuel_by_shift: [0, 0, 0, 0],
-    climb_level: 0,
-    climb_attempted: false,
-    climb_success: false,
     auto_left_starting_line: false,
-    auto_climb_level1: false,
     defense_rating: 0,
     pins: 0,
     no_show: false,
