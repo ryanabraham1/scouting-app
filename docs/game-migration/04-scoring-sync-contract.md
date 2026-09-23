@@ -10,12 +10,12 @@ inconsistent data. This is the single most important invariant in a season migra
 |---|---|---|---|
 | 1 | `src/scoring/` (`constants.ts`, `windows.ts`, `compute.ts`) | TypeScript | Client preview shown to the scout during/after capture. |
 | 2 | `recompute_match_report_aggregates` called by the `upsert_match_report` RPC | PL/pgSQL | **Source of truth for stored aggregates.** Recomputes from the raw inputs the client uploads. |
-| 3 | `supabase/functions/seed-demo/index.ts` (`CLIMB_TELEOP_POINTS`, `SHIFT_BOUNDS`, burst/score generators) | TypeScript (Deno) | Generates synthetic demo data; must match so demo numbers are self-consistent. |
+| 3 | `supabase/functions/_shared/demoScoring.ts` (burst generator, attributed-points → fuel), used by `seed-demo/index.ts` | TypeScript (Deno) | Generates synthetic demo data; must match so demo numbers are self-consistent. Pinned by the pure contract test `tests/functions/seed-demo-scoring.test.ts`. |
 
 ## Why three, and why the server wins
 
 The client computes aggregates for instant feedback, but it **does not upload them** —
-`src/sync/mapReport.ts` sends only **raw inputs** (`fuel_bursts`, `climb_level`,
+`src/sync/mapReport.ts` sends only **raw inputs** (`fuel_bursts`, `no_show`,
 `inactive_first`, …). The server's `upsert_match_report` recomputes the aggregates and
 stores those. This is deliberate: it means a buggy or outdated client can never corrupt
 stored aggregates, and re-running the upsert is idempotent. The consequence for you: **the
@@ -51,18 +51,18 @@ The SQL fixed-point rounding mirrors the TS line-for-line:
 floor(p_val + 0.5)::int
 ```
 
-## Climb is an exception worth knowing
+## Endgame / climb (2026 status)
 
-The server stores `climb_level`/`climb_success` **raw and does not compute climb points**.
-Climb→points happens client/dashboard-side (`SCORING.CLIMB` in `aggregate.ts`'s
-`climbPointsForMatch`). `seed-demo` *does* compute climb points (to subtract from the
-attributed alliance total when fabricating fuel). So for endgame:
+Climb scouting was removed end-to-end on 2026-09-21 (commit `a31297e`): the capture flow,
+local report shape, upsert wire shape, `SCORING.CLIMB`, every dashboard climb stat, and
+seed-demo climb generation are gone. `upsert_match_report` still accepts the legacy
+`climb_*` keys and coalesces absent ones to `0`/`false`, so those DB columns are inert.
+Today every attributed point is **fuel** in all three implementations.
 
-- Client/dash: `constants.ts SCORING.CLIMB` + `aggregate.ts`.
-- Seed-demo: `CLIMB_TELEOP_POINTS`.
-- Server: nothing to change for climb points (it only stores the level) — **unless** you
-  decide the new game should aggregate endgame points server-side, in which case add that
-  to the recompute and store a new column.
+If a future game scores an endgame action you want scouted, decide first whether the
+server should aggregate it (add it to the recompute and store a new column — then it
+joins this contract) or keep it dashboard-side only (then it is a client concern, like
+the old 2026 climb was).
 
 ## Migration procedure for the contract
 
