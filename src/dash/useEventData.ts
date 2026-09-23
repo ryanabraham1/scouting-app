@@ -160,13 +160,29 @@ export function resetReportsFetchStateForTests(): void {
   reportsLastFullFetchAt.clear();
 }
 
+/**
+ * How far behind the newest cached `server_received_at` an incremental pull
+ * reaches. The server stamps rows with transaction-START `now()`, so a write
+ * whose transaction began before (but committed after) the newest row we hold
+ * lands BEHIND our high-water mark. An insert like that is caught by the id
+ * reconcile, but an EDIT of a row we already hold never would be. A report
+ * upsert commits in milliseconds; a one-minute overlap re-reads a handful of
+ * rows per refetch and closes that race. Exported for tests.
+ */
+export const REPORTS_INCREMENTAL_OVERLAP_MS = 60_000;
+
 function newestServerReceivedAt(rows: MsrRow[]): string | null {
-  let newest: string | null = null;
+  // Compare instants, not strings: `…Z` and `…+00:00` spellings (or differing
+  // fractional-second precision) of one instant do not sort lexicographically.
+  let newestMs = Number.NEGATIVE_INFINITY;
   for (const row of rows) {
     const stamp = row.server_received_at;
-    if (typeof stamp === 'string' && (newest === null || stamp > newest)) newest = stamp;
+    const ms = typeof stamp === 'string' ? Date.parse(stamp) : Number.NaN;
+    if (Number.isFinite(ms) && ms > newestMs) newestMs = ms;
   }
-  return newest;
+  return Number.isFinite(newestMs)
+    ? new Date(newestMs - REPORTS_INCREMENTAL_OVERLAP_MS).toISOString()
+    : null;
 }
 
 /**

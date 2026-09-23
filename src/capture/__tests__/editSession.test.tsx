@@ -159,6 +159,27 @@ describe('revision bump on save (cases 3 + 4)', () => {
     expect(r.lastSyncError).toBeNull();
   });
 
+  it('builds on the outbox revision when a sync moved it while the scout was editing', async () => {
+    await saveReport(makeSavedReport()); // rowRevision: 3 when the editor opens
+    const { result } = renderHook(() =>
+      useCaptureSession({ ...target, editingReportId: 'report-edit-1' }),
+    );
+    await waitFor(() => expect(result.current.bursts.length).toBe(2));
+
+    // Mid-edit, the outbox adopts a newer server revision (a `stale` verdict).
+    await db.reports.update('report-edit-1', { rowRevision: 7, syncState: 'synced' });
+
+    await act(async () => {
+      await result.current.save();
+    });
+
+    const saved = (await getReport('report-edit-1'))!;
+    // Must land ABOVE the server's revision, or the next upload is `stale` and
+    // the correction is silently replaced by the server copy.
+    expect(saved.rowRevision).toBe(8);
+    expect(saved.syncState).toBe('dirty');
+  });
+
   it('normalizes a dead-lettered legacy payload while re-saving it in place', async () => {
     const longPath = Array.from({ length: 400 }, (_, index) => ({
       x: index / 399,

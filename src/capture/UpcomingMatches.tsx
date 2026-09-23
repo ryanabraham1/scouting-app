@@ -6,7 +6,11 @@ import { supabase } from '@/lib/supabase';
 import { nexusGet, syncEventResults } from '@/dash/proxies';
 import { parseNexusEventStatus, type NexusEventStatus } from '@/dash/nexusClient';
 import { NEXUS_POLL_MS, RESULTS_RECONCILE_MS } from '@/dash/constants';
-import { getCachedMatches, replaceCachedMatchesForEvent } from '@/db/preloadClient';
+import {
+  CACHED_MATCH_COLUMNS,
+  getCachedMatches,
+  replaceCachedMatchesForEvent,
+} from '@/db/preloadClient';
 import type { CachedMatch } from '@/db/types';
 import { cn } from '@/lib/utils';
 import { OnDeckAlert } from '@/capture/OnDeckAlert';
@@ -216,9 +220,7 @@ export function UpcomingMatches({
           if (cancelled) return;
           const res = await supabase
             .from('match')
-            .select(
-              'match_key,event_key,comp_level,match_number,scheduled_time,predicted_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at',
-            )
+            .select(CACHED_MATCH_COLUMNS)
             .eq('event_key', eventKey);
           if (cancelled) return;
           if (!res.error && res.data) {

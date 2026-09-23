@@ -1,4 +1,5 @@
 import { env } from '@/lib/env';
+import { timeoutFetch } from '@/lib/timeoutFetch';
 import { supabase } from '@/lib/supabase';
 
 /** Sentinel the Edge proxies return when the upstream service is unavailable. */
@@ -32,7 +33,7 @@ async function authHeaders(): Promise<Record<string, string>> {
  * Read through the TBA Edge proxy. Throws on any non-2xx response.
  */
 export async function tbaGet<T>(path: string): Promise<T> {
-  const res = await fetch(proxyUrl('tba-proxy', path), {
+  const res = await timeoutFetch(proxyUrl('tba-proxy', path), {
     headers: await authHeaders(),
   });
   if (!res.ok) {
@@ -50,7 +51,7 @@ export async function tbaGet<T>(path: string): Promise<T> {
  */
 export async function tbaGetOptional<T>(path: string): Promise<T | ProxyUnavailable> {
   try {
-    const res = await fetch(proxyUrl('tba-proxy', path), {
+    const res = await timeoutFetch(proxyUrl('tba-proxy', path), {
       headers: await authHeaders(),
     });
     if (!res.ok) {
@@ -73,7 +74,7 @@ export async function tbaGetOptional<T>(path: string): Promise<T | ProxyUnavaila
  */
 export async function statboticsGet<T>(path: string): Promise<T | ProxyUnavailable> {
   try {
-    const res = await fetch(proxyUrl('statbotics-proxy', path), {
+    const res = await timeoutFetch(proxyUrl('statbotics-proxy', path), {
       headers: await authHeaders(),
     });
     if (!res.ok) {
@@ -96,7 +97,7 @@ export async function statboticsGet<T>(path: string): Promise<T | ProxyUnavailab
  */
 export async function nexusGet<T>(path: string): Promise<T | ProxyUnavailable> {
   try {
-    const res = await fetch(proxyUrl('nexus-proxy', path), {
+    const res = await timeoutFetch(proxyUrl('nexus-proxy', path), {
       headers: await authHeaders(),
     });
     if (!res.ok) {
@@ -131,7 +132,7 @@ export async function syncEventResults(
 ): Promise<SyncEventResultsSummary | undefined> {
   try {
     const url = `${env.SUPABASE_URL}/functions/v1/sync-event-results?event_key=${encodeURIComponent(eventKey)}`;
-    const res = await fetch(url, {
+    const res = await timeoutFetch(url, {
       method: 'POST',
       headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
       body: JSON.stringify({ event_key: eventKey }),
@@ -194,7 +195,7 @@ export async function youtubeStreamStart(
   videoId: string,
 ): Promise<YoutubeStreamStart | ProxyUnavailable> {
   try {
-    const res = await fetch(
+    const res = await timeoutFetch(
       `${env.SUPABASE_URL}/functions/v1/youtube-proxy?video=${encodeURIComponent(videoId)}`,
       { headers: await authHeaders() },
     );

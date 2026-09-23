@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from './env';
+import { timeoutFetch } from './timeoutFetch';
 
 /**
  * Upper bound on any single PostgREST request. At a venue the wifi often stays
@@ -17,6 +18,11 @@ export const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_
   },
   db: {
     timeout: SUPABASE_REQUEST_TIMEOUT_MS,
+  },
+  // Every auth / Storage / Functions request is bounded too — see
+  // lib/timeoutFetch.ts for why a stalled token refresh used to hang them all.
+  global: {
+    fetch: timeoutFetch,
   },
 });
 

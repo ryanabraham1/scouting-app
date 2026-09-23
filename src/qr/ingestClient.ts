@@ -49,16 +49,36 @@ export function batchReports(reports: unknown[]): unknown[][] {
   return batches;
 }
 
+// A full 100-report batch is a sequence of server-side upserts (a few seconds
+// on a good day). Past this, a stalled venue connection is not going to
+// recover mid-request: abort so the scout gets a retryable error instead of a
+// spinner that never resolves. Re-POSTing is revision-guarded, so a batch that
+// actually committed before the abort is a no-op on retry.
+export const INGEST_BATCH_TIMEOUT_MS = 60_000;
+
 async function postBatch(reports: unknown[], token: string): Promise<IngestResult> {
-  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/ingest-reports`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      apikey: env.SUPABASE_PUBLISHABLE_KEY,
-    },
-    body: JSON.stringify({ reports }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), INGEST_BATCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${env.SUPABASE_URL}/functions/v1/ingest-reports`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: env.SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({ reports }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('Upload timed out. Check the connection and tap Retry.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     let detail = '';
@@ -71,7 +91,25 @@ async function postBatch(reports: unknown[], token: string): Promise<IngestResul
     throw new Error(detail || `Ingest failed (${res.status})`);
   }
 
-  return (await res.json()) as IngestResult;
+  let body: Partial<IngestResult> | null = null;
+  try {
+    body = (await res.json()) as Partial<IngestResult> | null;
+  } catch {
+    body = null;
+  }
+  // Never trust the shape: a captive-portal page or proxy error that parses (or
+  // not) as JSON must surface as a RETRYABLE failure. Reading it as "0 ingested,
+  // 0 failed" would let the receiver clear its staged copy of reports that never
+  // reached the server.
+  if (
+    !body ||
+    typeof body.ingested !== 'number' ||
+    !Array.isArray(body.failed) ||
+    body.ingested + body.failed.length !== reports.length
+  ) {
+    throw new Error('Server returned an unexpected response. Check the connection and tap Retry.');
+  }
+  return { ingested: body.ingested, failed: body.failed };
 }
 
 export async function postIngest(reports: unknown[]): Promise<IngestResult> {

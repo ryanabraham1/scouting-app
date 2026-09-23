@@ -8,6 +8,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { env } from '@/lib/env';
+import { timeoutFetch } from '@/lib/timeoutFetch';
 import { setActiveEvent } from './setActiveEvent';
 import { deleteEvent } from './deleteEvent';
 
@@ -38,7 +39,7 @@ export async function enableDemoMode(
     throw new Error('Not signed in.');
   }
 
-  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/seed-demo`, {
+  const res = await timeoutFetch(`${env.SUPABASE_URL}/functions/v1/seed-demo`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { env } from '@/lib/env';
+import { timeoutFetch } from '@/lib/timeoutFetch';
 
 export interface ImportEventResult {
   event_key: string;
@@ -20,7 +21,7 @@ export async function importEvent(eventKey: string): Promise<ImportEventResult> 
   // real answers about the event. Other statuses surface immediately.
   let res: Response;
   for (let attempt = 0; ; attempt++) {
-    res = await fetch(`${env.SUPABASE_URL}/functions/v1/import-event`, {
+    res = await timeoutFetch(`${env.SUPABASE_URL}/functions/v1/import-event`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

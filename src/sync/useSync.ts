@@ -70,6 +70,12 @@ const sharedListeners = new Set<() => void>();
 let sharedRunning = false;
 let sharedRerunRequested = false;
 let authRequeuePromise: Promise<void> | null = null;
+// Set once the session-start requeue has completed. `authRequeuePromise` alone
+// only serialized concurrent runs — it reset in `finally`, so every screen that
+// mounted a sync badge re-requeued (and re-uploaded) every dead-letter again,
+// including ones that can never succeed. A new/refreshed session re-arms it
+// through subscribeAuthRecovery, which requeues on its own.
+let sessionRequeueDone = false;
 let controllerGeneration = 0;
 let schedulerConsumers = 0;
 let onlineSchedulerConsumers = 0;
@@ -89,6 +95,7 @@ export function resetSyncControllerForTests(): void {
   sharedRunning = false;
   sharedRerunRequested = false;
   authRequeuePromise = null;
+  sessionRequeueDone = false;
   schedulerConsumers = 0;
   onlineSchedulerConsumers = 0;
   if (sharedPoll) clearInterval(sharedPoll);
@@ -404,9 +411,12 @@ export function useSync(): UseSyncResult {
   // appears later. Repairable validation dead-letters are handled independently
   // inside every match-report syncOnce drain with a persisted recipe version.
   useEffect(() => {
-    if (!online || authRequeuePromise) return;
+    if (!online || authRequeuePromise || sessionRequeueDone) return;
     authRequeuePromise = (async () => {
-      if ((await requeueRecoverableDeadLetters()) > 0) {
+      const requeued = await requeueRecoverableDeadLetters();
+      // Only a completed pass counts: a storage failure above leaves it armed.
+      sessionRequeueDone = true;
+      if (requeued > 0) {
         await run();
       } else {
         await refreshCounts();

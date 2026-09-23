@@ -1205,6 +1205,21 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
     // the original createdAt (stable local sort only; NOT sent over the wire), and
     // bump rowRevision so the revision-guarded upsert UPDATEs instead of no-opping.
     const editing = editIdRef.current !== null;
+    // The outbox may have moved this row's revision while the scout was editing
+    // (a conflict rebase to server+1, or a `stale` verdict adopting the server's
+    // newer revision). Building on the revision captured at load time would then
+    // upload at or below what the server already holds, and a `stale` verdict
+    // would silently adopt the server copy over this correction. Always build on
+    // the newer of the two.
+    let editBaseRevision = editRevRef.current;
+    if (editing) {
+      try {
+        const current = await storage.getReport(editIdRef.current!);
+        editBaseRevision = Math.max(editBaseRevision, current?.rowRevision ?? 0);
+      } catch {
+        // Unreadable store: the save below surfaces the storage error.
+      }
+    }
     const report = sanitizeMatchReport({
       id: editing ? editIdRef.current! : crypto.randomUUID(),
       schemaVersion: SCHEMA_VERSION,
@@ -1256,7 +1271,7 @@ export function useCaptureSession(target: CaptureTarget, options?: CaptureSessio
       // Rate-derived fuel estimate -> low confidence.
       fuelEstimateConfidence: 0.3,
       syncState: 'dirty',
-      rowRevision: editing ? editRevRef.current + 1 : 1,
+      rowRevision: editing ? editBaseRevision + 1 : 1,
       syncAttempts: 0,
       lastSyncError: null,
     });

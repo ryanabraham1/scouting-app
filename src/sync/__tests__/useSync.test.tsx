@@ -248,6 +248,33 @@ describe('useSync', () => {
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalled());
   });
 
+  it('requeues dead-letters once per session, not on every sync-badge mount', async () => {
+    await saveReport(
+      makeReport({
+        id: 'auth-dead',
+        syncState: 'error',
+        lastSyncError: 'not authorized: scout_id not owned by caller',
+      }),
+    );
+    const first = renderHook(() => useSync());
+    await waitFor(() => expect(first.result.current.queued).toBe(1));
+    await waitFor(() => expect(first.result.current.syncing).toBe(false));
+
+    // The retry failed again and dead-lettered (syncOnce is mocked, so do it by hand).
+    await db.reports.update('auth-dead', {
+      syncState: 'error',
+      lastSyncError: 'not authorized: scout_id not owned by caller',
+    });
+    first.unmount();
+
+    // Navigating to another screen mounts another consumer: no second requeue.
+    const second = renderHook(() => useSync());
+    await waitFor(() => expect(second.result.current.deadLetters).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await db.reports.get('auth-dead'))?.syncState).toBe('error');
+    second.unmount();
+  });
+
   it('stamps lastSyncedAt after a successful run', async () => {
     const { result } = renderHook(() => useSync());
     await waitFor(() => expect(syncOnceMock).toHaveBeenCalledTimes(1));

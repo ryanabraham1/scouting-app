@@ -32,10 +32,14 @@ export interface PreloadResult {
   errors: string[]; // human-readable per-section errors; empty on full success
 }
 
-// Same column list UpcomingMatches.tsx selects from `match` — keep in sync so
-// the cache is a drop-in for the live query.
-const MATCH_COLUMNS =
-  'match_key,event_key,comp_level,match_number,scheduled_time,predicted_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at';
+/**
+ * The ONE column list every `match` reader that feeds the offline cache selects
+ * (this preload and UpcomingMatches). Two hand-copied literals used to drift:
+ * both lacked `actual_time`, so whichever writer ran last decided whether the
+ * cached schedule could drive the livestream match-jump.
+ */
+export const CACHED_MATCH_COLUMNS =
+  'match_key,event_key,comp_level,match_number,scheduled_time,predicted_time,actual_time,red1,red2,red3,blue1,blue2,blue3,actual_red_score,actual_blue_score,winner,result_synced_at';
 
 function errMsg(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -68,7 +72,7 @@ export async function preloadEventData(opts: {
   try {
     const res = await supabase
       .from('match')
-      .select(MATCH_COLUMNS)
+      .select(CACHED_MATCH_COLUMNS)
       .eq('event_key', eventKey);
     if (res.error) throw new Error(res.error.message);
     const rows = (res.data as CachedMatch[] | null) ?? [];

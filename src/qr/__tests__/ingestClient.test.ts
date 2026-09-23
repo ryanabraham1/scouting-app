@@ -9,7 +9,7 @@ vi.mock('@/lib/env', () => ({
   env: { SUPABASE_URL: 'https://x.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'pub-key-123' },
 }));
 
-import { postIngest, batchReports } from '../ingestClient';
+import { postIngest, batchReports, INGEST_BATCH_TIMEOUT_MS } from '../ingestClient';
 import { sampleUpsertPayloads } from './fixtures';
 
 // The exact snake_case wire payloads the QR hand-off carries (shared fixture).
@@ -69,6 +69,50 @@ describe('postIngest', () => {
     );
 
     await expect(postIngest(reports)).rejects.toThrow(/forbidden: not an event member/);
+  });
+
+  it('aborts a stalled upload with a retryable timeout error', async () => {
+    vi.useFakeTimers();
+    try {
+      getSession.mockResolvedValue({ data: { session: { access_token: 'tok-abc' } } });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener('abort', () =>
+                reject(new DOMException('aborted', 'AbortError')),
+              );
+            }),
+        ),
+      );
+      const pending = postIngest(reports);
+      const assertion = expect(pending).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(INGEST_BATCH_TIMEOUT_MS + 1);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats a malformed or short success body as a retryable failure (never "done")', async () => {
+    getSession.mockResolvedValue({ data: { session: { access_token: 'tok-abc' } } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => null }),
+    );
+    await expect(postIngest(reports)).rejects.toThrow(/unexpected response/i);
+
+    // A body that accounts for fewer rows than were sent is equally untrustworthy.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ingested: 0, failed: [] }),
+      }),
+    );
+    await expect(postIngest(reports)).rejects.toThrow(/unexpected response/i);
   });
 
   it('falls back to a status-based message when the error body has no error field', async () => {

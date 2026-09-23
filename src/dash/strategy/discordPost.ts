@@ -10,6 +10,7 @@
 // canvas + fetch IO so they unit-test without a DOM.
 
 import { env } from '@/lib/env';
+import { timeoutFetch } from '@/lib/timeoutFetch';
 import { supabase } from '@/lib/supabase';
 import { strokeToPathD } from '@/dash/strategy/strokePath';
 import {
@@ -417,7 +418,7 @@ export async function postStrategyToDiscord(input: PostStrategyInput): Promise<P
   const token = data.session?.access_token;
   if (!token) throw new Error('No session yet — try again in a moment.');
 
-  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/discord-post`, {
+  const res = await timeoutFetch(`${env.SUPABASE_URL}/functions/v1/discord-post`, {
     method: 'POST',
     headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
     body: form,

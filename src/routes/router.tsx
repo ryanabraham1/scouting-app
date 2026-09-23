@@ -8,20 +8,90 @@ import {
   useRouteError,
   type RouteObject,
 } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import HomeScreen from '../home/HomeScreen';
 import { applyRouteTheme } from './routeTheme';
+
+/**
+ * A lazy route/tab chunk that failed to download. After a deploy, a tab still
+ * running the previous build asks for chunk hashes that no longer exist (every
+ * browser words this differently); offline, a chunk this device never cached
+ * fails the same way. Exported for tests.
+ */
+export function isChunkLoadError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error ?? '');
+  return /dynamically imported module|importing a module script failed|ChunkLoadError|loading (css )?chunk \S+ failed|unable to preload css/i.test(
+    message,
+  );
+}
+
+/** One automatic reload per this window: a second failure is shown, not looped. */
+export const CHUNK_RELOAD_GUARD_MS = 60_000;
+const CHUNK_RELOAD_KEY = 'frc-chunk-reload-at';
+
+function lastChunkReloadAt(): number | null {
+  try {
+    const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY));
+    return Number.isFinite(last) && last > 0 ? last : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether an automatic reload is allowed right now (pure — safe during render). */
+function chunkReloadAllowed(now = Date.now()): boolean {
+  try {
+    window.sessionStorage.getItem(CHUNK_RELOAD_KEY);
+  } catch {
+    // No storage means no loop guard: never auto-reload blind.
+    return false;
+  }
+  const last = lastChunkReloadAt();
+  return last === null || now - last < 0 || now - last >= CHUNK_RELOAD_GUARD_MS;
+}
+
+function markChunkReload(now = Date.now()): void {
+  try {
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now));
+  } catch {
+    /* chunkReloadAllowed already refused when storage is unavailable */
+  }
+}
 
 /**
  * Catch-all for a render/loader error on any route. Without an errorElement,
  * React Router unmounts to a blank white screen when a screen throws — which
  * offline (a failed fetch path, missing cache) read as "the page stopped
  * loading". This keeps the user on a recoverable page instead of a dead end.
+ *
+ * A stale-build chunk failure reloads itself once (the fresh HTML references
+ * chunks that exist); capture drafts and outboxes live in IndexedDB, so a
+ * reload loses nothing.
  */
-function RouteError(): JSX.Element {
+export function RouteError(): JSX.Element {
   const error = useRouteError();
-  const message =
-    error instanceof Error ? error.message : 'This screen ran into an unexpected problem.';
+  const chunkError = isChunkLoadError(error);
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  // Decided once per mount (render stays pure; React may render this boundary
+  // more than once before committing). The guard is stamped in the effect.
+  const [autoReloading] = useState(() => chunkError && !offline && chunkReloadAllowed());
+  useEffect(() => {
+    if (!autoReloading || !chunkReloadAllowed()) return;
+    markChunkReload();
+    window.location.reload();
+  }, [autoReloading]);
+
+  const message = chunkError
+    ? offline
+      ? 'This screen has not been downloaded to this device yet. Reconnect to the internet, then tap Reload.'
+      : autoReloading
+        ? 'A newer version of the app is available. Reloading…'
+        : 'This screen could not be downloaded. Check the connection, then tap Reload.'
+    : error instanceof Error
+      ? error.message
+      : 'This screen ran into an unexpected problem.';
   return (
     <div
       data-testid="route-error"

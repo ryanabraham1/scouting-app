@@ -60,6 +60,7 @@ import {
   mergeReportRows,
   resetReportsFetchStateForTests,
   REPORTS_FULL_REFRESH_MS,
+  REPORTS_INCREMENTAL_OVERLAP_MS,
 } from '../useEventData';
 // The season-wide EPA fallback fetches per-team season matches through this
 // SHARED query client (queryClient.fetchQuery), so they cache /
@@ -164,12 +165,33 @@ describe('useEventData', () => {
       await result.current.refetch();
     });
     const secondBuilder = fromMock.mock.results[1].value as Record<string, ReturnType<typeof vi.fn>>;
-    expect(secondBuilder.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:01:00Z');
+    // Newest held stamp (10:01) minus the commit-order overlap window.
+    expect(REPORTS_INCREMENTAL_OVERLAP_MS).toBe(60_000);
+    expect(secondBuilder.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:00:00.000Z');
     expect(secondBuilder.eq).not.toHaveBeenCalledWith('deleted', false);
     await waitFor(() =>
       expect(result.current.data?.map((r) => r.id).sort()).toEqual(['b', 'c']),
     );
     expect(result.current.data?.find((r) => r.id === 'b')?.notes).toBe('edited');
+  });
+
+  it('useEventReports picks the newest stamp by instant, not by string spelling', async () => {
+    const w = wrapper();
+    tableResults['match_scouting_report'] = {
+      data: [
+        // Lexicographically larger, but 10:30 UTC is EARLIER than 11:00Z.
+        { id: 'a', match_key: 'qm1', target_team_number: 254, server_received_at: '2026-09-20T03:30:00-07:00', deleted: false },
+        { id: 'b', match_key: 'qm1', target_team_number: 1678, server_received_at: '2026-09-20T11:00:00Z', deleted: false },
+      ],
+      error: null,
+    };
+    const { result } = renderHook(() => useEventReports('2026casnv'), { wrapper: w });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await act(async () => {
+      await result.current.refetch();
+    });
+    const builder = fromMock.mock.results[1].value as Record<string, ReturnType<typeof vi.fn>>;
+    expect(builder.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:59:00.000Z');
   });
 
   it('useEventReports does a full reconcile once the incremental window expires', async () => {
@@ -218,7 +240,7 @@ describe('useEventData', () => {
       // Exactly two requests: the id list and the incremental pull — no `select('*')` full download.
       expect(fromMock.mock.results).toHaveLength(3);
       const incremental = fromMock.mock.results[2].value as Record<string, ReturnType<typeof vi.fn>>;
-      expect(incremental.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:01:00Z');
+      expect(incremental.gte).toHaveBeenCalledWith('server_received_at', '2026-09-20T10:00:00.000Z');
       expect(refetched?.map((r) => r.id)).toEqual(['b']);
       expect(refetched?.[0]?.notes).toBe('edited');
     } finally {
