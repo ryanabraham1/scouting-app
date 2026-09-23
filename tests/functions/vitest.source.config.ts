@@ -11,6 +11,7 @@ export default defineConfig({
     include: [
       'tests/functions/readJsonBody.test.ts',
       'tests/functions/seed-demo-scoring.test.ts',
+      'tests/functions/tbaMatchRow.test.ts',
     ],
   },
 });

@@ -12,57 +12,32 @@
 // format-validated). This also means a cold-load reconcile works before the
 // anon session is established. Matches the app's open posture (import-event etc).
 import { corsHeaders } from "../_shared/cors.ts";
+import { readTextResponse } from "../_shared/readJsonBody.ts";
+import {
+  shouldWriteMatchRow,
+  tbaMatchToRow,
+  type MappedMatch,
+  type StoredMatch,
+  type TbaMatch,
+} from "../_shared/tbaMatchRow.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
 const TBA_API_KEY = Deno.env.get("TBA_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-const ALLOWED_LEVELS = new Set(["qm", "ef", "qf", "sf", "f"]);
+// Bounded upstream: a hung TBA request must not pin this function (and the
+// dashboard's reconcile) for the platform's full wall-clock limit, and a
+// runaway body must not exhaust the isolate. A championship division's full
+// match list is ~1 MB.
+const TBA_TIMEOUT_MS = 10_000;
+const MAX_TBA_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function teamNum(teamKey: string | undefined | null): number | null {
-  if (!teamKey) return null;
-  const n = parseInt(String(teamKey).replace("frc", ""), 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-interface TbaAlliance { score?: number | null; team_keys?: string[] }
-interface TbaMatch {
-  key: string;
-  event_key?: string;
-  comp_level: string;
-  match_number: number;
-  time?: number | null;
-  predicted_time?: number | null;
-  actual_time?: number | null;
-  winning_alliance?: string | null;
-  alliances?: { red?: TbaAlliance; blue?: TbaAlliance };
-}
-
-function winnerOf(m: TbaMatch, red: number | null, blue: number | null): string | null {
-  const wa = (m.winning_alliance ?? "").toLowerCase();
-  if (wa === "red" || wa === "blue") return wa;
-  if (red == null || blue == null) return null;
-  if (red > blue) return "red";
-  if (blue > red) return "blue";
-  return "tie";
-}
-
-/** Compare timestamptz values by instant, not by `Z` versus `+00:00` spelling. */
-function sameTimestamp(a: unknown, b: unknown): boolean {
-  if (a == null && b == null) return true;
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  const aMs = Date.parse(a);
-  const bMs = Date.parse(b);
-  return Number.isFinite(aMs) && Number.isFinite(bMs) && aMs === bMs;
 }
 
 Deno.serve(async (req) => {
@@ -76,6 +51,9 @@ Deno.serve(async (req) => {
       eventKey = body?.event_key ?? "";
     } catch { /* ignore */ }
   }
+  // TBA keys are lowercase and `match.event_key` references them verbatim; an
+  // upper-cased key would fetch fine and then fail every write on the FK.
+  eventKey = typeof eventKey === "string" ? eventKey.trim().toLowerCase() : "";
   if (!eventKey) return json({ error: "missing event_key" }, 400);
   // Validate shape (a TBA event key: year + code) before interpolating into the
   // upstream URL / using it as a write scope. Rejects junk + path-traversal.
@@ -90,110 +68,66 @@ Deno.serve(async (req) => {
   try {
     const res = await fetch(`${TBA_BASE}/event/${eventKey}/matches`, {
       headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
+      signal: AbortSignal.timeout(TBA_TIMEOUT_MS),
     });
     if (!res.ok) return json({ available: false, status: res.status });
-    matches = (await res.json()) as TbaMatch[];
+    matches = JSON.parse(await readTextResponse(res, MAX_TBA_RESPONSE_BYTES)) as TbaMatch[];
   } catch {
     return json({ available: false, error: "tba unreachable" });
   }
   if (!Array.isArray(matches)) return json({ available: false });
 
-  const rows = matches
-    .filter((m) => m?.key && ALLOWED_LEVELS.has((m.comp_level ?? "").toLowerCase()))
-    .map((m) => {
-      const red = m.alliances?.red ?? {};
-      const blue = m.alliances?.blue ?? {};
-      const redScore = typeof red.score === "number" && red.score >= 0 ? red.score : null;
-      const blueScore = typeof blue.score === "number" && blue.score >= 0 ? blue.score : null;
-      const played = redScore != null && blueScore != null;
-      const row: Record<string, unknown> = {
-        match_key: m.key,
-        event_key: eventKey,
-        comp_level: m.comp_level.toLowerCase(),
-        match_number: m.match_number ?? null,
-        red1: teamNum(red.team_keys?.[0]),
-        red2: teamNum(red.team_keys?.[1]),
-        red3: teamNum(red.team_keys?.[2]),
-        blue1: teamNum(blue.team_keys?.[0]),
-        blue2: teamNum(blue.team_keys?.[1]),
-        blue3: teamNum(blue.team_keys?.[2]),
-        // Results: null when unplayed (keeps the row in the "unplayed" set).
-        actual_red_score: redScore,
-        actual_blue_score: blueScore,
-        winner: played ? winnerOf(m, redScore, blueScore) : null,
-        result_synced_at: played ? new Date().toISOString() : null,
-      };
-      row.scheduled_time =
-        typeof m.time === "number" && m.time > 0
-          ? new Date(m.time * 1000).toISOString()
-          : null;
-      row.predicted_time =
-        typeof m.predicted_time === "number" && m.predicted_time > 0
-          ? new Date(m.predicted_time * 1000).toISOString()
-          : null;
-      row.actual_time =
-        typeof m.actual_time === "number" && m.actual_time > 0
-          ? new Date(m.actual_time * 1000).toISOString()
-          : null;
-      return { row, played };
-    });
+  const now = new Date();
+  const rows: MappedMatch[] = [];
+  for (const m of matches) {
+    const mapped = tbaMatchToRow(m, eventKey, { timing: "authoritative", now });
+    if (mapped) rows.push(mapped);
+  }
 
   const svc = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   // Only write rows that actually changed, so a 60s reconcile doesn't rewrite
-  // the whole schedule every minute. Write a row when it is new or its timing /
-  // played result changed.
-  const { data: existing } = await svc
+  // the whole schedule every minute (see shouldWriteMatchRow).
+  const { data: existing, error: existingError } = await svc
     .from("match")
     .select(
-      "match_key, scheduled_time, predicted_time, actual_time, actual_red_score, actual_blue_score, winner",
+      "match_key, scheduled_time, predicted_time, actual_time, actual_red_score, " +
+        "actual_blue_score, winner, red1, red2, red3, blue1, blue2, blue3",
     )
     .eq("event_key", eventKey);
-  const prev = new Map(
-    (existing ?? []).map((r) => [
-      r.match_key as string,
-      {
-        ars: r.actual_red_score as number | null,
-        abs: r.actual_blue_score as number | null,
-        winner: r.winner as string | null,
-        scheduled: r.scheduled_time as string | null,
-        predicted: r.predicted_time as string | null,
-        actual: r.actual_time as string | null,
-      },
-    ]),
+  if (existingError) {
+    // Without the stored rows every match looks "new", which bypasses the guard
+    // that stops a regressed (unplayed-shaped) TBA payload from erasing a result
+    // we already hold. Skip this pass; the next reconcile tick retries.
+    console.error("[sync-event-results] existing-row read failed", existingError.message);
+    return json({ available: false, error: "existing rows unavailable" });
+  }
+  const prev = new Map<string, StoredMatch>(
+    ((existing ?? []) as Array<StoredMatch & { match_key: string }>).map((r) => [r.match_key, r]),
   );
   const toWrite = rows
-    .filter(({ row, played }) => {
-      const p = prev.get(row.match_key as string);
-      if (!p) return true; // new match (e.g. a playoff match not yet imported)
-      const timingChanged =
-        !sameTimestamp(p.scheduled, row.scheduled_time) ||
-        !sameTimestamp(p.predicted, row.predicted_time) ||
-        !sameTimestamp(p.actual, row.actual_time);
-      // If TBA temporarily regresses a played match to an unplayed shape, never
-      // let a timing-only refresh erase the result we already hold.
-      if (!played && (p.ars != null || p.abs != null || p.winner != null)) return false;
-      if (!played) return timingChanged;
-      // Rewrite on any timing/result change — including a winner flip (DQ /
-      // tiebreaker) where the two scores stay numerically equal.
-      return (
-        timingChanged ||
-        p.ars !== row.actual_red_score ||
-        p.abs !== row.actual_blue_score ||
-        p.winner !== row.winner
-      );
-    })
-    .map((r) => r.row);
+    .filter((mapped) => shouldWriteMatchRow(prev.get(mapped.row.match_key as string), mapped))
+    .map((mapped) => mapped.row);
 
   if (toWrite.length > 0) {
-    const { error } = await svc.from("match").upsert(toWrite, { onConflict: "match_key" });
-    if (error) {
-      // Degrade to a sentinel (200) instead of 500 — e.g. an FK error for an
-      // un-imported event must not crash the dashboard's periodic reconcile.
-      console.error("[sync-event-results] upsert failed", error.message);
-      return json({ available: false, error: error.message });
+    // A bulk upsert sends the UNION of every row's keys and pads the gaps with
+    // NULL, so a roster-less row batched with rostered rows would have its
+    // stored teams wiped. Group rows by their exact column set instead.
+    const batches = new Map<string, typeof toWrite>();
+    for (const row of toWrite) {
+      const signature = Object.keys(row).sort().join(",");
+      batches.set(signature, [...(batches.get(signature) ?? []), row]);
+    }
+    for (const batch of batches.values()) {
+      const { error } = await svc.from("match").upsert(batch, { onConflict: "match_key" });
+      if (error) {
+        // Degrade to a sentinel (200) instead of 500 — e.g. an FK error for an
+        // un-imported event must not crash the dashboard's periodic reconcile.
+        console.error("[sync-event-results] upsert failed", error.message);
+        return json({ available: false, error: error.message });
+      }
     }
   }
 

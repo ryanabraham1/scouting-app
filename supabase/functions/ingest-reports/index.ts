@@ -2,16 +2,18 @@
 // QR/cross-scout ingest path: the receiving device submits reports authored on
 // ANOTHER device. Authorization is the receiver's JWT (the HMAC model is gone).
 //
-// Gate (mirrors the import-event admin-gate pattern):
+// Gate:
 //   1. Read the Authorization header (the receiver's session JWT). 401 if absent.
 //   2. Build a caller client bound to that JWT (anon key) and call
 //      get_my_event_keys() → string[] to learn the receiver's events.
-//   3. Validate every report.event_key. A receiver WITH events may only ingest
-//      into those events. A receiver with NO events (BUG-7: this device hasn't
-//      picked a scouter yet, so it has no scout row and get_my_event_keys() is
-//      EMPTY) must NOT 403 the whole backlog — instead every report.event_key is
-//      validated against the `event` table directly (service role). Either way a
-//      bad batch writes NOTHING (an unknown event_key 403s before any write).
+//   3. Validate every report.event_key BEFORE any write: a key in the receiver's
+//      events passes; any other key must name a REAL event in the `event` table
+//      (service role). An unknown event_key 403s the whole batch, nothing written.
+//      Earlier builds also refused real events the receiver had never scouted —
+//      but under the app's login-less model any device can select_scouter into
+//      any event, so that gate protected nothing and stranded real backlogs (a
+//      lead phone still signed in to last weekend's event 403'd every report
+//      from this one). BUG-7's scouter-less receiver is the same case.
 //   4. Upsert with a service-role client (auth.uid() NULL ⇒ the upsert_match_report
 //      ownership gate is exempt; it RESOLVES/PROVISIONS the scout row per 0022/0032)
 //      so QR can carry OTHER scouts' reports. The RPC is revision-guarded ⇒
@@ -77,11 +79,7 @@ Deno.serve(async (req) => {
   if (eventsErr) {
     return json({ error: "membership lookup failed" }, 503);
   }
-  // BUG-7: a receiver that hasn't picked a scouter yet has NO scout row, so
-  // get_my_event_keys() is EMPTY. Do NOT 403 the whole backlog — fall back to
-  // validating each report's event_key against the `event` table (service role).
-  // The whole point of QR is recovering a sender on a device that may not itself
-  // be a member; the service-role upsert resolves/provisions the scout row anyway.
+  // The receiver's own events skip the existence lookup below.
   const memberEvents = new Set<string>(
     Array.isArray(myEvents) ? (myEvents as string[]) : [],
   );
@@ -121,20 +119,15 @@ Deno.serve(async (req) => {
   }
 
   // (3) Pre-check EVERY report's event_key BEFORE any write so a bad batch
-  //     writes nothing. A member is restricted to their OWN events; a receiver
-  //     with no events validates each key against real, existing events instead.
+  //     writes nothing: each key must be one of the receiver's events or name a
+  //     real, existing event.
   const knownEvents = new Set<string>(memberEvents);
   for (const report of payload.reports) {
     const eventKey = report?.event_key;
-    if (typeof eventKey !== "string") {
+    if (typeof eventKey !== "string" || eventKey.length === 0) {
       return json({ error: "forbidden: report missing event_key" }, 403);
     }
     if (knownEvents.has(eventKey)) continue;
-    if (memberEvents.size > 0) {
-      // Caller IS a member of some events — they may only ingest into those.
-      return json({ error: "forbidden: report outside your events" }, 403);
-    }
-    // Scouter-less receiver: accept the key only if it names a REAL event.
     const { data: ev, error: evErr } = await svc
       .from("event")
       .select("event_key")
@@ -157,9 +150,17 @@ Deno.serve(async (req) => {
   let ingested = 0;
   const failed: { index: number; error: string }[] = [];
   for (let index = 0; index < payload.reports.length; index++) {
-    const { data, error } = await svc.rpc("upsert_match_report", {
-      p: payload.reports[index],
-    });
+    let data: { status?: string; current_revision?: number } | null = null;
+    let error: { message: string } | null = null;
+    try {
+      ({ data, error } = await svc.rpc("upsert_match_report", {
+        p: payload.reports[index],
+      }));
+    } catch (thrown) {
+      // A thrown transport failure for one row must not 500 the whole batch
+      // after earlier rows committed; report it per-row so the receiver retries.
+      error = { message: (thrown as Error)?.message ?? "upsert failed" };
+    }
     if (error) {
       failed.push({ index, error: error.message });
     } else if (

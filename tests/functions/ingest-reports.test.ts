@@ -13,7 +13,10 @@
 //   - no Authorization header                          → 401
 //   - member JWT + report in their event               → 200 { ingested: 1, failed: [] } + row exists
 //   - re-POST the SAME report                          → 200 { ingested: 1, failed: [] } + NO duplicate
-//   - member JWT but report.event_key is a foreign event → 403, nothing written
+//   - member JWT + report in a REAL event it never joined → 200 ingested (the
+//     login-less model lets any device join any event, so the old member-only
+//     gate only stranded backlogs)
+//   - report.event_key names no real event            → 403, nothing written
 //
 // This test FAILS until the controller redeploys the rewritten function.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -39,7 +42,8 @@ const EVENT_KEY = `_e2etest_${RUN_ID}_ingest`.slice(0, 63);
 const EVENT_CODE = "INGSTJWT";
 const MATCH_KEY = `${EVENT_KEY}_qm1`;
 const TEAM_NUMBER = 99992;
-// A separate event the member never joins (the 403-foreign case).
+// A separate, real event the member never joins (accepted since the gate now
+// only requires the event to exist).
 const FOREIGN_EVENT_KEY = `_e2etest_${RUN_ID}_ingest_foreign`.slice(0, 63);
 const FOREIGN_CODE = "INGFRGN1";
 const FOREIGN_MATCH_KEY = `${FOREIGN_EVENT_KEY}_qm1`;
@@ -82,8 +86,8 @@ async function seed() {
     red1: TEAM_NUMBER,
   });
 
-  // Foreign event (member never joins it) + a match so a forged event_key is
-  // FK-valid and the 403 is proven to come from the membership gate, not an FK.
+  // Foreign event (member never joins it) + a match and roster entry so a report
+  // for it is FK-valid.
   await admin.from("event").upsert({
     event_key: FOREIGN_EVENT_KEY,
     name: "Ingest Foreign Event",
@@ -92,6 +96,10 @@ async function seed() {
   await admin.from("event_secret").upsert({
     event_key: FOREIGN_EVENT_KEY,
     join_code: FOREIGN_CODE,
+  });
+  await admin.from("event_team").upsert({
+    event_key: FOREIGN_EVENT_KEY,
+    team_number: TEAM_NUMBER,
   });
   await admin.from("match").upsert({
     match_key: FOREIGN_MATCH_KEY,
@@ -226,14 +234,13 @@ d("ingest-reports (deployed, JWT event-member auth)", () => {
     expect(after).toBe(before);
   }, 30000);
 
-  it("rejects a report whose event_key is outside the member's events → 403, nothing written", async () => {
-    const before = await reportCount(FOREIGN_EVENT_KEY);
-
+  it("ingests a report for a real event the receiver never joined", async () => {
     const foreignReport = {
       ...validReport(),
       id: FOREIGN_REPORT_ID,
       event_key: FOREIGN_EVENT_KEY,
       match_key: FOREIGN_MATCH_KEY,
+      scout_name: "Ingest JWT Scout",
     };
 
     const res = await fetch(BASE, {
@@ -245,16 +252,40 @@ d("ingest-reports (deployed, JWT event-member auth)", () => {
       },
       body: JSON.stringify({ reports: [foreignReport] }),
     });
-    expect(res.status).toBe(403);
+    // The event gate passes; the row itself is then accounted for per-row
+    // (scout resolution is the RPC's business, covered by the db suite).
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ingested + body.failed.length).toBe(1);
+  }, 30000);
 
-    // Nothing was written for the foreign event.
-    const after = await reportCount(FOREIGN_EVENT_KEY);
-    expect(after).toBe(before);
+  it("rejects a batch naming an event that does not exist → 403, nothing written", async () => {
+    const ghostEvent = `${EVENT_KEY}_ghost`.slice(0, 63);
+    const res = await fetch(BASE, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${memberJwt}`,
+        apikey: ANON,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        reports: [
+          { ...validReport(), id: "00000000-d4d4-d4d4-d4d4-0000000000fd" },
+          {
+            ...validReport(),
+            id: "00000000-d4d4-d4d4-d4d4-0000000000fc",
+            event_key: ghostEvent,
+            match_key: `${ghostEvent}_qm1`,
+          },
+        ],
+      }),
+    });
+    expect(res.status).toBe(403);
+    // The valid sibling in the same batch was not written either.
     const { data } = await admin
       .from("match_scouting_report")
       .select("id")
-      .eq("id", FOREIGN_REPORT_ID)
-      .maybeSingle();
-    expect(data).toBeNull();
+      .in("id", ["00000000-d4d4-d4d4-d4d4-0000000000fd", "00000000-d4d4-d4d4-d4d4-0000000000fc"]);
+    expect(data ?? []).toEqual([]);
   }, 30000);
 });
