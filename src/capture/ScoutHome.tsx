@@ -59,6 +59,7 @@ import { cn } from '@/lib/utils';
 import { reportMatchesScoutScope } from '@/scout/reportScope';
 import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt';
 import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
+import { pullScoutReports } from '@/sync/pullReports';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -500,6 +501,17 @@ export default function ScoutHome() {
       } catch {
         /* offline / network failure: keep the cached assignments set above */
       }
+
+      // Pull this scouter's reports from OTHER devices (or QR ingest) so a
+      // match scouted elsewhere shows as Done here instead of Missed. Skipped
+      // when a canonical re-point is pending: the effect restarts under it.
+      if (cancelled || (canonical && canonical.id !== scoutId)) return;
+      try {
+        const changed = await pullScoutReports(ev, scoutId, identityName);
+        if (changed > 0 && !cancelled) void refreshLocal(ev);
+      } catch {
+        /* offline: local reports are all we can show */
+      }
     };
     void refreshAssignments();
     void refreshLocal(ev);
@@ -509,18 +521,31 @@ export default function ScoutHome() {
     const interval = window.setInterval(refreshVisible, 30_000);
     window.addEventListener('focus', refreshVisible);
     window.addEventListener('preload-cache-changed', refreshVisible);
+    interface RealtimeChannelLike {
+      on: (...args: unknown[]) => RealtimeChannelLike;
+      subscribe: () => unknown;
+    }
     const realtimeClient = supabase as typeof supabase & {
-      channel?: (name: string) => {
-        on: (...args: unknown[]) => { subscribe: () => unknown };
-        subscribe: () => unknown;
-      };
+      channel?: (name: string) => RealtimeChannelLike;
       removeChannel?: (channel: unknown) => Promise<unknown>;
     };
     const realtime = realtimeClient.channel?.(`scout-assignments:${ev}:${scoutId}:${channelId}`);
+    // Both tables are in the supabase_realtime publication (0034 for reports);
+    // an unpublished table here would silently kill the whole channel.
     realtime
       ?.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'assignment', filter: `event_key=eq.${ev}` },
+        refreshVisible,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'match_scouting_report',
+          filter: `scout_id=eq.${scoutId}`,
+        },
         refreshVisible,
       )
       .subscribe();

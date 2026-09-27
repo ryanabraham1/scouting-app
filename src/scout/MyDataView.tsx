@@ -1,6 +1,7 @@
 // src/scout/MyDataView.tsx — active-event "My Data" for the selected scouter.
 // Reads this device's local reports, matching by normalized scouter name so a
-// reconciled scout-row id does not hide that scouter's earlier captures.
+// reconciled scout-row id does not hide that scouter's earlier captures, after
+// pulling the scouter's reports saved from other devices into the local store.
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Pencil } from "lucide-react";
@@ -8,6 +9,7 @@ import { useSession } from "@/auth/useSession";
 import { matchLabelFromKey } from "@/capture/UpcomingMatches";
 import { useActiveEvent } from "@/dash/useActiveEvent";
 import { listReports } from "@/db/localStore";
+import { pullScoutReports } from "@/sync/pullReports";
 import type { LocalMatchReport } from "@/db/types";
 import {
   normalizeScouterName,
@@ -67,7 +69,7 @@ export default function MyDataView(): JSX.Element {
     }
 
     let cancelled = false;
-    void (async () => {
+    const load = async (): Promise<void> => {
       const all = await listReports();
       if (cancelled) return;
       const scoped = all
@@ -81,6 +83,15 @@ export default function MyDataView(): JSX.Element {
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setReports(scoped);
       setLoaded(true);
+    };
+    void (async () => {
+      await load();
+      try {
+        const changed = await pullScoutReports(activeEvent, scout.id, scout.display_name);
+        if (changed > 0) await load();
+      } catch {
+        /* offline: this device's reports are all we can show */
+      }
     })();
     return () => {
       cancelled = true;

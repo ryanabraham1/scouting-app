@@ -263,10 +263,19 @@ function usePitTeamStatuses(eventKey: string): Map<number, PitTeamStatus> {
       if (!cancelled) setStatuses(next);
     };
     void refresh();
+    // Pit reports submitted from OTHER devices only arrive via the server read,
+    // so re-poll it (and on focus) instead of waiting for a local sync event.
+    const refreshVisible = (): void => {
+      if (document.visibilityState !== 'hidden') void refresh();
+    };
+    const interval = window.setInterval(refreshVisible, 30_000);
+    window.addEventListener('focus', refreshVisible);
     window.addEventListener('scout-sync-changed', refresh);
     window.addEventListener('pit-local-changed', refresh);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshVisible);
       window.removeEventListener('scout-sync-changed', refresh);
       window.removeEventListener('pit-local-changed', refresh);
     };

@@ -465,7 +465,10 @@ export async function fetchCoverage(eventKey: string | null): Promise<CoverageDa
     supabase
       .from('match_scouting_report')
       .select('match_key,target_team_number,scout_id,server_received_at')
-      .eq('event_key', eventKey),
+      .eq('event_key', eventKey)
+      // Deleted/superseded rows are not coverage; counting them hid a slot
+      // whose only report was since replaced or removed.
+      .eq('deleted', false),
   ]);
 
   return {
