@@ -7,7 +7,7 @@
 //
 // The data fetch is isolated in `fetchCoverage` (which only touches the
 // supabase client) so tests can drive it by mocking `@/lib/supabase`.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useActiveEvent } from '@/dash/useActiveEvent';
@@ -36,6 +36,7 @@ import {
   type RecoveryResolution,
   type RecoveryVersions,
 } from '@/sync/localRecovery';
+import { useSync } from '@/sync/useSync';
 
 interface LocalDeadLetter {
   id: string;
@@ -107,6 +108,15 @@ function LocalOutbox(): JSX.Element {
     void refresh();
   }, [refresh]);
 
+  // Re-read the outbox whenever a drain finishes, so a retried row that synced
+  // (or dead-lettered again) leaves / returns to this list without a reload.
+  const { syncing, syncNow } = useSync();
+  const wasSyncing = useRef(syncing);
+  useEffect(() => {
+    if (wasSyncing.current && !syncing) void refresh();
+    wasSyncing.current = syncing;
+  }, [syncing, refresh]);
+
   const retryAll = useCallback(async () => {
     setRetrying(true);
     try {
@@ -115,13 +125,15 @@ function LocalOutbox(): JSX.Element {
         else await requeuePitReport(d.id);
       }
       for (const record of collaborativeDead) await retryLocalRecovery(record);
-      // Nudge the sync engine (useSync listens for this) to drain immediately.
-      window.dispatchEvent(new Event('scout-sync-changed'));
+      // Drain immediately. syncNow also drops any outage backoff a failed drain
+      // left behind; a bare queue-changed event returned early for up to five
+      // minutes while that circuit was open, so "Retry all" did nothing.
+      syncNow();
       await refresh();
     } finally {
       setRetrying(false);
     }
-  }, [collaborativeDead, dead, refresh]);
+  }, [collaborativeDead, dead, refresh, syncNow]);
 
   const inspectRecovery = useCallback(async (record: LocalRecoveryRecord) => {
     const key = `${record.kind}:${record.key}`;

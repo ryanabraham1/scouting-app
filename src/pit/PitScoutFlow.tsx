@@ -222,6 +222,27 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
 
 type PitTeamStatus = 'assigned' | 'draft' | 'queued' | 'submitted' | 'error';
 
+const SUBMITTED_PIT_TEAMS_KEY = 'pit-submitted-teams:';
+
+function readSubmittedPitTeams(eventKey: string): number[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SUBMITTED_PIT_TEAMS_KEY + eventKey) ?? '[]');
+    return Array.isArray(parsed)
+      ? parsed.filter((team): team is number => Number.isSafeInteger(team) && team > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSubmittedPitTeams(eventKey: string, teams: number[]): void {
+  try {
+    localStorage.setItem(SUBMITTED_PIT_TEAMS_KEY + eventKey, JSON.stringify(teams));
+  } catch {
+    /* storage unavailable: statuses still come from the live read */
+  }
+}
+
 function usePitTeamStatuses(eventKey: string): Map<number, PitTeamStatus> {
   const [statuses, setStatuses] = useState<Map<number, PitTeamStatus>>(new Map());
   useEffect(() => {
@@ -229,18 +250,24 @@ function usePitTeamStatuses(eventKey: string): Map<number, PitTeamStatus> {
     let cancelled = false;
     const refresh = async () => {
       const next = new Map<number, PitTeamStatus>();
+      // Teams pit-scouted on OTHER devices are only known from the server. The
+      // last good answer is kept per event so they stay marked submitted while
+      // offline, and a failed read (supabase-js resolves `{ error }` rather than
+      // throwing) is never mistaken for "nobody has submitted anything".
+      let serverTeams = readSubmittedPitTeams(eventKey);
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('pit_scouting_report')
           .select('team_number')
           .eq('event_key', eventKey)
           .eq('deleted', false);
-        for (const row of (data ?? []) as Array<{ team_number: number }>) {
-          next.set(row.team_number, 'submitted');
-        }
+        if (error) throw error;
+        serverTeams = ((data ?? []) as Array<{ team_number: number }>).map((row) => row.team_number);
+        writeSubmittedPitTeams(eventKey, serverTeams);
       } catch {
-        /* local state below is sufficient while offline */
+        /* offline: fall back to the last server answer */
       }
+      for (const teamNumber of serverTeams) next.set(teamNumber, 'submitted');
       try {
         const [drafts, reports] = await Promise.all([
           listPitDraftsForEvent(eventKey),

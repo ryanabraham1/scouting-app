@@ -159,6 +159,44 @@ describe('syncOnce', () => {
     expect(report?.notes).toBe('keep this local edit');
   });
 
+  it('uploads a queued report as currently stored, not as snapshotted at drain start', async () => {
+    await saveReport(makeReport({ id: 'first', createdAt: '2026-06-23T00:00:00.000Z' }));
+    await saveReport(
+      makeReport({ id: 'changed', notes: 'original', createdAt: '2026-06-23T00:00:01.000Z' }),
+    );
+    const rpc = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        // While the first report uploads, the second one's stored content moves
+        // on at the same revision (e.g. a conflict rebase + correction landing).
+        await saveReport(
+          makeReport({ id: 'changed', notes: 'corrected', createdAt: '2026-06-23T00:00:01.000Z' }),
+        );
+        return successResult();
+      })
+      .mockResolvedValueOnce(successResult());
+    await syncOnce(rpc);
+
+    const uploaded = (rpc.mock.calls[1][1] as { p: Record<string, unknown> }).p;
+    expect(uploaded.id).toBe('changed');
+    expect(uploaded.notes).toBe('corrected');
+    expect((await getReport('changed'))?.syncState).toBe('synced');
+  });
+
+  it('skips a queued report discarded before its turn in the drain', async () => {
+    await saveReport(makeReport({ id: 'first', createdAt: '2026-06-23T00:00:00.000Z' }));
+    await saveReport(makeReport({ id: 'discarded', createdAt: '2026-06-23T00:00:01.000Z' }));
+    const rpc = vi.fn().mockImplementationOnce(async () => {
+      await db.reports.delete('discarded');
+      return successResult();
+    });
+    const summary = await syncOnce(rpc);
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(summary).toEqual({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
+    expect(await getReport('discarded')).toBeUndefined();
+  });
+
   it('conflict twice in one drain stays a recoverable dead-letter', async () => {
     await saveReport(makeReport({ id: 'server-conflict-2', notes: 'keep this local edit', rowRevision: 3 }));
     const rpc = vi

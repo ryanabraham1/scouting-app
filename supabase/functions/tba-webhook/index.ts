@@ -23,6 +23,7 @@ import {
   withoutUnplayedResult,
   type TbaMatch,
 } from "../_shared/tbaMatchRow.ts";
+import { ensureEventTeams } from "../_shared/ensureEventTeams.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -123,6 +124,12 @@ async function upsertMatchScore(m: TbaMatch): Promise<void> {
     return;
   }
   const row = withoutUnplayedResult(mapped);
+  // A late-added team would fail the match→event_team FK; add it first.
+  await ensureEventTeams(
+    (teams) =>
+      svcClient().rpc("ensure_event_teams", { p_event_key: row.event_key, p_teams: teams }),
+    [row],
+  );
   const { error } = await svcClient().from("match").upsert(row, { onConflict: "match_key" });
   if (error) {
     console.error("[tba-webhook] match upsert failed", row.match_key, error.message);
@@ -142,6 +149,15 @@ async function upsertMatchScore(m: TbaMatch): Promise<void> {
 async function upsertUpcoming(data: Record<string, unknown>): Promise<void> {
   const row = upcomingMatchToRow(data);
   if (!row) return;
+  try {
+    await ensureEventTeams(
+      (teams) =>
+        svcClient().rpc("ensure_event_teams", { p_event_key: row.event_key, p_teams: teams }),
+      [row],
+    );
+  } catch (error) {
+    console.error("[tba-webhook] event_team backfill failed", row.match_key, (error as Error).message);
+  }
   const { error } = await svcClient().from("match").upsert(row, { onConflict: "match_key" });
   if (error) console.error("[tba-webhook] upcoming upsert failed", row.match_key, error.message);
 }

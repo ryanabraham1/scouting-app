@@ -15,6 +15,7 @@ export default defineConfig({
       'tests/e2e/**',
       'tests/functions/seed-demo-scoring.test.ts',
       'tests/functions/tbaMatchRow.test.ts',
+      'tests/functions/ensureEventTeams.test.ts',
       'node_modules/**',
     ],
     fileParallelism: false,

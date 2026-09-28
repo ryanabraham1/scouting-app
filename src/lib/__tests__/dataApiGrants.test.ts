@@ -71,6 +71,7 @@ const EXPECTED_BROWSER_RPCS = [
 const EXPECTED_CALLER_EDGE_RPCS = ['get_my_event_keys()'];
 
 const EXPECTED_SERVICE_ROLE_EDGE_RPCS = [
+  'ensure_event_teams',
   'nexus_upsert_status',
   'promote_event_import',
   'replace_demo_event_bundle',

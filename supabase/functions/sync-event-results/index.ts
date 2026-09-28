@@ -20,6 +20,7 @@ import {
   type StoredMatch,
   type TbaMatch,
 } from "../_shared/tbaMatchRow.ts";
+import { ensureEventTeams } from "../_shared/ensureEventTeams.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -32,6 +33,17 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 // match list is ~1 MB.
 const TBA_TIMEOUT_MS = 10_000;
 const MAX_TBA_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+/** Best-effort nickname for a team added mid-event (null on any failure). */
+async function tbaNickname(teamNumber: number): Promise<string | null> {
+  const res = await fetch(`${TBA_BASE}/team/frc${teamNumber}/simple`, {
+    headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
+    signal: AbortSignal.timeout(TBA_TIMEOUT_MS),
+  });
+  if (!res.ok) return null;
+  const team = JSON.parse(await readTextResponse(res, 64 * 1024)) as { nickname?: unknown };
+  return typeof team?.nickname === "string" && team.nickname ? team.nickname : null;
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -112,6 +124,21 @@ Deno.serve(async (req) => {
     .map((mapped) => mapped.row);
 
   if (toWrite.length > 0) {
+    // A team added to the event after import would fail the match→event_team FK
+    // and, in a bulk upsert, freeze every other row with it. Add such teams first.
+    try {
+      const added = await ensureEventTeams(
+        (teams) => svc.rpc("ensure_event_teams", { p_event_key: eventKey, p_teams: teams }),
+        toWrite,
+        tbaNickname,
+      );
+      if (added.length > 0) {
+        console.log(`[sync-event-results] added late teams to ${eventKey}: ${added.join(", ")}`);
+      }
+    } catch (error) {
+      console.error("[sync-event-results] event_team backfill failed", (error as Error).message);
+      return json({ available: false, error: "event teams unavailable" });
+    }
     // A bulk upsert sends the UNION of every row's keys and pads the gaps with
     // NULL, so a roster-less row batched with rostered rows would have its
     // stored teams wiped. Group rows by their exact column set instead.

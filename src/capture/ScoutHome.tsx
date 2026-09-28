@@ -530,8 +530,9 @@ export default function ScoutHome() {
       removeChannel?: (channel: unknown) => Promise<unknown>;
     };
     const realtime = realtimeClient.channel?.(`scout-assignments:${ev}:${scoutId}:${channelId}`);
-    // Both tables are in the supabase_realtime publication (0034 for reports);
-    // an unpublished table here would silently kill the whole channel.
+    // Both tables are in the supabase_realtime publication (0034 for reports,
+    // 20260927230000 for assignment); an unpublished table here would silently
+    // kill the whole channel.
     realtime
       ?.on(
         'postgres_changes',

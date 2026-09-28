@@ -7,6 +7,7 @@
 import { supabase } from '@/lib/supabase';
 import {
   getDueSyncQueue,
+  getReport,
   markPending,
   markSynced,
   markDirtyRetry,
@@ -109,7 +110,14 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
 
   const rebased = new Map<string, number>();
   for (let index = 0; index < queue.length; index += 1) {
-    const report = queue[index];
+    const queued = queue[index];
+    // Upload the row as it is NOW, not the snapshot read when the drain started:
+    // a correction saved (or a conflict rebase applied) since then must be what
+    // goes over the wire. With a stale snapshot, a correction that landed at the
+    // same revision a rebase assigned was marked synced while the server kept
+    // the old content. Rows discarded or settled in the meantime are skipped.
+    const report = await getReport(queued.id);
+    if (!report || report.syncState === 'synced' || report.syncState === 'error') continue;
     summary.attempted += 1;
     await markPending(report.id);
 

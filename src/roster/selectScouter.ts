@@ -79,9 +79,15 @@ function isOfflineLike(err: unknown): boolean {
   // Match the network-failure phrasings across browsers (Chrome "Failed to
   // fetch", Firefox "NetworkError", Safari "Load failed", RN "Network request
   // failed"). Deliberately NOT a bare "fetch" so an online server error that
-  // merely mentions fetch isn't misclassified as offline.
+  // merely mentions fetch isn't misclassified as offline. Also the request
+  // timeouts: venue wifi that stays "connected" while packets go nowhere ends in
+  // lib/timeoutFetch's "Network request timed out" or PostgREST's db.timeout
+  // abort ("AbortError" / "TimeoutError"), never "Failed to fetch" — and that is
+  // exactly when a scout most needs the cached identity.
   const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase();
-  return /failed to fetch|networkerror|network request failed|load failed/.test(msg);
+  return /failed to fetch|networkerror|network request failed|network request timed out|load failed|aborterror|timeouterror|signal timed out|operation was aborted/.test(
+    msg,
+  );
 }
 
 // Persist a successful (or cache-restored) pick so the device stays signed in

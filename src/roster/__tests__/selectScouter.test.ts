@@ -88,6 +88,22 @@ describe('selectScouter', () => {
     expect(getRememberedScouterName()).toBe('Ada');
   });
 
+  it.each([
+    'TypeError: Network request timed out after 30s',
+    'AbortError: signal is aborted without reason',
+    'TimeoutError: signal timed out',
+  ])(
+    'falls back to the cached identity on a stalled "connected" link (%s)',
+    async (message) => {
+      // navigator.onLine stays true on dead venue wifi; supabase-js resolves the
+      // request timeout as an error message rather than a thrown TypeError.
+      rememberScoutIdentity(scoutRow);
+      rpcMock.mockResolvedValue({ data: null, error: { message, code: '' } });
+      const row = await selectScouter('2026demo', 'Ada');
+      expect(row).toEqual(scoutRow);
+    },
+  );
+
   it('surfaces a friendly message offline when the name was never signed in here', async () => {
     goOffline();
     rpcMock.mockRejectedValue(new TypeError('Failed to fetch'));
