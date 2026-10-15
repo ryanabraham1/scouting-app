@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Shield,
   Flag,
@@ -98,6 +98,15 @@ export function ReviewScreen(props: {
   const step = s.reviewStep <= 2 ? 0 : s.reviewStep === 3 ? 1 : 2;
   const storedSteps = [0, 3, 4] as const;
   const isPortrait = useIsPortrait();
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [step]);
+  const unrated = [
+    s.defenseRating === 0 ? 'Defense quality' : null,
+    s.driverSkill === 0 ? 'Driver skill' : null,
+    s.agility === 0 ? 'Agility' : null,
+  ].filter(Boolean);
 
   // Step 4 auto: offer the routines this team has already been scouted running so a
   // scout can reuse one instead of re-tracing it. Only looked up once the auto step
@@ -205,19 +214,18 @@ export function ReviewScreen(props: {
         </div>
         <p className="text-sm text-muted-foreground">Team {s.targetTeamNumber}</p>
         <p className="text-base font-semibold text-brand landscape:text-lg">{STEP_TITLES[step]}</p>
-        <div className="flex gap-1.5">
+        <nav aria-label="Review sections" className="grid grid-cols-3 gap-1.5">
           {STEP_TITLES.map((title, i) => (
-            <span
-              key={title}
-              className={`h-2 flex-1 rounded-full transition-colors ${
-                i < step ? 'bg-success' : i === step ? 'bg-brand' : 'bg-border'
-              }`}
-            />
+            <button type="button" key={title} data-testid={`review-jump-${i}`}
+              aria-current={i === step ? 'step' : undefined}
+              onClick={() => s.setReviewStep(storedSteps[i])}
+              className={`min-h-11 rounded-lg border px-2 py-1 text-xs font-semibold ${i === step ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:bg-accent'}`}
+            >{title}</button>
           ))}
-        </div>
+        </nav>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto landscape:gap-4">
+      <div ref={contentRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto landscape:gap-4">
         {/* Step 1: Ratings */}
         {step === 0 && (
           <section className="flex flex-col gap-3 landscape:gap-4">
@@ -229,9 +237,11 @@ export function ReviewScreen(props: {
                 <Shield className="size-5 text-brand" />
                 Ratings
               </p>
+              <p className="mb-3 text-sm text-muted-foreground">Only rate what you saw. Didn’t see / unsure leaves the rating unrecorded; it is not a zero performance score.</p>
               <div className="grid grid-cols-1 gap-3 landscape:grid-cols-3 landscape:gap-4">
                 <RatingSlider
                   label="Defense quality"
+                  unsureLabel="Didn’t see / unsure"
                   value={s.defenseRating}
                   onChange={(value) => {
                     s.setDefenseRating(value);
@@ -241,6 +251,7 @@ export function ReviewScreen(props: {
                 />
                 <RatingSlider
                   label="Driver skill"
+                  unsureLabel="Didn’t see / unsure"
                   value={s.driverSkill}
                   onChange={(value) => {
                     s.setDriverSkill(value);
@@ -250,6 +261,7 @@ export function ReviewScreen(props: {
                 />
                 <RatingSlider
                   label="Agility"
+                  unsureLabel="Didn’t see / unsure"
                   value={s.agility}
                   onChange={(value) => {
                     s.setAgility(value);
@@ -258,6 +270,21 @@ export function ReviewScreen(props: {
                   testId="review-agility"
                 />
               </div>
+            </div>
+          </section>
+        )}
+
+        {step === 2 && (
+          <section aria-label="Review checks" className="rounded-xl border border-border bg-card p-3 text-sm">
+            <p className="font-semibold">Check before saving</p>
+            <p className="mt-1 text-muted-foreground">Unrecorded items are optional. Leave them unsure rather than guessing.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button variant="outline" className="min-h-11 h-auto whitespace-normal text-left" onClick={() => s.setReviewStep(0)}>
+                {unrated.length ? `Unrated: ${unrated.join(', ')}` : 'Ratings recorded · Edit'}
+              </Button>
+              <Button variant="outline" className="min-h-11" onClick={() => s.setReviewStep(3)}>
+                {s.autoPath === null ? 'Auto path unrecorded · Review' : s.autoPath.length === 0 ? 'Auto: no movement · Edit' : 'Auto path recorded · Edit'}
+              </Button>
             </div>
           </section>
         )}
@@ -381,6 +408,14 @@ export function ReviewScreen(props: {
                 )}
               </p>
 
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Button variant="outline" className="min-h-11" aria-pressed={s.autoPath === null}
+                  onClick={() => { s.setAutoPath(null); props.onAction?.('auto_path'); }}>Didn’t see / unsure</Button>
+                <Button variant="outline" className="min-h-11" aria-pressed={Array.isArray(s.autoPath) && s.autoPath.length === 0}
+                  onClick={() => { s.setAutoPath([]); props.onAction?.('auto_path'); }}>Observed no movement</Button>
+              </div>
+              <p className="mb-3 text-sm text-muted-foreground">{s.autoPath === null ? 'Auto path unrecorded. Leave it unsure if you did not see it.' : s.autoPath.length === 0 ? 'Observed no movement during auto.' : 'Auto path recorded.'}</p>
+
               {/* Mode switch — only when the team has prior autos worth reusing. */}
               {hasPriorAutos && (
                 <SegmentedToggle<'known' | 'draw'>
@@ -433,7 +468,7 @@ export function ReviewScreen(props: {
                     startPosition={s.autoStartPosition}
                     path={s.autoPath}
                     onPathChange={(pts: FieldPoint[]) => {
-                      s.setAutoPath(pts);
+                      s.setAutoPath(pts.length > 0 ? pts : null);
                       props.onAction?.('auto_path');
                     }}
                     data-testid="review-field-path"

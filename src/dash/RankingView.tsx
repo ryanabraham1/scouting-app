@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal, ChevronUp, ChevronDown, ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { readPreference, writePreference } from '@/dash/analysisPreferences';
 import { cn } from '@/lib/utils';
 import { TeamLink } from '@/components/ui/TeamLink';
 import { aggregateEvent, emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
@@ -98,6 +99,13 @@ type SortKey =
   | 'tbaRank';
 
 type SortDir = 'asc' | 'desc';
+
+function loadSort(): { key: SortKey; dir: SortDir } | null {
+  const stored = readPreference('analysis-ranking-sort-v1') as { key?: unknown; dir?: unknown } | null;
+  const keys: SortKey[] = ['teamNumber', 'matchesScouted', 'scoutingExpectedPoints', 'avgDefenseRating', 'reliability', 'fuelSuppression', 'defenderEffectiveness', 'epa', 'tbaRank'];
+  return stored && keys.includes(stored.key as SortKey) && (stored.dir === 'asc' || stored.dir === 'desc')
+    ? { key: stored.key as SortKey, dir: stored.dir } : null;
+}
 
 /** A fully-resolved row: the pure agg plus the external (EPA/TBA) values. */
 interface Row {
@@ -364,11 +372,15 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
 
   // Default ranking is the official TBA rank (ascending). Falls back below when
   // TBA has nothing for this event yet.
-  const [sortKey, setSortKey] = useState<SortKey>('tbaRank');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [savedSort] = useState(loadSort);
+  const [sortKey, setSortKey] = useState<SortKey>(savedSort?.key ?? 'tbaRank');
+  const [sortDir, setSortDir] = useState<SortDir>(savedSort?.dir ?? 'asc');
   // True once the user has clicked a column — the default-fallback effects
   // must never override an explicit choice.
-  const userSortedRef = useRef(false);
+  const userSortedRef = useRef(savedSort !== null);
+  useEffect(() => {
+    if (userSortedRef.current) writePreference('analysis-ranking-sort-v1', { key: sortKey, dir: sortDir });
+  }, [sortKey, sortDir]);
   const [selected, setSelected] = useState<number[]>([]);
 
   // User-chosen hidden stat columns (Team is never toggleable). We store HIDDEN

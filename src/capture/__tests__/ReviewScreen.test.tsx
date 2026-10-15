@@ -255,3 +255,38 @@ describe('ReviewScreen', () => {
   });
 });
 
+
+
+describe('quick review', () => {
+  it('preserves an observed stationary auto separately from an unrecorded path', async () => {
+    const onSaved = vi.fn();
+    render(<Host onSaved={onSaved} initInactiveFirst={false} />);
+    fireEvent.click(screen.getByTestId('review-jump-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Observed no movement' }));
+    fireEvent.click(screen.getByTestId('review-jump-2'));
+    await act(async () => { fireEvent.click(screen.getByTestId('review-save')); });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect((await listReports())[0].autoPath).toEqual([]);
+  });
+
+  it('jumps directly to optional omissions and saves unsure ratings without guessing', async () => {
+    const onSaved = vi.fn();
+    render(<Host onSaved={onSaved} initInactiveFirst={false} />);
+    fireEvent.change(screen.getByTestId('review-defense-rating'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Defense quality: Didn’t see / unsure' }));
+    fireEvent.click(screen.getByTestId('review-jump-2'));
+    expect(screen.getByRole('button', { name: /Unrated: Defense quality, Driver skill, Agility/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Auto path unrecorded · Review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Observed no movement' }));
+    fireEvent.click(screen.getByTestId('review-jump-2'));
+    expect(screen.getByRole('button', { name: 'Auto: no movement · Edit' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Auto: no movement · Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Didn’t see / unsure' }));
+    fireEvent.click(screen.getByTestId('review-jump-2'));
+    await act(async () => { fireEvent.click(screen.getByTestId('review-save')); });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const [report] = await listReports();
+    expect(report.defenseRating).toBe(0);
+    expect(report.autoPath).toBeNull();
+  });
+});

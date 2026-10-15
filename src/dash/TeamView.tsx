@@ -35,6 +35,8 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import TeamQuickAccess from '@/dash/TeamQuickAccess';
+import { readPreference, writePreference } from '@/dash/analysisPreferences';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { MatchScorePanel } from '@/dash/MatchScorePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1007,7 +1009,9 @@ function TeamDetail(props: {
   const [openRow, setOpenRow] = useState<number | null>(null);
   // "Show conflicts only" filter. Flipping it RESETS openRow (the index-based
   // rows reindex when filtered) so an open row never jumps to a different match.
-  const [conflictsOnly, setConflictsOnly] = useState(false);
+  const [conflictsOnly, setConflictsOnly] = useState(() => readPreference('analysis-conflicts-only-v1') === true);
+
+  useEffect(() => { writePreference('analysis-conflicts-only-v1', conflictsOnly); }, [conflictsOnly]);
 
   // Conflicted group (minor/severe) for one scouted-match row, looked up O(1).
   const conflictFor = (m: MsrRow): MultiScoutGroup | undefined => {
@@ -1764,6 +1768,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             )}
           </div>
         </div>
+        <TeamQuickAccess key={eventKey} eventKey={eventKey} selected={selected} onSelect={chooseTeam} />
       </Card>
 
       {loading ? (

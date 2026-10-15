@@ -10,6 +10,7 @@ interface RatingSliderProps {
   value: QualitativeRating;
   onChange: (value: QualitativeRating) => void;
   testId?: string;
+  unsureLabel?: string;
 }
 
 function ratingValueText(value: QualitativeRating): string {
@@ -25,6 +26,7 @@ export function RatingSlider({
   value,
   onChange,
   testId,
+  unsureLabel,
 }: RatingSliderProps): JSX.Element {
   const generatedId = useId();
   const inputId = `${generatedId}-rating`;
@@ -59,18 +61,20 @@ export function RatingSlider({
           >
             {value === 0 ? 'Not rated' : `${value} / 10`}
           </output>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="min-h-11 min-w-11 px-3 text-xs"
-            data-testid={testId ? `${testId}-clear` : undefined}
-            disabled={value === 0}
-            aria-label={`Clear ${label} rating`}
-            onClick={() => onChange(0)}
-          >
-            Clear
-          </Button>
+          {!unsureLabel ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-11 min-w-11 px-3 text-xs"
+              data-testid={testId ? `${testId}-clear` : undefined}
+              disabled={value === 0}
+              aria-label={`Clear ${label} rating`}
+              onClick={() => onChange(0)}
+            >
+              Clear
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -98,6 +102,13 @@ export function RatingSlider({
         <span className="text-center">5 · Average</span>
         <span className="text-right">10 · Elite</span>
       </div>
+      {unsureLabel ? (
+        <Button type="button" size="sm" variant="outline" className="mt-1 min-h-11 whitespace-normal text-xs"
+          data-testid={testId ? `${testId}-clear` : undefined}
+          aria-label={`${label}: ${unsureLabel}`} aria-pressed={value === 0} onClick={() => onChange(0)}>
+          {unsureLabel}
+        </Button>
+      ) : null}
     </div>
   );
 }

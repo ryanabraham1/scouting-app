@@ -88,6 +88,24 @@ const reports: MsrRow[] = [
 ];
 
 describe('RankingView', () => {
+  it('restores an explicit sort across remounts instead of applying the default fallback', () => {
+    reportsReturn = { data: reports, isLoading: false };
+    const first = render(<RankingView eventKey="2026casnv" />);
+    fireEvent.click(first.getByTestId('sort-teamNumber'));
+    fireEvent.click(first.getByTestId('sort-teamNumber'));
+    first.unmount();
+    const restored = render(<RankingView eventKey="2026casnv" />);
+    expect(restored.getByTestId('sort-teamNumber').closest('th')?.getAttribute('aria-sort')).toBe('descending');
+    expect(restored.getAllByTestId(/^ranking-row-/)[0].getAttribute('data-testid')).toBe('ranking-row-1678');
+  });
+
+  it('ignores an invalid stored ranking sort', () => {
+    localStorage.setItem('analysis-ranking-sort-v1', JSON.stringify({ key: 'gone', dir: 'sideways' }));
+    reportsReturn = { data: reports, isLoading: false };
+    const view = render(<RankingView eventKey="2026casnv" />);
+    expect(view.getByTestId('sort-scoutingExpectedPoints').closest('th')?.getAttribute('aria-sort')).toBe('descending');
+  });
+
   it('renders the ranking container', () => {
     reportsReturn = { data: reports, isLoading: false };
     const { getByTestId } = render(<RankingView eventKey="2026casnv" />);
