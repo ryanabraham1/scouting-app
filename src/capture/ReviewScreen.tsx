@@ -9,21 +9,15 @@ import {
   ArrowRight,
   Save,
   X,
-  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NumberField } from '@/components/ui/NumberField';
 import { RatingSlider } from '@/components/ui/RatingSlider';
-import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
-import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import { computeAggregates, SCHEMA_VERSION } from '@/scoring';
 import { FUEL_GROUP_WINDOWS, groupFuelMax, type FuelGroup } from '@/capture/fuelCorrection';
 import { FOUL_REASONS } from '@/scoring/fouls';
-import {
-  useTeamAutoHistory,
-  type TeamAutoHistory,
-} from '@/capture/useTeamAutoHistory';
-import AutoHistoryPicker from '@/capture/AutoHistoryPicker';
+import type { TeamAutoHistory } from '@/capture/useTeamAutoHistory';
+import { AutoPathPanel } from '@/capture/AutoPathPanel';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
 
 const STEPS = [
@@ -47,27 +41,6 @@ export type ReviewObservedAction =
   | 'notes'
   | 'fuel'
   | 'next';
-
-/**
- * True when the viewport is in portrait orientation. Drives the Step 4 auto-path
- * field: portrait → render ROTATED 90° (tall + big) so the wide field becomes a
- * large tracing surface instead of a ~150px band; landscape → render normally.
- */
-function useIsPortrait(): boolean {
-  const [portrait, setPortrait] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return true;
-    return window.matchMedia('(orientation: portrait)').matches;
-  });
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(orientation: portrait)');
-    const onChange = (): void => setPortrait(mq.matches);
-    onChange();
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
-  }, []);
-  return portrait;
-}
 
 export function ReviewScreen(props: {
   session: ReturnType<typeof useCaptureSession>;
@@ -97,7 +70,6 @@ export function ReviewScreen(props: {
   // Retain the persisted five-page indices so existing drafts stay compatible.
   const step = s.reviewStep <= 2 ? 0 : s.reviewStep === 3 ? 1 : 2;
   const storedSteps = [0, 3, 4] as const;
-  const isPortrait = useIsPortrait();
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (contentRef.current) contentRef.current.scrollTop = 0;
@@ -107,20 +79,6 @@ export function ReviewScreen(props: {
     s.driverSkill === 0 ? 'Driver skill' : null,
     s.agility === 0 ? 'Agility' : null,
   ].filter(Boolean);
-
-  // Step 4 auto: offer the routines this team has already been scouted running so a
-  // scout can reuse one instead of re-tracing it. Only looked up once the auto step
-  // is reached (saves a request if the scout exits earlier). `known` mode shows the
-  // picker, `draw` keeps the trace-it-yourself field.
-  const loadedAutoHistory = useTeamAutoHistory(s.eventKey, s.targetTeamNumber, {
-    excludeMatchKey: s.matchKey,
-    enabled: step >= 1 && props.autoHistory === undefined,
-  });
-  const priorAutos = (props.autoHistory ?? loadedAutoHistory).autos;
-  const hasPriorAutos = priorAutos.length > 0;
-  const [autoMode, setAutoMode] = useState<'known' | 'draw'>('known');
-  // Effective mode: with no prior autos there's nothing to pick, so always draw.
-  const effectiveAutoMode = hasPriorAutos ? autoMode : 'draw';
 
   useEffect(() => {
     props.onStepChange?.(step);
@@ -391,91 +349,16 @@ export function ReviewScreen(props: {
           </section>
         )}
 
-        {/* Step 4: Auto. Two ways to record the path: PICK one of the routines the
-            team has already been scouted running (re-framed onto this match's
-            alliance), or DRAW it by finger. The start position (captured pre-match
-            on the placement step) renders as the orange marker on the draw field. */}
+        {/* Step 4: Auto. Normally already drawn live the moment Auto ended;
+            this step lets the scout check or fix it before saving. */}
         {step === 1 && (
           <section className="flex flex-col gap-3">
-            <div className="rounded-2xl border border-border bg-card p-3 landscape:p-4">
-              <p className="mb-3 flex items-center gap-2 text-base font-semibold">
-                <Route className="size-5 text-brand" />
-                Auto path
-                {effectiveAutoMode === 'draw' && (
-                  <span className="text-sm font-normal text-muted-foreground">
-                    (start position shown)
-                  </span>
-                )}
-              </p>
-
-              <div className="mb-3 flex flex-wrap gap-2">
-                <Button variant="outline" className="min-h-11" aria-pressed={s.autoPath === null}
-                  onClick={() => { s.setAutoPath(null); props.onAction?.('auto_path'); }}>Didn’t see / unsure</Button>
-                <Button variant="outline" className="min-h-11" aria-pressed={Array.isArray(s.autoPath) && s.autoPath.length === 0}
-                  onClick={() => { s.setAutoPath([]); props.onAction?.('auto_path'); }}>Observed no movement</Button>
-              </div>
-              <p className="mb-3 text-sm text-muted-foreground">{s.autoPath === null ? 'Auto path unrecorded. Leave it unsure if you did not see it.' : s.autoPath.length === 0 ? 'Observed no movement during auto.' : 'Auto path recorded.'}</p>
-
-              {/* Mode switch — only when the team has prior autos worth reusing. */}
-              {hasPriorAutos && (
-                <SegmentedToggle<'known' | 'draw'>
-                  ariaLabel="Auto path entry mode"
-                  className="mb-3"
-                  size="default"
-                  value={autoMode}
-                  onChange={setAutoMode}
-                  options={[
-                    {
-                      value: 'known',
-                      label: 'Known autos',
-                      icon: <Route />,
-                      activeClassName: 'text-brand',
-                    },
-                    { value: 'draw', label: 'Draw new', icon: <Pencil /> },
-                  ]}
-                />
-              )}
-
-              {effectiveAutoMode === 'known' ? (
-                <AutoHistoryPicker
-                  autos={priorAutos}
-                  alliance={s.allianceColor}
-                  selectedPath={s.autoPath}
-                  onSelect={({ start, path }) => {
-                    // Applying a known routine writes BOTH its start and path (in
-                    // this alliance's absolute coords) so the report is a complete,
-                    // self-consistent auto — exactly as if it had been traced here.
-                    s.setAutoStartPosition(start);
-                    s.setAutoPath(path);
-                  }}
-                  data-testid="review-auto-history"
-                />
-              ) : (
-                /* In portrait the very wide field is rotated 90° (tall + big) so
-                   tracing the path with a finger is accurate; landscape gets the
-                   full width (capped). */
-                <div
-                  className={
-                    isPortrait
-                      ? 'mx-auto flex h-[55dvh] w-full justify-center'
-                      : 'mx-auto w-full max-w-[480px] landscape:max-w-[680px]'
-                  }
-                >
-                  <FieldDiagram
-                    mode="draw-path"
-                    rotate={isPortrait}
-                    fillHeight={isPortrait}
-                    startPosition={s.autoStartPosition}
-                    path={s.autoPath}
-                    onPathChange={(pts: FieldPoint[]) => {
-                      s.setAutoPath(pts.length > 0 ? pts : null);
-                      props.onAction?.('auto_path');
-                    }}
-                    data-testid="review-field-path"
-                  />
-                </div>
-              )}
-            </div>
+            <AutoPathPanel
+              session={s}
+              autoHistory={props.autoHistory}
+              onAction={() => props.onAction?.('auto_path')}
+              testIdPrefix="review"
+            />
           </section>
         )}
 

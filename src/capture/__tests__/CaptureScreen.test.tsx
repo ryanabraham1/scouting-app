@@ -91,12 +91,33 @@ function submitPlacement() {
 // which is exactly why the slide-to-lock gesture could never be DOM-tested before.
 
 
-// Reach the live in-match teleop screen with all controls visible.
+// Reach the live in-match teleop screen with all controls visible. Leaving Auto
+// opens the auto-path panel, so close it to get back to the live controls.
 function enterLiveMatch() {
   submitPlacement();
   fireEvent.click(screen.getByTestId('capture-start'));
   fireEvent.click(screen.getByTestId('capture-go'));
+  fireEvent.click(screen.getByTestId('capture-auto-path-done'));
 }
+
+describe('CaptureScreen live auto path', () => {
+  it('opens the auto path right after Auto, then returns to the controls', () => {
+    render(<Host />);
+    submitPlacement();
+    fireEvent.click(screen.getByTestId('capture-start'));
+    expect(screen.queryByTestId('capture-field-path')).toBeNull();
+    fireEvent.click(screen.getByTestId('capture-go'));
+    // Panel replaces the live controls while the route is fresh.
+    expect(screen.getByTestId('capture-field-path')).toBeTruthy();
+    expect(screen.queryByTestId('capture-hold')).toBeNull();
+    fireEvent.click(screen.getByTestId('capture-auto-path-done'));
+    expect(screen.queryByTestId('capture-field-path')).toBeNull();
+    expect(screen.getByTestId('capture-hold')).toBeTruthy();
+    // Reopenable during teleop to finish or fix the path.
+    fireEvent.click(screen.getByTestId('capture-auto-path-open'));
+    expect(screen.getByTestId('capture-field-path')).toBeTruthy();
+  });
+});
 
 describe('CaptureScreen placement step', () => {
   it('shows a placement step with a square picker, then submits into the match', () => {
@@ -217,6 +238,7 @@ describe('CaptureScreen hold-to-shoot', () => {
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
+    fireEvent.click(screen.getByTestId('capture-auto-path-done'));
     const hold = await screen.findByTestId('capture-hold');
     // Press, drag to the top (max BPS = 30), hold ~1s, release.
     fireEvent.pointerDown(hold, { clientY: 0, pointerId: 1 });
@@ -305,6 +327,7 @@ describe('CaptureScreen defense tap timers', () => {
     submitPlacement();
     fireEvent.click(screen.getByTestId('capture-start'));
     fireEvent.click(screen.getByTestId('capture-go'));
+    fireEvent.click(screen.getByTestId('capture-auto-path-done'));
     const button = screen.getByTestId(testid);
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-pressed', 'true');

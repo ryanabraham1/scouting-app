@@ -113,6 +113,8 @@ async function capture(page: Page, matchKey: string, team: number): Promise<void
 
   await page.getByTestId('capture-start').click();
   await page.getByTestId('capture-go').click();
+  // Leaving Auto opens the live auto-path panel; close it to reach the controls.
+  await page.getByTestId('capture-auto-path-done').click();
 
   // Slider-shoot: press + drag right + hold so the rate integrates to a real
   // non-zero fuel burst (mirrors capture.spec).

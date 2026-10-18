@@ -60,6 +60,8 @@ test('scouter captures a match offline and it queues as unsynced', async ({ page
   await page.getByTestId('capture-start').click();
   await expect(page.getByTestId('capture-go')).toBeVisible();
   await page.getByTestId('capture-go').click();
+  // Leaving Auto opens the live auto-path panel; close it to reach the controls.
+  await page.getByTestId('capture-auto-path-done').click();
 
   // Slider-shoot: press, drag RIGHT to set a BPS rate, hold, release to commit a
   // fuel burst (running count = ∫ rate·dt). A coordinateless tap is rate 0 / 0 balls,

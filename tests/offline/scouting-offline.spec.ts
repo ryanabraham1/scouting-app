@@ -94,6 +94,8 @@ test('shows the saved match schedule and queues a full match report offline', as
   await page.getByTestId('capture-placement-submit').click();
   await page.getByTestId('capture-start').click();
   await page.getByTestId('capture-go').click();
+  // Leaving Auto opens the live auto-path panel; close it to reach the controls.
+  await page.getByTestId('capture-auto-path-done').click();
   await page.getByTestId('capture-to-review').click();
   const save = page.getByTestId('review-save');
   for (let step = 0; step < 7 && !(await save.isVisible()); step += 1) {

@@ -92,6 +92,7 @@ export function CaptureFlow(props: CaptureFlowProps): JSX.Element {
       <CaptureScreen
         session={session}
         suggestedBps={props.suggestedBps}
+        autoHistory={props.autoHistory}
         onToReview={() => session.setFlowStage('review')}
         onExit={props.onExit}
         onAction={props.onAction}

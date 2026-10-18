@@ -399,7 +399,7 @@ describe('ScoutTutorial module hub and production coaching', () => {
   });
 
   it('defines the concise production workflow with exact step counts', () => {
-    expect(MATCH_STEP_COUNT).toBe(17);
+    expect(MATCH_STEP_COUNT).toBe(18);
     expect(PIT_STEP_COUNT).toBe(12);
 
     const matchTargets = MATCH_COACH_STEPS.map((step) => step.target);

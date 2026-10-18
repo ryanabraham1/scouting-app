@@ -71,6 +71,8 @@ test('captured report syncs to the server on reconnect with no duplicate', async
 
   await page.getByTestId('capture-start').click();
   await page.getByTestId('capture-go').click();
+  // Leaving Auto opens the live auto-path panel; close it to reach the controls.
+  await page.getByTestId('capture-auto-path-done').click();
   const hold = page.getByTestId('capture-hold');
   await hold.dispatchEvent('pointerdown');
   await hold.dispatchEvent('pointerup');

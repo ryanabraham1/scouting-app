@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, MoveUpRight, MapPin, X } from 'lucide-react';
+import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, MoveUpRight, MapPin, Route, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldDiagram, type FieldPoint } from '@/components/FieldDiagram';
 import {
@@ -10,28 +10,9 @@ import {
 } from '@/capture/useCaptureEvents';
 import { AUTO_MS, TELEOP_MS, remainingMs } from '@/capture/clock';
 import type { useCaptureSession } from '@/capture/useCaptureSession';
-
-/**
- * True when the viewport is in portrait orientation. Drives the pre-match
- * placement field: portrait → render the field ROTATED 90° (tall + big, so the
- * scout turns the phone sideways); landscape → render it normally (full-width,
- * upright). Re-renders on orientation change.
- */
-function useIsPortrait(): boolean {
-  const [portrait, setPortrait] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return true;
-    return window.matchMedia('(orientation: portrait)').matches;
-  });
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(orientation: portrait)');
-    const onChange = (): void => setPortrait(mq.matches);
-    onChange();
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
-  }, []);
-  return portrait;
-}
+import type { TeamAutoHistory } from '@/capture/useTeamAutoHistory';
+import { AutoPathPanel } from '@/capture/AutoPathPanel';
+import { useIsPortrait } from '@/capture/useIsPortrait';
 
 function buzz(ms = 15): void {
   try {
@@ -96,6 +77,9 @@ export type CaptureObservedAction =
   | 'foul_added'
   | 'undo'
   | 'reanchored'
+  | 'auto_path'
+  | 'auto_path_opened'
+  | 'auto_path_done'
   | 'to_review';
 
 /** Tap toggles the interval; native click also supports keyboard activation. */
@@ -120,6 +104,8 @@ export function CaptureScreen(props: {
   onToReview: () => void;
   /** Advisory pit-scout estimate shown on both BPS controls. */
   suggestedBps?: number | null;
+  /** Optional injected auto history keeps practice/replay fully offline. */
+  autoHistory?: TeamAutoHistory;
   /** Read-only action observation for wrappers such as training/coaching UI. */
   onAction?: (action: CaptureObservedAction) => void;
   /**
@@ -139,6 +125,29 @@ export function CaptureScreen(props: {
   const half: 'left' | 'right' = s.allianceColor === 'blue' ? 'right' : 'left';
 
   const phase = s.clock.state.phase;
+
+  // The auto path is drawn the moment Auto ends, while the route is still fresh
+  // in the scout's mind, instead of only after the match in Review. It opens on
+  // the auto -> pause edge (clock ran out) or auto -> teleop (GO tapped early),
+  // observed live in this mount, so a resumed teleop draft doesn't re-prompt.
+  // The defense timers keep running underneath; Review still has an Auto step
+  // to check or fix the path before saving.
+  const [autoPathOpen, setAutoPathOpen] = useState(false);
+  const prevPhaseRef = useRef(phase);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (prev === 'auto' && (phase === 'pause' || phase === 'teleop')) {
+      // The sliders unmount under the panel; commit any in-flight Auto hold so
+      // its burst isn't stranded open.
+      s.holdEnd();
+      s.feedHoldEnd();
+      setAutoPathOpen(true);
+      props.onAction?.('auto_path_opened');
+      buzz(25);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   // Running ball count = committed bursts + the live integral of the active hold
   // (∫ rate·dt). The session owns the integration so sliding the BPS up late in a
@@ -515,8 +524,9 @@ export function CaptureScreen(props: {
           stay reachable instead of being clipped by the overflow-hidden root. */}
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         {/* Running ball counts. Compact so two cards never overflow the right
-            edge on a narrow portrait phone (min-w-0 + truncate). */}
-        <div className="flex shrink-0 items-stretch gap-2">
+            edge on a narrow portrait phone (min-w-0 + truncate). Hidden while
+            the auto path is open so the drawing field gets the room. */}
+        <div className={`flex shrink-0 items-stretch gap-2 ${autoPathOpen ? 'hidden' : ''}`}>
           <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-energy/30 bg-energy/10 px-3 py-1.5">
             <span
               data-testid="capture-running-fuel"
@@ -588,115 +598,163 @@ export function CaptureScreen(props: {
           </Button>
         )}
 
-        {/* Defense / Getting-defended: whole-button HOLD-SLIDE-LOCK pair */}
-        <div className="flex min-h-[88px] flex-1 items-stretch gap-2">
-          <div className="min-w-0 flex-1">
-            <DefenseTimerButton
-              testid="capture-defense"
-              label="Playing defense"
-              icon={<Shield className="size-5" />}
-              tone="defense"
-              active={defenseActive}
-              timerText={secs(liveDefenseMs)}
-              onBegin={beginDefense}
-              onCommit={commitDefense}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <DefenseTimerButton
-              testid="capture-defended"
-              label="Getting defended"
-              icon={<ShieldAlert className="size-5" />}
-              tone="defended"
-              active={defendedActive}
-              timerText={secs(liveDefendedMs)}
-              onBegin={beginDefended}
-              onCommit={commitDefended}
-            />
-          </div>
-        </div>
-
-        {/* Parallel horizontal slider-shoots: SCORING (orange) + FEEDING (cyan).
-            Stacked in portrait, side-by-side in landscape. Flex to fill slack. */}
-        <div className="flex min-h-[148px] flex-[1.6] flex-col gap-2 landscape:flex-row">
-          <div className="flex min-h-0 flex-1">
-            <SliderShoot
-              data-testid="capture-hold"
-              tone="energy"
-              unitLabel="BPS"
-              activeLabel="SHOOTING"
-              idleLabel="FUEL · hold + slide →"
-              aria-label="Scoring rate (BPS)"
-              suggestedRate={props.suggestedBps}
-              className="h-full"
-              onShootStart={() => { s.holdStart(); buzz(); }}
-              onShootRate={(r) => s.holdSample(r)}
-              onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate, kind: 'fuel' }); props.onAction?.('fuel_burst'); buzz(20); }}
-            />
-          </div>
-          <div className="flex min-h-0 flex-1">
-            <SliderShoot
-              data-testid="capture-feed"
-              tone="brand"
-              unitLabel="BPS"
-              activeLabel="FEEDING"
-              idleLabel="FEED · hold + slide →"
-              aria-label="Feeding rate (BPS)"
-              suggestedRate={props.suggestedBps}
-              className="h-full"
-              onShootStart={() => { s.feedHoldStart(); buzz(); }}
-              onShootRate={(r) => s.feedHoldSample(r)}
-              onShootEnd={(rate) => { s.feedHoldEnd(rate); events.recordBurst({ rate, kind: 'feeding' }); props.onAction?.('feeding_burst'); buzz(20); }}
-            />
-          </div>
-        </div>
-
-        {/* Secondary actions */}
-        <div className={`grid shrink-0 gap-2 ${inAuto ? 'grid-cols-3' : 'grid-cols-2'}`}>
-          <Button
-            data-testid="capture-foul"
-            variant="outline"
-            size="big"
-            className={`h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5 ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
-            onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); props.onAction?.('foul_added'); buzz(); }}
-          >
-            <Flag /> Foul ({s.foulsMinor})
-          </Button>
-          {inAuto && (
+        {autoPathOpen ? (
+          <>
+            {/* The panel scrolls on its own so Done stays pinned on-screen
+                instead of sitting below the tall portrait drawing field. */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <AutoPathPanel
+                session={s}
+                autoHistory={props.autoHistory}
+                onAction={() => props.onAction?.('auto_path')}
+                testIdPrefix="capture"
+                portraitFieldHeight="h-[48dvh]"
+              />
+            </div>
             <Button
-              data-testid="capture-left-line"
-              variant={s.autoLeftStartingLine ? 'default' : 'outline'}
-              aria-pressed={s.autoLeftStartingLine}
+              data-testid="capture-auto-path-done"
+              variant="brand"
               size="big"
-              className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
-              onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); props.onAction?.('left_line'); buzz(); }}
+              className="h-12 w-full shrink-0 rounded-2xl px-3 text-base"
+              onClick={() => {
+                setAutoPathOpen(false);
+                props.onAction?.('auto_path_done');
+                buzz();
+              }}
             >
-              <MoveUpRight /> Left Line
+              <Check /> Done · back to match
             </Button>
-          )}
-        </div>
+          </>
+        ) : (
+          <>
+          {/* Defense / Getting-defended: whole-button HOLD-SLIDE-LOCK pair */}
+          <div className="flex min-h-[88px] flex-1 items-stretch gap-2">
+            <div className="min-w-0 flex-1">
+              <DefenseTimerButton
+                testid="capture-defense"
+                label="Playing defense"
+                icon={<Shield className="size-5" />}
+                tone="defense"
+                active={defenseActive}
+                timerText={secs(liveDefenseMs)}
+                onBegin={beginDefense}
+                onCommit={commitDefense}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DefenseTimerButton
+                testid="capture-defended"
+                label="Getting defended"
+                icon={<ShieldAlert className="size-5" />}
+                tone="defended"
+                active={defendedActive}
+                timerText={secs(liveDefendedMs)}
+                onBegin={beginDefended}
+                onCommit={commitDefended}
+              />
+            </div>
+          </div>
 
-        {/* One full-width forward action anchors the bottom of the live screen. */}
-        <Button
-          data-testid="capture-to-review"
-          variant="secondary"
-          size="big"
-          className="h-11 w-full shrink-0 rounded-2xl px-3 text-base"
-          onClick={() => {
-            // CaptureScreen unmounts on the stage switch. Commit anything still
-            // open — a slide-LOCKED defense/defended timer (the lock exists
-            // precisely so no finger is on it at match end) and any in-flight
-            // slider hold — or that data silently vanishes from the report.
-            commitDefense();
-            commitDefended();
-            s.holdEnd();
-            s.feedHoldEnd();
-            props.onAction?.('to_review');
-            props.onToReview();
-          }}
-        >
-          To Review
-        </Button>
+          {/* Parallel horizontal slider-shoots: SCORING (orange) + FEEDING (cyan).
+              Stacked in portrait, side-by-side in landscape. Flex to fill slack. */}
+          <div className="flex min-h-[148px] flex-[1.6] flex-col gap-2 landscape:flex-row">
+            <div className="flex min-h-0 flex-1">
+              <SliderShoot
+                data-testid="capture-hold"
+                tone="energy"
+                unitLabel="BPS"
+                activeLabel="SHOOTING"
+                idleLabel="FUEL · hold + slide →"
+                aria-label="Scoring rate (BPS)"
+                suggestedRate={props.suggestedBps}
+                className="h-full"
+                onShootStart={() => { s.holdStart(); buzz(); }}
+                onShootRate={(r) => s.holdSample(r)}
+                onShootEnd={(rate) => { s.holdEnd(rate); events.recordBurst({ rate, kind: 'fuel' }); props.onAction?.('fuel_burst'); buzz(20); }}
+              />
+            </div>
+            <div className="flex min-h-0 flex-1">
+              <SliderShoot
+                data-testid="capture-feed"
+                tone="brand"
+                unitLabel="BPS"
+                activeLabel="FEEDING"
+                idleLabel="FEED · hold + slide →"
+                aria-label="Feeding rate (BPS)"
+                suggestedRate={props.suggestedBps}
+                className="h-full"
+                onShootStart={() => { s.feedHoldStart(); buzz(); }}
+                onShootRate={(r) => s.feedHoldSample(r)}
+                onShootEnd={(rate) => { s.feedHoldEnd(rate); events.recordBurst({ rate, kind: 'feeding' }); props.onAction?.('feeding_burst'); buzz(20); }}
+              />
+            </div>
+          </div>
+
+          {/* Secondary actions */}
+          <div className={`grid shrink-0 gap-2 ${inAuto ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <Button
+              data-testid="capture-foul"
+              variant="outline"
+              size="big"
+              className={`h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5 ${s.foulsMinor > 0 ? 'border-warning text-warning' : ''}`}
+              onClick={() => { s.setFoulsMinor(s.foulsMinor + 1); events.recordFoul({ kind: 'minor' }); props.onAction?.('foul_added'); buzz(); }}
+            >
+              <Flag /> Foul ({s.foulsMinor})
+            </Button>
+            {inAuto && (
+              <Button
+                data-testid="capture-left-line"
+                variant={s.autoLeftStartingLine ? 'default' : 'outline'}
+                aria-pressed={s.autoLeftStartingLine}
+                size="big"
+                className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
+                onClick={() => { const prev = s.autoLeftStartingLine; s.setAutoLeftStartingLine(!prev); events.recordToggle({ key: 'autoLeftStartingLine', value: !prev, prev }); props.onAction?.('left_line'); buzz(); }}
+              >
+                <MoveUpRight /> Left Line
+              </Button>
+            )}
+            {!inAuto && (
+              <Button
+                data-testid="capture-auto-path-open"
+                variant="outline"
+                size="big"
+                className="h-11 gap-1.5 rounded-2xl px-1.5 text-base [&_svg]:size-5"
+                onClick={() => {
+                  s.holdEnd();
+                  s.feedHoldEnd();
+                  setAutoPathOpen(true);
+                  props.onAction?.('auto_path_opened');
+                  buzz();
+                }}
+              >
+                <Route /> Auto path
+              </Button>
+            )}
+          </div>
+
+          {/* One full-width forward action anchors the bottom of the live screen. */}
+          <Button
+            data-testid="capture-to-review"
+            variant="secondary"
+            size="big"
+            className="h-11 w-full shrink-0 rounded-2xl px-3 text-base"
+            onClick={() => {
+              // CaptureScreen unmounts on the stage switch. Commit anything still
+              // open — a slide-LOCKED defense/defended timer (the lock exists
+              // precisely so no finger is on it at match end) and any in-flight
+              // slider hold — or that data silently vanishes from the report.
+              commitDefense();
+              commitDefended();
+              s.holdEnd();
+              s.feedHoldEnd();
+              props.onAction?.('to_review');
+              props.onToReview();
+            }}
+          >
+            To Review
+          </Button>
+          </>
+        )}
       </div>
     </div>
   );
