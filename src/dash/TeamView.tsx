@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import TeamQuickAccess from '@/dash/TeamQuickAccess';
+import TeamSectionNav, { type TeamSection } from '@/dash/TeamSectionNav';
 import { readPreference, writePreference } from '@/dash/analysisPreferences';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { MatchScorePanel } from '@/dash/MatchScorePanel';
@@ -147,6 +148,13 @@ function recentFormTone(agg: TeamAgg): StatTone {
   return 'default';
 }
 
+/** Dense auto-fill stat grid: as many ~8rem tiles per row as the card fits, so
+ *  wide screens don't strand two tiles in a three-column grid. */
+/** Team-page section wrapper: offset so a jump lands with breathing room. */
+const SECTION = 'min-w-0 scroll-mt-4';
+
+const STAT_GRID = 'grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2';
+
 /** Semantic value tones — maps to the app-wide color language. */
 type StatTone = 'default' | 'brand' | 'energy' | 'success' | 'warning' | 'destructive';
 
@@ -167,8 +175,8 @@ function Stat(props: {
   tone?: StatTone;
 }): JSX.Element {
   return (
-    <div className="flex flex-col gap-0.5 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
-      <span className="text-xs uppercase tracking-wide text-zinc-400">{props.label}</span>
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+      <span className="truncate text-[11px] uppercase tracking-wide text-zinc-400">{props.label}</span>
       <span
         className={cn('text-lg font-semibold', STAT_TONE_TEXT[props.tone ?? 'default'])}
         data-testid={props.testid}
@@ -306,7 +314,7 @@ function TeamTbaPanel(props: {
             <span className="text-base font-semibold text-zinc-100">{info.nickname}</span>
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className={STAT_GRID}>
           <Stat label="Event rank" value={eventRank} testid="team-tba-event-rank" tone="brand" />
           <Stat
             label="Event record"
@@ -814,7 +822,7 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
           Trends
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
         <BarChart
           data={fuelData}
           color="energy"
@@ -855,7 +863,7 @@ function ReliabilityStrip(props: { matches: MsrRow[] }): JSX.Element | null {
   return (
     <div
       data-testid="team-reliability-strip"
-      className="col-span-2 flex flex-col gap-1.5 sm:col-span-3"
+      className="col-span-full flex flex-col gap-1.5"
     >
       <span className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-zinc-400">
         <ShieldAlert className="size-3.5" /> Reliability by match
@@ -903,7 +911,7 @@ function TempoCard(props: { matches: MsrRow[] }): JSX.Element | null {
           Tempo
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <CardContent className={STAT_GRID}>
         <Stat
           label="Cycle time"
           value={secs(tempo.meanGapMs)}
@@ -1019,360 +1027,417 @@ function TeamDetail(props: {
     return g && g.isConflicted ? g : undefined;
   };
   const visibleMatches = conflictsOnly ? matches.filter((m) => conflictFor(m)) : matches;
+  const notedCount = useMemo(
+    () => matches.filter((m) => (m.notes ?? '').trim().length > 0).length,
+    [matches],
+  );
+  // Jump-rail entries, in page order; sections that don't render are omitted.
+  const sections: TeamSection[] = [
+    { id: 'team-sec-overview', label: 'Overview' },
+    { id: 'team-sec-epa', label: 'EPA' },
+    ...(props.lastMatchNode ? [{ id: 'team-sec-last-match', label: 'Last match' }] : []),
+    { id: 'team-sec-scoring', label: 'Scoring' },
+    { id: 'team-sec-defense', label: 'Defense' },
+    { id: 'team-sec-auto', label: 'Auto' },
+    { id: 'team-sec-pit', label: 'Pit' },
+    ...(notedCount > 0 ? [{ id: 'team-sec-notes', label: 'Notes', count: notedCount }] : []),
+    { id: 'team-sec-matches', label: 'Matches', count: matches.length },
+  ];
 
   return (
     <div data-testid="team-detail" className="flex flex-col gap-4">
-      {/* The Blue Alliance card beside the robot photo, which fills the card's
-          vertical space instead of leaving it blank. Photo collapses below the
-          card on narrow screens; full-width TBA card when there's no photo. */}
-      {props.photoNode ? (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-start">
-          {props.tbaNode}
-          {props.photoNode}
-        </div>
-      ) : (
-        props.tbaNode
-      )}
+      <TeamSectionNav sections={sections} />
 
-      {/* Last-match video + our activity timeline. */}
-      {props.lastMatchNode}
+      <section id="team-sec-overview" className={SECTION}>
+        {/* The Blue Alliance card beside the robot photo, which fills the card's
+            vertical space instead of leaving it blank. Photo collapses below the
+            card on narrow screens; full-width TBA card when there's no photo. */}
+        {props.photoNode ? (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-start">
+            {props.tbaNode}
+            {props.photoNode}
+          </div>
+        ) : (
+          props.tbaNode
+        )}
 
-      {/* Season-wide in-house EPA after every TBA match, including offseason events. */}
-      {props.epaHistoryNode}
+      </section>
 
-      {/* Fuel */}
-      <Card className="border-zinc-800 bg-zinc-950">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-          <CardTitle className="flex items-center gap-2 text-zinc-100">
-            <Flame className="size-5 text-energy" />
-            Fuel
-          </CardTitle>
-          <span className="flex flex-wrap items-center gap-2">
-            {/* Recent-form trend (improving/fading/stable) — compact chip, no longer
-                its own card; semantics preserved from agg.recentTrend. */}
-            <span
-              data-testid="team-recent-form"
-              className={cn(
-                'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium',
-                recentFormTone(agg) === 'success'
-                  ? 'border-success/40 bg-success/10 text-success'
-                  : recentFormTone(agg) === 'warning'
-                    ? 'border-warning/40 bg-warning/10 text-warning'
-                    : 'border-zinc-700 bg-zinc-800/60 text-zinc-300',
-              )}
-              title={
-                agg.recentTrend === 'insufficient'
-                  ? 'need 3 matches'
-                  : `last ${Math.min(3, agg.matchesScouted)} vs all`
-              }
-            >
-              <TrendingUp className="size-3.5" />
-              {recentFormText(agg)}
-            </span>
-            {lowConfidence ? (
-              <span
-                data-testid="team-fuel-lowconf-chip"
-                className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"
-                title="FUEL is rate-derived; treat its contribution as a low-confidence estimate (points are NOT down-weighted)."
-              >
-                rate-FUEL · low confidence ({pct(agg.meanFuelConfidence)})
-              </span>
-            ) : null}
-          </span>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat label="Auto fuel" value={fmt(agg.meanAutoFuel)} testid="team-mean-auto-fuel" />
-          <Stat
-            label="Teleop fuel"
-            value={fmt(agg.meanTeleopFuelActive + agg.meanTeleopFuelInactive)}
-            testid="team-mean-teleop-fuel"
-          />
-          <Stat label="Endgame fuel" value={fmt(agg.meanEndgameFuel)} testid="team-mean-endgame-fuel" />
-          <Stat
-            label="Total fuel"
-            value={fmt(agg.meanTotalFuel)}
-            testid="team-mean-total-fuel"
-            tone="energy"
-          />
-          <Stat
-            label="Mean fuel points"
-            value={fmtPM(agg.meanFuelPoints, agg.stdDevFuelPoints)}
-            testid="team-mean-fuel-points"
-            hint={`range ${fmt(agg.minFuelPoints)} – ${fmt(agg.maxFuelPoints)} · n=${agg.matchesScouted}`}
-            tone="energy"
-          />
-        </CardContent>
-      </Card>
+      {/* EPA second: current value beside the season progression chart. */}
+      <section
+        id="team-sec-epa"
+        className={cn(SECTION, 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)] lg:items-start')}
+      >
+        {/* Current in-house EPA (Statbotics only when match results are unavailable). */}
+        <Card className="border-zinc-800 bg-zinc-950">
+          <CardHeader className="space-y-0">
+            <CardTitle className="flex items-center gap-2 text-zinc-100">
+              <Gauge className="size-5 text-energy" />
+              EPA
+            </CardTitle>
+          </CardHeader>
+          <CardContent>{props.epaNode}</CardContent>
+        </Card>
 
-      {/* Defense / reliability */}
-      <Card className="border-zinc-800 bg-zinc-950">
-        <CardHeader className="space-y-0">
-          <CardTitle className="flex items-center gap-2 text-zinc-100">
-            <Shield className="size-5 text-brand" />
-            Defense · Reliability
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat
-            label="Avg defense"
-            value={fmtPM(agg.avgDefenseRating, agg.stdDevDefenseRating)}
-            testid="team-avg-defense-rating"
-            hint={`1–10 · range ${fmt(agg.minDefenseRating)} – ${fmt(agg.maxDefenseRating)}`}
-            tone="brand"
-          />
-          {/* Subjective super-scout ratings, averaged over RATED matches (0 = not
-              rated, excluded). Computed inline from the team's reports — no new
-              TeamAgg field. "—" until at least one match was rated. */}
-          <Stat
-            label="Driver skill"
-            value={ratedMeanText(matches, (m) => m.driver_skill)}
-            testid="team-driver-skill"
-            hint="1–10 · rated matches"
-          />
-          <Stat
-            label="Agility"
-            value={ratedMeanText(matches, (m) => m.agility)}
-            testid="team-agility"
-            hint="1–10 · rated matches"
-          />
-          <Stat
-            label="Defended fuel ↓"
-            value={
-              agg.fuelSuppressionWhileDefended == null
-                ? '—'
-                : pctSigned(agg.fuelSuppressionWhileDefended)
-            }
-            testid="team-defended-suppression"
-            hint={
-              agg.fuelSuppressionWhileDefended == null
-                ? 'no defended intervals'
-                : `from ${Math.round(agg.defendedSampleMs / 1000)}s defended`
-            }
-            tone={
-              agg.fuelSuppressionWhileDefended != null && agg.fuelSuppressionWhileDefended > 0.15
-                ? 'warning'
-                : 'default'
-            }
-          />
-          <Stat
-            label="Defender effect"
-            // Gated: a single-opponent observation is not shown as authoritative
-            // (co-occurrence estimate confounded by simultaneous defenders).
-            value={
-              agg.defenderEffectiveness == null ||
-              agg.defenseSampleCount < DEF_EFF_MIN_SAMPLE
-                ? '—'
-                : pctSigned(agg.defenderEffectiveness)
-            }
-            testid="team-defender-effectiveness"
-            hint={
-              agg.defenderEffectiveness == null
-                ? 'never played defense'
-                : `vs ${agg.defenseSampleCount} opp. · co-occurrence estimate`
-            }
-            tone={
-              agg.defenderEffectiveness != null &&
-              agg.defenseSampleCount >= DEF_EFF_MIN_SAMPLE &&
-              agg.defenderEffectiveness > 0.15
-                ? 'success'
-                : 'default'
-            }
-          />
-          <Stat
-            label="Reliability"
-            value={pct(agg.reliability)}
-            testid="team-reliability"
-            hint={`no-show ${pct(agg.noShowRate)} · died ${pct(agg.diedRate)} · tipped ${pct(agg.tippedRate)}`}
-            tone={
-              agg.reliability >= 0.85 ? 'success' : agg.reliability >= 0.6 ? 'warning' : 'destructive'
-            }
-          />
-          <Stat
-            label="Scouted expected pts"
-            value={fmt(agg.scoutingExpectedPoints)}
-            testid="team-scouting-expected"
-            hint="From our scouting reports only (fuel means) — separate from EPA, which uses posted match scores."
-          />
-          {/* Per-match incident trend (green clean / amber tipped / red died). */}
-          <ReliabilityStrip matches={matches} />
-        </CardContent>
-      </Card>
+        {/* Season-wide in-house EPA after every TBA match, including offseason events. */}
+        {props.epaHistoryNode}
 
-      {/* Shooting tempo / cycle-time — derived from fuel-burst timestamps. */}
-      <TempoCard matches={matches} />
+      </section>
 
-      {/* Trends — per-match data-viz over this team's scouted matches. Hidden
-          entirely when there isn't enough data to draw a meaningful trend
-          (fewer than the trend window of matches) — no empty placeholder. */}
-      {agg.recentTrend !== 'insufficient' && agg.matchesScouted >= TREND_WINDOW ? (
-        <TeamTrends matches={matches} />
+      {props.lastMatchNode ? (
+        <section id="team-sec-last-match" className={SECTION}>
+          {/* Last-match video + our activity timeline. */}
+          {props.lastMatchNode}
+
+        </section>
       ) : null}
 
-      {/* Current in-house EPA (Statbotics only when match results are unavailable). */}
-      <Card className="border-zinc-800 bg-zinc-950">
-        <CardHeader className="space-y-0">
-          <CardTitle className="flex items-center gap-2 text-zinc-100">
-            <Gauge className="size-5 text-energy" />
-            EPA
-          </CardTitle>
-        </CardHeader>
-        <CardContent>{props.epaNode}</CardContent>
-      </Card>
-
-      {/* Pit scouting report */}
-      {props.pitNode}
-
-      {/* Auto options — this team's distinct auto routines, grouped by path shape
-          (the options they tend to run), with a step-through of every auto. */}
-      <Card className="border-zinc-800 bg-zinc-950" data-testid="team-auto-options-card">
-        <CardHeader className="space-y-0">
-          <CardTitle className="flex items-center gap-2 text-zinc-100">
-            <Route className="size-5 text-brand" />
-            Auto options
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AutoOptions
-            teamNumber={props.teamNumber}
-            reports={props.matches}
-            data-testid="team-auto-options"
-          />
-        </CardContent>
-      </Card>
-
-      {/* All scout notes for this team, aggregated into one block. */}
-      <TeamNotes matches={matches} scoutName={scoutName} />
-
-      {/* Scouted matches */}
-      <Card className="border-zinc-800 bg-zinc-950">
-        <CardHeader className="space-y-0">
-          <CardTitle className="flex flex-wrap items-center gap-2 text-zinc-100">
-            <ListChecks className="size-5 text-brand" />
-            Scouted matches ({matches.length})
-            {conflictCount > 0 ? (
-              <span
-                data-testid="team-conflict-summary"
-                className="rounded-full border border-warning/50 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
-              >
-                {conflictCount} multi-scout conflict{conflictCount === 1 ? '' : 's'}
-              </span>
-            ) : null}
-          </CardTitle>
-          {conflictCount > 0 ? (
-            <label className="flex items-center gap-2 pt-2 text-xs font-medium text-zinc-300">
-              <input
-                type="checkbox"
-                data-testid="team-conflicts-only"
-                checked={conflictsOnly}
-                onChange={(e) => {
-                  setConflictsOnly(e.target.checked);
-                  setOpenRow(null); // rows reindex on filter — collapse any open row
-                }}
-                className="size-4 accent-warning"
-              />
-              Show conflicts only
-            </label>
-          ) : null}
-        </CardHeader>
-        <CardContent>
-          {conflictsOnly && visibleMatches.length === 0 ? (
-            <div data-testid="team-conflicts-empty" className="text-sm text-zinc-400">
-              No multi-scout conflicts for this team.
-            </div>
-          ) : null}
-          <ul data-testid="team-match-list" className="flex flex-col gap-2">
-            {visibleMatches.map((m, i) => {
-              const open = openRow === i;
-              const conflict = conflictFor(m);
-              // Split flags by severity: no-show/died are hard failures (destructive
-              // red), tipped is a warning (amber) — mirrors ReportDetail's FlagPill.
-              const failFlags = [m.no_show ? 'no-show' : null, m.died ? 'died' : null].filter(
-                Boolean,
-              );
-              const warnFlags = [m.tipped ? 'tipped' : null].filter(Boolean);
-              return (
-                <li
-                  key={`${m.match_key}-${i}`}
-                  className="rounded-md border border-zinc-800 bg-zinc-900/60 text-sm text-zinc-200"
+      {/* Scoring: fuel and tempo side by side on wide screens, trends below. */}
+      <section id="team-sec-scoring" className={cn(SECTION, 'flex flex-col gap-4')}>
+        <div className="grid grid-cols-1 gap-4 xl:auto-cols-fr xl:grid-flow-col">
+          {/* Fuel */}
+          <Card className="border-zinc-800 bg-zinc-950">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+              <CardTitle className="flex items-center gap-2 text-zinc-100">
+                <Flame className="size-5 text-energy" />
+                Fuel
+              </CardTitle>
+              <span className="flex flex-wrap items-center gap-2">
+                {/* Recent-form trend (improving/fading/stable) — compact chip, no longer
+                    its own card; semantics preserved from agg.recentTrend. */}
+                <span
+                  data-testid="team-recent-form"
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium',
+                    recentFormTone(agg) === 'success'
+                      ? 'border-success/40 bg-success/10 text-success'
+                      : recentFormTone(agg) === 'warning'
+                        ? 'border-warning/40 bg-warning/10 text-warning'
+                        : 'border-zinc-700 bg-zinc-800/60 text-zinc-300',
+                  )}
+                  title={
+                    agg.recentTrend === 'insufficient'
+                      ? 'need 3 matches'
+                      : `last ${Math.min(3, agg.matchesScouted)} vs all`
+                  }
                 >
-                  <button
-                    type="button"
-                    data-testid={`team-match-row-${i}`}
-                    onClick={() => setOpenRow(open ? null : i)}
-                    style={{ minHeight: CONTROL_MIN_HEIGHT }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left"
+                  <TrendingUp className="size-3.5" />
+                  {recentFormText(agg)}
+                </span>
+                {lowConfidence ? (
+                  <span
+                    data-testid="team-fuel-lowconf-chip"
+                    className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300"
+                    title="FUEL is rate-derived; treat its contribution as a low-confidence estimate (points are NOT down-weighted)."
                   >
-                    <span className="flex min-w-0 items-center gap-2 font-semibold">
-                      {conflict ? (
-                        <span data-testid="team-conflict-marker" className="inline-flex">
-                          <ConflictMarker variant="icon" size="sm" group={conflict} />
-                        </span>
-                      ) : null}
-                      {formatMatchKeyRaw(m.match_key)}
-                    </span>
-                    <span className="text-zinc-400">fuel {fmt(m.fuel_points)}</span>
-                  </button>
-                  {open ? (
-                    <div
-                      data-testid="team-match-detail"
-                      className="flex flex-col gap-2 border-t border-zinc-800 px-3 py-2 text-zinc-300"
+                    rate-FUEL · low confidence ({pct(agg.meanFuelConfidence)})
+                  </span>
+                ) : null}
+              </span>
+            </CardHeader>
+            <CardContent className={STAT_GRID}>
+              <Stat label="Auto fuel" value={fmt(agg.meanAutoFuel)} testid="team-mean-auto-fuel" />
+              <Stat
+                label="Teleop fuel"
+                value={fmt(agg.meanTeleopFuelActive + agg.meanTeleopFuelInactive)}
+                testid="team-mean-teleop-fuel"
+              />
+              <Stat label="Endgame fuel" value={fmt(agg.meanEndgameFuel)} testid="team-mean-endgame-fuel" />
+              <Stat
+                label="Total fuel"
+                value={fmt(agg.meanTotalFuel)}
+                testid="team-mean-total-fuel"
+                tone="energy"
+              />
+              <Stat
+                label="Mean fuel points"
+                value={fmtPM(agg.meanFuelPoints, agg.stdDevFuelPoints)}
+                testid="team-mean-fuel-points"
+                hint={`range ${fmt(agg.minFuelPoints)} – ${fmt(agg.maxFuelPoints)} · n=${agg.matchesScouted}`}
+                tone="energy"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Shooting tempo / cycle-time — derived from fuel-burst timestamps. */}
+          <TempoCard matches={matches} />
+
+        </div>
+        {/* Trends — per-match data-viz over this team's scouted matches. Hidden
+            entirely when there isn't enough data to draw a meaningful trend
+            (fewer than the trend window of matches) — no empty placeholder. */}
+        {agg.recentTrend !== 'insufficient' && agg.matchesScouted >= TREND_WINDOW ? (
+          <TeamTrends matches={matches} />
+        ) : null}
+
+      </section>
+
+      <section id="team-sec-defense" className={SECTION}>
+        {/* Defense / reliability */}
+        <Card className="border-zinc-800 bg-zinc-950">
+          <CardHeader className="space-y-0">
+            <CardTitle className="flex items-center gap-2 text-zinc-100">
+              <Shield className="size-5 text-brand" />
+              Defense · Reliability
+            </CardTitle>
+          </CardHeader>
+          <CardContent className={STAT_GRID}>
+            <Stat
+              label="Avg defense"
+              value={fmtPM(agg.avgDefenseRating, agg.stdDevDefenseRating)}
+              testid="team-avg-defense-rating"
+              hint={`1–10 · range ${fmt(agg.minDefenseRating)} – ${fmt(agg.maxDefenseRating)}`}
+              tone="brand"
+            />
+            {/* Subjective super-scout ratings, averaged over RATED matches (0 = not
+                rated, excluded). Computed inline from the team's reports — no new
+                TeamAgg field. "—" until at least one match was rated. */}
+            <Stat
+              label="Driver skill"
+              value={ratedMeanText(matches, (m) => m.driver_skill)}
+              testid="team-driver-skill"
+              hint="1–10 · rated matches"
+            />
+            <Stat
+              label="Agility"
+              value={ratedMeanText(matches, (m) => m.agility)}
+              testid="team-agility"
+              hint="1–10 · rated matches"
+            />
+            <Stat
+              label="Defended fuel ↓"
+              value={
+                agg.fuelSuppressionWhileDefended == null
+                  ? '—'
+                  : pctSigned(agg.fuelSuppressionWhileDefended)
+              }
+              testid="team-defended-suppression"
+              hint={
+                agg.fuelSuppressionWhileDefended == null
+                  ? 'no defended intervals'
+                  : `from ${Math.round(agg.defendedSampleMs / 1000)}s defended`
+              }
+              tone={
+                agg.fuelSuppressionWhileDefended != null && agg.fuelSuppressionWhileDefended > 0.15
+                  ? 'warning'
+                  : 'default'
+              }
+            />
+            <Stat
+              label="Defender effect"
+              // Gated: a single-opponent observation is not shown as authoritative
+              // (co-occurrence estimate confounded by simultaneous defenders).
+              value={
+                agg.defenderEffectiveness == null ||
+                agg.defenseSampleCount < DEF_EFF_MIN_SAMPLE
+                  ? '—'
+                  : pctSigned(agg.defenderEffectiveness)
+              }
+              testid="team-defender-effectiveness"
+              hint={
+                agg.defenderEffectiveness == null
+                  ? 'never played defense'
+                  : `vs ${agg.defenseSampleCount} opp. · co-occurrence estimate`
+              }
+              tone={
+                agg.defenderEffectiveness != null &&
+                agg.defenseSampleCount >= DEF_EFF_MIN_SAMPLE &&
+                agg.defenderEffectiveness > 0.15
+                  ? 'success'
+                  : 'default'
+              }
+            />
+            <Stat
+              label="Reliability"
+              value={pct(agg.reliability)}
+              testid="team-reliability"
+              hint={`no-show ${pct(agg.noShowRate)} · died ${pct(agg.diedRate)} · tipped ${pct(agg.tippedRate)}`}
+              tone={
+                agg.reliability >= 0.85 ? 'success' : agg.reliability >= 0.6 ? 'warning' : 'destructive'
+              }
+            />
+            <Stat
+              label="Scouted expected pts"
+              value={fmt(agg.scoutingExpectedPoints)}
+              testid="team-scouting-expected"
+              hint="From our scouting reports only (fuel means) — separate from EPA, which uses posted match scores."
+            />
+            {/* Per-match incident trend (green clean / amber tipped / red died). */}
+            <ReliabilityStrip matches={matches} />
+          </CardContent>
+        </Card>
+
+      </section>
+
+      <section id="team-sec-auto" className={SECTION}>
+        {/* Auto options — this team's distinct auto routines, grouped by path shape
+            (the options they tend to run), with a step-through of every auto. */}
+        <Card className="border-zinc-800 bg-zinc-950" data-testid="team-auto-options-card">
+          <CardHeader className="space-y-0">
+            <CardTitle className="flex items-center gap-2 text-zinc-100">
+              <Route className="size-5 text-brand" />
+              Auto options
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AutoOptions
+              teamNumber={props.teamNumber}
+              reports={props.matches}
+              data-testid="team-auto-options"
+            />
+          </CardContent>
+        </Card>
+
+      </section>
+
+      <section id="team-sec-pit" className={SECTION}>
+        {/* Pit scouting report */}
+        {props.pitNode}
+
+      </section>
+
+      {/* Notes beside the scouted-match list on wide screens. */}
+      <div className="grid grid-cols-1 gap-4 xl:auto-cols-fr xl:grid-flow-col xl:items-start">
+        {notedCount > 0 ? (
+          <section id="team-sec-notes" className={SECTION}>
+            {/* All scout notes for this team, aggregated into one block. */}
+            <TeamNotes matches={matches} scoutName={scoutName} />
+
+          </section>
+        ) : null}
+        <section id="team-sec-matches" className={SECTION}>
+            {/* Scouted matches */}
+            <Card className="border-zinc-800 bg-zinc-950">
+              <CardHeader className="space-y-0">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-zinc-100">
+                  <ListChecks className="size-5 text-brand" />
+                  Scouted matches ({matches.length})
+                  {conflictCount > 0 ? (
+                    <span
+                      data-testid="team-conflict-summary"
+                      className="rounded-full border border-warning/50 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                        <span className="min-w-0 break-words text-zinc-400">
-                          {m.alliance_color} {m.station} · scouted by {scoutName(m.scout_id)}
-                        </span>
-                        {failFlags.length || warnFlags.length ? (
-                          <span className="flex flex-wrap items-center gap-x-2">
-                            {failFlags.length ? (
-                              <span className="text-destructive">{failFlags.join(' · ')}</span>
-                            ) : null}
-                            {warnFlags.length ? (
-                              <span className="text-warning">{warnFlags.join(' · ')}</span>
-                            ) : null}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-zinc-400 sm:grid-cols-3">
-                        <span>auto {fmt(m.auto_fuel)}</span>
-                        <span>tele {fmt(m.teleop_fuel_active + m.teleop_fuel_inactive)}</span>
-                        <span>end {fmt(m.endgame_fuel)}</span>
-                        <span>defense {m.defense_rating}</span>
-                        <span>pins {m.pins}</span>
-                      </div>
-                      {m.foul_reasons && m.foul_reasons.length > 0 ? (
-                        <div
-                          data-testid={`team-match-foul-reasons-${i}`}
-                          className="flex flex-wrap gap-1.5"
-                        >
-                          {m.foul_reasons.map((key) => (
-                            <span
-                              key={key}
-                              className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
-                            >
-                              {foulReasonLabel(key)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                      {m.notes ? (
-                        <span className="text-zinc-500">“{m.notes}”</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        data-testid={`team-match-fullreport-${i}`}
-                        onClick={() => props.onOpenReport(m)}
-                        className="self-start rounded-lg border border-foreground/40 bg-accent px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-muted"
-                      >
-                        View full report
-                      </button>
-                    </div>
+                      {conflictCount} multi-scout conflict{conflictCount === 1 ? '' : 's'}
+                    </span>
                   ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </CardContent>
-      </Card>
+                </CardTitle>
+                {conflictCount > 0 ? (
+                  <label className="flex items-center gap-2 pt-2 text-xs font-medium text-zinc-300">
+                    <input
+                      type="checkbox"
+                      data-testid="team-conflicts-only"
+                      checked={conflictsOnly}
+                      onChange={(e) => {
+                        setConflictsOnly(e.target.checked);
+                        setOpenRow(null); // rows reindex on filter — collapse any open row
+                      }}
+                      className="size-4 accent-warning"
+                    />
+                    Show conflicts only
+                  </label>
+                ) : null}
+              </CardHeader>
+              <CardContent>
+                {conflictsOnly && visibleMatches.length === 0 ? (
+                  <div data-testid="team-conflicts-empty" className="text-sm text-zinc-400">
+                    No multi-scout conflicts for this team.
+                  </div>
+                ) : null}
+                <ul data-testid="team-match-list" className="flex flex-col gap-2">
+                  {visibleMatches.map((m, i) => {
+                    const open = openRow === i;
+                    const conflict = conflictFor(m);
+                    // Split flags by severity: no-show/died are hard failures (destructive
+                    // red), tipped is a warning (amber) — mirrors ReportDetail's FlagPill.
+                    const failFlags = [m.no_show ? 'no-show' : null, m.died ? 'died' : null].filter(
+                      Boolean,
+                    );
+                    const warnFlags = [m.tipped ? 'tipped' : null].filter(Boolean);
+                    return (
+                      <li
+                        key={`${m.match_key}-${i}`}
+                        className="rounded-md border border-zinc-800 bg-zinc-900/60 text-sm text-zinc-200"
+                      >
+                        <button
+                          type="button"
+                          data-testid={`team-match-row-${i}`}
+                          onClick={() => setOpenRow(open ? null : i)}
+                          style={{ minHeight: CONTROL_MIN_HEIGHT }}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left"
+                        >
+                          <span className="flex min-w-0 items-center gap-2 font-semibold">
+                            {conflict ? (
+                              <span data-testid="team-conflict-marker" className="inline-flex">
+                                <ConflictMarker variant="icon" size="sm" group={conflict} />
+                              </span>
+                            ) : null}
+                            {formatMatchKeyRaw(m.match_key)}
+                          </span>
+                          <span className="text-zinc-400">fuel {fmt(m.fuel_points)}</span>
+                        </button>
+                        {open ? (
+                          <div
+                            data-testid="team-match-detail"
+                            className="flex flex-col gap-2 border-t border-zinc-800 px-3 py-2 text-zinc-300"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                              <span className="min-w-0 break-words text-zinc-400">
+                                {m.alliance_color} {m.station} · scouted by {scoutName(m.scout_id)}
+                              </span>
+                              {failFlags.length || warnFlags.length ? (
+                                <span className="flex flex-wrap items-center gap-x-2">
+                                  {failFlags.length ? (
+                                    <span className="text-destructive">{failFlags.join(' · ')}</span>
+                                  ) : null}
+                                  {warnFlags.length ? (
+                                    <span className="text-warning">{warnFlags.join(' · ')}</span>
+                                  ) : null}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-zinc-400 sm:grid-cols-3">
+                              <span>auto {fmt(m.auto_fuel)}</span>
+                              <span>tele {fmt(m.teleop_fuel_active + m.teleop_fuel_inactive)}</span>
+                              <span>end {fmt(m.endgame_fuel)}</span>
+                              <span>defense {m.defense_rating}</span>
+                              <span>pins {m.pins}</span>
+                            </div>
+                            {m.foul_reasons && m.foul_reasons.length > 0 ? (
+                              <div
+                                data-testid={`team-match-foul-reasons-${i}`}
+                                className="flex flex-wrap gap-1.5"
+                              >
+                                {m.foul_reasons.map((key) => (
+                                  <span
+                                    key={key}
+                                    className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
+                                  >
+                                    {foulReasonLabel(key)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {m.notes ? (
+                              <span className="text-zinc-500">“{m.notes}”</span>
+                            ) : null}
+                            <button
+                              type="button"
+                              data-testid={`team-match-fullreport-${i}`}
+                              onClick={() => props.onOpenReport(m)}
+                              className="self-start rounded-lg border border-foreground/40 bg-accent px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-muted"
+                            >
+                              View full report
+                            </button>
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+        </section>
+      </div>
     </div>
   );
 }
@@ -1594,22 +1659,14 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     selected == null ? null : teams.find((team) => team.team_number === selected) ?? null;
 
   return (
-    <div data-testid="dash-team" className="flex flex-col gap-4 text-zinc-100">
+    <div data-testid="dash-team" className="flex flex-col gap-4 pl-4 text-zinc-100">
       <Card
         data-testid="team-picker"
         className="border-zinc-800 bg-zinc-950/80 shadow-sm"
       >
-        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(13rem,18rem)] lg:items-stretch">
-          <div className="flex min-w-0 flex-col gap-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <div>
-                <h2 className="font-display text-base font-semibold text-zinc-100">Find a team</h2>
-                <p className="text-xs text-zinc-500">Search the event roster or browse every team.</p>
-              </div>
-              <span className="font-mono text-xs text-zinc-500">
-                {teams.length} team{teams.length === 1 ? '' : 's'} at event
-              </span>
-            </div>
+        <div className="grid gap-3 p-3 sm:px-4 lg:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)] lg:items-stretch">
+          <div className="flex min-w-0 flex-col gap-2">
+            <h2 className="sr-only">Find a team</h2>
 
             <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(15rem,0.8fr)] md:items-start">
               <div className="flex min-w-0 flex-col gap-1.5">
@@ -1699,8 +1756,11 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
               </div>
 
               <div className="flex min-w-0 flex-col gap-1.5">
-                <label htmlFor="team-select" className="text-xs font-medium text-zinc-400">
+                <label htmlFor="team-select" className="flex justify-between text-xs font-medium text-zinc-400">
                   Browse roster
+                  <span className="font-mono text-zinc-500">
+                    {teams.length} team{teams.length === 1 ? '' : 's'}
+                  </span>
                 </label>
                 <select
                   id="team-select"
@@ -1733,7 +1793,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
 
           <div
             data-testid="team-picker-context"
-            className="flex min-h-20 items-center border-t border-zinc-800 pt-4 lg:min-h-0 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0"
+            className="flex items-center border-t border-zinc-800 pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0"
             aria-live="polite"
           >
             {selected == null ? (
