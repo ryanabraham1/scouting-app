@@ -335,13 +335,12 @@ describe('MatchView', () => {
     // Slim summary keeps the heartbeat intent (synced count + stations).
     expect(card.textContent).toMatch(/synced/);
     expect(card.textContent).toMatch(/stations/);
-    // s1 reported (a reported row keyed by scout id, visible by default).
-    expect(getByTestId('match-scout-reported-s1').textContent).toMatch(/Synced/);
-    // The server received the unattributed report too, but it is visibly distinct
-    // from an attributed scout so the lead does not mistake it for roster coverage.
-    expect(getByTestId('match-scout-reported-unassigned').textContent).toMatch(
-      /Synced, unassigned/,
-    );
+    // Who reported lives on each report row (no separate roster grid); the
+    // unattributed report reads "by unassigned" so it isn't mistaken for coverage.
+    const detail = getByTestId('match-detail');
+    expect(detail.textContent).toMatch(/by Ada/);
+    expect(detail.textContent).toMatch(/by unassigned/);
+    expect(queryByTestId('match-scout-reported-s1')).toBeNull();
     // Event-roster members who were not assigned to this match are not presented
     // as missing reports.
     expect(queryByTestId('match-scout-missing-toggle')).toBeNull();

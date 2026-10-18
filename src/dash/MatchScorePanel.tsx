@@ -12,7 +12,7 @@ import { TeamLink } from '@/components/ui/TeamLink';
 /** Winner side off a MatchRow — kept loose (`string`) since the row type is. */
 export type Winner = 'red' | 'blue' | 'tie' | string | null;
 
-function winnerText(winner: Winner): string | null {
+export function winnerText(winner: Winner): string | null {
   return winner === 'red'
     ? 'Red wins'
     : winner === 'blue'

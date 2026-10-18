@@ -75,7 +75,7 @@ import {
   ROBOT_COLORS,
   type WhiteboardPhase,
 } from '@/dash/strategy/strokes';
-import { WinProbBanner, AllianceColumn } from '@/dash/strategy/PredictionPanel';
+import { WinProbBanner } from '@/dash/strategy/PredictionPanel';
 import {
   PHASE_LABEL,
   postStrategyToDiscord,
@@ -1119,6 +1119,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               redWinProb={pred.redWinProb}
               redScore={pred.red.score}
               blueScore={pred.blue.score}
+              ourSide={ourSide}
             />
           ) : (
             <div
@@ -1129,34 +1130,20 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <AllianceColumn
-              side="red"
-              label="Red Alliance"
-              score={pred.red.score}
-              teams={pred.red.teams}
-              agg={agg}
-              allTeams={allTeams}
-              reportsByTeam={reportsByTeam}
-              pitByTeam={pitByTeam}
-              flagsByTeam={epaFlagsByTeam}
-              baseTeam={baseTeam}
-              isOurs={ourSide === 'red'}
-            />
-            <AllianceColumn
-              side="blue"
-              label="Blue Alliance"
-              score={pred.blue.score}
-              teams={pred.blue.teams}
-              agg={agg}
-              allTeams={allTeams}
-              reportsByTeam={reportsByTeam}
-              pitByTeam={pitByTeam}
-              flagsByTeam={epaFlagsByTeam}
-              baseTeam={baseTeam}
-              isOurs={ourSide === 'blue'}
-            />
-          </div>
+          {/* Threat share, tale of the tape, and the six-team table (prediction
+              split, scouted metrics, red flags) — replaces the old per-alliance
+              cards, radar, and contribution chart, which repeated each other. */}
+          <MatchupDashboard
+            redTeams={redTeams}
+            blueTeams={blueTeams}
+            pred={pred}
+            agg={agg}
+            reportsByTeam={reportsByTeam}
+            allTeams={allTeams}
+            baseTeam={baseTeam}
+            ourSide={ourSide}
+            flagsByTeam={epaFlagsByTeam}
+          />
 
           {/* Persistent per-team notes (the prose synthesis block is gone —
               its signals live in the dashboard columns + red flags now). */}
@@ -1168,22 +1155,6 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             baseTeam={baseTeam}
           />
 
-          {/* (The old Auto routines card was dropped — the whiteboard's auto
-              board shows the same labeled, switchable previews.) */}
-
-          {/* Broadcast-style matchup graphics (tale of the tape, alliance
-              profile radar, per-team comparison) — anchors the bottom of the
-              analytics view. */}
-          <MatchupDashboard
-            redTeams={redTeams}
-            blueTeams={blueTeams}
-            pred={pred}
-            agg={agg}
-            reportsByTeam={reportsByTeam}
-            allTeams={allTeams}
-            baseTeam={baseTeam}
-            ourSide={ourSide}
-          />
         </>
       )}
     </div>

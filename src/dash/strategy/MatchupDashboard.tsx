@@ -1,14 +1,18 @@
 // src/dash/strategy/MatchupDashboard.tsx
-// Broadcast-style matchup analytics for the Strategy tab: a "tale of the tape"
-// (mirrored red↔blue alliance bars per metric) and a per-team comparison table
-// with inline data bars — the glanceable graphics layer on top of the existing
-// prediction cards (which keep the exact numbers and badges).
+// Strategy-tab analytics below the win-probability strip: each opponent's share
+// of their alliance's predicted points, a "tale of the tape" (mirrored red↔blue
+// alliance bars per metric), and ONE six-team table — predicted points and
+// their auto/teleop/defense split, scouted metrics with inline data bars, the
+// prediction source, and each team's red flags. It replaces the old per-alliance
+// prediction cards, the radar, and the contribution chart, which all repeated
+// the same numbers.
 //
 // Pure presentation over data the tab already computes (predictMatch output,
-// aggregateEvent map, raw reports for the super-scout rating means) — no new
-// queries, dependency-free CSS/flex bars (matches the charts/ philosophy).
+// aggregateEvent map, raw reports, async EPA-drop flags) — no new queries,
+// dependency-free CSS bars.
 
-import { lazy, Suspense, useMemo } from 'react';
+import { useMemo } from 'react';
+import { AlertTriangle, Crosshair, Scale, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { TeamLink } from '@/components/ui/TeamLink';
@@ -16,12 +20,8 @@ import type { TeamAgg } from '@/dash/aggregate';
 import type { MatchPrediction, TeamPrediction } from '@/dash/predict';
 import type { TeamRow } from '@/dash/useEventData';
 import type { MsrRow } from '@/dash/types';
-import { defenseTimeShare } from '@/dash/strategy/redFlags';
-import type { RadarDatum, ContribDatum } from '@/dash/strategy/MatchupCharts';
-
-// recharts rides in its own lazy chunk (~145 KB gzip) — precached by the SW at
-// install, so it still works offline, but the whiteboard never loads it.
-const MatchupCharts = lazy(() => import('@/dash/strategy/MatchupCharts'));
+import { defenseTimeShare, teamRedFlags, type RedFlag } from '@/dash/strategy/redFlags';
+import { SOURCE_CLASS, SOURCE_LABEL } from '@/dash/strategy/PredictionPanel';
 
 export interface MatchupDashboardProps {
   redTeams: number[];
@@ -32,6 +32,8 @@ export interface MatchupDashboardProps {
   allTeams: TeamRow[];
   baseTeam: number;
   ourSide: 'red' | 'blue' | null;
+  /** Per-team async flags (season EPA drop), merged into each team's flags. */
+  flagsByTeam?: Map<number, RedFlag>;
 }
 
 const EM_DASH = '—';
@@ -47,10 +49,7 @@ function ratedMeanNum(
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
-function sumComponent(
-  teams: TeamPrediction[],
-  key: 'auto' | 'fuel' | 'defense',
-): number | null {
+function sumComponent(teams: TeamPrediction[], key: 'auto' | 'fuel' | 'defense'): number | null {
   const values = teams
     .map((prediction) => prediction.components?.[key])
     .filter((value): value is number => value != null && Number.isFinite(value));
@@ -134,7 +133,7 @@ function TapeBarRow({ row }: { row: TapeRow }): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Team comparison — one row per team, inline data bars per metric.
+// Team table — one row per team, inline data bars per metric.
 // ---------------------------------------------------------------------------
 
 interface TeamMetrics {
@@ -142,10 +141,13 @@ interface TeamMetrics {
   nickname: string | null;
   side: 'red' | 'blue';
   scouted: number;
+  source: TeamPrediction['source'];
   expected: number | null;
-  fuel: number | null;
-  /** Mean teleop INACTIVE-period fuel — the feeding workload signal that used
-   *  to live only in the removed Alliance Matchup prose ("feeds heavily"). */
+  /** Predicted point split (predictMatch components); null when unknown. */
+  auto: number | null;
+  teleop: number | null;
+  defPts: number | null;
+  /** Mean teleop INACTIVE-period fuel — the feeding workload signal. */
   feed: number | null;
   defense: number | null;
   /** Fraction of teleop spent playing defense (timed intervals); null untimed. */
@@ -153,66 +155,99 @@ interface TeamMetrics {
   driver: number | null;
   agility: number | null;
   reliability: number | null;
+  flags: RedFlag[];
 }
 
+type MetricKey =
+  | 'expected'
+  | 'auto'
+  | 'teleop'
+  | 'defPts'
+  | 'feed'
+  | 'defense'
+  | 'defTime'
+  | 'driver'
+  | 'agility'
+  | 'reliability';
+
 interface MetricCol {
-  key: keyof Pick<
-    TeamMetrics,
-    | 'expected'
-    | 'fuel'
-    | 'feed'
-    | 'defense'
-    | 'defTime'
-    | 'driver'
-    | 'agility'
-    | 'reliability'
-  >;
+  key: MetricKey;
   label: string;
   /** Fixed scale max (ratings/rates); undefined = normalize to the matchup max. */
   max?: number;
   fmt: (v: number) => string;
 }
 
-const METRIC_COLS: MetricCol[] = [
-  { key: 'expected', label: 'Exp pts', fmt: (v) => String(Math.round(v)) },
-  { key: 'fuel', label: 'Teleop', fmt: (v) => v.toFixed(0) },
-  { key: 'feed', label: 'Feed', fmt: (v) => v.toFixed(0) },
-  { key: 'defense', label: 'Def', max: 10, fmt: (v) => v.toFixed(1) },
-  { key: 'defTime', label: 'Def time', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
-  { key: 'driver', label: 'Driver', max: 10, fmt: (v) => v.toFixed(1) },
-  { key: 'agility', label: 'Agility', max: 10, fmt: (v) => v.toFixed(1) },
-  { key: 'reliability', label: 'Reliab', max: 1, fmt: (v) => `${Math.round(v * 100)}%` },
+const int = (v: number): string => String(Math.round(v));
+const COL = {
+  expected: { key: 'expected', label: 'Exp pts', fmt: int },
+  auto: { key: 'auto', label: 'Auto', fmt: int },
+  teleop: { key: 'teleop', label: 'Teleop', fmt: int },
+  defPts: { key: 'defPts', label: 'Def pts', fmt: int },
+  feed: { key: 'feed', label: 'Feed', fmt: int },
+  defense: { key: 'defense', label: 'Def', max: 10, fmt: (v) => v.toFixed(1) },
+  defTime: {
+    key: 'defTime',
+    label: 'Def time',
+    max: 1,
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  driver: { key: 'driver', label: 'Driver', max: 10, fmt: (v) => v.toFixed(1) },
+  agility: {
+    key: 'agility',
+    label: 'Agility',
+    max: 10,
+    fmt: (v) => v.toFixed(1),
+  },
+  reliability: {
+    key: 'reliability',
+    label: 'Reliab',
+    max: 1,
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+} satisfies Record<MetricKey, MetricCol>;
+/** The predicted split, kept together so its numbers read as one breakdown. */
+const SPLIT_COLS: MetricCol[] = [COL.auto, COL.teleop, COL.defPts];
+const SCOUTED_COLS: MetricCol[] = [
+  COL.feed,
+  COL.defense,
+  COL.defTime,
+  COL.driver,
+  COL.agility,
+  COL.reliability,
 ];
+const ALL_COLS: MetricCol[] = [COL.expected, ...SPLIT_COLS, ...SCOUTED_COLS];
 
 function MetricCell({
   value,
   max,
-  fmt,
+  col,
   side,
   isBase,
-  label,
+  valueTestId,
 }: {
   value: number | null;
   max: number;
-  fmt: (v: number) => string;
+  col: MetricCol;
   side: 'red' | 'blue';
   isBase: boolean;
-  /** Shown inside the cell on phones (the shared header row is md+ only). */
-  label: string;
+  valueTestId?: string;
 }): JSX.Element {
   const pct = value == null || max <= 0 ? 0 : Math.min(100, Math.max(0, (value / max) * 100));
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
+      {/* Shown inside the cell on phones (the shared header row is md+ only). */}
       <span className="truncate text-[9px] font-bold uppercase tracking-wider text-muted-foreground md:hidden">
-        {label}
+        {col.label}
       </span>
       <span
+        data-testid={valueTestId}
         className={cn(
           'font-mono text-xs font-semibold tabular-nums',
           value == null ? 'text-muted-foreground/60' : 'text-foreground',
         )}
       >
-        {value == null ? EM_DASH : fmt(value)}
+        {value == null ? EM_DASH : col.fmt(value)}
       </span>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted-foreground/25">
         <div
@@ -227,12 +262,11 @@ function MetricCell({
   );
 }
 
-// One-row-per-team dense grid, md+ only — phones instead get a per-team card
-// with the nine metrics in a labeled 3-column grid (three tidy rows), because
-// ten columns at 390px are unreadable. Shared by the header row and team rows
-// so the md track templates can never drift apart.
+// One-row-per-team dense grid on md+; phones get a per-team card with the
+// metrics in a labeled 3-column grid. Shared by the header and team rows so the
+// md track templates can never drift apart.
 const GRID_MD =
-  'md:grid-cols-[minmax(5.5rem,1.4fr)_repeat(9,minmax(0,1fr))] md:items-end md:gap-x-3 md:gap-y-0';
+  'md:grid-cols-[minmax(7.5rem,1.6fr)_repeat(10,minmax(0,1fr))] md:items-end md:gap-x-3 md:gap-y-0';
 
 function TeamMetricRow({
   m,
@@ -243,42 +277,155 @@ function TeamMetricRow({
   maxima: Record<string, number>;
   isBase: boolean;
 }): JSX.Element {
+  const cell = (col: MetricCol, valueTestId?: string) => (
+    <MetricCell
+      key={col.key}
+      value={m[col.key]}
+      max={col.max ?? maxima[col.key]}
+      col={col}
+      side={m.side}
+      isBase={isBase}
+      valueTestId={valueTestId}
+    />
+  );
   return (
     <div
-      data-testid={`matchup-dash-team-${m.team}`}
+      data-testid={`dash-next-team-${m.team}`}
       className={cn(
-        // Phone card treatment (border/bg) drops away on md, where the aligned
-        // columns carry the structure.
         'grid grid-cols-3 gap-x-3 gap-y-1.5 rounded-md border border-border/50 bg-card/40 px-2 py-2 md:border-transparent md:bg-transparent md:py-1.5',
         GRID_MD,
         isBase && 'border-amber-400/40 bg-amber-400/10 md:border-amber-400/40 md:bg-amber-400/10',
       )}
     >
-      <div className="col-span-3 flex min-w-0 flex-col md:col-span-1">
-        <TeamLink
-          team={m.team}
-          className={cn(
-            'self-start font-mono text-sm font-bold',
-            m.side === 'red' ? 'text-red-400' : 'text-blue-400',
-          )}
-        />
+      <div
+        data-testid={`matchup-dash-team-${m.team}`}
+        className="col-span-3 flex min-w-0 flex-col md:col-span-1"
+      >
+        <span className="flex items-center gap-1.5">
+          <TeamLink
+            team={m.team}
+            className={cn(
+              'font-mono text-sm font-bold',
+              m.side === 'red' ? 'text-red-400' : 'text-blue-400',
+            )}
+          />
+          {isBase ? (
+            <span
+              data-testid="dash-next-us-chip"
+              className="rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-neutral-900"
+            >
+              us
+            </span>
+          ) : null}
+          <span
+            data-testid="dash-next-source-badge"
+            className={cn(
+              'rounded-full border px-1.5 py-px text-[10px] font-medium leading-none',
+              SOURCE_CLASS[m.source],
+            )}
+          >
+            {SOURCE_LABEL[m.source]}
+          </span>
+        </span>
         <span className="truncate text-[10px] text-muted-foreground">
           {m.nickname ?? ''}
           {m.scouted === 0 ? ' · unscouted' : ` · ${m.scouted} scouted`}
         </span>
       </div>
-      {METRIC_COLS.map((col) => (
-        <MetricCell
-          key={col.key}
-          value={m[col.key]}
-          max={col.max ?? maxima[col.key]}
-          fmt={col.fmt}
-          side={m.side}
-          isBase={isBase}
-          label={col.label}
-        />
-      ))}
+      {cell(COL.expected, 'dash-next-team-expected')}
+      {/* display:contents keeps the split cells on the grid while grouping them. */}
+      <div data-testid={`dash-next-components-${m.team}`} className="contents">
+        {SPLIT_COLS.map((col) => cell(col))}
+      </div>
+      {SCOUTED_COLS.map((col) => cell(col))}
+      {m.flags.length > 0 ? (
+        <ul
+          data-testid={`dash-next-flags-${m.team}`}
+          className="col-span-full flex flex-wrap gap-1.5 md:pt-1"
+        >
+          {m.flags.map((f) => (
+            <li
+              key={f.kind}
+              data-severity={f.severity}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]',
+                f.severity === 'high'
+                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                  : 'border-warning/40 bg-warning/10 text-warning',
+              )}
+            >
+              <AlertTriangle className="size-3 shrink-0" />
+              {f.text}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
+  );
+}
+
+/** Each robot's share of its alliance's predicted points, biggest first. */
+function PointsByRobot({
+  sides,
+  pred,
+  ourSide,
+}: {
+  sides: ('red' | 'blue')[];
+  pred: MatchPrediction;
+  ourSide: 'red' | 'blue' | null;
+}): JSX.Element {
+  return (
+    <Card data-testid="matchup-points-by-robot" className="border-border">
+      <CardHeader className="p-4 pb-2">
+        <CardTitle className="flex items-center gap-2 text-base text-foreground">
+          <Crosshair className="size-4 text-brand" />
+          {ourSide ? 'Their points by robot' : 'Points by robot'}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 p-4 pt-1">
+        {sides.map((side) => {
+          const teams = pred[side].teams
+            .filter((t) => t.source !== 'none' && Number.isFinite(t.expected) && t.expected > 0)
+            .sort((a, b) => b.expected - a.expected);
+          const total = teams.reduce((sum, t) => sum + t.expected, 0);
+          const top = teams[0]?.expected ?? 0;
+          return (
+            <ul key={side} className="flex flex-col gap-1.5" data-testid={`matchup-points-${side}`}>
+              {teams.length === 0 ? (
+                <li className="text-sm text-muted-foreground">{EM_DASH}</li>
+              ) : (
+                teams.map((t) => (
+                  <li
+                    key={t.teamNumber}
+                    className="grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-center gap-2"
+                  >
+                    <TeamLink
+                      team={t.teamNumber}
+                      className={cn(
+                        'font-mono text-sm font-bold',
+                        side === 'red' ? 'text-red-400' : 'text-blue-400',
+                      )}
+                    />
+                    <div className="h-2.5 overflow-hidden rounded-full bg-muted-foreground/20">
+                      <div
+                        className={cn(
+                          'h-full rounded-full',
+                          side === 'red' ? 'bg-red-500' : 'bg-blue-500',
+                        )}
+                        style={{ width: `${(t.expected / top) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-right font-mono text-sm tabular-nums text-foreground">
+                      {Math.round((t.expected / total) * 100)}%
+                    </span>
+                  </li>
+                ))
+              )}
+            </ul>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -291,23 +438,23 @@ export default function MatchupDashboard({
   allTeams,
   baseTeam,
   ourSide,
+  flagsByTeam,
 }: MatchupDashboardProps): JSX.Element {
-  // ---- Tale of the tape (alliance level) ----------------------------------
+  // ---- Tale of the tape (alliance level; projected score lives in the strip) --
   const tape = useMemo<TapeRow[]>(() => {
     const pct = (v: number) => `${Math.round(v * 100)}%`;
-    const allianceScore = (teams: TeamPrediction[], score: number): number | null =>
-      Number.isFinite(score) && teams.some((team) => team.source !== 'none')
-        ? score
-        : null;
     return [
       {
-        label: 'Projected score',
-        red: allianceScore(pred.red.teams, pred.red.score),
-        blue: allianceScore(pred.blue.teams, pred.blue.score),
+        label: 'Auto pts',
+        red: sumComponent(pred.red.teams, 'auto'),
+        blue: sumComponent(pred.blue.teams, 'auto'),
       },
-      { label: 'Auto pts', red: sumComponent(pred.red.teams, 'auto'), blue: sumComponent(pred.blue.teams, 'auto') },
       // The `fuel` component is TELEOP fuel points — labeled teleop everywhere.
-      { label: 'Teleop pts', red: sumComponent(pred.red.teams, 'fuel'), blue: sumComponent(pred.blue.teams, 'fuel') },
+      {
+        label: 'Teleop pts',
+        red: sumComponent(pred.red.teams, 'fuel'),
+        blue: sumComponent(pred.blue.teams, 'fuel'),
+      },
       {
         label: 'Defense impact',
         red: sumComponent(pred.red.teams, 'defense'),
@@ -322,7 +469,7 @@ export default function MatchupDashboard({
     ];
   }, [pred, agg, redTeams, blueTeams]);
 
-  // ---- Per-team comparison rows -------------------------------------------
+  // ---- Per-team rows ---------------------------------------------------------
   const teamRows = useMemo<TeamMetrics[]>(() => {
     const predByTeam = new Map<number, TeamPrediction>();
     for (const p of [...pred.red.teams, ...pred.blue.teams]) predByTeam.set(p.teamNumber, p);
@@ -330,116 +477,87 @@ export default function MatchupDashboard({
       const a = agg.get(team);
       const scouted = a?.matchesScouted ?? 0;
       const reports = reportsByTeam?.get(team);
+      const p = predByTeam.get(team);
+      const source = p?.source ?? 'none';
+      const known = source !== 'none';
+      const comp = (v: number | null | undefined) =>
+        known && v != null && Number.isFinite(v) ? v : null;
+      // Pre-match "must know" flags from the reports + agg, merged with the async
+      // season EPA-drop signal; high severity first.
+      const extra = flagsByTeam?.get(team);
+      const flags = [...teamRedFlags(reports ?? [], a), ...(extra ? [extra] : [])].sort(
+        (x, y) => Number(y.severity === 'high') - Number(x.severity === 'high'),
+      );
       return {
         team,
         side,
         nickname: allTeams.find((t) => t.team_number === team)?.nickname ?? null,
         scouted,
-        expected:
-          predByTeam.get(team)?.source !== 'none' &&
-          Number.isFinite(predByTeam.get(team)?.expected)
-            ? predByTeam.get(team)!.expected
-            : null,
-        fuel: scouted > 0 && a ? a.meanFuelPoints : null,
+        source,
+        expected: known && p && Number.isFinite(p.expected) ? p.expected : null,
+        auto: comp(p?.components?.auto),
+        teleop: comp(p?.components?.fuel),
+        defPts: comp(p?.components?.defense),
         feed: scouted > 0 && a ? a.meanTeleopFuelInactive : null,
         defense: scouted > 0 && a ? a.avgDefenseRating : null,
         defTime: defenseTimeShare(reports ?? []),
         driver: ratedMeanNum(reports, (m) => m.driver_skill),
         agility: ratedMeanNum(reports, (m) => m.agility),
         reliability: scouted > 0 && a ? a.reliability : null,
+        flags,
       };
     };
-    return [
-      ...redTeams.map((t) => build(t, 'red')),
-      ...blueTeams.map((t) => build(t, 'blue')),
-    ];
-  }, [redTeams, blueTeams, pred, agg, reportsByTeam, allTeams]);
+    return [...redTeams.map((t) => build(t, 'red')), ...blueTeams.map((t) => build(t, 'blue'))];
+  }, [redTeams, blueTeams, pred, agg, reportsByTeam, allTeams, flagsByTeam]);
 
-  // Matchup-relative maxima for the unbounded metrics (points).
+  // Matchup-relative maxima for the unbounded (points) metrics.
   const maxima = useMemo(() => {
-    const maxOf = (sel: (m: TeamMetrics) => number | null) =>
-      Math.max(1e-9, ...teamRows.map((m) => sel(m) ?? 0));
-    return {
-      expected: maxOf((m) => m.expected),
-      fuel: maxOf((m) => m.fuel),
-      feed: maxOf((m) => m.feed),
-    } as Record<string, number>;
+    const out: Record<string, number> = {};
+    for (const col of ALL_COLS) {
+      if (col.max == null) out[col.key] = Math.max(1e-9, ...teamRows.map((m) => m[col.key] ?? 0));
+    }
+    return out;
   }, [teamRows]);
-
-  // ---- Chart inputs (lazy recharts section) --------------------------------
-  const radar = useMemo<RadarDatum[]>(() => {
-    // Each axis normalized so the LEADING alliance = 100 (shape comparison).
-    const axis = (label: string, r: number | null, b: number | null): RadarDatum => {
-      const max = Math.max(r ?? 0, b ?? 0, 1e-9);
-      return {
-        metric: label,
-        red: Math.round(((r ?? 0) / max) * 100),
-        blue: Math.round(((b ?? 0) / max) * 100),
-      };
-    };
-    return [
-      axis('Auto', sumComponent(pred.red.teams, 'auto'), sumComponent(pred.blue.teams, 'auto')),
-      axis('Teleop', sumComponent(pred.red.teams, 'fuel'), sumComponent(pred.blue.teams, 'fuel')),
-      axis('Defense', sumComponent(pred.red.teams, 'defense'), sumComponent(pred.blue.teams, 'defense')),
-      axis(
-        'Reliability',
-        scoutedMean(redTeams, agg, (a) => a.reliability),
-        scoutedMean(blueTeams, agg, (a) => a.reliability),
-      ),
-    ];
-  }, [pred, agg, redTeams, blueTeams]);
-
-  const contrib = useMemo<ContribDatum[]>(() => {
-    const build = (p: TeamPrediction, side: 'red' | 'blue'): ContribDatum => ({
-      team: String(p.teamNumber),
-      side,
-      isBase: p.teamNumber === baseTeam,
-      auto: p.components?.auto ?? 0,
-      teleop: p.components?.fuel ?? 0,
-    });
-    return [
-      ...pred.red.teams.map((p) => build(p, 'red')),
-      ...pred.blue.teams.map((p) => build(p, 'blue')),
-    ];
-  }, [pred, baseTeam]);
 
   const sideTag = (side: 'red' | 'blue'): string =>
     ourSide === side ? ' (us)' : ourSide != null ? ' (opponents)' : '';
+  const threatSides: ('red' | 'blue')[] =
+    ourSide === 'red' ? ['blue'] : ourSide === 'blue' ? ['red'] : ['red', 'blue'];
 
   return (
-    <Card data-testid="matchup-dashboard" className="border-border">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-foreground">Matchup dashboard</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5 p-4 pt-1">
-        {/* Tale of the tape. */}
-        <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
-            <span className="text-right text-red-400">Red{sideTag('red')}</span>
-            <span className="text-muted-foreground">Alliance comparison</span>
-            <span className="text-blue-400">Blue{sideTag('blue')}</span>
-          </div>
-          <div data-testid="matchup-dash-tape" className="flex flex-col gap-1.5">
-            {tape.map((row) => (
-              <TapeBarRow key={row.label} row={row} />
-            ))}
-          </div>
-        </div>
-
-        {/* Radar + stacked contribution (recharts, lazy chunk). */}
-        <Suspense
-          fallback={
-            <div className="flex min-h-[240px] items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
-              Loading charts…
+    <div data-testid="matchup-dashboard" className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <PointsByRobot sides={threatSides} pred={pred} ourSide={ourSide} />
+        <Card className="border-border">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="flex items-center gap-2 text-base text-foreground">
+              <Scale className="size-4 text-brand" />
+              Tale of the tape
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 p-4 pt-1">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
+              <span className="text-right text-red-400">Red{sideTag('red')}</span>
+              <span />
+              <span className="text-blue-400">Blue{sideTag('blue')}</span>
             </div>
-          }
-        >
-          <MatchupCharts radar={radar} contrib={contrib} />
-        </Suspense>
+            <div data-testid="matchup-dash-tape" className="flex flex-col gap-1.5">
+              {tape.map((row) => (
+                <TapeBarRow key={row.label} row={row} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Team comparison table with inline data bars. The shared header row
-            is md+ only; phones label each metric inside its cell instead. */}
-        <div className="flex flex-col gap-1">
+      <Card className="border-border">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="flex items-center gap-2 text-base text-foreground">
+            <Users className="size-4 text-brand" />
+            Teams
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-1 p-4 pt-1">
           <div
             className={cn(
               'hidden md:grid',
@@ -450,7 +568,7 @@ export default function MatchupDashboard({
             )}
           >
             <span>Team</span>
-            {METRIC_COLS.map((c) => (
+            {ALL_COLS.map((c) => (
               <span key={c.key}>{c.label}</span>
             ))}
           </div>
@@ -464,11 +582,8 @@ export default function MatchupDashboard({
               />
             ))}
           </div>
-          <p className="px-2 pt-1 text-[10px] text-muted-foreground/70">
-            Bars for Exp/Teleop/Feed scale to this matchup's best; Reliab is 0–100%; Def/Driver/Agility are 1–10.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

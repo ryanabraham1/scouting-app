@@ -77,11 +77,6 @@ vi.mock('@/dash/strategy/useTeamEpaTrends', () => ({
   }),
 }));
 
-// The recharts section is a lazy chunk — stub it (SVG charts don't lay out in
-// jsdom; the surrounding dashboard math is asserted via the tape/team rows).
-vi.mock('@/dash/strategy/MatchupCharts', () => ({
-  default: () => <div data-testid="matchup-charts-stub" />,
-}));
 
 // --- stub the combined auto field to keep this focused on strategy rendering ---
 vi.mock('@/dash/CombinedAutoField', () => ({
@@ -526,24 +521,24 @@ describe('StrategyView', () => {
     expect(within(card).getAllByTestId('matchup-note-badge')).toHaveLength(3);
   });
 
-  it('renders the matchup dashboard (tale of the tape + per-team comparison) in analytics', async () => {
+  it('renders the matchup dashboard (threat share, tale of the tape, team table) in analytics', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
-    const { getByTestId, findByTestId } = utils;
+    const { getByTestId, queryByTestId } = utils;
 
     expect(getByTestId('matchup-dashboard')).toBeTruthy();
-    // Tale of the tape: projected score row carries both alliance numbers.
-    const scoreRow = getByTestId('tape-row-projected-score');
-    expect(scoreRow.textContent).toMatch(/\d/);
+    // Projected score lives only in the win-probability strip, not the tape.
+    expect(queryByTestId('tape-row-projected-score')).toBeNull();
     // Teleop (not "fuel") is the phase label.
     expect(getByTestId('tape-row-teleop-pts')).toBeTruthy();
-    // One comparison row per team, base team included.
+    // We're red, so the share panel shows the opponents (blue) only.
+    expect(getByTestId('matchup-points-by-robot').textContent).toMatch(/Their points by robot/);
+    expect(queryByTestId('matchup-points-red')).toBeNull();
+    // One table row per team, base team included.
     for (const t of [...RED, ...BLUE]) {
       expect(getByTestId(`matchup-dash-team-${t}`)).toBeTruthy();
     }
-    // The lazy charts section resolves (stubbed here).
-    expect(await findByTestId('matchup-charts-stub')).toBeTruthy();
   });
 
   it('defaults to the whiteboard view with five phase boards', () => {

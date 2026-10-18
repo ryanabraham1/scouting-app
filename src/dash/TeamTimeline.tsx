@@ -29,6 +29,11 @@ export interface TeamTimelineProps {
   report: MsrRow;
   className?: string;
   /**
+   * Track only — no second-tick axis or legend. For stacking several robots'
+   * timelines that share one TimelineAxis + TimelineLegend (Match tab).
+   */
+  compact?: boolean;
+  /**
    * Live match position (absolute match ms) driven by the synced video. When a
    * finite, non-negative value is given we draw a vertical playhead and
    * highlight the segment(s) active at that instant. Undefined/null = no
@@ -67,11 +72,14 @@ function segLabel(seg: TimelineSegment): string {
   return `${KIND_LABEL[seg.kind]} ${range}${rate}`;
 }
 
-function Legend(): JSX.Element {
+export function TimelineLegend(props: { className?: string }): JSX.Element {
   return (
     <ul
       data-testid="timeline-legend"
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground"
+      className={cn(
+        'flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground',
+        props.className,
+      )}
     >
       {KIND_ORDER.map((kind) => (
         <li key={kind} className="inline-flex items-center gap-1.5">
@@ -106,10 +114,44 @@ function ShiftFallback({ shifts }: { shifts: number[] }): JSX.Element {
   );
 }
 
+/** Second-tick axis (0s … 160s), shared under a stack of compact timelines. */
+export function TimelineAxis(props: { className?: string }): JSX.Element {
+  const ticks: number[] = [];
+  for (let ms = 0; ms <= MATCH_MS; ms += 40_000) ticks.push(ms);
+  // Inset the end ticks so the 0s / final labels don't clip off the track
+  // edges on a narrow (390px) phone.
+  return (
+    <div
+      className={cn(
+        'relative h-4 w-full text-sm tabular-nums text-muted-foreground',
+        props.className,
+      )}
+    >
+      {ticks.map((ms, i) => {
+        const isFirst = i === 0;
+        const isLast = i === ticks.length - 1;
+        return (
+          <span
+            key={ms}
+            className={cn(
+              'absolute top-0',
+              isFirst ? 'translate-x-0' : isLast ? '-translate-x-full' : '-translate-x-1/2',
+            )}
+            style={{ left: pct(fractionOfMatch(ms)) }}
+          >
+            {secs(ms)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function TeamTimeline({
   report,
   className,
   currentTimeMs,
+  compact = false,
 }: TeamTimelineProps): JSX.Element {
   const segments = useMemo(() => buildTimeline(report), [report]);
 
@@ -119,19 +161,15 @@ export default function TeamTimeline({
   const isActive = (seg: TimelineSegment): boolean =>
     hasPlayhead && headMs >= seg.startMs && headMs < seg.endMs;
 
-  // Second-tick axis: 0s … 160s at a handful of marks.
-  const ticks = useMemo(() => {
-    const out: number[] = [];
-    for (let ms = 0; ms <= MATCH_MS; ms += 40_000) out.push(ms);
-    return out;
-  }, []);
-
   if (segments.length === 0) {
     const shifts = Array.isArray(report.fuel_by_shift) ? report.fuel_by_shift : [];
     const hasShift = shifts.some((v) => Number.isFinite(v) && v > 0);
     return (
       <div className={cn('flex flex-col gap-2', className)}>
-        <div data-testid="timeline-empty" className="text-sm text-muted-foreground">
+        <div
+          data-testid="timeline-empty"
+          className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}
+        >
           No timeline recorded for this report.
         </div>
         {hasShift ? <ShiftFallback shifts={shifts} /> : null}
@@ -201,29 +239,9 @@ export default function TeamTimeline({
             aria-hidden
           />
         </div>
-        {/* Second-tick axis. Inset the end ticks so the 0s / final labels don't
-            clip off the track edges on a narrow (390px) phone: align the first
-            tick to its left edge and the last to its right edge. */}
-        <div className="relative mt-1 h-4 w-full text-sm tabular-nums text-muted-foreground">
-          {ticks.map((ms, i) => {
-            const isFirst = i === 0;
-            const isLast = i === ticks.length - 1;
-            return (
-              <span
-                key={ms}
-                className={cn(
-                  'absolute top-0',
-                  isFirst ? 'translate-x-0' : isLast ? '-translate-x-full' : '-translate-x-1/2',
-                )}
-                style={{ left: pct(fractionOfMatch(ms)) }}
-              >
-                {secs(ms)}
-              </span>
-            );
-          })}
-        </div>
+        {compact ? null : <TimelineAxis className="mt-1" />}
       </div>
-      <Legend />
+      {compact ? null : <TimelineLegend />}
     </div>
   );
 }

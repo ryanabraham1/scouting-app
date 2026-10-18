@@ -133,7 +133,8 @@ test('Scenario B — MatchView scouting-status drill-down', async ({ page }) => 
 
   await page.getByTestId(`match-item-${matchKey}`).click();
   await expect(page.getByTestId('match-scout-status')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId(`match-scout-reported-${scoutId}`)).toBeVisible({
+  // The scout's report row appears on the match (index 0: the only report).
+  await expect(page.getByTestId(`match-report-${targetTeam}-1-0`)).toBeVisible({
     timeout: 10_000,
   });
   await expect(page.getByTestId('match-scout-status')).toContainText('synced');
