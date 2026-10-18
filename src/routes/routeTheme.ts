@@ -14,9 +14,16 @@ export function isScoutRoute(pathname: string): boolean {
   );
 }
 
+/** The device's color-scheme preference (false where matchMedia is unavailable). */
+function systemPrefersDark(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+}
+
 /** Keep the document palette and installed-app chrome in sync with the active role. */
 export function applyRouteTheme(pathname: string): void {
-  const light = isScoutRoute(pathname);
+  // Scout screens follow the device's light/dark setting; the lead console is
+  // always dark.
+  const light = isScoutRoute(pathname) && !systemPrefersDark();
   document.documentElement.classList.toggle('dark', !light);
 
   const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');

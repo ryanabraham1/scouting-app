@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, CheckCircle2, Clock3, PartyPopper, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  ArrowRight,
+  CalendarClock,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  PartyPopper,
+  Pencil,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { supabase } from '@/lib/supabase';
@@ -80,6 +89,26 @@ export function matchLabelFromKey(key: string): string {
   return `${name} ${parts.num}`;
 }
 
+const COMP_LEVEL_SHORT: Record<string, string> = { qm: 'Qual', qf: 'Quarter', sf: 'Semi', f: 'Final' };
+
+/** Compact label for the home hero — "2026casnv_qm24" → "Qual 24". */
+export function shortMatchLabelFromKey(key: string): string {
+  const parts = parseMatchKeyParts(key);
+  if (!parts) return key;
+  return `${COMP_LEVEL_SHORT[parts.comp] ?? parts.comp.toUpperCase()} ${parts.num}`;
+}
+
+/** Tiny badge text — "2026casnv_qm31" → "Q31", "..._sf2" → "SF2". */
+function matchBadgeFromKey(key: string): string {
+  const parts = parseMatchKeyParts(key);
+  if (!parts) return '#';
+  return `${parts.comp === 'qm' ? 'Q' : parts.comp.toUpperCase()}${parts.num}`;
+}
+
+function timingShort(t: ReturnType<typeof matchTimeDisplay>): string {
+  return t ? `${t.source === 'estimated' ? 'Est.' : 'Sched.'} ${t.clock}` : 'Time TBD';
+}
+
 /** A match is "upcoming" if it has no recorded result yet. */
 export function isUpcoming(m: UpcomingMatchRow): boolean {
   return m.winner == null && m.result_synced_at == null;
@@ -148,6 +177,12 @@ export interface UpcomingMatchesProps {
   completed?: readonly CompletedReport[];
   /** Open an existing report in the correction flow. */
   onEdit?: (report: CompletedReport) => void;
+  /**
+   * `schedule` (default) is the full To scout / Missed / Done list. `home` is the
+   * scout landing card: one hero for the next match plus the two after it. Both
+   * share this component's cached-schedule + Nexus + on-deck data layer.
+   */
+  variant?: 'schedule' | 'home';
 }
 
 /** Stable completion key for an assignment / report: match + target team. */
@@ -178,6 +213,7 @@ export function UpcomingMatches({
   onStart,
   completed,
   onEdit,
+  variant = 'schedule',
 }: UpcomingMatchesProps) {
   const [matches, setMatches] = useState<UpcomingMatchRow[] | null>(null);
   // The displayed countdown advances locally; it does not create extra network
@@ -348,47 +384,132 @@ export function UpcomingMatches({
   const onDeckMatch = onDeck ? byKey.get(onDeck.assignment.match_key) : null;
   const onDeckTiming = onDeckMatch ? matchTimeDisplay(onDeckMatch, { now }) : null;
 
+  if (variant === 'home') {
+    const next = todoList[0];
+    const upNext = todoList.slice(1, 3);
+    const nextTimingLabel = nextTiming
+      ? nextTiming.state === 'future'
+        ? `in ${nextTiming.minutesAway} min`
+        : nextTiming.relative
+      : null;
+    return (
+      <section data-testid="scout-upcoming-matches" className="flex flex-col gap-5">
+        {onDeck ? (
+          <OnDeckAlert result={onDeck} timing={onDeckTiming} onStart={onStart} />
+        ) : matches == null ? (
+          <p className="text-sm text-muted-foreground">Loading matches…</p>
+        ) : next ? (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">Your next match</p>
+              {nextTimingLabel ? (
+                <span
+                  className={cn(
+                    'text-xs',
+                    nextTiming?.state === 'late' ? 'text-warning' : 'text-muted-foreground',
+                  )}
+                >
+                  {nextTimingLabel}
+                </span>
+              ) : null}
+            </div>
+            <h2 className="mt-1.5 text-3xl font-medium leading-tight">
+              {shortMatchLabelFromKey(next.assignment.match_key)}
+            </h2>
+            <p className="mt-2 flex items-center gap-2 text-[15px]">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'size-2.5 shrink-0 rounded-full',
+                  next.assignment.alliance_color === 'red' ? 'bg-red-500' : 'bg-blue-500',
+                )}
+              />
+              <span className="capitalize">
+                {next.assignment.alliance_color} {next.assignment.station}
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-mono tabular-nums">Team {next.assignment.target_team_number}</span>
+            </p>
+            <p data-testid="scout-next-match-time" className="mt-1 text-xs text-muted-foreground">
+              {nextTiming
+                ? `${matchTimeSourceLabel(nextTiming.source)} start ${nextTiming.clock}${
+                    nextTiming.state === 'future' ? ` · ${nextTiming.minutesAway} min away` : ''
+                  }`
+                : 'Start time TBD'}
+            </p>
+            <Button
+              data-testid="scout-assignment"
+              className="mt-4 h-12 w-full gap-2 rounded-xl bg-foreground text-base font-medium text-background hover:bg-foreground/90"
+              onClick={() => onStart(next.assignment)}
+            >
+              Start scouting
+              <ArrowRight className="size-[18px]" />
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              {hasAny ? (
+                <>
+                  <PartyPopper className="size-4 shrink-0 text-success" />
+                  All caught up — no upcoming assigned matches left.
+                </>
+              ) : (
+                'No matches assigned to you yet. You can still scout any match from the Matches tab.'
+              )}
+            </p>
+          </div>
+        )}
+
+        {upNext.length > 0 ? (
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-xs font-normal text-muted-foreground">Up next</h3>
+              <Link
+                to="/scout?tab=matches"
+                className="inline-flex min-h-11 items-center text-xs text-brand hover:underline"
+              >
+                See all
+              </Link>
+            </div>
+            <ul>
+              {upNext.map(({ assignment: a, match }) => (
+                <li key={assignmentKey(a)} data-testid="scout-upcoming-match">
+                  <button
+                    type="button"
+                    onClick={() => onStart(a)}
+                    className="flex min-h-[60px] w-full items-center gap-3 border-t border-border py-3 text-left first:border-t-0"
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-secondary text-[13px] font-medium">
+                      {matchBadgeFromKey(a.match_key)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">
+                        <span className="capitalize">
+                          {a.alliance_color} {a.station}
+                        </span>{' '}
+                        · <span className="font-mono tabular-nums">Team {a.target_team_number}</span>
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {timingShort(match ? matchTimeDisplay(match, { now }) : null)}
+                      </span>
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <section data-testid="scout-upcoming-matches">
       {onDeck ? (
         <div className="mb-3">
           <OnDeckAlert result={onDeck} timing={onDeckTiming} onStart={onStart} />
-        </div>
-      ) : null}
-      {view === 'todo' && todoList[0] && !onDeck ? (
-        <div className="mb-4 rounded-2xl border border-brand/40 bg-card p-4">
-          <p className="text-sm font-medium text-muted-foreground">Your next match · {matchLabelFromKey(todoList[0].assignment.match_key)}</p>
-          <div
-            data-testid="scout-next-match-time"
-            className="mt-3 flex items-center gap-3 rounded-xl border border-brand/25 bg-brand/5 px-3 py-2.5"
-          >
-            <Clock3 className="size-5 shrink-0 text-brand" />
-            {nextTiming ? (
-              <>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {matchTimeSourceLabel(nextTiming.source)} start
-                  </p>
-                  <p className="font-mono text-xl font-bold tabular-nums">{nextTiming.clock}</p>
-                </div>
-                <p
-                  className={cn(
-                    'shrink-0 text-right text-sm font-bold tabular-nums',
-                    nextTiming.state === 'late' ? 'text-warning' : 'text-brand',
-                  )}
-                >
-                  {nextTiming.state === 'future'
-                    ? `${nextTiming.minutesAway} min away`
-                    : nextTiming.relative}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm font-semibold text-muted-foreground">Start time TBD</p>
-            )}
-          </div>
-          <h2 className="mt-3 text-3xl font-bold">Team {todoList[0].assignment.target_team_number}</h2>
-          <p className="mt-1 text-base capitalize">{todoList[0].assignment.alliance_color} alliance · Station {todoList[0].assignment.station}</p>
-          <Button className="mt-4 w-full" variant="brand" size="big" onClick={() => onStart(todoList[0].assignment)}>Start scouting</Button>
         </div>
       ) : null}
       {/* Title on its own line, filter tabs full-width below — side-by-side the

@@ -1,12 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  BarChart3,
   UserRound,
   LogOut,
   Search,
-  Target,
-  Wrench,
   Home,
   QrCode,
   ScanLine,
@@ -15,10 +12,12 @@ import {
   Crosshair,
   CheckCircle2,
   GraduationCap,
-  Menu,
+  ChevronDown,
+  ArrowLeft,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import PitScoutFlow from '@/pit/PitScoutFlow';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,6 +59,9 @@ import { reportMatchesScoutScope } from '@/scout/reportScope';
 import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt';
 import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
 import { pullScoutReports } from '@/sync/pullReports';
+import { useOnline } from '@/sync/useOnline';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -289,24 +291,14 @@ type ScoutMode = 'match' | 'pit';
 
 export default function ScoutHome() {
   const { scout } = useSession();
+  const online = useOnline();
   const navigate = useNavigate();
   // Per-instance realtime topic suffix: a fixed topic reused across an effect
   // re-run returns the still-leaving old channel and the new subscribe no-ops.
   const channelId = useId();
-  // Match/Pit switch. Deep-linkable via ?mode=pit; the toggle keeps it in the URL.
+  // Pit view is deep-linkable via ?mode=pit (the Home tab's pit card links there).
   const [searchParams, setSearchParams] = useSearchParams();
   const mode: ScoutMode = searchParams.get('mode') === 'pit' ? 'pit' : 'match';
-  const setMode = (next: ScoutMode) => {
-    setSearchParams(
-      (prev) => {
-        const sp = new URLSearchParams(prev);
-        if (next === 'pit') sp.set('mode', 'pit');
-        else sp.delete('mode');
-        return sp;
-      },
-      { replace: true },
-    );
-  };
   const [picked, setPicked] = useState<ScoutRow | null>(null);
   // Logout override: when true, force the NamePicker to show regardless of what
   // useSession resolves (the device's anonymous auth.uid stays bound to a scout
@@ -627,6 +619,16 @@ export default function ScoutHome() {
       setStation(r.station);
       setTeam(String(r.targetTeamNumber));
       setManualWarning('This report failed to sync — fix the match/team below, then Start to re-save.');
+      // The manual-pick form lives on the Matches tab.
+      setSearchParams(
+        (prev) => {
+          const sp = new URLSearchParams(prev);
+          sp.set('tab', 'matches');
+          sp.delete('mode');
+          return sp;
+        },
+        { replace: true },
+      );
       return true;
     }
     // Validation-class failures such as malformed fuel bursts/auto paths do
@@ -887,74 +889,270 @@ export default function ScoutHome() {
     setLoggedOut(true);
   };
 
+  const requestedTab = searchParams.get('tab');
+  const view: 'home' | 'matches' | 'pit' =
+    mode === 'pit' ? 'pit' : requestedTab === 'matches' ? 'matches' : 'home';
+  const displayName = effective.display_name || 'Scout';
+  const firstName = displayName.trim().split(/\s+/)[0] || displayName;
+  const initials =
+    displayName
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || 'S';
+
+  const draftsSection =
+    drafts.length > 0 ? (
+      <section>
+        <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
+          <History className="size-5 shrink-0 text-warning" /> Resume drafts
+        </h2>
+        <ul className="flex flex-col gap-2">
+          {drafts.map((d) => (
+            <li key={d.draftKey}>
+              <Button
+                data-testid={`scout-resume-${d.draftKey}`}
+                variant="outline"
+                className="min-h-[52px] w-full justify-start gap-2 rounded-xl border-warning/40 text-sm text-warning"
+                onClick={() => {
+                  const stored = captureTargetFromDraftState(d.state);
+                  if (stored) {
+                    setActive(stored);
+                    return;
+                  }
+                  const [dMatch, dScout, dTeam] = d.draftKey.split(':');
+                  setActive({
+                    eventKey,
+                    matchKey: dMatch,
+                    scoutId: dScout || scoutId,
+                    scoutName: effective.display_name,
+                    targetTeamNumber: Number(dTeam),
+                    allianceColor: alliance,
+                    station,
+                  });
+                }}
+              >
+                {draftTitle(d)}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null;
+
+  const manualPick = (
+    <details
+      data-testid="scout-manual-pick"
+      className="rounded-2xl border border-border bg-card p-4"
+    >
+      <summary className="min-h-12 cursor-pointer content-center text-base font-semibold">
+        <Crosshair className="mr-2 inline size-5 text-brand" />
+        Scout another match
+      </summary>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Not on your schedule? Enter the match and team — alliance and
+        station are looked up from the match schedule.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="mp-match">Match</Label>
+          <Input
+            id="mp-match"
+            value={matchKey}
+            onChange={(e) => setMatchKey(e.target.value)}
+            placeholder="e.g. 12"
+            className="min-h-[44px] text-base"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="mp-team">Target team</Label>
+          <Input
+            id="mp-team"
+            type="number"
+            inputMode="numeric"
+            value={team}
+            onChange={(e) => setTeam(e.target.value)}
+            placeholder="e.g. 3256"
+            className="min-h-[44px] text-base"
+          />
+        </div>
+        {manualSlot ? (
+          <div
+            data-testid="scout-manual-derived"
+            className={cn(
+              'col-span-2 flex min-h-[44px] items-center gap-2 rounded-lg border px-3 text-sm font-medium',
+              manualSlot.alliance === 'red'
+                ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                : 'border-blue-500/40 bg-blue-500/10 text-blue-300',
+            )}
+          >
+            <CheckCircle2 className="size-4 shrink-0" />
+            <span>
+              You’ll scout{' '}
+              <span className="font-mono font-bold tabular-nums">#{team}</span> on{' '}
+              <span className="font-bold">
+                {manualSlot.alliance} {manualSlot.station}
+              </span>
+            </span>
+          </div>
+        ) : showSlotFields ? (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mp-alliance">Alliance</Label>
+              <select
+                id="mp-alliance"
+                value={alliance}
+                onChange={(e) => setAlliance(e.target.value as 'red' | 'blue')}
+                className={cn(
+                  'h-11 w-full rounded-lg border bg-background px-3 text-base',
+                  alliance === 'red'
+                    ? 'border-red-500/40 text-red-300'
+                    : 'border-blue-500/40 text-blue-300',
+                )}
+              >
+                <option value="red">red</option>
+                <option value="blue">blue</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mp-station">Station</Label>
+              <select
+                id="mp-station"
+                value={station}
+                onChange={(e) => setStation(Number(e.target.value) as 1 | 2 | 3)}
+                className="h-11 w-full rounded-lg border border-input bg-background px-3 text-base"
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+            </div>
+          </>
+        ) : null}
+      </div>
+      {manualWarning ? (
+        <p data-testid="scout-manual-warning" className="mt-2 text-sm text-destructive">
+          {manualWarning}
+        </p>
+      ) : null}
+      <Button
+        data-testid="scout-start-capture"
+        variant="brand"
+        size="big"
+        className="mt-4 w-full"
+        disabled={!matchKey || !team || !scoutId}
+        onClick={startManual}
+      >
+        Start scouting
+      </Button>
+    </details>
+  );
+
+  const transferBackup = (
+    <details className="mt-auto rounded-2xl border border-border p-4">
+      <summary className="min-h-12 cursor-pointer content-center font-semibold">Transfer & backup</summary>
+      <InstallPrompt />
+      <p className="mb-3 text-sm text-muted-foreground">No wifi? Send saved reports to another device using QR.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Link
+          data-testid="nav-qr-send"
+          to="/qr/send"
+          className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-energy/30 bg-energy/5 px-4 text-sm font-semibold text-energy hover:bg-energy/10"
+        >
+          <QrCode className="size-5 shrink-0" /> Send via QR
+        </Link>
+        <Link
+          data-testid="nav-qr-receive"
+          to="/qr/receive"
+          className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 text-sm font-semibold text-success hover:bg-success/10"
+        >
+          <ScanLine className="size-5 shrink-0" /> Receive via QR
+        </Link>
+      </div>
+      <Button
+        variant="outline"
+        className="min-h-[48px] w-full gap-2 rounded-xl text-sm font-medium text-muted-foreground"
+        onClick={() => void onExport()}
+      >
+        <FileDown className="size-4 shrink-0" /> Export unsynced
+      </Button>
+    </details>
+  );
+
   return (
     <div
       data-testid="scout-home"
       className="flex min-h-dvh flex-col bg-background text-foreground"
     >
-      {/* Sticky app bar: identity + icon nav stay put while the match list
-          scrolls, like a native app shell. Home/My Data/Change scouter collapse to
-          icon-only buttons on phones (labels return ≥ sm) so the top never
-          staircases into a wrapping mess. */}
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand">
-              <UserRound className="size-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="eyebrow">Scouting as</p>
-              <h1 className="truncate text-xl font-bold leading-tight">
-                {effective.display_name || 'Scout'}
-              </h1>
-            </div>
-          </div>
-          <details className="relative shrink-0">
+      {/* Sticky header: tap the name for the scouter menu; the pill is a live
+          connection status that links to the full sync screen. */}
+      <header className="sticky top-0 z-20 bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2">
+          <details className="relative min-w-0">
             <summary
               aria-label="Open menu"
-              className="flex size-12 cursor-pointer list-none items-center justify-center rounded-xl border border-border transition-colors hover:bg-accent [&::-webkit-details-marker]:hidden"
+              className="flex min-h-11 cursor-pointer list-none items-center gap-2.5 [&::-webkit-details-marker]:hidden"
             >
-              <Menu aria-hidden="true" className="size-6" />
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[13px] font-medium text-brand">
+                {initials}
+              </span>
+              <span className="min-w-0 text-left">
+                <span className="flex items-center gap-1 text-[15px] font-medium leading-tight">
+                  <span className="truncate">Hi, {firstName}</span>
+                  <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                </span>
+                <span className="block truncate font-mono text-xs text-muted-foreground">
+                  {eventKey || 'No active event'}
+                </span>
+              </span>
             </summary>
-          <nav aria-label="Scout navigation" className="absolute right-0 top-full z-30 mt-2 flex w-56 flex-col items-stretch gap-2 rounded-xl border border-border bg-background p-3 shadow-xl">
-            <Link
-              key="home"
-              data-testid="nav-home"
-              to="/"
-              aria-label="Home"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
+            <nav
+              aria-label="Scout navigation"
+              className="absolute left-0 top-full z-30 mt-2 flex w-60 flex-col items-stretch gap-2 rounded-xl border border-border bg-popover p-3 shadow-xl"
             >
-              <Home className="size-5 shrink-0" />
-              <span >Home</span>
-            </Link>
-            <Link
-              key="my-data"
-              data-testid="nav-my-data"
-              to="/my-data"
-              aria-label="My Data"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
-            >
-              <BarChart3 className="size-5 shrink-0" />
-              <span >My Data</span>
-            </Link>
-            <Button
-              data-testid="scout-logout"
-              variant="outline"
-              aria-label={`Change scouter ${effective.display_name || ''}`.trim()}
-              className="min-h-[44px] min-w-[44px] rounded-xl px-3"
-              onClick={logOut}
-            >
-              <LogOut className="size-5 shrink-0" />
-              <span >Change scouter</span>
-            </Button>
-            <NotificationPermissionPrompt />
-          </nav>
+              <Link
+                key="home"
+                data-testid="nav-home"
+                to="/"
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
+              >
+                <Home className="size-5 shrink-0" />
+                <span>All stations</span>
+              </Link>
+              <Button
+                data-testid="scout-logout"
+                variant="outline"
+                aria-label={`Change scouter ${effective.display_name || ''}`.trim()}
+                className="min-h-[44px] rounded-xl px-3"
+                onClick={logOut}
+              >
+                <LogOut className="size-5 shrink-0" />
+                <span>Change scouter</span>
+              </Button>
+              <NotificationPermissionPrompt />
+            </nav>
           </details>
+          <Link
+            to="/sync"
+            data-testid="scout-connection-pill"
+            aria-label={online ? 'Online. View sync status' : 'Offline. View sync status'}
+            className={cn(
+              'inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs',
+              online ? 'bg-success/10 text-success' : 'bg-warning/15 text-warning',
+            )}
+          >
+            {online ? (
+              <Wifi aria-hidden="true" className="size-3.5" />
+            ) : (
+              <WifiOff aria-hidden="true" className="size-3.5" />
+            )}
+            {online ? 'Online' : 'Offline'}
+          </Link>
         </div>
-
       </header>
 
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 px-safe pb-safe pt-4">
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 px-safe pb-28 pt-2">
         {savedNotice && (
           <p role="status" className="rounded-xl bg-success/10 p-3 text-sm text-success">
             {savedNotice === 'updated'
@@ -962,45 +1160,41 @@ export default function ScoutHome() {
               : 'Saved on this device. You can start your next match.'}
           </p>
         )}
-        {/* Status strip: ONE thin line — sync state (tap for details) on the
-            left, offline-cache + sync actions as icon buttons on the right. The
-            match list is the star of this screen; passive status doesn't get to
-            spend two button-rows of it. Needs-attention states (nothing cached,
-            dead letters) grow a small labeled button. */}
-        <div className="flex items-center gap-1 rounded-xl border border-border bg-card/40 py-1 pl-3 pr-1.5">
-          <SyncIndicator className="min-w-0 flex-1 flex-nowrap" detailsHref="/sync" compact />
-          <OfflineReadyBadge
-            eventKey={activeEvent ?? eventKey ?? null}
-            scoutId={scoutId || undefined}
-            compact
-          />
-        </div>
 
-
-
-        <SegmentedToggle<ScoutMode>
-          ariaLabel="Scouting mode"
-          options={[
-            { value: 'match', label: 'Match', icon: <Target />, activeClassName: 'text-brand' },
-            { value: 'pit', label: 'Pit', icon: <Wrench />, activeClassName: 'text-energy' },
-          ]}
-          value={mode}
-          onChange={setMode}
-        />
-
-        {mode === 'pit' ? (
-          <PitScoutFlow
-            eventKey={eventKey}
-            scoutId={scoutId}
-            initialTeamNumber={
-              Number.isInteger(Number(searchParams.get('pitTeam'))) &&
-              Number(searchParams.get('pitTeam')) > 0
-                ? Number(searchParams.get('pitTeam'))
-                : null
-            }
-          />
-        ) : (
+        {view === 'pit' ? (
           <>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/scout"
+                aria-label="Back to home"
+                className="inline-flex size-11 items-center justify-center rounded-xl border border-border hover:bg-accent"
+              >
+                <ArrowLeft className="size-5" />
+              </Link>
+              <h1 className="text-xl font-medium">Pit scouting</h1>
+            </div>
+            <PitScoutFlow
+              eventKey={eventKey}
+              scoutId={scoutId}
+              initialTeamNumber={
+                Number.isInteger(Number(searchParams.get('pitTeam'))) &&
+                Number(searchParams.get('pitTeam')) > 0
+                  ? Number(searchParams.get('pitTeam'))
+                  : null
+              }
+            />
+          </>
+        ) : view === 'matches' ? (
+          <>
+            <h1 className="text-xl font-medium">Matches</h1>
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-card/40 py-1 pl-3 pr-1.5">
+              <SyncIndicator className="min-w-0 flex-1 flex-nowrap" detailsHref="/sync" compact />
+              <OfflineReadyBadge
+                eventKey={activeEvent ?? eventKey ?? null}
+                scoutId={scoutId || undefined}
+                compact
+              />
+            </div>
             <UpcomingMatches
               eventKey={eventKey}
               assignments={assignments}
@@ -1011,189 +1205,37 @@ export default function ScoutHome() {
                 if (r) openReportForEdit(r, 'home');
               }}
             />
-
-            {/* Only surfaced when there IS something to resume — an always-on
-                "No drafts." row was dead space on every visit. */}
-            {drafts.length > 0 ? (
-              <section>
-                <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
-                  <History className="size-5 shrink-0 text-warning" /> Resume drafts
-                </h2>
-                <ul className="flex flex-col gap-2">
-                  {drafts.map((d) => (
-                    <li key={d.draftKey}>
-                      <Button
-                        data-testid={`scout-resume-${d.draftKey}`}
-                        variant="outline"
-                        className="min-h-[52px] w-full justify-start gap-2 rounded-xl border-warning/40 text-sm text-warning"
-                        onClick={() => {
-                          const stored = captureTargetFromDraftState(d.state);
-                          if (stored) {
-                            setActive(stored);
-                            return;
-                          }
-                          const [dMatch, dScout, dTeam] = d.draftKey.split(':');
-                          setActive({
-                            eventKey,
-                            matchKey: dMatch,
-                            scoutId: dScout || scoutId,
-                            scoutName: effective.display_name,
-                            targetTeamNumber: Number(dTeam),
-                            allianceColor: alliance,
-                            station,
-                          });
-                        }}
-                      >
-                        {draftTitle(d)}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-
-            <details
-              data-testid="scout-manual-pick"
-              className="rounded-2xl border border-border bg-card p-4"
-            >
-              <summary className="min-h-12 cursor-pointer content-center text-base font-semibold">
-                <Crosshair className="mr-2 inline size-5 text-brand" />
-                Scout another match
-              </summary>
-              <p className="mb-3 text-sm text-muted-foreground">
-                Not on your schedule? Enter the match and team — alliance and
-                station are looked up from the match schedule.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="mp-match">Match</Label>
-                  <Input
-                    id="mp-match"
-                    value={matchKey}
-                    onChange={(e) => setMatchKey(e.target.value)}
-                    placeholder="e.g. 12"
-                    className="min-h-[44px] text-base"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="mp-team">Target team</Label>
-                  <Input
-                    id="mp-team"
-                    type="number"
-                    inputMode="numeric"
-                    value={team}
-                    onChange={(e) => setTeam(e.target.value)}
-                    placeholder="e.g. 3256"
-                    className="min-h-[44px] text-base"
-                  />
-                </div>
-                {manualSlot ? (
-                  <div
-                    data-testid="scout-manual-derived"
-                    className={cn(
-                      'col-span-2 flex min-h-[44px] items-center gap-2 rounded-lg border px-3 text-sm font-medium',
-                      manualSlot.alliance === 'red'
-                        ? 'border-red-500/40 bg-red-500/10 text-red-300'
-                        : 'border-blue-500/40 bg-blue-500/10 text-blue-300',
-                    )}
-                  >
-                    <CheckCircle2 className="size-4 shrink-0" />
-                    <span>
-                      You’ll scout{' '}
-                      <span className="font-mono font-bold tabular-nums">#{team}</span> on{' '}
-                      <span className="font-bold">
-                        {manualSlot.alliance} {manualSlot.station}
-                      </span>
-                    </span>
-                  </div>
-                ) : showSlotFields ? (
-                  <>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="mp-alliance">Alliance</Label>
-                      <select
-                        id="mp-alliance"
-                        value={alliance}
-                        onChange={(e) => setAlliance(e.target.value as 'red' | 'blue')}
-                        className={cn(
-                          'h-11 w-full rounded-lg border bg-background px-3 text-base',
-                          alliance === 'red'
-                            ? 'border-red-500/40 text-red-300'
-                            : 'border-blue-500/40 text-blue-300',
-                        )}
-                      >
-                        <option value="red">red</option>
-                        <option value="blue">blue</option>
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="mp-station">Station</Label>
-                      <select
-                        id="mp-station"
-                        value={station}
-                        onChange={(e) => setStation(Number(e.target.value) as 1 | 2 | 3)}
-                        className="h-11 w-full rounded-lg border border-input bg-background px-3 text-base"
-                      >
-                        <option value={1}>1</option>
-                        <option value={2}>2</option>
-                        <option value={3}>3</option>
-                      </select>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-              {manualWarning ? (
-                <p data-testid="scout-manual-warning" className="mt-2 text-sm text-destructive">
-                  {manualWarning}
-                </p>
-              ) : null}
-              <Button
-                data-testid="scout-start-capture"
-                variant="brand"
-                size="big"
-                className="mt-4 w-full"
-                disabled={!matchKey || !team || !scoutId}
-                onClick={startManual}
-              >
-                Start scouting
-              </Button>
-            </details>
-
-
+            {draftsSection}
+            {manualPick}
+            {transferBackup}
+          </>
+        ) : (
+          <>
+            <UpcomingMatches
+              variant="home"
+              eventKey={eventKey}
+              assignments={assignments}
+              onStart={startFromAssignment}
+              completed={completedReports}
+              onEdit={(c) => {
+                const r = reports.find((x) => x.id === c.id);
+                if (r) openReportForEdit(r, 'home');
+              }}
+            />
+            {draftsSection}
+            <ScoutStatusCard eventKey={eventKey} scoutId={scoutId} />
+            <div className="flex justify-center">
+              <OfflineReadyBadge
+                eventKey={activeEvent ?? eventKey ?? null}
+                scoutId={scoutId || undefined}
+                compact
+              />
+            </div>
           </>
         )}
-
-        {/* Transfer & backup toolbox: QR hand-off + file export grouped in one
-            labeled zone at the end of the flow, instead of QR links floating at
-            the top and a lone export button at the bottom. */}
-        <details className="mt-auto rounded-2xl border border-border p-4">
-          <summary className="min-h-12 cursor-pointer content-center font-semibold">Transfer & backup</summary>
-          <InstallPrompt />
-          <p className="mb-3 text-sm text-muted-foreground">No wifi? Send saved reports to another device using QR.</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Link
-              data-testid="nav-qr-send"
-              to="/qr/send"
-              className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-energy/30 bg-energy/5 px-4 text-sm font-semibold text-energy hover:bg-energy/10"
-            >
-              <QrCode className="size-5 shrink-0" /> Send via QR
-            </Link>
-            <Link
-              data-testid="nav-qr-receive"
-              to="/qr/receive"
-              className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 text-sm font-semibold text-success hover:bg-success/10"
-            >
-              <ScanLine className="size-5 shrink-0" /> Receive via QR
-            </Link>
-          </div>
-          <Button
-            variant="outline"
-            className="min-h-[48px] w-full gap-2 rounded-xl text-sm font-medium text-muted-foreground"
-            onClick={() => void onExport()}
-          >
-            <FileDown className="size-4 shrink-0" /> Export unsynced
-          </Button>
-        </details>
       </main>
+
+      <ScoutBottomNav active={view === 'matches' ? 'matches' : 'home'} />
     </div>
   );
 }

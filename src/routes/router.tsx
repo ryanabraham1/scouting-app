@@ -191,6 +191,9 @@ export const router = createBrowserRouter(routes);
 // document class and browser/PWA chrome without a reload.
 applyRouteTheme(router.state.location.pathname);
 router.subscribe((state) => applyRouteTheme(state.location.pathname));
+window
+  .matchMedia?.('(prefers-color-scheme: dark)')
+  .addEventListener?.('change', () => applyRouteTheme(router.state.location.pathname));
 
 export function AppRouter(): JSX.Element {
   return <RouterProvider router={router} />;

@@ -224,7 +224,7 @@ type PitTeamStatus = 'assigned' | 'draft' | 'queued' | 'submitted' | 'error';
 
 const SUBMITTED_PIT_TEAMS_KEY = 'pit-submitted-teams:';
 
-function readSubmittedPitTeams(eventKey: string): number[] {
+export function readSubmittedPitTeams(eventKey: string): number[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(SUBMITTED_PIT_TEAMS_KEY + eventKey) ?? '[]');
     return Array.isArray(parsed)

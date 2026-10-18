@@ -538,7 +538,7 @@ function mkCachedMatch(over: Partial<CachedMatch>): CachedMatch {
 
 describe('ScoutHome manual pick', () => {
   it('disables start until match + team provided', async () => {
-    renderHome();
+    renderHome('/scout?tab=matches');
     const btn = await screen.findByTestId('scout-start-capture') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Match'), { target: { value: 'qm5' } });
@@ -548,7 +548,7 @@ describe('ScoutHome manual pick', () => {
 
   it('derives alliance/station from the cached schedule and hides the selects', async () => {
     await db.cachedMatches.put(mkCachedMatch({}));
-    renderHome();
+    renderHome('/scout?tab=matches');
     fireEvent.change(await screen.findByLabelText('Match'), { target: { value: '5' } });
     fireEvent.change(screen.getByLabelText('Target team'), { target: { value: '300' } });
     // Derived chip appears (blue 2 for team 300); manual selects never show.
@@ -566,7 +566,7 @@ describe('ScoutHome manual pick', () => {
   it('falls back to alliance/station selects when the match is not in the cache', async () => {
     // Cache is EMPTY (offline fresh device): typing both fields surfaces the
     // fallback selects instead of a derived chip.
-    renderHome();
+    renderHome('/scout?tab=matches');
     await screen.findByLabelText('Match');
     expect(screen.queryByLabelText('Alliance')).toBeNull();
     fireEvent.change(screen.getByLabelText('Match'), { target: { value: 'qm9' } });
@@ -578,7 +578,7 @@ describe('ScoutHome manual pick', () => {
 
   it('blocks a team that is not playing in a fully-known lineup', async () => {
     await db.cachedMatches.put(mkCachedMatch({}));
-    renderHome();
+    renderHome('/scout?tab=matches');
     fireEvent.change(await screen.findByLabelText('Match'), { target: { value: '5' } });
     // First type a team that IS in the lineup and wait for its derived chip —
     // that's the visible signal the cached schedule has finished loading, so
@@ -647,7 +647,7 @@ describe('ScoutHome logout', () => {
 
 describe('ScoutHome matches to scout', () => {
   it('lists only the scout\'s OWN upcoming assigned matches, with friendly labels', async () => {
-    renderHome();
+    renderHome('/scout?tab=matches');
     const section = await screen.findByTestId('scout-upcoming-matches');
     await waitFor(() => {
       // Two assignments: qm5 (upcoming) and qm3 (already played). Only qm5 shows.
@@ -665,7 +665,7 @@ describe('ScoutHome matches to scout', () => {
   });
 
   it('starts capture when an assigned match is tapped', async () => {
-    renderHome();
+    renderHome('/scout?tab=matches');
     const row = await screen.findByTestId('scout-assignment');
     fireEvent.click(row);
     // Capture flow opens on the placement step.
@@ -679,6 +679,15 @@ describe('ScoutHome matches to scout', () => {
       const heroTime = await screen.findByTestId('scout-next-match-time');
       expect(heroTime.textContent).toContain('Estimated start');
       expect(heroTime.textContent).toContain('18 min away');
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('shows the estimate on each Matches-tab row', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-06-23T10:00:00Z'));
+    try {
+      renderHome('/scout?tab=matches');
       const rowTime = await screen.findByTestId('scout-assignment-time');
       expect(rowTime.textContent).toContain('Estimated');
       expect(rowTime.textContent).toContain('in 18 min');
@@ -710,7 +719,7 @@ describe('ScoutHome Done tab', () => {
         station: 1,
       }),
     );
-    renderHome();
+    renderHome('/scout?tab=matches');
     await screen.findByTestId('scout-upcoming-matches');
     fireEvent.click(await screen.findByRole('tab', { name: /Done \(1\)/ }));
     const rows = await screen.findAllByTestId('scout-upcoming-match');
@@ -724,7 +733,7 @@ describe('ScoutHome Done tab', () => {
     await saveReport(
       makeSynced({ id: '33333333-3333-4333-8333-333333333333', rowRevision: 2 }),
     ); // qm5 / 254 — Casey's assignment
-    renderHome();
+    renderHome('/scout?tab=matches');
     await screen.findByTestId('scout-upcoming-matches');
     fireEvent.click(await screen.findByRole('tab', { name: /Done \(1\)/ }));
     const row = await screen.findByTestId('scout-assignment');
@@ -746,19 +755,25 @@ describe('ScoutHome Done tab', () => {
   });
 });
 
-describe('ScoutHome Match/Pit toggle', () => {
-  it('defaults to match mode (manual pick visible, no pit flow)', async () => {
+describe('ScoutHome home / matches / pit views', () => {
+  it('defaults to the Home tab (hero + bottom nav; manual pick lives on Matches)', async () => {
     renderHome();
+    expect(await screen.findByTestId('scout-bottom-nav')).toBeTruthy();
+    expect(await screen.findByTestId('scout-assignment')).toBeTruthy();
+    expect(screen.queryByTestId('scout-manual-pick')).toBeNull();
+    expect(screen.queryByTestId('pit-flow')).toBeNull();
+  });
+
+  it('shows the manual pick on the Matches tab', async () => {
+    renderHome('/scout?tab=matches');
     expect(await screen.findByTestId('scout-manual-pick')).toBeTruthy();
     expect(screen.queryByTestId('pit-flow')).toBeNull();
   });
 
-  it('switching to Pit renders the pit flow inline using the bound identity', async () => {
+  it('opens the pit flow from the Home pit card using the bound identity', async () => {
     renderHome();
-    // The toggle keeps the same scout — no name re-pick.
-    fireEvent.click(await screen.findByRole('tab', { name: /pit/i }));
+    fireEvent.click(await screen.findByTestId('scout-pit-card'));
     expect(await screen.findByTestId('pit-flow')).toBeTruthy();
-    // Team picker is shown; the match manual-pick is gone.
     expect(screen.getByTestId('pit-team-input')).toBeTruthy();
     const startCard = screen.getByTestId('pit-team-start-card');
     expect(startCard.className).toContain('mx-auto');
