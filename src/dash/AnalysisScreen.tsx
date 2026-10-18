@@ -12,6 +12,7 @@ import TeamView from '@/dash/TeamView';
 import MatchView from '@/dash/MatchView';
 import RankingView from '@/dash/RankingView';
 import AllianceSimulatorView from '@/dash/AllianceSimulatorView';
+import { ScoutBottomNav, isScoutOrigin } from '@/scout/ScoutBottomNav';
 
 type Tab = 'next' | 'team' | 'match' | 'ranking' | 'alliance';
 
@@ -43,6 +44,7 @@ export default function AnalysisScreen(): JSX.Element {
   const { eventKey, loading } = useActiveEvent();
   useEventLiveSync(eventKey);
   const location = useLocation();
+  const fromScout = isScoutOrigin();
   const navigate = useNavigate();
   const initial = readLocation(location.search);
   const [tab, setTab] = useState<Tab>(initial.tab);
@@ -86,7 +88,7 @@ export default function AnalysisScreen(): JSX.Element {
   return (
     <div
       data-testid="analysis"
-      className="flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4"
+      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4 ${fromScout ? 'pb-24' : ''}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -137,6 +139,7 @@ export default function AnalysisScreen(): JSX.Element {
           {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
         </section>
       )}
+      {fromScout ? <ScoutBottomNav active="analysis" /> : null}
     </div>
   );
 }

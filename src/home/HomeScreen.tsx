@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { ClipboardList, LayoutDashboard, ArrowRight, ChartNoAxesCombined } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import FieldPaths from './FieldPaths';
+import { useScoutOrigin } from '@/scout/ScoutBottomNav';
 
 // Semantic tone per role: brand (cyan) = capture, success (green) = insight,
 // and energy (orange) = lead controls.
@@ -77,6 +78,7 @@ const CARD_DELAY_MS = 220;
 const CARD_STAGGER_MS = 110;
 
 export default function HomeScreen(): JSX.Element {
+  useScoutOrigin(false);
   return (
     <div
       data-testid="home-screen"

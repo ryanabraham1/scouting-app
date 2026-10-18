@@ -17,6 +17,7 @@ import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
 import StrategyView from '@/dash/strategy/StrategyView';
+import { useScoutOrigin } from '@/scout/ScoutBottomNav';
 
 // Strategy is the default tab and ships in this chunk; the other tabs are
 // loaded on first visit so a dashboard open only pays for what it shows
@@ -275,5 +276,6 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
 }
 
 export default function DashboardScreen(): JSX.Element {
+  useScoutOrigin(false);
   return <LeadGate>{(lockDashboard) => <LeadDashboard lockDashboard={lockDashboard} />}</LeadGate>;
 }

@@ -11,6 +11,7 @@ import { useActiveEvent } from "@/dash/useActiveEvent";
 import { listReports } from "@/db/localStore";
 import { pullScoutReports } from "@/sync/pullReports";
 import type { LocalMatchReport } from "@/db/types";
+import { ScoutBottomNav, useScoutOrigin } from "@/scout/ScoutBottomNav";
 import {
   normalizeScouterName,
   reportMatchesScoutScope,
@@ -105,10 +106,12 @@ export default function MyDataView(): JSX.Element {
     sessionLoading,
   ]);
 
+  useScoutOrigin(true);
+
   return (
     <div
       data-testid="my-data"
-      className="flex min-h-dvh flex-col bg-background text-foreground"
+      className="flex min-h-dvh flex-col bg-background pb-24 text-foreground"
     >
       <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
         <Link
@@ -248,6 +251,7 @@ export default function MyDataView(): JSX.Element {
           ))}
         </ul>
       </main>
+      <ScoutBottomNav active="my-data" />
     </div>
   );
 }

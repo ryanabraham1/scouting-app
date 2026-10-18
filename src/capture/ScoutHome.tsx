@@ -60,7 +60,7 @@ import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt
 import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
 import { pullScoutReports } from '@/sync/pullReports';
 import { useOnline } from '@/sync/useOnline';
-import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { ScoutBottomNav, useScoutOrigin } from '@/scout/ScoutBottomNav';
 import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
 
 interface AssignmentRow {
@@ -292,6 +292,7 @@ type ScoutMode = 'match' | 'pit';
 export default function ScoutHome() {
   const { scout } = useSession();
   const online = useOnline();
+  useScoutOrigin(true);
   const navigate = useNavigate();
   // Per-instance realtime topic suffix: a fixed topic reused across an effect
   // re-run returns the still-leaving old channel and the new subscribe no-ops.
