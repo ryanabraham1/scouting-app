@@ -3,9 +3,13 @@
 // Pure inline SVG + two CSS keyframes (`animate-path-trace` draws the line,
 // `animate-path-dot` rides its tip), so it costs no network and ships offline.
 // The dot is a single round-capped zero-length dash on the same path, so both
-// share one CSS clock and stay locked together (SMIL would run on its own). Two layouts: a
-// wide field for laptops / landscape phones and a tall one for portrait phones.
-// Reduced motion: paths render statically drawn and the dots are hidden.
+// share one CSS clock and stay locked together (SMIL would run on its own).
+// Dash math uses each path's measured length (`--len`), not `pathLength`:
+// Safari doesn't scale dashes by pathLength, which froze the lines there.
+// Two layouts: a wide field for laptops / landscape phones and a tall one for
+// portrait phones. Reduced motion: paths render statically drawn and the dots
+// are hidden.
+import { useLayoutEffect, useRef } from "react";
 
 interface Trace {
   d: string;
@@ -106,8 +110,17 @@ function FieldSvg({
   layout: Layout;
   className: string;
 }): JSX.Element {
+  const svgRef = useRef<SVGSVGElement>(null);
+  // Measure before first paint so a trace never flashes fully drawn.
+  useLayoutEffect(() => {
+    svgRef.current?.querySelectorAll<SVGGElement>("g[data-trace]").forEach((g) => {
+      const len = g.querySelector("path")?.getTotalLength?.();
+      if (len) g.style.setProperty("--len", `${Math.ceil(len)}px`);
+    });
+  }, []);
   return (
     <svg
+      ref={svgRef}
       viewBox={layout.viewBox}
       preserveAspectRatio="xMidYMid slice"
       className={`absolute inset-0 size-full ${className}`}
@@ -123,28 +136,27 @@ function FieldSvg({
         {layout.outline}
       </g>
       {layout.traces.map((t) => (
-        <g key={t.d}>
+        <g key={t.d} data-trace="">
           <path
             d={t.d}
-            pathLength={1}
             fill="none"
             strokeWidth={1.6}
             strokeLinecap="round"
             strokeOpacity={t.faint ? 0.4 : 0.65}
-            strokeDasharray={1}
             className={`${STROKE[t.alliance]} motion-safe:animate-path-trace`}
-            style={{ animationDelay: `${t.delay}s` }}
+            style={{ strokeDasharray: "var(--len)", animationDelay: `${t.delay}s` }}
           />
           <path
             d={t.d}
-            pathLength={1}
             fill="none"
             strokeWidth={6}
             strokeLinecap="round"
             strokeOpacity={t.faint ? 0.6 : 1}
-            strokeDasharray="0 2"
             className={`${DOT[t.alliance]} hidden motion-safe:inline motion-safe:animate-path-dot`}
-            style={{ animationDelay: `${t.delay}s` }}
+            style={{
+              strokeDasharray: "0 calc(var(--len) * 2)",
+              animationDelay: `${t.delay}s`,
+            }}
           />
         </g>
       ))}

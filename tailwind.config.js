@@ -39,9 +39,10 @@ export default {
       keyframes: {
         'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
         'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
-        // Home backdrop: an auto path draws itself (pathLength=1), holds, fades.
+        // Home backdrop: an auto path draws itself, holds, fades. --len is the
+        // path's measured length, set by FieldPaths.
         'path-trace': {
-          '0%': { strokeDashoffset: '1', opacity: '0' },
+          '0%': { strokeDashoffset: 'var(--len)', opacity: '0' },
           '8%': { opacity: '1' },
           '55%': { strokeDashoffset: '0' },
           '80%': { strokeDashoffset: '0', opacity: '1' },
@@ -51,9 +52,9 @@ export default {
         'path-dot': {
           '0%': { strokeDashoffset: '0', opacity: '0' },
           '6%': { opacity: '1' },
-          '55%': { strokeDashoffset: '-1' },
-          '80%': { strokeDashoffset: '-1', opacity: '1' },
-          '100%': { strokeDashoffset: '-1', opacity: '0' },
+          '55%': { strokeDashoffset: 'calc(var(--len) * -1)' },
+          '80%': { strokeDashoffset: 'calc(var(--len) * -1)', opacity: '1' },
+          '100%': { strokeDashoffset: 'calc(var(--len) * -1)', opacity: '0' },
         },
       },
       animation: {
