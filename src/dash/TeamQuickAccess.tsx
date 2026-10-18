@@ -25,31 +25,28 @@ export default function TeamQuickAccess({ eventKey, selected, onSelect }: {
 
   const pinned = selected != null && lists.pinned.includes(selected);
   return (
-    <section aria-label="Team shortcuts" className="flex flex-col gap-3 border-t border-zinc-800 px-4 py-3 sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-zinc-400">Team shortcuts · saved on this device for this event</p>
-        {selected != null ? <Button
-          variant="outline" size="sm" className="min-h-11"
-          aria-pressed={pinned} disabled={!pinned && lists.pinned.length >= 12}
-          onClick={() => setLists((previous) => ({ ...previous, pinned: pinned
-            ? previous.pinned.filter((team) => team !== selected)
-            : [...previous.pinned, selected] }))}
-        ><Pin className="size-4" />{pinned ? `Unpin team ${selected}` : `Pin team ${selected}`}</Button> : null}
-      </div>
-      {lists.pinned.length >= 12 ? <p className="text-xs text-zinc-400">12 teams pinned. Unpin a team to make room.</p> : null}
+    <section aria-label="Team shortcuts" className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-zinc-800 px-3 py-2 sm:px-4">
       {(['pinned', 'recent'] as const).map((kind) => (
-        <div key={kind} className="flex flex-col gap-1.5">
-          <h3 className="text-xs font-semibold text-zinc-300">{kind === 'pinned' ? 'Pinned teams' : 'Recent teams'}</h3>
-          <div className="flex flex-wrap gap-2" aria-label={kind === 'pinned' ? 'Pinned teams' : 'Recent teams'}>
+        <div key={kind} className="flex min-w-0 items-center gap-2">
+          <h3 className="text-xs font-semibold text-zinc-400">{kind === 'pinned' ? 'Pinned' : 'Recent'}</h3>
+          <div className="flex flex-wrap gap-1.5" aria-label={kind === 'pinned' ? 'Pinned teams' : 'Recent teams'}>
             {lists[kind].map((team) => <Button
               key={team} variant={selected === team ? 'default' : 'outline'} size="sm"
               className="min-h-11 min-w-14 font-mono" aria-pressed={selected === team}
               aria-label={`Open team ${team}`} onClick={() => onSelect(team)}
             >{team}</Button>)}
-            {lists[kind].length === 0 ? <p className="text-xs text-zinc-500">{kind === 'pinned' ? 'Pin a team to keep it here.' : 'Teams you open will appear here.'}</p> : null}
+            {lists[kind].length === 0 ? <span className="text-xs text-zinc-600">—</span> : null}
           </div>
         </div>
       ))}
+      {selected != null ? <Button
+        variant="outline" size="sm" className="ml-auto min-h-11"
+        aria-pressed={pinned} disabled={!pinned && lists.pinned.length >= 12}
+        title={!pinned && lists.pinned.length >= 12 ? '12 teams pinned. Unpin a team to make room.' : undefined}
+        onClick={() => setLists((previous) => ({ ...previous, pinned: pinned
+          ? previous.pinned.filter((team) => team !== selected)
+          : [...previous.pinned, selected] }))}
+      ><Pin className="size-4" />{pinned ? `Unpin team ${selected}` : `Pin team ${selected}`}</Button> : null}
     </section>
   );
 }

@@ -281,7 +281,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
           <div data-testid={testid} className="flex flex-col gap-2.5">
             <FinalsCard ours={projected.ours} color={ourColor} opponent={projected.opponent} ourWins={0} oppWins={0} projected bySet={bySet} baseTeam={baseTeam} testid={`${testid}-current`} />
             <Branch outcome="win" dest={{ kind: 'champion' }} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-win`} />
-            <p className="text-xs text-muted-foreground">{fromNote} — projected from the bracket until TBA publishes the finals.</p>
+            <p className="text-xs text-muted-foreground">{fromNote} — projected</p>
           </div>
         );
       }
@@ -294,7 +294,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
             <Branch outcome="lose" dest={loseDestination(set)} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-lose`} />
           </div>
           <p className="text-xs text-muted-foreground">
-            {fromNote} — projected from the bracket until TBA publishes M{set}. “Winner/Loser of M#” fills in once that match is decided.
+            {fromNote} — projected
           </p>
         </div>
       );
@@ -357,7 +357,6 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
       <div data-testid={testid} className="flex flex-col gap-2.5">
         <FinalsCard ours={side.ours} color={side.color} opponent={side.opp} ourWins={ourWins} oppWins={oppWins} projected={false} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-current`} />
         <Branch outcome="win" dest={{ kind: 'champion' }} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-win`} />
-        <p className="text-xs text-muted-foreground">Win two games to take the event.</p>
       </div>
     );
   }
@@ -375,10 +374,6 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
         <Branch outcome="win" dest={winDest} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-win`} />
         <Branch outcome="lose" dest={loseDest} bySet={bySet} baseTeam={baseTeam} testid={`${testid}-lose`} />
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        “Winner/Loser of M#” fills in with real teams once that match is decided.
-      </p>
     </div>
   );
 }

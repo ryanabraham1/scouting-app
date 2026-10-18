@@ -486,6 +486,45 @@ describe('TeamView', () => {
     expect(within(detail).getByText(/Fuel points/i)).toBeTruthy();
   });
 
+  it('pins a reliability alert listing died/tipped matches', () => {
+    useEventReportsMock.mockReturnValue(
+      querySuccess([
+        row({ target_team_number: 254, match_key: '2026casnv_qm1', died: true }),
+        row({ target_team_number: 254, match_key: '2026casnv_qm2', tipped: true }),
+        row({ target_team_number: 254, match_key: '2026casnv_qm3' }),
+      ]),
+    );
+    const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
+    selectTeam(getByTestId, '254');
+    const alert = getByTestId('team-reliability-alert');
+    expect(getByTestId('team-reliability-alert-died').textContent).toContain('Qual 1');
+    expect(getByTestId('team-reliability-alert-tipped').textContent).toContain('Qual 2');
+    // Sits at the very top of the team detail, above the TBA card.
+    expect(
+      alert.compareDocumentPosition(getByTestId('team-tba')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(within(getByTestId('team-reliability-alert-died')).getByRole('button'));
+    expect(getByTestId('report-detail')).toBeTruthy();
+  });
+
+  it('shows no reliability alert for a clean robot', () => {
+    const { getByTestId, queryByTestId } = render(<TeamView eventKey="2026casnv" />);
+    selectTeam(getByTestId, '254');
+    expect(queryByTestId('team-reliability-alert')).toBeNull();
+  });
+
+  it('shows no reliability alert when the robot only tipped (still 100% reliable)', () => {
+    useEventReportsMock.mockReturnValue(
+      querySuccess([
+        row({ target_team_number: 254, match_key: '2026casnv_qm1', tipped: true }),
+        row({ target_team_number: 254, match_key: '2026casnv_qm2' }),
+      ]),
+    );
+    const { getByTestId, queryByTestId } = render(<TeamView eventKey="2026casnv" />);
+    selectTeam(getByTestId, '254');
+    expect(queryByTestId('team-reliability-alert')).toBeNull();
+  });
+
   it('renders the Trends charts when the team has >= the trend window of reports', () => {
     // 3 reports clears the trend window (TREND_WINDOW = 3) so Trends shows.
     useEventReportsMock.mockReturnValue(
@@ -499,15 +538,14 @@ describe('TeamView', () => {
         ),
       ),
     );
-    const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
+    const { getByTestId, queryByTestId } = render(<TeamView eventKey="2026casnv" />);
     selectTeam(getByTestId, '254');
     const trends = getByTestId('team-trends');
     expect(trends).toBeTruthy();
-    // Fuel-points-per-match bar chart (>=3 reports => not empty).
-    const fuel = getByTestId('team-trend-fuel');
-    expect(fuel.getAttribute('data-chart-empty')).not.toBe('true');
-    // Fuel-by-shift stacked bar + a defense line chart are present too.
-    expect(getByTestId('team-trend-shift')).toBeTruthy();
+    // Fuel-by-shift stacked bar (>=3 reports => not empty) + a defense line chart.
+    // No separate fuel-per-match bar: the stacked shifts already sum to it.
+    expect(getByTestId('team-trend-shift').getAttribute('data-chart-empty')).not.toBe('true');
+    expect(queryByTestId('team-trend-fuel')).toBeNull();
     expect(getByTestId('team-trend-defense')).toBeTruthy();
   });
 
@@ -542,7 +580,7 @@ describe('TeamView', () => {
     const { getByTestId, queryByTestId } = render(<TeamView eventKey="2026casnv" />);
     selectTeam(getByTestId, '254'); // default fixture has exactly 2 reports
     expect(queryByTestId('team-trends')).toBeNull();
-    expect(queryByTestId('team-trend-fuel')).toBeNull();
+    expect(queryByTestId('team-trend-shift')).toBeNull();
     // The rest of the detail still renders.
     expect(getByTestId('team-detail')).toBeTruthy();
   });

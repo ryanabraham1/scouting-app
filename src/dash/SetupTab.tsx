@@ -334,10 +334,6 @@ export default function SetupTab(): JSX.Element {
           <ArrowLeftRight className="size-4 text-brand" />
           <span className="text-sm font-medium">Events</span>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Pick an imported event to make it active, delete one you no longer need,
-          or import a new one below.
-        </p>
         {events.length === 0 ? (
           <p className="text-sm text-muted-foreground">No events imported yet.</p>
         ) : (
@@ -440,11 +436,6 @@ export default function SetupTab(): JSX.Element {
           <Users className="size-4 text-brand" />
           <span className="text-sm font-medium">Base team</span>
         </div>
-        <p className="text-xs text-muted-foreground">
-          The team the dashboard is built around — its next match, live field status,
-          and rankings. Defaults to {DEFAULT_BASE_TEAM}. Change it to test events your
-          team isn't registered at (e.g. to verify the live-data feed).
-        </p>
         <div className="flex flex-wrap items-center gap-2">
           <Input
             data-testid="setup-base-team-input"
@@ -493,9 +484,6 @@ export default function SetupTab(): JSX.Element {
               </span>
             ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Load simulated event data for training or exploring the dashboard.
-          </p>
           {demoPresent ? (
             <p
               data-testid="setup-demo-status"

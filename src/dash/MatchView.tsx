@@ -544,11 +544,6 @@ function ScoreValidationCard(props: { match: MatchRow; reports: MsrRow[] }): JSX
       <CardContent className="flex flex-col gap-2">
         <ValidationRow check={validation.red} />
         <ValidationRow check={validation.blue} />
-        <p className="text-xs text-muted-foreground">
-          Scouted = our captured fuel points. Official totals also include mobility, climbs and
-          fouls we don&apos;t scout, so a gap is normal — large gaps flag a missed robot or a
-          mis-captured count.
-        </p>
       </CardContent>
     </Card>
   );

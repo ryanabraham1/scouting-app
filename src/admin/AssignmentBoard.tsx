@@ -753,10 +753,6 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
             data-testid="auto-generate-options"
             className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm"
           >
-            <p className="text-xs text-muted-foreground">
-              Tune how <span className="font-medium text-foreground">Auto-generate</span> fills
-              seats. Changes apply the next time you generate.
-            </p>
             <fieldset className="grid gap-2 sm:grid-cols-2">
               <legend className="sr-only">Assignment pattern</legend>
               <label

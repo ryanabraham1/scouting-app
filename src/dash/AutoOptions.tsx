@@ -96,10 +96,6 @@ export default function AutoOptions(props: AutoOptionsProps): JSX.Element {
         </button>
       </div>
 
-      <p data-testid={`${testid}-frame-note`} className="text-xs text-zinc-500">
-        Autos shown on the blue side — routines run on red are mirrored over, so the
-        same routine groups together no matter which alliance the team ran it on.
-      </p>
 
       {mode === 'options' ? (
         <>

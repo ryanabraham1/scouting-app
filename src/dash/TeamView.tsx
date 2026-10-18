@@ -80,7 +80,7 @@ import {
   intervalAbsRange,
   suppressionFromBursts,
 } from '@/dash/defenseAnalytics';
-import { BarChart, LineChart, StackedBar } from '@/dash/charts';
+import { LineChart, StackedBar } from '@/dash/charts';
 import ConflictMarker from '@/components/ConflictMarker';
 import { useMultiScoutConflicts } from '@/dash/useMultiScoutConflicts';
 import { msrReportIdentity, type MsrRow, type MultiScoutGroup } from '@/dash/types';
@@ -222,7 +222,7 @@ function ChipRow(props: {
   );
 }
 
-/** A labelled inline value row (drivetrain / vision / dimensions). */
+/** A label-over-value cell (drivetrain / vision / dimensions), grid-aligned. */
 function DetailRow(props: {
   icon: JSX.Element;
   label: string;
@@ -230,12 +230,12 @@ function DetailRow(props: {
   testid: string;
 }): JSX.Element {
   return (
-    <div className="flex items-center gap-2">
-      <span className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-4">
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-3.5 [&_svg]:shrink-0">
         {props.icon}
-        {props.label}
+        <span>{props.label}</span>
       </span>
-      <span className="text-base font-semibold text-foreground" data-testid={props.testid}>
+      <span className="break-words text-sm font-semibold text-foreground" data-testid={props.testid}>
         {props.value}
       </span>
     </div>
@@ -283,13 +283,6 @@ function TeamTbaPanel(props: {
       ? `#${status.rank}${status.numTeams != null ? ` / ${status.numTeams}` : ''}`
       : '—';
   const worldRank = season?.worldRank != null ? `#${season.worldRank}` : '—';
-  const seasonEpa = season?.totalEpa != null ? fmt(season.totalEpa) : '—';
-  const epaHint =
-    season?.totalEpa != null
-      ? season.epaSource === 'statbotics'
-        ? 'Statbotics fallback EPA'
-        : 'live in-house EPA from TBA match results'
-      : undefined;
 
   return (
     <Card className="border-zinc-800 bg-zinc-950" data-testid="team-tba">
@@ -325,15 +318,7 @@ function TeamTbaPanel(props: {
             label="World rank"
             value={worldRank}
             testid="team-tba-world-rank"
-            hint={`${year} season`}
             tone="brand"
-          />
-          <Stat
-            label="Season EPA"
-            value={seasonEpa}
-            testid="team-tba-season-epa"
-            hint={epaHint}
-            tone={season?.totalEpa != null && season.epaSource !== 'statbotics' ? 'warning' : 'energy'}
           />
           <Stat
             label="Season record"
@@ -544,14 +529,13 @@ function PitPanel(props: {
           </div>
         ) : (
           <div data-testid="team-pit-data" className="flex flex-col gap-5">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-              <div
-                data-testid="team-pit-author"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground"
-              >
-                <Users className="size-4 text-brand" />
-                Scouted by{' '}
-                <span className="font-semibold text-foreground">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-3 rounded-lg border border-border bg-muted/20 p-3">
+              <div data-testid="team-pit-author" className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Users className="size-3.5 shrink-0" />
+                  Scouted by
+                </span>{' '}
+                <span className="break-words text-sm font-semibold text-foreground">
                   {scoutName(pit.authorScoutId)}
                 </span>
               </div>
@@ -571,7 +555,7 @@ function PitPanel(props: {
 
             <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
               <div className="flex min-w-0 flex-col gap-4">
-                <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3 sm:grid-cols-2">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-4 gap-y-3 rounded-lg border border-border bg-muted/20 p-3">
                   <DetailRow icon={<Ruler />} label="Dimensions" value={dimensionsStr(pit.robotLengthIn, pit.robotWidthIn, pit.robotHeightIn) + (pit.trenchCapable ? ' · trench ✓' : ' · no trench')} testid="team-pit-dimensions" />
                   <DetailRow icon={<Gauge />} label="Weight" value={pit.questionnaire?.robotWeightLb == null ? '—' : `${pit.questionnaire.robotWeightLb} lb`} testid="team-pit-weight" />
                   <DetailRow icon={<Gauge />} label="Swerve type" value={pitValue(pit.questionnaire?.swerveType)} testid="team-pit-swerve" />
@@ -805,7 +789,6 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
 
   const labels = ordered.map((m) => formatMatchKeyRaw(m.match_key));
 
-  const fuelData = ordered.map((m, i) => ({ label: labels[i], value: m.fuel_points }));
   const shiftData = ordered.map((m, i) => ({
     label: labels[i],
     values: Array.isArray(m.fuel_by_shift) ? m.fuel_by_shift : [],
@@ -822,13 +805,7 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
           Trends
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
-        <BarChart
-          data={fuelData}
-          color="energy"
-          title="Fuel points per match"
-          testid="team-trend-fuel"
-        />
+      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <StackedBar
           data={shiftData}
           seriesNames={shiftNames}
@@ -916,7 +893,6 @@ function TempoCard(props: { matches: MsrRow[] }): JSX.Element | null {
           label="Cycle time"
           value={secs(tempo.meanGapMs)}
           testid="team-tempo-cycle"
-          hint="gap between shooting bursts"
           tone="brand"
         />
         <Stat
@@ -928,7 +904,6 @@ function TempoCard(props: { matches: MsrRow[] }): JSX.Element | null {
           label="Burst length"
           value={secs(tempo.meanBurstDurationMs)}
           testid="team-tempo-burst"
-          hint="continuous shooting span"
         />
         <Stat
           label="Active"
@@ -991,6 +966,57 @@ function TeamNotes(props: {
   );
 }
 
+/**
+ * Reliability alert pinned to the top of the team page. Shows only when the
+ * robot actually failed in a match (no-show or died, the same events the
+ * reliability % counts); tipped matches ride along as context. Each match chip
+ * opens that report. A clean robot gets no banner at all.
+ */
+function ReliabilityAlert(props: {
+  agg: TeamAgg;
+  matches: MsrRow[];
+  onOpenReport: (r: MsrRow) => void;
+}): JSX.Element | null {
+  const groups = useMemo(() => {
+    const ordered = props.matches.slice().sort((a, b) => compareMatchKeys(a.match_key, b.match_key));
+    return [
+      { label: 'No-show', severe: true, rows: ordered.filter((m) => m.no_show) },
+      { label: 'Died', severe: true, rows: ordered.filter((m) => m.died) },
+      { label: 'Tipped', severe: false, rows: ordered.filter((m) => m.tipped) },
+    ].filter((g) => g.rows.length > 0);
+  }, [props.matches]);
+  if (!groups.some((g) => g.severe)) return null;
+  return (
+    <div
+      role="alert"
+      data-testid="team-reliability-alert"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-sm"
+    >
+      <span className="flex items-center gap-1.5 font-semibold text-destructive">
+        <ShieldAlert className="size-4" />
+        {pct(props.agg.reliability)} reliable
+      </span>
+      {groups.map((g) => (
+        <span key={g.label} className="flex flex-wrap items-center gap-1" data-testid={`team-reliability-alert-${g.label.toLowerCase()}`}>
+          <span className={cn('text-xs font-semibold uppercase tracking-wide', g.severe ? 'text-destructive' : 'text-warning')}>
+            {g.label}
+          </span>
+          {g.rows.map((m, i) => (
+            <button
+              key={`${m.match_key}-${i}`}
+              type="button"
+              onClick={() => props.onOpenReport(m)}
+              className="rounded border border-zinc-700 bg-zinc-900/70 px-1.5 py-0.5 font-mono text-xs text-zinc-200 hover:bg-zinc-800"
+            >
+              {formatMatchKeyRaw(m.match_key)}
+            </button>
+          ))}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function TeamDetail(props: {
   agg: TeamAgg;
   teamNumber: number;
@@ -999,7 +1025,6 @@ function TeamDetail(props: {
   /** Larger robot-photo panel rendered beside the TBA card; null when no image. */
   photoNode: JSX.Element | null;
   lastMatchNode: JSX.Element | null;
-  epaNode: JSX.Element;
   epaHistoryNode: JSX.Element | null;
   pitNode: JSX.Element;
   scoutName: (id: string | null | undefined) => string;
@@ -1048,7 +1073,12 @@ function TeamDetail(props: {
     <div data-testid="team-detail" className="flex flex-col gap-4">
       <TeamSectionNav sections={sections} />
 
-      <section id="team-sec-overview" className={SECTION}>
+      <section id="team-sec-overview" className={cn(SECTION, 'flex flex-col gap-4')}>
+        <ReliabilityAlert
+          agg={agg}
+          matches={matches}
+          onOpenReport={props.onOpenReport}
+        />
         {/* The Blue Alliance card beside the robot photo, which fills the card's
             vertical space instead of leaving it blank. Photo collapses below the
             card on narrow screens; full-width TBA card when there's no photo. */}
@@ -1063,25 +1093,9 @@ function TeamDetail(props: {
 
       </section>
 
-      {/* EPA second: current value beside the season progression chart. */}
-      <section
-        id="team-sec-epa"
-        className={cn(SECTION, 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)] lg:items-start')}
-      >
-        {/* Current in-house EPA (Statbotics only when match results are unavailable). */}
-        <Card className="border-zinc-800 bg-zinc-950">
-          <CardHeader className="space-y-0">
-            <CardTitle className="flex items-center gap-2 text-zinc-100">
-              <Gauge className="size-5 text-energy" />
-              EPA
-            </CardTitle>
-          </CardHeader>
-          <CardContent>{props.epaNode}</CardContent>
-        </Card>
-
-        {/* Season-wide in-house EPA after every TBA match, including offseason events. */}
+      {/* EPA second: current value + season progression in one card. */}
+      <section id="team-sec-epa" className={SECTION}>
         {props.epaHistoryNode}
-
       </section>
 
       {props.lastMatchNode ? (
@@ -1144,12 +1158,6 @@ function TeamDetail(props: {
               />
               <Stat label="Endgame fuel" value={fmt(agg.meanEndgameFuel)} testid="team-mean-endgame-fuel" />
               <Stat
-                label="Total fuel"
-                value={fmt(agg.meanTotalFuel)}
-                testid="team-mean-total-fuel"
-                tone="energy"
-              />
-              <Stat
                 label="Mean fuel points"
                 value={fmtPM(agg.meanFuelPoints, agg.stdDevFuelPoints)}
                 testid="team-mean-fuel-points"
@@ -1186,7 +1194,7 @@ function TeamDetail(props: {
               label="Avg defense"
               value={fmtPM(agg.avgDefenseRating, agg.stdDevDefenseRating)}
               testid="team-avg-defense-rating"
-              hint={`1–10 · range ${fmt(agg.minDefenseRating)} – ${fmt(agg.maxDefenseRating)}`}
+              hint={`range ${fmt(agg.minDefenseRating)}–${fmt(agg.maxDefenseRating)}`}
               tone="brand"
             />
             {/* Subjective super-scout ratings, averaged over RATED matches (0 = not
@@ -1196,13 +1204,11 @@ function TeamDetail(props: {
               label="Driver skill"
               value={ratedMeanText(matches, (m) => m.driver_skill)}
               testid="team-driver-skill"
-              hint="1–10 · rated matches"
             />
             <Stat
               label="Agility"
               value={ratedMeanText(matches, (m) => m.agility)}
               testid="team-agility"
-              hint="1–10 · rated matches"
             />
             <Stat
               label="Defended fuel ↓"
@@ -1237,7 +1243,7 @@ function TeamDetail(props: {
               hint={
                 agg.defenderEffectiveness == null
                   ? 'never played defense'
-                  : `vs ${agg.defenseSampleCount} opp. · co-occurrence estimate`
+                  : `vs ${agg.defenseSampleCount} opp.`
               }
               tone={
                 agg.defenderEffectiveness != null &&
@@ -1260,7 +1266,6 @@ function TeamDetail(props: {
               label="Scouted expected pts"
               value={fmt(agg.scoutingExpectedPoints)}
               testid="team-scouting-expected"
-              hint="From our scouting reports only (fuel means) — separate from EPA, which uses posted match scores."
             />
             {/* Per-match incident trend (green clean / amber tipped / red died). */}
             <ReliabilityStrip matches={matches} />
@@ -1546,11 +1551,11 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
           <span className="text-2xl font-semibold text-energy">{fmt(epaValue as number)}</span>
           {epaIsLocal ? (
             <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-              Live in-house EPA (computed from TBA match results).
+              In-house
             </span>
           ) : (
             <span className="rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-xs font-medium text-energy">
-              Statbotics fallback EPA (total points).
+              Statbotics fallback
             </span>
           )}
         </div>
@@ -1568,7 +1573,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
           <div className="h-64 rounded-lg bg-zinc-900/70 motion-safe:animate-pulse" />
         </CardContent>
       </Card>
-    ) : (
+    ) : (epaHistoryQuery.data?.length ?? 0) > 0 ? (
       <Suspense
         fallback={
           <Card className="border-zinc-800 bg-zinc-950" data-testid="team-epa-history-loading">
@@ -1583,6 +1588,17 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
           points={epaHistoryQuery.data ?? []}
         />
       </Suspense>
+    ) : (
+      // No match history (Statbotics fallback or unavailable): the plain value.
+      <Card className="border-zinc-800 bg-zinc-950">
+        <CardHeader className="space-y-0 pb-3">
+          <CardTitle className="flex items-center gap-2 text-zinc-100">
+            <Gauge className="size-5 text-energy" />
+            EPA
+          </CardTitle>
+        </CardHeader>
+        <CardContent>{epaNode}</CardContent>
+      </Card>
     )
   ) : null;
 
@@ -1803,7 +1819,6 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
                 </span>
                 <div>
                   <p className="text-sm font-medium text-zinc-300">No team selected</p>
-                  <p className="text-xs text-zinc-500">Choose one to open its profile.</p>
                 </div>
               </div>
             ) : (
@@ -1815,7 +1830,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
                   <span className="font-mono text-2xl font-bold tabular-nums text-brand">
                     {selected}
                   </span>
-                  <span className="text-xs text-zinc-500">
+                  <span data-testid="team-matches-scouted" className="text-xs text-zinc-500">
                     {teamMatches.length} scouted
                   </span>
                 </div>
@@ -1870,12 +1885,6 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         </div>
       ) : agg ? (
         <div className="flex flex-col gap-2">
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl font-bold text-zinc-100">Team {selected}</span>
-            <span data-testid="team-matches-scouted" className="text-sm text-zinc-400">
-              {agg.matchesScouted} match{agg.matchesScouted === 1 ? '' : 'es'} scouted
-            </span>
-          </div>
           <TeamDetail
             key={`${eventKey}:${selected}`}
             agg={agg}
@@ -1884,7 +1893,6 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             tbaNode={tbaNode ?? <></>}
             photoNode={photoThumb}
             lastMatchNode={lastMatchNode}
-            epaNode={epaNode}
             epaHistoryNode={epaHistoryNode}
             pitNode={pitNode}
             scoutName={scoutName}
@@ -1896,7 +1904,6 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <span className="text-xl font-bold text-zinc-100">Team {selected}</span>
           {/* TBA stats beside the fixed-size robot photo — same 2-col layout as
               the scouted branch, so a pit-only team's photo stays a standard
               size instead of filling the header. Photo collapses below on
@@ -1914,8 +1921,6 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             className="rounded-md border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-400"
           >
             No scouting reports for team {selected} at this event yet.
-            {/* EPA may still be available; show it so the team isn't a dead end. */}
-            <div className="mt-3">{epaNode}</div>
           </div>
           {epaHistoryNode}
           {/* Pit data may still exist even without match reports. */}

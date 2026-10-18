@@ -269,12 +269,7 @@ function MatchupNoteCard({
       data-testid="dash-matchup-panel"
       className="flex flex-col gap-3 rounded-lg border border-border bg-card/40 p-4"
     >
-      <div>
-        <h3 className="text-sm font-bold text-foreground">Matchup notes by team</h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Event-scoped strategy notes for each partner and opponent in this lineup.
-        </p>
-      </div>
+      <h3 className="text-sm font-bold text-foreground">Matchup notes by team</h3>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {allianceColumns.map(({ side, label }) => (
           <section
