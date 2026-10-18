@@ -165,7 +165,7 @@ function FieldTile({
   return (
     <div className={cn('min-w-0 rounded-xl px-4 py-3', bg)}>
       <div className="text-sm font-semibold opacity-80">{label}</div>
-      <div className="mt-1 truncate text-3xl font-black leading-none tracking-tight sm:text-4xl">
+      <div className="mt-1 truncate text-3xl font-black leading-none tracking-tight sm:text-4xl min-[1800px]:text-5xl">
         {match ? shortMatchLabel(match.label) : '—'}
       </div>
       {eta ? <div className="mt-0.5 truncate text-xs font-semibold opacity-80">{eta}</div> : null}
@@ -438,7 +438,8 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       data-testid="dash-next"
       className={cn(
         'flex flex-col gap-4 text-foreground',
-        fullscreen.isFullscreen && 'h-screen w-screen overflow-y-auto bg-background p-6',
+        fullscreen.isFullscreen &&
+          'h-screen w-screen overflow-y-auto bg-background p-6 min-[1800px]:p-10',
       )}
     >
       {/* Top bar: event name (left) · base team + key + fullscreen (right). */}
@@ -474,9 +475,18 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
 
       {/* Broadcast grid (no leaderboard): LEFT = livestream + event/season
           rankings; RIGHT = OUR next match + live field status + OUR upcoming. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
+      {/* Ultrawide (2:1+): stream column + a two-column right side (hero/field
+          beside the upcoming rail) so nothing stretches taller than the screen. */}
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr] min-[1800px]:gap-6',
+          '[@media(min-aspect-ratio:2/1)_and_(min-width:1500px)]:grid-cols-[1.5fr_2fr]',
+        )}
+      >
         {/* LEFT — livestream over the event & season ranking blocks. */}
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* Cap stream height to the viewport so a wide monitor never pushes it off-screen. */}
+          <div className="mx-auto w-full lg:max-w-[max(24rem,calc((100vh-14rem)*16/9))]">
           <EventStream
             webcast={eventInfo.webcast}
             // While the stream plays live here, record when it began so the
@@ -485,6 +495,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
               void saveWebcastSync?.(eventKey, videoId, epochMs, 'auto')
             }
           />
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <EventRankSummary row={ourRankRow} teamCount={rankRows.length || null} />
             <SeasonStats
@@ -500,9 +511,10 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
         {/* RIGHT — next match hero, live field status, OUR upcoming rail.
             min-w-0 lets the playoff bracket's wide content scroll WITHIN this
             column instead of stretching the grid track. */}
-        <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3 [@media(min-aspect-ratio:2/1)_and_(min-width:1500px)]:grid [@media(min-aspect-ratio:2/1)_and_(min-width:1500px)]:grid-cols-2 [@media(min-aspect-ratio:2/1)_and_(min-width:1500px)]:content-start [@media(min-aspect-ratio:2/1)_and_(min-width:1500px)]:gap-6">
+          <div className="flex min-w-0 flex-col gap-3">
           {/* Next match — the loud red hero card. */}
-          <div className="rounded-xl bg-red-600 px-6 py-6 text-white">
+          <div className="rounded-xl bg-red-600 px-6 py-6 text-white min-[1800px]:px-10 min-[1800px]:py-10">
             <div className="flex items-center justify-between gap-2">
               <span className="text-base font-semibold">
                 <TeamLink team={baseTeam} className="text-white hover:text-white/80" /> Next Match
@@ -510,7 +522,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
             </div>
             <div
               data-testid="dash-next-title"
-              className="mt-3 break-words text-5xl font-black leading-none tracking-tight sm:text-6xl lg:text-7xl"
+              className="mt-3 break-words text-5xl font-black leading-none tracking-tight sm:text-6xl lg:text-[clamp(4.5rem,6vw,10rem)]"
             >
               {heroLabel}
             </div>
@@ -521,6 +533,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           <div className="grid grid-cols-2 gap-3">
             <FieldTile label="On Field" tone="now" match={status?.onField ?? null} eta={onFieldTileEta} />
             <FieldTile label="Queuing" tone="next" match={status?.queuing ?? null} eta={queuingTileEta} />
+          </div>
           </div>
 
           {/* During playoffs the flat upcoming list can't express who advances
