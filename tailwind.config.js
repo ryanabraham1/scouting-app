@@ -39,8 +39,29 @@ export default {
       keyframes: {
         'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
         'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
+        // Home backdrop: an auto path draws itself (pathLength=1), holds, fades.
+        'path-trace': {
+          '0%': { strokeDashoffset: '1', opacity: '0' },
+          '8%': { opacity: '1' },
+          '55%': { strokeDashoffset: '0' },
+          '80%': { strokeDashoffset: '0', opacity: '1' },
+          '100%': { strokeDashoffset: '0', opacity: '0' },
+        },
+        // Its leading dot: a zero-length dash slid along the same path in lockstep.
+        'path-dot': {
+          '0%': { strokeDashoffset: '0', opacity: '0' },
+          '6%': { opacity: '1' },
+          '55%': { strokeDashoffset: '-1' },
+          '80%': { strokeDashoffset: '-1', opacity: '1' },
+          '100%': { strokeDashoffset: '-1', opacity: '0' },
+        },
       },
-      animation: { 'accordion-down': 'accordion-down 0.2s ease-out', 'accordion-up': 'accordion-up 0.2s ease-out' },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+        'path-trace': 'path-trace 7s cubic-bezier(0.45, 0, 0.2, 1) infinite both',
+        'path-dot': 'path-dot 7s cubic-bezier(0.45, 0, 0.2, 1) infinite both',
+      },
     },
   },
   plugins: [tailwindcssAnimate],
