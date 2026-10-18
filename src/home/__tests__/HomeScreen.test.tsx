@@ -1,7 +1,7 @@
 // HomeScreen landing page — lets the user choose Scout, Analysis, or Lead Dashboard.
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import HomeScreen from '../HomeScreen';
 
 // HomeScreen uses react-router <Link> for client-side (offline-safe) navigation,
@@ -16,6 +16,26 @@ function renderHome() {
 }
 
 describe('HomeScreen', () => {
+  beforeEach(() => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    });
+  });
+
+  it('offers Continue for the last station used', () => {
+    localStorage.setItem('last-station', 'analysis');
+    renderHome();
+    expect(screen.getByTestId('home-continue')).toHaveAttribute('href', '/analysis');
+  });
+
+  it('omits Continue on a fresh device', () => {
+    renderHome();
+    expect(screen.queryByTestId('home-continue')).toBeNull();
+  });
+
   it('renders the landing shell', () => {
     renderHome();
     expect(screen.getByTestId('home-screen')).toBeInTheDocument();

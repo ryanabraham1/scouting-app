@@ -12,7 +12,6 @@ import {
   Crosshair,
   CheckCircle2,
   GraduationCap,
-  ChevronDown,
   ArrowLeft,
   Wifi,
   WifiOff,
@@ -60,6 +59,7 @@ import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt
 import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
 import { pullScoutReports } from '@/sync/pullReports';
 import { useOnline } from '@/sync/useOnline';
+import { StationMenu } from '@/components/StationMenu';
 import { ScoutBottomNav, useScoutOrigin } from '@/scout/ScoutBottomNav';
 import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
 
@@ -1090,50 +1090,24 @@ export default function ScoutHome() {
           connection status that links to the full sync screen. */}
       <header className="sticky top-0 z-20 bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2">
-          <details className="relative min-w-0">
-            <summary
-              aria-label="Open menu"
-              className="flex min-h-11 cursor-pointer list-none items-center gap-2.5 [&::-webkit-details-marker]:hidden"
+          <StationMenu
+            current="scout"
+            title={`Hi, ${firstName}`}
+            subtitle={eventKey || 'No active event'}
+            avatar={initials}
+          >
+            <Button
+              data-testid="scout-logout"
+              variant="outline"
+              aria-label={`Change scouter ${effective.display_name || ''}`.trim()}
+              className="min-h-[44px] rounded-xl px-3"
+              onClick={logOut}
             >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[13px] font-medium text-brand">
-                {initials}
-              </span>
-              <span className="min-w-0 text-left">
-                <span className="flex items-center gap-1 text-[15px] font-medium leading-tight">
-                  <span className="truncate">Hi, {firstName}</span>
-                  <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-                </span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
-                  {eventKey || 'No active event'}
-                </span>
-              </span>
-            </summary>
-            <nav
-              aria-label="Scout navigation"
-              className="absolute left-0 top-full z-30 mt-2 flex w-60 flex-col items-stretch gap-2 rounded-xl border border-border bg-popover p-3 shadow-xl"
-            >
-              <Link
-                key="home"
-                data-testid="nav-home"
-                to="/"
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
-              >
-                <Home className="size-5 shrink-0" />
-                <span>All stations</span>
-              </Link>
-              <Button
-                data-testid="scout-logout"
-                variant="outline"
-                aria-label={`Change scouter ${effective.display_name || ''}`.trim()}
-                className="min-h-[44px] rounded-xl px-3"
-                onClick={logOut}
-              >
-                <LogOut className="size-5 shrink-0" />
-                <span>Change scouter</span>
-              </Button>
-              <NotificationPermissionPrompt />
-            </nav>
-          </details>
+              <LogOut className="size-5 shrink-0" />
+              <span>Change scouter</span>
+            </Button>
+            <NotificationPermissionPrompt />
+          </StationMenu>
           <Link
             to="/sync"
             data-testid="scout-connection-pill"

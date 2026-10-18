@@ -616,6 +616,7 @@ describe('ScoutHome resume click', () => {
 describe('ScoutHome logout', () => {
   it('shows a clearly labeled logout control with the scout name', async () => {
     renderHome();
+    fireEvent.click(await screen.findByLabelText('Open menu'));
     const logout = await screen.findByTestId('scout-logout');
     // The control should be a labeled button (text), not just an icon.
     expect(logout.textContent).toMatch(/change scouter/i);
@@ -623,6 +624,7 @@ describe('ScoutHome logout', () => {
 
   it('forgets the scouter and shows the name picker in place on logout', async () => {
     renderHome();
+    fireEvent.click(await screen.findByLabelText('Open menu'));
     const logout = await screen.findByTestId('scout-logout');
     fireEvent.click(logout);
     expect(screen.queryByTestId('scout-logout-confirm')).toBeNull();
