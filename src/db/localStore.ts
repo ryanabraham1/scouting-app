@@ -127,6 +127,29 @@ export async function saveReport(r: LocalMatchReport): Promise<void> {
   await db.reports.put(record);
 }
 
+/**
+ * Import a report from an exported backup file. Never clobbers: a local copy
+ * at the same or a newer revision wins (it may hold a later correction, or be
+ * already synced). An imported row always re-enters the queue as `dirty` with
+ * fresh sync bookkeeping — an exported row can carry `pending`/`error` state or
+ * a stale backoff stamp from the device that wrote the file. Returns whether
+ * the row was written.
+ */
+export async function importReport(r: LocalMatchReport): Promise<boolean> {
+  return db.transaction('rw', db.reports, async () => {
+    const existing = await db.reports.get(r.id);
+    if (existing && (existing.rowRevision ?? 1) >= (r.rowRevision ?? 1)) return false;
+    await db.reports.put({
+      ...r,
+      syncState: 'dirty',
+      syncAttempts: 0,
+      lastSyncError: null,
+      nextSyncAt: null,
+    });
+    return true;
+  });
+}
+
 /** Atomically promote a capture draft into the durable report outbox. */
 export async function finalizeReport(
   report: LocalMatchReport,
@@ -181,29 +204,21 @@ export async function markSynced(id: string, uploadedRevision?: number): Promise
     });
 }
 
-// Server verdict `stale`: the server already holds a STRICTLY NEWER revision of
-// this same report id (a lost-ack retry after the server bumped it, or a
-// dashboard-side edit). The server is authoritative, so adopt its revision and
-// mark the row synced instead of dead-lettering; a later local edit continues
-// from the server revision and uploads as `applied`. Revision-guarded like
-// markSynced so an edit made mid-flight is never marked synced by mistake.
-export async function acceptServerRevision(
+// Server verdict `stale` where the server's newer revision is a delete (the
+// report was superseded by a newer one for the same match + scout, or removed
+// on the dashboard). The server is authoritative, so drop the local copy — the
+// same thing pullReports does for a synced row. Revision-guarded like
+// markSynced so an edit made mid-flight is never discarded by mistake.
+export async function deleteReportAtRevision(
   id: string,
   uploadedRevision: number,
-  serverRevision: number,
 ): Promise<boolean> {
-  const updated = await db.reports
+  const deleted = await db.reports
     .where('id')
     .equals(id)
     .and((r) => (r.rowRevision ?? 1) === uploadedRevision)
-    .modify({
-      syncState: 'synced',
-      rowRevision: serverRevision,
-      syncAttempts: 0,
-      lastSyncError: null,
-      nextSyncAt: null,
-    });
-  return updated === 1;
+    .delete();
+  return deleted === 1;
 }
 
 // Server verdict `conflict` at the SAME revision (different content): rebase the

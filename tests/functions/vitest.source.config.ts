@@ -12,6 +12,7 @@ export default defineConfig({
       'tests/functions/readJsonBody.test.ts',
       'tests/functions/seed-demo-scoring.test.ts',
       'tests/functions/tbaMatchRow.test.ts',
+      'tests/functions/ingestVerdict.test.ts',
     ],
   },
 });

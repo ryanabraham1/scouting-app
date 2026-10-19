@@ -20,6 +20,7 @@ export default defineConfig({
       'tests/functions/seed-demo-scoring.test.ts',
       'tests/functions/tbaMatchRow.test.ts',
       'tests/functions/ensureEventTeams.test.ts',
+      'tests/functions/ingestVerdict.test.ts',
     ],
     exclude: ['tests/e2e/**', 'node_modules/**'],
     // Coverage guardrail: measured over the app source only (the code this local

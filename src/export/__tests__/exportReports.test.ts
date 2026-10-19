@@ -81,13 +81,51 @@ describe('importReportsFromJson', () => {
     const first = await importReportsFromJson(json);
     expect(first).toBe(2);
 
+    // Re-importing the same revisions is a no-op: the local copies win.
     const second = await importReportsFromJson(json);
-    expect(second).toBe(2);
+    expect(second).toBe(0);
 
     const stored = await listReports();
     const ids = stored.map((r) => r.id).sort();
     expect(ids).toEqual(['id-1', 'id-2']);
     expect(stored).toHaveLength(2);
+  });
+
+  it('never overwrites a newer local correction with an older backup', async () => {
+    await saveReport({ ...makeReport('id-1'), notes: 'corrected', rowRevision: 3, syncState: 'synced' });
+    const json = reportsToJson([{ ...makeReport('id-1'), notes: 'original', rowRevision: 1 }]);
+
+    expect(await importReportsFromJson(json)).toBe(0);
+    const [stored] = await listReports();
+    expect(stored.notes).toBe('corrected');
+    expect(stored.rowRevision).toBe(3);
+    expect(stored.syncState).toBe('synced');
+  });
+
+  it('queues an imported newer revision as dirty with fresh sync bookkeeping', async () => {
+    await saveReport({ ...makeReport('id-1'), rowRevision: 1, syncState: 'synced' });
+    const json = reportsToJson([
+      {
+        ...makeReport('id-1'),
+        notes: 'newer',
+        rowRevision: 2,
+        syncState: 'error',
+        syncAttempts: 4,
+        lastSyncError: 'boom',
+        nextSyncAt: Date.now() + 60_000,
+      },
+    ]);
+
+    expect(await importReportsFromJson(json)).toBe(1);
+    const [stored] = await listReports();
+    expect(stored).toMatchObject({
+      notes: 'newer',
+      rowRevision: 2,
+      syncState: 'dirty',
+      syncAttempts: 0,
+      lastSyncError: null,
+      nextSyncAt: null,
+    });
   });
 
   it('throws on malformed JSON document shape', async () => {

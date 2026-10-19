@@ -123,22 +123,55 @@ describe('syncOnce', () => {
     expect((await getReport('idempotent-status'))?.syncState).toBe('synced');
   });
 
-  it('stale verdict: the server holds a newer revision → adopt it and mark synced', async () => {
+  it('stale verdict over a live server row: rebases and resends the unsent local edit', async () => {
     await saveReport(makeReport({ id: 'server-stale', notes: 'keep this local edit', rowRevision: 2 }));
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { status: 'stale', current_revision: 7 }, error: null })
+      .mockResolvedValueOnce(successResult('applied'));
+    const readServerState = vi.fn().mockResolvedValue({ deleted: false, rowRevision: 7 });
+    const summary = await syncOnce(rpc, readServerState);
+
+    expect(summary).toEqual({ attempted: 2, synced: 1, retried: 1, deadLettered: 0 });
+    expect(readServerState).toHaveBeenCalledWith('server-stale');
+    // The resend carries the local content at server revision + 1.
+    const resent = rpc.mock.calls[1][1].p as Record<string, unknown>;
+    expect(resent.row_revision).toBe(8);
+    expect(resent.notes).toBe('keep this local edit');
+    const report = await getReport('server-stale');
+    expect(report?.syncState).toBe('synced');
+    expect(report?.rowRevision).toBe(8);
+    expect(report?.notes).toBe('keep this local edit');
+  });
+
+  it('stale verdict over a superseded server row: drops the local copy instead of resurrecting it', async () => {
+    await saveReport(makeReport({ id: 'superseded', rowRevision: 1 }));
     const rpc = vi.fn().mockResolvedValue({
-      data: { status: 'stale', current_revision: 7 },
+      data: { status: 'stale', current_revision: 2 },
       error: null,
     });
-    const summary = await syncOnce(rpc);
+    const readServerState = vi.fn().mockResolvedValue({ deleted: true, rowRevision: 2 });
+    const summary = await syncOnce(rpc, readServerState);
 
     expect(summary).toEqual({ attempted: 1, synced: 1, retried: 0, deadLettered: 0 });
     expect(rpc).toHaveBeenCalledTimes(1);
-    const report = await getReport('server-stale');
-    expect(report?.syncState).toBe('synced');
-    expect(report?.rowRevision).toBe(7);
-    expect(report?.lastSyncError).toBeNull();
-    // Local content is untouched; a later edit continues from revision 7.
-    expect(report?.notes).toBe('keep this local edit');
+    expect(await getReport('superseded')).toBeUndefined();
+  });
+
+  it('stale verdict with no network to read the server row: keeps the report queued', async () => {
+    await saveReport(makeReport({ id: 'stale-offline', rowRevision: 1 }));
+    const rpc = vi.fn().mockResolvedValue({
+      data: { status: 'stale', current_revision: 3 },
+      error: null,
+    });
+    const readServerState = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const summary = await syncOnce(rpc, readServerState);
+
+    expect(summary.retried).toBe(1);
+    const report = await getReport('stale-offline');
+    expect(report?.syncState).toBe('dirty');
+    expect(report?.rowRevision).toBe(1);
+    clearSyncCircuit();
   });
 
   it('conflict verdict: rebases onto server revision + 1 and resends in the same drain', async () => {

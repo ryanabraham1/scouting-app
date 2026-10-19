@@ -12,7 +12,7 @@ import {
   markSynced,
   markDirtyRetry,
   markSyncError,
-  acceptServerRevision,
+  deleteReportAtRevision,
   rebaseReportRevision,
   autoRepairValidationDeadLetters,
 } from '@/db/localStore';
@@ -45,6 +45,27 @@ type RpcFn = (
 
 const defaultRpc: RpcFn = (fn, args) =>
   supabase.rpc(fn, args) as unknown as Promise<{ data?: unknown; error: unknown }>;
+
+/** What a `stale` verdict needs to know about the server's newer copy. */
+export interface ServerReportState {
+  deleted: boolean;
+  rowRevision: number;
+}
+
+/** Injectable for tests; returns null when the server has no row by that id. */
+export type ReadServerStateFn = (id: string) => Promise<ServerReportState | null>;
+
+const defaultReadServerState: ReadServerStateFn = async (id) => {
+  const { data, error } = await supabase
+    .from('match_scouting_report')
+    .select('deleted,row_revision')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const row = data as { deleted: boolean | null; row_revision: number | null };
+  return { deleted: row.deleted === true, rowRevision: Number(row.row_revision) || 0 };
+};
 
 interface MatchUpsertResult {
   status: 'applied' | 'idempotent' | 'stale' | 'conflict';
@@ -99,7 +120,10 @@ function errorMessage(err: unknown): string {
  *   - transient                                → markDirtyRetry and stop this drain
  *   - terminal                                 → markSyncError (dead-letter)
  */
-export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
+export async function syncOnce(
+  rpc: RpcFn = defaultRpc,
+  readServerState: ReadServerStateFn = defaultReadServerState,
+): Promise<SyncSummary> {
   const summary: SyncSummary = { attempted: 0, synced: 0, retried: 0, deadLettered: 0 };
   if (isSyncCircuitOpen()) return summary;
   // New captures are sanitized before save/upload. This pass self-heals reports
@@ -152,33 +176,50 @@ export async function syncOnce(rpc: RpcFn = defaultRpc): Promise<SyncSummary> {
     if (!failed && verdict && ['stale', 'conflict'].includes(verdict.status)) {
       const uploadedRevision = report.rowRevision ?? 1;
       // Self-heal the two revision verdicts instead of parking the report:
-      //   stale    → the server already holds a newer revision of THIS report;
-      //              adopt it (server wins) and mark the local row synced.
+      //   stale    → the server already holds a newer revision of THIS report.
+      //              If that revision is a delete/supersede, the server is
+      //              right: drop the local copy (exactly what the pull path
+      //              does for synced rows). Otherwise this device holds an
+      //              unsent edit the server never saw — adopting only the
+      //              revision number silently lost it and left this device
+      //              showing content the server did not have — so rebase and
+      //              resend like a conflict.
       //   conflict → same revision, different content; rebase onto the server
       //              revision + 1 and resend once (scout's device wins). Only an
       //              identity conflict (same id, different match/scout) or a
       //              second conflict in the same drain stays dead-lettered.
+      let serverState: ServerReportState | null = null;
       if (verdict.status === 'stale' && !verdict.identity_conflict) {
-        if (await acceptServerRevision(report.id, uploadedRevision, verdict.current_revision)) {
-          summary.synced += 1;
-          continue;
-        }
-      } else if (
-        verdict.status === 'conflict' &&
-        !verdict.identity_conflict &&
-        (rebased.get(report.id) ?? 0) < REBASE_RETRIES_PER_DRAIN
-      ) {
-        const nextRevision = verdict.current_revision + 1;
-        if (await rebaseReportRevision(report.id, uploadedRevision, nextRevision)) {
-          rebased.set(report.id, (rebased.get(report.id) ?? 0) + 1);
-          queue.push({ ...report, rowRevision: nextRevision });
-          summary.retried += 1;
-          continue;
+        try {
+          serverState = await readServerState(report.id);
+        } catch (thrown) {
+          failed = true;
+          failure = thrown;
         }
       }
-      await markSyncError(report.id, conflictMessage(verdict), uploadedRevision);
-      summary.deadLettered += 1;
-      continue;
+      if (!failed) {
+        if (serverState?.deleted) {
+          if (await deleteReportAtRevision(report.id, uploadedRevision)) {
+            summary.synced += 1;
+            continue;
+          }
+        } else if (
+          !verdict.identity_conflict &&
+          (rebased.get(report.id) ?? 0) < REBASE_RETRIES_PER_DRAIN
+        ) {
+          const nextRevision =
+            Math.max(verdict.current_revision, serverState?.rowRevision ?? 0) + 1;
+          if (await rebaseReportRevision(report.id, uploadedRevision, nextRevision)) {
+            rebased.set(report.id, (rebased.get(report.id) ?? 0) + 1);
+            queue.push({ ...report, rowRevision: nextRevision });
+            summary.retried += 1;
+            continue;
+          }
+        }
+        await markSyncError(report.id, conflictMessage(verdict), uploadedRevision);
+        summary.deadLettered += 1;
+        continue;
+      }
     }
 
     const message = errorMessage(failure);

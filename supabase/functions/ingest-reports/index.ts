@@ -20,6 +20,7 @@
 //      re-ingesting the same id+revision is an idempotent no-op.
 
 import { corsHeaders } from "../_shared/cors.ts";
+import { isLandedUpsertVerdict } from "../_shared/ingestVerdict.ts";
 import {
   BodyTooLargeError,
   readJsonBody,
@@ -150,7 +151,9 @@ Deno.serve(async (req) => {
   let ingested = 0;
   const failed: { index: number; error: string }[] = [];
   for (let index = 0; index < payload.reports.length; index++) {
-    let data: { status?: string; current_revision?: number } | null = null;
+    let data:
+      | { status?: string; current_revision?: number; identity_conflict?: boolean }
+      | null = null;
     let error: { message: string } | null = null;
     try {
       ({ data, error } = await svc.rpc("upsert_match_report", {
@@ -163,10 +166,7 @@ Deno.serve(async (req) => {
     }
     if (error) {
       failed.push({ index, error: error.message });
-    } else if (
-      data?.status === "applied" ||
-      data?.status === "idempotent"
-    ) {
+    } else if (isLandedUpsertVerdict(data)) {
       ingested++;
     } else {
       failed.push({

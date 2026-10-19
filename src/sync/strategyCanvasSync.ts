@@ -51,6 +51,30 @@ function errorCode(err: unknown): string {
   return 'STRATEGY_CANVAS_SYNC_ERROR';
 }
 
+/**
+ * The RPC's verdict (20261018120000): `{status: 'applied'}` or
+ * `{status: 'rejected', reason}` for a board the server refused to store (an
+ * unknown event, a bad match key or phase). Before that migration it returned
+ * nothing, so `null` still means applied. A rejection used to be swallowed and
+ * the board marked synced although no other device could ever see it.
+ */
+function canvasVerdictFailure(data: unknown): Error | null {
+  if (data == null) return null;
+  const verdict = data as { status?: unknown; reason?: unknown };
+  if (verdict.status === 'applied') return null;
+  if (verdict.status === 'rejected') {
+    const reason = typeof verdict.reason === 'string' ? verdict.reason : 'rejected';
+    return Object.assign(
+      new Error(`The server did not save this whiteboard (${reason}). Local copy preserved.`),
+      { code: 'STRATEGY_CANVAS_REJECTED' },
+    );
+  }
+  return Object.assign(
+    new Error('The whiteboard server returned an invalid sync result. Local copy preserved.'),
+    { code: 'STRATEGY_CANVAS_SYNC_CONTRACT' },
+  );
+}
+
 /** Build the snake_case wire shape the `upsert_strategy_canvas` RPC expects. */
 function canvasPayload(rec: LocalStrategyCanvas): Record<string, unknown> {
   const revision = Date.parse(rec.updatedAt) || Date.now();
@@ -86,12 +110,15 @@ export async function syncStrategyCanvasOnce(): Promise<StrategyCanvasSyncSummar
     let failure: unknown;
     let failed = false;
     try {
-      const { error } = await supabase.rpc('upsert_strategy_canvas', {
+      const { data, error } = await supabase.rpc('upsert_strategy_canvas', {
         p: canvasPayload(rec),
       });
       if (error != null) {
         failed = true;
         failure = error;
+      } else {
+        failure = canvasVerdictFailure(data);
+        failed = failure != null;
       }
     } catch (thrown) {
       failed = true;

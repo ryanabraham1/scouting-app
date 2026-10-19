@@ -63,16 +63,16 @@ const stageCompletedQrTransfer = vi.fn(async (value: {
   version: 1 as const,
   completedAt: Date.now(),
 }));
-const loadStagedQrTransfer = vi.fn(async (): Promise<unknown> => null);
-const clearStagedQrTransfer = vi.fn(async () => undefined);
+const listStagedQrTransfers = vi.fn(async (): Promise<unknown[]> => []);
+const clearStagedQrTransfer = vi.fn(async (_sessionId?: string) => undefined);
 vi.mock('@/qr/receiveStaging', () => ({
   stageCompletedQrTransfer: (...args: unknown[]) => stageCompletedQrTransfer(...args as [{
     sessionId: string;
     compressed: boolean;
     payload: Uint8Array;
   }]),
-  loadStagedQrTransfer: () => loadStagedQrTransfer(),
-  clearStagedQrTransfer: () => clearStagedQrTransfer(),
+  listStagedQrTransfers: () => listStagedQrTransfers(),
+  clearStagedQrTransfer: (sessionId?: string) => clearStagedQrTransfer(sessionId),
 }));
 
 const { decompressForQr, DecompressionUnsupportedError } = vi.hoisted(() => {
@@ -133,7 +133,7 @@ beforeEach(() => {
   stop.mockClear();
   postIngest.mockReset();
   stageCompletedQrTransfer.mockClear();
-  loadStagedQrTransfer.mockReset().mockResolvedValue(null);
+  listStagedQrTransfers.mockReset().mockResolvedValue([]);
   clearStagedQrTransfer.mockReset().mockResolvedValue(undefined);
   decompressForQr
     .mockReset()
@@ -160,15 +160,15 @@ afterEach(() => {
 
 describe('QrReceiveScreen', () => {
   it('keeps the camera blocked when staging cannot load, then resumes the staged transfer', async () => {
-    loadStagedQrTransfer
+    listStagedQrTransfers
       .mockRejectedValueOnce(new Error('IndexedDB unavailable'))
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce([{
         version: 1,
         sessionId: 'recovered-staged-sid',
         compressed: false,
         payload: reportsToBytes(sourceReports),
         completedAt: Date.now(),
-      });
+      }]);
 
     render(
       <MemoryRouter>
@@ -187,15 +187,15 @@ describe('QrReceiveScreen', () => {
     });
 
     await screen.findByTestId('qr-receive-done');
-    expect(loadStagedQrTransfer).toHaveBeenCalledTimes(2);
+    expect(listStagedQrTransfers).toHaveBeenCalledTimes(2);
     expect(postIngest).toHaveBeenCalledWith(sourceReports);
     expect(decodeFromVideoDevice).not.toHaveBeenCalled();
   });
 
   it('starts the camera only after a staging-load retry proves the store is empty', async () => {
-    loadStagedQrTransfer
+    listStagedQrTransfers
       .mockRejectedValueOnce(new Error('IndexedDB unavailable'))
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce([]);
 
     render(
       <MemoryRouter>
@@ -211,18 +211,18 @@ describe('QrReceiveScreen', () => {
     });
 
     await waitFor(() => expect(decodeFromVideoDevice).toHaveBeenCalledTimes(1));
-    expect(loadStagedQrTransfer).toHaveBeenCalledTimes(2);
+    expect(listStagedQrTransfers).toHaveBeenCalledTimes(2);
     expect(postIngest).not.toHaveBeenCalled();
   });
 
   it('resumes and retries a completed transfer before starting the camera', async () => {
-    loadStagedQrTransfer.mockResolvedValue({
+    listStagedQrTransfers.mockResolvedValue([{
       version: 1,
       sessionId: 'staged-sid',
       compressed: false,
       payload: reportsToBytes(sourceReports),
       completedAt: Date.now(),
-    });
+    }]);
     postIngest
       .mockRejectedValueOnce(new Error('Venue network unavailable'))
       .mockResolvedValueOnce({ ingested: sourceReports.length, failed: [] });
@@ -249,13 +249,13 @@ describe('QrReceiveScreen', () => {
   });
 
   it('discards unsupported compressed staging and starts a fresh camera scan', async () => {
-    loadStagedQrTransfer.mockResolvedValue({
+    listStagedQrTransfers.mockResolvedValue([{
       version: 1,
       sessionId: 'compressed-sid',
       compressed: true,
       payload: new Uint8Array([1, 2, 3]),
       completedAt: Date.now(),
-    });
+    }]);
     decompressForQr.mockRejectedValueOnce(new DecompressionUnsupportedError('unsupported'));
 
     render(
@@ -279,13 +279,13 @@ describe('QrReceiveScreen', () => {
   });
 
   it('preserves retry for poison staging, then discards it and resumes scanning', async () => {
-    loadStagedQrTransfer.mockResolvedValue({
+    listStagedQrTransfers.mockResolvedValue([{
       version: 1,
       sessionId: 'poison-sid',
       compressed: false,
       payload: new Uint8Array([123]), // incomplete JSON: bytesToReports throws
       completedAt: Date.now(),
-    });
+    }]);
 
     render(
       <MemoryRouter>
@@ -408,6 +408,63 @@ describe('QrReceiveScreen', () => {
     // It must NOT render the success view.
     expect(screen.queryByTestId('qr-receive-done')).toBeNull();
     expect(postIngest).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an offline transfer staged, scans the next device, then uploads both', async () => {
+    postIngest
+      .mockRejectedValueOnce(new Error('Venue network unavailable'))
+      .mockResolvedValue({ ingested: sourceReports.length, failed: [] });
+    render(
+      <MemoryRouter>
+        <QrReceiveScreen />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(captured).not.toBeNull());
+    for (let i = 0; i < frameStrings.length; i += 1) {
+      if (screen.queryByTestId('qr-receive-error')) break;
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => emit(frameStrings[i]));
+    }
+    await screen.findByTestId('qr-receive-error');
+    expect(clearStagedQrTransfer).not.toHaveBeenCalled();
+
+    // The first transfer stays saved while the camera restarts for scout two.
+    await act(async () => {
+      screen.getByTestId('qr-receive-scan-next').click();
+    });
+    await waitFor(() => expect(decodeFromVideoDevice).toHaveBeenCalledTimes(2));
+    const second = new FountainEncoder(reportsToBytes(sourceReports), 'sid-two', false);
+    for (let t = 0; t < 160; t += 1) {
+      if (screen.queryByTestId('qr-receive-done')) break;
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => emit(frameToString(second.frame(t))));
+    }
+    const done = await screen.findByTestId('qr-receive-done');
+    // Retry of the first transfer (failed once) plus the second one.
+    expect(postIngest).toHaveBeenCalledTimes(3);
+    expect(clearStagedQrTransfer.mock.calls.map(([sid]) => sid)).toEqual(['sid-test', 'sid-two']);
+    expect(done.textContent).toMatch(new RegExp(String(sourceReports.length * 2)));
+    expect(screen.queryByTestId('qr-receive-waiting')).toBeNull();
+  });
+
+  it('uploads every transfer saved by an earlier offline session', async () => {
+    const staged = (sessionId: string, completedAt: number) => ({
+      version: 1,
+      sessionId,
+      compressed: false,
+      payload: reportsToBytes(sourceReports),
+      completedAt,
+    });
+    listStagedQrTransfers.mockResolvedValue([staged('sid-a', 1), staged('sid-b', 2)]);
+    render(
+      <MemoryRouter>
+        <QrReceiveScreen />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('qr-receive-done');
+    expect(postIngest).toHaveBeenCalledTimes(2);
+    expect(clearStagedQrTransfer.mock.calls.map(([sid]) => sid)).toEqual(['sid-a', 'sid-b']);
+    expect(decodeFromVideoDevice).not.toHaveBeenCalled();
   });
 
   it('surfaces a camera-permission denial as a visible error', async () => {

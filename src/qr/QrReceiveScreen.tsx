@@ -6,12 +6,14 @@ import { FountainDecoder, parseFrame, bytesToReports } from '@/qr/envelope';
 import { decompressForQr, DecompressionUnsupportedError } from '@/qr/compress';
 import { postIngest } from '@/qr/ingestClient';
 import { QR_SCAN_DELAY_MS } from '@/sync/constants';
-import { BackLink } from '@/components/ui/BackLink';
+import { QrModeTabs } from '@/qr/QrModeTabs';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { useSession } from '@/auth/useSession';
 import { isScouterLoggedOut } from '@/roster/selectScouter';
 import {
   clearStagedQrTransfer,
-  loadStagedQrTransfer,
+  listStagedQrTransfers,
   stageCompletedQrTransfer,
   type StagedQrTransfer,
 } from '@/qr/receiveStaging';
@@ -78,12 +80,11 @@ export default function QrReceiveScreen() {
     return (
       <div
         data-testid="qr-receive"
-        className="flex min-h-screen flex-col bg-background px-safe py-safe text-foreground"
+        className={`flex min-h-screen flex-col bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
       >
-        <header className="mb-4 flex items-center gap-3">
-          <BackLink to="/scout" label="Back" icon="back" />
-          <Camera className="size-7 shrink-0 text-brand" aria-hidden />
-          <h1 className="break-words text-xl font-bold leading-tight sm:text-2xl">Receive over QR</h1>
+        <header className="mb-4 flex flex-col gap-3">
+          <h1 className="text-xl font-medium">Transfer by QR</h1>
+          <QrModeTabs active="receive" />
         </header>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
           <div
@@ -117,7 +118,9 @@ function QrReceiveScanner() {
   const decoderRef = useRef(new FountainDecoder());
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const completedRef = useRef(false);
-  const stagedRef = useRef<StagedQrTransfer | null>(null);
+  // Every completed transfer still waiting to upload, oldest first. An offline
+  // receiver keeps collecting hand-offs here; each upload pass sends them all.
+  const stagedRef = useRef<StagedQrTransfer[]>([]);
   // Foreign-session debounce: don't wipe a half-decoded transfer on the FIRST
   // frame from a different session id (a reflection, a screenshot, or a second
   // scout's send screen briefly in frame). Only adopt a new session after several
@@ -142,66 +145,93 @@ function QrReceiveScanner() {
   // camera remains gated by stagingReady until the retry proves there is no
   // retained completed transfer to protect.
   const [stagingLoadGeneration, setStagingLoadGeneration] = useState(0);
-  const [hasStagedTransfer, setHasStagedTransfer] = useState(false);
+  const [stagedCount, setStagedCount] = useState(0);
+  const hasStagedTransfer = stagedCount > 0;
+  const discardLabel =
+    stagedCount > 1
+      ? `Discard ${stagedCount} saved transfers and scan again`
+      : 'Discard transfer and scan again';
   const [discarding, setDiscarding] = useState(false);
   // Incrementing this restarts the camera effect after an explicitly discarded
   // completed transfer. Phase alone is not a dependency because ordinary
   // ingest state changes must never create a second camera reader.
   const [scanGeneration, setScanGeneration] = useState(0);
 
-  // Upload the already-decoded batch held in decoderRef. Extracted so both the
-  // auto-complete path and a manual "Retry upload" can run it; the decoded bytes
-  // survive a transient network failure, so a blip mid-upload never forces a
-  // full re-scan of the sender's screen.
+  const syncStagedCount = useCallback((): void => {
+    setStagedCount(stagedRef.current.length);
+  }, []);
+
+  // Upload every staged transfer. Extracted so the auto-complete path, a
+  // resumed launch, and a manual "Retry upload" share it; the decoded bytes are
+  // durable, so a blip mid-upload never forces a re-scan of the sender's
+  // screen. A transfer is cleared only once the server accepted every row.
   const runIngest = useCallback(async (): Promise<void> => {
     setPhase('ingesting');
     setErrorMessage(null);
     setCanRetry(false);
-    try {
-      const staged = stagedRef.current;
-      if (!staged) throw new Error('Decoded transfer was not safely staged on this device.');
-      const raw = await decompressForQr(staged.payload, staged.compressed);
-      const reports = bytesToReports(raw);
-      const result = await postIngest(reports);
-      setIngested(result.ingested);
-      setFailedCount(result.failed.length);
-      setFailedError(result.failed[0]?.error ?? null);
-      if (result.ingested === 0 && result.failed.length > 0) {
-        // Everything decoded but the server rejected every row → surface it AND
-        // allow a retry (the rejection may be a transient RLS/auth blip).
-        setErrorMessage(
-          `Server rejected all ${result.failed.length} report${
-            result.failed.length === 1 ? '' : 's'
-          }: ${result.failed[0]?.error ?? 'unknown error'}`,
-        );
-        setPhase('error');
-        setCanRetry(true);
-      } else {
-        // PARTIAL success (some ingested, some failed) still keeps a retry
-        // affordance: the WHOLE batch is still in decoderRef and re-POSTing is
-        // revision-guarded (already-ingested rows are server no-ops), so a retry
-        // only re-attempts the failures. Without this the green "done" view hid the
-        // failed subset, which is lost the moment the sender is wiped — the very
-        // thing QR transfer exists to prevent.
-        setCanRetry(result.failed.length > 0);
-        if (result.failed.length === 0) {
-          await clearStagedQrTransfer();
-          stagedRef.current = null;
-          setHasStagedTransfer(false);
-        }
-        setPhase('done');
-      }
-    } catch (err) {
-      // A receiver that can't inflate a gzipped payload (no DecompressionStream)
-      // would re-throw the identical error on every retry — mark it non-retryable
-      // so the UI stops offering a useless "Retry upload". Any other failure
-      // (transient network/ingest) keeps the batch in decoderRef and offers a retry.
-      const unrecoverable = err instanceof DecompressionUnsupportedError;
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to upload reports.');
-      setPhase('error');
-      setCanRetry(!unrecoverable);
+    let ingestedTotal = 0;
+    let failedTotal = 0;
+    let firstFailedError: string | null = null;
+    let thrown: unknown = null;
+    let retryable = false;
+    if (stagedRef.current.length === 0) {
+      thrown = new Error('Decoded transfer was not safely staged on this device.');
+      retryable = true;
     }
-  }, []);
+    for (const staged of [...stagedRef.current]) {
+      let reports: unknown[];
+      try {
+        reports = bytesToReports(await decompressForQr(staged.payload, staged.compressed));
+      } catch (err) {
+        // A bad payload only affects this transfer; keep going with the rest.
+        // A receiver that can't inflate gzip (no DecompressionStream) would fail
+        // identically on every retry, so it is not offered one.
+        thrown ??= err;
+        if (!(err instanceof DecompressionUnsupportedError)) retryable = true;
+        continue;
+      }
+      try {
+        const result = await postIngest(reports);
+        ingestedTotal += result.ingested;
+        failedTotal += result.failed.length;
+        firstFailedError ??= result.failed[0]?.error ?? null;
+        if (result.failed.length === 0) {
+          await clearStagedQrTransfer(staged.sessionId);
+          stagedRef.current = stagedRef.current.filter((t) => t !== staged);
+        } else {
+          // Re-POSTing the held batch is revision-guarded, so a retry only
+          // re-attempts the failed subset.
+          retryable = true;
+        }
+      } catch (err) {
+        // An upload failure (dead venue network, timeout) applies to the rest
+        // of the queue too: stop and keep everything staged for a retry.
+        thrown ??= err;
+        retryable = true;
+        break;
+      }
+    }
+    syncStagedCount();
+    setIngested(ingestedTotal);
+    setFailedCount(failedTotal);
+    setFailedError(firstFailedError);
+    setCanRetry(retryable);
+    if (thrown && ingestedTotal === 0) {
+      setErrorMessage(thrown instanceof Error ? thrown.message : 'Failed to upload reports.');
+      setPhase('error');
+    } else if (ingestedTotal === 0 && failedTotal > 0) {
+      // Everything decoded but the server rejected every row → surface it AND
+      // allow a retry (the rejection may be a transient RLS/auth blip).
+      setErrorMessage(
+        `Server rejected all ${failedTotal} report${failedTotal === 1 ? '' : 's'}: ${
+          firstFailedError ?? 'unknown error'
+        }`,
+      );
+      setPhase('error');
+    } else {
+      setPhase('done');
+    }
+  }, [syncStagedCount]);
 
   const stageDecodedAndIngest = useCallback(async (): Promise<void> => {
     try {
@@ -211,8 +241,11 @@ function QrReceiveScanner() {
         compressed: decoder.compressed ?? false,
         payload: decoder.payloadBytes(),
       });
-      stagedRef.current = staged;
-      setHasStagedTransfer(true);
+      stagedRef.current = [
+        ...stagedRef.current.filter((t) => t.sessionId !== staged.sessionId),
+        staged,
+      ];
+      syncStagedCount();
       controlsRef.current?.stop();
       await runIngest();
     } catch (error) {
@@ -226,7 +259,7 @@ function QrReceiveScanner() {
       setPhase('error');
       setCanRetry(true);
     }
-  }, [runIngest]);
+  }, [runIngest, syncStagedCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,13 +267,13 @@ function QrReceiveScanner() {
     setStagingLoadFailed(false);
     setErrorMessage(null);
     setPhase('scanning');
-    void loadStagedQrTransfer()
+    void listStagedQrTransfers()
       .then((staged) => {
         if (cancelled) return;
         setStagingReady(true);
-        if (!staged) return;
         stagedRef.current = staged;
-        setHasStagedTransfer(true);
+        syncStagedCount();
+        if (staged.length === 0) return;
         completedRef.current = true;
         void runIngest();
       })
@@ -261,7 +294,7 @@ function QrReceiveScanner() {
     return () => {
       cancelled = true;
     };
-  }, [runIngest, stagingLoadGeneration]);
+  }, [runIngest, stagingLoadGeneration, syncStagedCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -393,9 +426,28 @@ function QrReceiveScanner() {
   }, [scanGeneration, stageDecodedAndIngest, stagingReady]);
 
   const retryTransfer = useCallback((): void => {
-    if (stagedRef.current) void runIngest();
+    if (stagedRef.current.length > 0) void runIngest();
     else void stageDecodedAndIngest();
   }, [runIngest, stageDecodedAndIngest]);
+
+  // Start a fresh camera decode for the next sender while any transfers that
+  // could not upload yet stay staged; they are re-sent after the next scan.
+  const scanNext = useCallback((): void => {
+    controlsRef.current?.stop();
+    decoderRef.current = new FountainDecoder();
+    completedRef.current = false;
+    foreignSidRef.current = null;
+    foreignCountRef.current = 0;
+    setReceived(0);
+    setTotal(null);
+    setIngested(null);
+    setFailedCount(0);
+    setFailedError(null);
+    setErrorMessage(null);
+    setCanRetry(false);
+    setPhase('scanning');
+    setScanGeneration((generation) => generation + 1);
+  }, []);
 
   const retryStagingLoad = useCallback((): void => {
     setStagingLoadGeneration((generation) => generation + 1);
@@ -410,21 +462,9 @@ function QrReceiveScanner() {
       // keep the poisoned transfer visible so a reload cannot silently restore
       // it after the user has already started scanning a replacement.
       await clearStagedQrTransfer();
-      stagedRef.current = null;
-      decoderRef.current = new FountainDecoder();
-      completedRef.current = false;
-      foreignSidRef.current = null;
-      foreignCountRef.current = 0;
-      setHasStagedTransfer(false);
-      setReceived(0);
-      setTotal(null);
-      setIngested(null);
-      setFailedCount(0);
-      setFailedError(null);
-      setErrorMessage(null);
-      setCanRetry(false);
-      setPhase('scanning');
-      setScanGeneration((generation) => generation + 1);
+      stagedRef.current = [];
+      syncStagedCount();
+      scanNext();
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -435,21 +475,17 @@ function QrReceiveScanner() {
     } finally {
       setDiscarding(false);
     }
-  }, [discarding]);
+  }, [discarding, scanNext, syncStagedCount]);
 
   return (
     <div
       data-testid="qr-receive"
-      className="flex min-h-screen flex-col bg-background px-safe py-safe text-foreground"
+      className={`flex min-h-screen flex-col bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
     >
-      <header className="mb-4 flex items-start gap-3">
-        <BackLink to="/scout" label="Back" icon="back" />
-        <Camera
-          className={`mt-2 size-7 shrink-0 ${phase === 'error' ? 'text-destructive' : 'text-brand'}`}
-          aria-hidden
-        />
+      <header className="mb-4 flex flex-col gap-3">
+        <h1 className="text-xl font-medium">Transfer by QR</h1>
+        <QrModeTabs active="receive" />
         <div className="min-w-0">
-          <h1 className="break-words text-xl font-bold leading-tight sm:text-2xl">Receive over QR</h1>
           <p className="text-sm text-muted-foreground">
             Aim at the sending device&apos;s screen. The codes cycle on their own — a missed one
             is fine, just hold it roughly in frame until the bar fills.
@@ -493,7 +529,17 @@ function QrReceiveScanner() {
                 className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-60"
               >
                 <Trash2 className="size-4" />
-                {discarding ? 'Discarding…' : 'Discard transfer and scan again'}
+                {discarding ? 'Discarding…' : discardLabel}
+              </button>
+            ) : null}
+            {!stagingLoadFailed && hasStagedTransfer ? (
+              <button
+                type="button"
+                data-testid="qr-receive-scan-next"
+                onClick={scanNext}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-muted"
+              >
+                <Camera className="size-4" /> Keep saved and scan next device
               </button>
             ) : null}
           </div>
@@ -515,7 +561,7 @@ function QrReceiveScanner() {
             {/* Partial success keeps a retry: re-POSTing the held batch is
                 revision-guarded, so it only re-attempts the failed subset. Without
                 this the failed reports are lost when the sender is wiped. */}
-            {failedCount > 0 && canRetry && (
+            {canRetry && (
               <button
                 type="button"
                 data-testid="qr-receive-retry"
@@ -525,7 +571,7 @@ function QrReceiveScanner() {
                 <RotateCcw className="size-4" /> Retry failed uploads
               </button>
             )}
-            {failedCount > 0 && hasStagedTransfer && (
+            {hasStagedTransfer && (
               <button
                 type="button"
                 data-testid="qr-receive-discard"
@@ -534,9 +580,23 @@ function QrReceiveScanner() {
                 className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-60"
               >
                 <Trash2 className="size-4" />
-                {discarding ? 'Discarding…' : 'Discard transfer and scan again'}
+                {discarding ? 'Discarding…' : discardLabel}
               </button>
             )}
+            {hasStagedTransfer && (
+              <p data-testid="qr-receive-waiting" className="text-sm text-muted-foreground">
+                {stagedCount} transfer{stagedCount === 1 ? ' is' : 's are'} saved on this device and
+                will upload after the next scan or retry.
+              </p>
+            )}
+            <button
+              type="button"
+              data-testid="qr-receive-scan-next"
+              onClick={scanNext}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-4 text-sm font-medium text-muted-foreground hover:bg-muted"
+            >
+              <Camera className="size-4" /> Scan next device
+            </button>
           </div>
         ) : (
           <>
@@ -580,6 +640,7 @@ function QrReceiveScanner() {
           </>
         )}
       </div>
+      <ScoutBottomNav active="home" />
     </div>
   );
 }
