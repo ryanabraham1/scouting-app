@@ -264,3 +264,21 @@ export interface LocalMatchupNote {
   /** Typed recovery metadata; old rows without it are normalized on read. */
   recoveryIssue?: LocalRecoveryIssue | null;
 }
+
+/**
+ * Dexie row for one record on Ryan's Board (one tldraw record: a shape, page,
+ * binding, asset, or the board's schema meta row). Per-record rows so the
+ * phase-2 outbox can sync small changes and two devices editing different
+ * shapes never conflict. `key` = `${boardKey}:${recordId}`; `boardKey` is the
+ * event key (one board per event). Deletes are kept as tombstones
+ * (`deleted: true`, `data: null`) so a later sync can't resurrect them.
+ */
+export interface LocalBoardRecord {
+  key: string;
+  boardKey: string;
+  recordId: string;
+  data: unknown;
+  deleted: boolean;
+  updatedAt: string; // ISO
+  syncState: 'dirty' | 'pending' | 'synced' | 'error';
+}

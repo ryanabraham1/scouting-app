@@ -11,6 +11,7 @@ import {
   Lock,
   ShieldCheck,
   LayoutDashboard,
+  Shapes,
 } from 'lucide-react';
 import { BottomTabBar, BOTTOM_BAR_CLEARANCE, type BottomTab } from '@/components/BottomTabBar';
 import { IconTabs } from '@/components/ui/IconTabs';
@@ -28,6 +29,8 @@ const PicklistView = lazy(() => import('@/dash/PicklistView'));
 const ScoutersTab = lazy(() => import('@/dash/ScoutersTab'));
 const SetupTab = lazy(() => import('@/dash/SetupTab'));
 const DraftBoardView = lazy(() => import('@/dash/DraftBoardView'));
+// Ryan's Board (infinite canvas) loads only when its tab is opened.
+const RyansBoard = lazy(() => import('@/dash/board/RyansBoard'));
 
 function TabLoading(): JSX.Element {
   return (
@@ -37,13 +40,14 @@ function TabLoading(): JSX.Element {
   );
 }
 
-type Tab = 'strategy' | 'scouters' | 'picklist' | 'draft' | 'settings';
+type Tab = 'strategy' | 'board' | 'scouters' | 'picklist' | 'draft' | 'settings';
 
 const LEAD_UNLOCK_KEY = 'frc-lead-dashboard-unlocked';
 const LEAD_CODE = '12345';
 
 const TABS: readonly (BottomTab<Tab> & { needsEvent: boolean })[] = [
   { id: 'strategy', label: 'Strategy', icon: Presentation, needsEvent: true },
+  { id: 'board', label: "Ryan's Board", icon: Shapes, needsEvent: true },
   { id: 'scouters', label: 'Scouters', icon: UserCheck, needsEvent: false },
   { id: 'picklist', label: 'Picklist', icon: ClipboardList, needsEvent: true },
   { id: 'draft', label: 'Draft', icon: Gavel, needsEvent: true },
@@ -54,6 +58,7 @@ const TAB_ALIASES: Record<string, Tab> = {
   setup: 'settings',
   scouter: 'scouters',
   roster: 'scouters',
+  ryan: 'board',
 };
 
 function initialTab(): Tab {
@@ -278,6 +283,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
                 <PicklistView eventKey={eventKey} readOnly={!authoritative} />
               )}
               {tab === 'draft' && <DraftBoardView eventKey={eventKey} />}
+              {tab === 'board' && <RyansBoard eventKey={eventKey} />}
             </Suspense>
           </section>
         ))}

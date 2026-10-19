@@ -11,6 +11,7 @@ import type {
   LocalMatchupNote,
   LocalStrategyCanvas,
   LocalRecoveryIssue,
+  LocalBoardRecord,
 } from './types';
 import {
   isAuthClassError,
@@ -41,6 +42,8 @@ export class ScoutingDb extends Dexie {
   matchupNotes!: Table<LocalMatchupNote, string>;
   // Per-match strategy whiteboard docs (Strategy tab). Same sync-state machine.
   strategyCanvas!: Table<LocalStrategyCanvas, string>;
+  // Ryan's Board (lead dashboard infinite canvas): one row per canvas record.
+  boardRecords!: Table<LocalBoardRecord, string>;
 
   constructor() {
     super('scouting-db');
@@ -100,6 +103,21 @@ export class ScoutingDb extends Dexie {
       preloadMeta: 'key',
       matchupNotes: 'key, eventKey, syncState, ourTeam, oppTeam',
       strategyCanvas: 'key, eventKey, syncState',
+    });
+    // v6: Ryan's Board records. ALL prior v5 stores are redeclared unchanged
+    // (same hard merge-gate rule as v3 — see the comment above).
+    this.version(6).stores({
+      reports: 'id, syncState, matchKey, scoutId, targetTeamNumber',
+      drafts: 'draftKey, updatedAt',
+      cachedMatches: 'match_key, event_key',
+      cachedAssignments: 'id, scout_id, event_key, match_key',
+      cachedPitAssignments: 'id, scout_id, event_key, team_number',
+      cachedRoster: 'id, name',
+      cachedTeams: 'id, event_key, team_number',
+      preloadMeta: 'key',
+      matchupNotes: 'key, eventKey, syncState, ourTeam, oppTeam',
+      strategyCanvas: 'key, eventKey, syncState',
+      boardRecords: 'key, boardKey, syncState',
     });
   }
 }
@@ -713,4 +731,58 @@ export async function requeueAuthClassMatchupDeadLetters(): Promise<number> {
     await requeueMatchupNote(r.key);
   }
   return targets.length;
+}
+
+// ---------------------------------------------------------------------------
+// Ryan's Board records (lead dashboard infinite canvas).
+//
+// Every write lands 'dirty' so the phase-2 board outbox can drain it later.
+// Deletes are tombstones, never hard deletes, for the same reason.
+// ---------------------------------------------------------------------------
+
+export function boardRecordKey(boardKey: string, recordId: string): string {
+  return `${boardKey}:${recordId}`;
+}
+
+/** Every stored row for one board (live records AND tombstones). */
+export async function getBoardRecordRows(boardKey: string): Promise<LocalBoardRecord[]> {
+  return db.boardRecords.where('boardKey').equals(boardKey).toArray();
+}
+
+/** Hard-delete board rows by key (only for rows that no longer parse). */
+export async function deleteBoardRecordRows(keys: readonly string[]): Promise<void> {
+  if (keys.length) await db.boardRecords.bulkDelete([...keys]);
+}
+
+/** Live (non-tombstoned) records for one board, keyed by record id. */
+export async function getBoardRecords(boardKey: string): Promise<Map<string, unknown>> {
+  const rows = await getBoardRecordRows(boardKey);
+  const out = new Map<string, unknown>();
+  for (const r of rows) if (!r.deleted && r.data != null) out.set(r.recordId, r.data);
+  return out;
+}
+
+/**
+ * Upsert board records in one transaction. A tombstone keeps its record data
+ * (`{ id, deleted: true, rev, by }`) so cloud sync can merge it by rev.
+ * `syncState` defaults to 'dirty' (local edit); remote merges pass 'synced'.
+ */
+export async function writeBoardRecords(
+  boardKey: string,
+  rows: readonly { id: string; data: unknown; deleted: boolean }[],
+  syncState: LocalBoardRecord['syncState'] = 'dirty',
+): Promise<void> {
+  if (rows.length === 0) return;
+  const updatedAt = new Date().toISOString();
+  await db.boardRecords.bulkPut(
+    rows.map(({ id, data, deleted }) => ({
+      key: boardRecordKey(boardKey, id),
+      boardKey,
+      recordId: id,
+      data,
+      deleted,
+      updatedAt,
+      syncState,
+    })),
+  );
 }

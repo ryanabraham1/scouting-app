@@ -59,11 +59,12 @@ describe('DashboardScreen', () => {
     expect(window.sessionStorage.getItem('frc-lead-dashboard-unlocked')).toBe('true');
   });
 
-  it('shows only the five requested lead sections', () => {
+  it('shows only the requested lead sections', () => {
     renderDashboard();
     unlock();
     expect(Array.from(screen.getByTestId('dashboard-bottom-nav').querySelectorAll('button')).map((tab) => tab.textContent?.trim())).toEqual([
       'Strategy',
+      "Ryan's Board",
       'Scouters',
       'Picklist',
       'Draft',
