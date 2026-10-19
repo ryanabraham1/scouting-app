@@ -52,6 +52,7 @@ import {
   fetchTeamMetadata,
 } from '@/dash/presetExports';
 import { openPrintWindow } from '@/dash/printWindow';
+import { resolveRowEpa } from '@/dash/sorting';
 import PicklistSeedDialog from '@/dash/PicklistSeedDialog';
 
 export interface PicklistViewProps {
@@ -105,6 +106,20 @@ interface PickRowProps {
   onUpdateField: (teamNumber: number, field: 'tier' | 'note', value: string) => void;
   onSendToOtherList: (teamNumber: number) => void;
   editable: boolean;
+  /** Desktop stat strip: live BSR plus scouted fuel / defense / reliability. */
+  stats?: PickRowStats;
+}
+
+export interface PickRowStats {
+  bsr: number | null;
+  /** null when the team has no scouting reports yet. */
+  fuel: number | null;
+  defense: number | null;
+  reliability: number | null;
+}
+
+function fmtStat(v: number | null, digits = 1): string {
+  return v == null ? '—' : v.toFixed(digits);
 }
 
 /**
@@ -124,6 +139,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
     onUpdateField,
     onSendToOtherList,
     editable,
+    stats,
   } = props;
   // The list this row would MOVE TO (it renders only inside its current list).
   const moveTarget = entryList(e) === 'first' ? '2nd' : '1st';
@@ -138,6 +154,8 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
       data-testid={`pick-row-${e.teamNumber}`}
       className={cn(
         'grid grid-cols-[auto_1fr_auto] items-center gap-2 border-t border-border py-3 first:border-t-0 sm:flex sm:flex-nowrap sm:rounded-lg sm:border sm:border-border/60 sm:bg-background/40 sm:p-2 sm:first:border-t',
+        // Pick tiers, matching Ranking's coloring: top 3 cyan, 4–8 orange.
+        i < 3 ? 'lg:border-brand/30 lg:bg-brand/[0.07]' : i < 8 ? 'lg:border-energy/25 lg:bg-energy/[0.06]' : '',
         isDragging && 'relative z-10 opacity-90 shadow-lg ring-1 ring-brand/50',
       )}
     >
@@ -157,7 +175,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         <span
           className={cn(
             'w-6 text-right tabular-nums',
-            i < 3 ? 'font-semibold text-brand' : 'text-muted-foreground',
+            i < 3 ? 'font-semibold text-brand' : i < 8 ? 'font-semibold text-energy' : 'text-muted-foreground',
           )}
         >
           {i + 1}
@@ -168,6 +186,32 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         data-testid={`pick-team-${e.teamNumber}`}
         className="inline-flex min-h-[44px] min-w-0 shrink-0 items-center font-medium sm:w-16"
       />
+
+      {/* Desktop stat strip — color carries the meaning: BSR cyan, fuel orange,
+          defense blue, reliability green (amber when shaky). */}
+      {stats ? (
+        <span
+          data-testid={`pick-stats-${e.teamNumber}`}
+          className="hidden shrink-0 items-center gap-4 font-mono text-sm tabular-nums lg:flex"
+        >
+          <span title="BSR" className="w-12 text-right font-semibold text-brand">{fmtStat(stats.bsr)}</span>
+          <span title="Scouted fuel points" className="w-11 text-right text-orange-400">{fmtStat(stats.fuel, 0)}</span>
+          <span title="Defense rating" className="w-8 text-right text-blue-400">{fmtStat(stats.defense)}</span>
+          <span
+            title="Reliability"
+            className={cn(
+              'w-10 text-right',
+              stats.reliability == null
+                ? 'text-muted-foreground'
+                : stats.reliability < 0.85
+                  ? 'text-warning'
+                  : 'text-success',
+            )}
+          >
+            {stats.reliability == null ? '—' : `${Math.round(stats.reliability * 100)}%`}
+          </span>
+        </span>
+      ) : null}
 
       {/* Move / remove controls: a contained group so on mobile they sit together
           on their own grid row instead of wrapping the destructive ✕ off alone. */}
@@ -328,6 +372,19 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const epaAvailable = epaQuery.data?.available === true;
   const epaSource = epaQuery.data?.source ?? 'none';
   const epaByTeam = epaQuery.data?.epaByTeam;
+
+  // Per-row desktop stats: the shared match-results BSR resolver plus our
+  // scouted aggregates (null until a team has reports).
+  const statsFor = (team: number): PickRowStats => {
+    const agg = aggByTeam.get(team);
+    const scouted = agg != null && agg.matchesScouted > 0;
+    return {
+      bsr: resolveRowEpa({ agg: agg ?? emptyTeamAgg(team), epaByTeam, epaAvailable }),
+      fuel: scouted ? agg.meanFuelPoints : null,
+      defense: scouted ? agg.avgDefenseRating : null,
+      reliability: scouted ? agg.reliability : null,
+    };
+  };
 
   // Every EVENT team for the seed dialog: scouted aggregates plus empty rows for
   // not-yet-scouted teams (mirrors DraftBoardView), so seeding by EPA ranks the
@@ -1013,6 +1070,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                       onUpdateField={updateField}
                       onSendToOtherList={sendToOtherList}
                       editable={editable}
+                      stats={statsFor(e.teamNumber)}
                     />
                   ))}
                 </ul>
