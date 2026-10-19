@@ -143,7 +143,7 @@ test('Scenario C — EPA fallback note is tolerant of EPA availability', async (
   }
 
   await page.getByTestId('pick-seed-metric').selectOption('epa');
-  // When Statbotics/local EPA is unavailable the dialog shows the in-house note.
+  // When match13/local BSR is unavailable the dialog shows the in-house note.
   if (await page.getByTestId('pick-seed-epa-note').isVisible()) {
     await expect(page.getByTestId('pick-seed-epa-note')).toContainText(/in-house/i);
   }

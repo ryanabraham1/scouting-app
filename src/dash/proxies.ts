@@ -67,46 +67,82 @@ export async function tbaGetOptional<T>(path: string): Promise<T | ProxyUnavaila
   }
 }
 
-/** How long to stop calling Statbotics after it reports an outage. */
-export const STATBOTICS_BACKOFF_MS = 60_000;
-let statboticsDownUntil = 0;
+/** A team's season numbers from match13 (any field may be missing). */
+export interface Match13Team {
+  /** match13's season xP rating, on the points scale. */
+  xp: number | null;
+  /** World rank by xP among the season's teams. */
+  rank: number | null;
+  auto: number | null;
+  teleop: number | null;
+  endgame: number | null;
+}
 
-/** Test hook: forget a remembered Statbotics outage. */
-export function resetStatboticsBackoff(): void {
-  statboticsDownUntil = 0;
+/** How long to stop calling match13 after it reports an outage. */
+export const MATCH13_BACKOFF_MS = 60_000;
+let match13DownUntil = 0;
+
+/** Test hook: forget a remembered match13 outage. */
+export function resetMatch13Backoff(): void {
+  match13DownUntil = 0;
+}
+
+function finiteOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Decode the proxy's `{ columns, teams: [[team, xp, rank, auto, teleop, endgame]] }` table. */
+export function parseMatch13Season(body: unknown): Map<number, Match13Team> | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const { columns, teams } = body as { columns?: unknown; teams?: unknown };
+  if (!Array.isArray(columns) || !Array.isArray(teams)) return null;
+  const col = (name: string) => columns.indexOf(name);
+  const [iTeam, iXp, iRank, iAuto, iTele, iEnd] =
+    ['team', 'xp', 'rank', 'auto', 'teleop', 'endgame'].map(col);
+  if (iTeam < 0) return null;
+  const at = (row: unknown[], i: number) => (i < 0 ? null : finiteOrNull(row[i]));
+  const out = new Map<number, Match13Team>();
+  for (const row of teams) {
+    if (!Array.isArray(row)) continue;
+    const team = at(row, iTeam);
+    if (team == null) continue;
+    out.set(team, {
+      xp: at(row, iXp),
+      rank: at(row, iRank),
+      auto: at(row, iAuto),
+      teleop: at(row, iTele),
+      endgame: at(row, iEnd),
+    });
+  }
+  return out;
 }
 
 /**
- * Read through the Statbotics Edge proxy. Never throws: degrades to
- * `{ available: false }` on the sentinel body OR on any fetch/non-2xx error,
- * so the dashboard keeps working through a Statbotics outage.
- *
- * Statbotics is only an EPA fallback, yet the EPA load awaits it for every
- * team with no local match results — so once it reports an outage, answer
- * `{ available: false }` locally for STATBOTICS_BACKOFF_MS instead of making
- * each team in the fan-out wait on a dead upstream.
+ * Every team's season numbers from match13, through the match13-proxy Edge
+ * Function (which holds the API key and caches the season). One request covers
+ * the whole season, so callers look teams up in the returned map instead of
+ * fetching per team. Never throws: degrades to `{ available: false }`, and once
+ * match13 reports an outage answers that locally for MATCH13_BACKOFF_MS so no
+ * screen keeps waiting on a dead upstream.
  */
-export async function statboticsGet<T>(path: string): Promise<T | ProxyUnavailable> {
-  if (Date.now() < statboticsDownUntil) {
+export async function match13Season(
+  year: string,
+): Promise<Map<number, Match13Team> | ProxyUnavailable> {
+  if (Date.now() < match13DownUntil) {
     return { available: false };
   }
   const down = (): ProxyUnavailable => {
-    statboticsDownUntil = Date.now() + STATBOTICS_BACKOFF_MS;
+    match13DownUntil = Date.now() + MATCH13_BACKOFF_MS;
     return { available: false };
   };
   try {
-    const res = await timeoutFetch(proxyUrl('statbotics-proxy', path), {
-      headers: await authHeaders(),
-    });
-    if (!res.ok) {
-      return down();
-    }
-    const body = (await res.json()) as unknown;
-    if (isUnavailable(body)) {
-      // `notFound`: Statbotics answered, it just has no row for this path.
-      return (body as { notFound?: unknown }).notFound === true ? { available: false } : down();
-    }
-    return body as T;
+    const res = await timeoutFetch(
+      `${env.SUPABASE_URL}/functions/v1/match13-proxy?year=${encodeURIComponent(year)}`,
+      { headers: await authHeaders() },
+    );
+    if (!res.ok) return down();
+    const table = parseMatch13Season((await res.json()) as unknown);
+    return table ?? down();
   } catch {
     return down();
   }
@@ -168,36 +204,6 @@ export async function syncEventResults(
     /* best-effort safety net — the webhook is the primary path */
     return undefined;
   }
-}
-
-/**
- * Defensively extract a team's EPA (total points) from a Statbotics
- * `team_event` payload. Prefers `epa.breakdown.total_points`, falls back to
- * `epa.total_points.mean`. Returns null when neither is a finite number.
- */
-export function epaFromTeamEvent(json: unknown): number | null {
-  if (typeof json !== 'object' || json === null) {
-    return null;
-  }
-  const epa = (json as { epa?: unknown }).epa;
-  if (typeof epa !== 'object' || epa === null) {
-    return null;
-  }
-  const breakdown = (epa as { breakdown?: unknown }).breakdown;
-  if (typeof breakdown === 'object' && breakdown !== null) {
-    const v = (breakdown as { total_points?: unknown }).total_points;
-    if (typeof v === 'number' && Number.isFinite(v)) {
-      return v;
-    }
-  }
-  const totalPoints = (epa as { total_points?: unknown }).total_points;
-  if (typeof totalPoints === 'object' && totalPoints !== null) {
-    const mean = (totalPoints as { mean?: unknown }).mean;
-    if (typeof mean === 'number' && Number.isFinite(mean)) {
-      return mean;
-    }
-  }
-  return null;
 }
 
 /** youtube-proxy result: when a livestream actually started (null = not yet). */

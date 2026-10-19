@@ -63,7 +63,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([agg(1, 2, 30)]),
       epaByTeam: new Map<number, number | null>([[1, 50]]),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('epa');
@@ -77,7 +77,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([agg(1, 8, 30)]),
       epaByTeam: new Map<number, number | null>([[1, 50]]),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('epa');
@@ -90,7 +90,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([agg(1, 2, 30)]),
       epaByTeam: new Map<number, number | null>([[1, 999]]), // present but must be ignored
-      statboticsAvailable: false,
+      epaAvailable: false,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('scouting');
@@ -104,7 +104,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([agg(1, 8, 30)]),
       epaByTeam: new Map<number, number | null>([[1, null]]),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('scouting');
@@ -118,7 +118,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([]), // no agg for 3256
       epaByTeam: new Map<number, number | null>([[3256, 45]]),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('epa');
@@ -132,7 +132,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([]),
       epaByTeam: new Map<number, number | null>(),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('none');
@@ -146,7 +146,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([]),
       epaByTeam: new Map<number, number | null>([[42, 60]]),
-      statboticsAvailable: false,
+      epaAvailable: false,
     };
     const t = predictMatch(input).red.teams[0];
     expect(t.source).toBe('none');
@@ -159,7 +159,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
       blueTeams: [],
       agg: aggMap([agg(1, 1, 400), agg(2, 1, 0)]),
       epaByTeam: new Map<number, number | null>([[1, 50], [2, 50]]),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const out = predictMatch(input);
     expect(out.red.teams[0].expected).toBe(50);
@@ -169,7 +169,7 @@ describe('predictMatch — per-team source cases (EPA first, scouting never blen
 });
 
 describe('predictMatch — alliance scores & win prob', () => {
-  const fullInput = (statboticsAvailable: boolean): PredictInput => ({
+  const fullInput = (epaAvailable: boolean): PredictInput => ({
     redTeams: [1, 2, 3],
     blueTeams: [4, 5, 6],
     agg: aggMap([
@@ -188,7 +188,7 @@ describe('predictMatch — alliance scores & win prob', () => {
       [5, 40],
       [6, 40],
     ]),
-    statboticsAvailable,
+    epaAvailable,
   });
 
   it('alliance score is the sum of team expected values (EPA-only: 3 × 40)', () => {
@@ -212,7 +212,7 @@ describe('predictMatch — alliance scores & win prob', () => {
       blueTeams: [4],
       agg: aggMap([agg(1, 4, 100), agg(4, 4, 40)]), // red 100, blue 40
       epaByTeam: new Map<number, number | null>(),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const out = predictMatch(input);
     expect(out.red.score).toBeCloseTo(100, 10);
@@ -232,7 +232,7 @@ describe('predictMatch — alliance scores & win prob', () => {
       blueTeams: [4],
       agg: aggMap([agg(1, 4, 100000), agg(4, 4, 0)]),
       epaByTeam: new Map<number, number | null>(),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const p = predictMatch(input).redWinProb;
     expect(p).toBeGreaterThanOrEqual(0);
@@ -241,7 +241,7 @@ describe('predictMatch — alliance scores & win prob', () => {
 });
 
 describe('predictMatch — confidence', () => {
-  const fullInput = (statboticsAvailable: boolean): PredictInput => ({
+  const fullInput = (epaAvailable: boolean): PredictInput => ({
     redTeams: [1, 2, 3],
     blueTeams: [4, 5, 6],
     agg: aggMap([
@@ -260,7 +260,7 @@ describe('predictMatch — confidence', () => {
       [5, 40],
       [6, 40],
     ]),
-    statboticsAvailable,
+    epaAvailable,
   });
 
   it('confidence is meanW (1 for an all-EPA match) when EPA is up', () => {
@@ -289,7 +289,7 @@ describe('predictMatch — robustness', () => {
       blueTeams: [],
       agg: new Map(),
       epaByTeam: new Map<number, number | null>(),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     expect(() => predictMatch(input)).not.toThrow();
     const out = predictMatch(input);
@@ -315,7 +315,7 @@ describe('predictMatch — robustness', () => {
       blueTeams: [4],
       agg: aggMap([agg(1, 4, 426), agg(4, 4, 405)]),
       epaByTeam: new Map<number, number | null>(),
-      statboticsAvailable: true,
+      epaAvailable: true,
     };
     const p = predictMatch(input).redWinProb;
     expect(p).toBeGreaterThan(0.5);
@@ -332,7 +332,7 @@ describe('predictMatch — robustness', () => {
       agg: aggMap([agg(1, 2, 30)]),
       // Plain object, not a Map — string keys as JSON.parse would produce.
       epaByTeam: { '1': 50 } as unknown as PredictInput['epaByTeam'],
-      statboticsAvailable: true,
+      epaAvailable: true,
     } as PredictInput;
     expect(() => predictMatch(input)).not.toThrow();
     const t = predictMatch(input).red.teams[0];

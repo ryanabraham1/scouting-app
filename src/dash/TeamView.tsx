@@ -3,7 +3,7 @@
 // deep-dive: pick a team from the event roster, then render that team's TeamAgg
 // (fuel breakdown with a rate-FUEL low-confidence chip, defense,
 // reliability, scoutingExpectedPoints), its in-house season EPA progression
-// (with Statbotics only as a fallback), and the team's scouted
+// (with match13 only as a fallback), and the team's scouted
 // matches. Dark theme, shadcn primitives, 44px touch targets.
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
@@ -263,7 +263,7 @@ function locationStr(city: string | null, state: string | null, country: string 
 
 /**
  * The Blue Alliance panel: live event rank + record, season world rank + EPA +
- * record (in-house EPA with Statbotics metadata/fallback), team identity / location, and a
+ * record (in-house EPA with match13 metadata/fallback), team identity / location, and a
  * deep link to the team's TBA page. Every field degrades to "—" so a TBA outage
  * never blanks the team view.
  */
@@ -1488,7 +1488,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     id ? scoutNameById.get(id) ?? '(unknown)' : 'unassigned';
 
   // EPA only for the selected team. The season model is computed from real TBA
-  // results; Statbotics is consulted only if those match results are unavailable.
+  // results; match13 is consulted only if those match results are unavailable.
   const epaTeams = useMemo(() => (selected != null ? [selected] : []), [selected]);
   const matchesQuery = useEventMatches(eventKey);
   const epaQuery = useEventEpa(epaTeams, eventKey, matchesQuery.data ?? []);
@@ -1535,7 +1535,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     );
   }, [teamMatches]);
 
-  // EPA node: match-results only (local in-house model, then Statbotics). The
+  // EPA node: match-results only (local in-house model, then match13). The
   // scouted expectation is deliberately NOT a fallback here — it is its own
   // "Scouted expected pts" stat in the scouting card so the two never blur.
   const epa = epaQuery.data;
@@ -1557,13 +1557,13 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             </span>
           ) : (
             <span className="rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-xs font-medium text-energy">
-              Statbotics fallback
+              match13 fallback
             </span>
           )}
         </div>
       ) : (
         <span className="text-sm text-zinc-400">
-          BSR unavailable — no TBA match-result or Statbotics data for this team.
+          BSR unavailable — no TBA match-result or match13 data for this team.
         </span>
       )}
     </div>
@@ -1591,7 +1591,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         />
       </Suspense>
     ) : (
-      // No match history (Statbotics fallback or unavailable): the plain value.
+      // No match history (match13 fallback or unavailable): the plain value.
       <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950">
         <CardHeader className="px-0 sm:px-6 space-y-0 pb-3">
           <CardTitle className="flex items-center gap-2 text-zinc-100">

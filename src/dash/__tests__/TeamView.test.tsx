@@ -358,7 +358,7 @@ describe('TeamView', () => {
     expect(getByTestId('team-fuel-lowconf-chip')).toBeTruthy();
   });
 
-  it('shows the EPA number when Statbotics is available', () => {
+  it('shows the EPA number when match13 is available', () => {
     const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
     selectTeam(getByTestId, '254');
     const epa = getByTestId('team-epa');

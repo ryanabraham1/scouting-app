@@ -17,7 +17,7 @@ vi.mock('@/lib/supabase', () => ({
   },
 }));
 
-import { tbaGet, statboticsGet, epaFromTeamEvent, resetStatboticsBackoff } from '../proxies';
+import { tbaGet, match13Season, parseMatch13Season, resetMatch13Backoff } from '../proxies';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -32,7 +32,7 @@ describe('proxies', () => {
     getSessionMock.mockReset();
     getSessionMock.mockResolvedValue({ data: { session: { access_token: 'tok-abc' } } });
     vi.stubGlobal('fetch', vi.fn());
-    resetStatboticsBackoff();
+    resetMatch13Backoff();
   });
 
   describe('tbaGet', () => {
@@ -59,87 +59,51 @@ describe('proxies', () => {
     });
   });
 
-  describe('statboticsGet', () => {
-    it('returns parsed JSON on a 200 response', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue(jsonResponse({ epa: { total_points: { mean: 42 } } })),
-      );
-      const result = await statboticsGet<{ epa: { total_points: { mean: number } } }>(
-        '/team_event/254/2026casnv',
-      );
-      expect(result).toEqual({ epa: { total_points: { mean: 42 } } });
-    });
+  describe('match13Season', () => {
+    const body = { year: 2026, columns: ['team', 'xp', 'rank', 'auto', 'teleop', 'endgame'], teams: [[3256, 191.3, 89, 48.6, 142.7, 0]] };
 
-    it('hits the statbotics-proxy function (not tba-proxy)', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ epa: {} }));
+    it('hits match13-proxy with the year and decodes the season table', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body));
       vi.stubGlobal('fetch', fetchMock);
-      await statboticsGet('/team_event/254/2026casnv');
-      const [url] = fetchMock.mock.calls[0];
-      expect(url).toContain('/functions/v1/statbotics-proxy?path=');
+      const result = await match13Season('2026');
+      expect(fetchMock.mock.calls[0][0]).toBe('https://proj.supabase.co/functions/v1/match13-proxy?year=2026');
+      expect(result).toBeInstanceOf(Map);
+      expect((result as Map<number, unknown>).get(3256)).toEqual({
+        xp: 191.3, rank: 89, auto: 48.6, teleop: 142.7, endgame: 0,
+      });
     });
 
-    it('degrades to { available: false } when the body is the sentinel', async () => {
+    it('degrades to { available: false } on the sentinel, an error status or a thrown fetch', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ available: false })));
-      const result = await statboticsGet('/team_event/254/2026casnv');
-      expect(result).toEqual({ available: false });
-    });
-
-    it('degrades to { available: false } on a thrown fetch error (never throws)', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
-      const result = await statboticsGet('/team_event/254/2026casnv');
-      expect(result).toEqual({ available: false });
-    });
-
-    it('degrades to { available: false } on a non-2xx response (never throws)', async () => {
+      expect(await match13Season('2026')).toEqual({ available: false });
+      resetMatch13Backoff();
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'oops' }, 503)));
-      const result = await statboticsGet('/team_event/254/2026casnv');
-      expect(result).toEqual({ available: false });
+      expect(await match13Season('2026')).toEqual({ available: false });
+      resetMatch13Backoff();
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+      expect(await match13Season('2026')).toEqual({ available: false });
     });
 
     it('stops calling the proxy for a while after an outage', async () => {
       const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ available: false }));
       vi.stubGlobal('fetch', fetchMock);
-      await statboticsGet('/team_year/254/2026');
-      const result = await statboticsGet('/team_year/1678/2026');
-      expect(result).toEqual({ available: false });
+      await match13Season('2026');
+      expect(await match13Season('2026')).toEqual({ available: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('keeps calling the proxy after a not-found answer', async () => {
-      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ available: false, notFound: true }));
-      vi.stubGlobal('fetch', fetchMock);
-      await statboticsGet('/team_year/99999/2026');
-      await statboticsGet('/team_year/254/2026');
-      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 
-  describe('epaFromTeamEvent', () => {
-    it('reads epa.breakdown.total_points', () => {
-      expect(epaFromTeamEvent({ epa: { breakdown: { total_points: 55.5 } } })).toBe(55.5);
-    });
-
-    it('falls back to epa.total_points.mean', () => {
-      expect(epaFromTeamEvent({ epa: { total_points: { mean: 33 } } })).toBe(33);
-    });
-
-    it('prefers breakdown.total_points over total_points.mean', () => {
-      expect(
-        epaFromTeamEvent({ epa: { breakdown: { total_points: 10 }, total_points: { mean: 20 } } }),
-      ).toBe(10);
-    });
-
-    it('returns null for missing/unparseable data', () => {
-      expect(epaFromTeamEvent(null)).toBeNull();
-      expect(epaFromTeamEvent({})).toBeNull();
-      expect(epaFromTeamEvent({ epa: {} })).toBeNull();
-      expect(epaFromTeamEvent({ epa: { total_points: {} } })).toBeNull();
-      expect(epaFromTeamEvent({ epa: { breakdown: { total_points: 'x' } } })).toBeNull();
-    });
-
-    it('returns null for the sentinel { available: false }', () => {
-      expect(epaFromTeamEvent({ available: false })).toBeNull();
+  describe('parseMatch13Season', () => {
+    it('rejects garbage and skips malformed rows', () => {
+      expect(parseMatch13Season(null)).toBeNull();
+      expect(parseMatch13Season({ teams: [] })).toBeNull();
+      const t = parseMatch13Season({
+        columns: ['team', 'xp', 'rank'],
+        teams: [[254, 'x', 3], 'junk', ['nope', 1, 1], [1678, 80, null]],
+      });
+      expect(t?.get(254)).toEqual({ xp: null, rank: 3, auto: null, teleop: null, endgame: null });
+      expect(t?.get(1678)?.xp).toBe(80);
+      expect(t?.size).toBe(2);
     });
   });
 });

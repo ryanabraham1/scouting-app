@@ -122,7 +122,7 @@ describe('AllianceSimulatorView', () => {
     expect(teamNumbers).toContain(22);
   });
 
-  it('statboticsAvailable wiring: a local EPA source drives the projection (available === true)', () => {
+  it('epaAvailable wiring: a local EPA source drives the projection (available === true)', () => {
     // One scouted team + EPA available via LOCAL source.
     useEventReportsMock.mockReturnValue(
       dataResult<MsrRow[]>([
@@ -157,12 +157,12 @@ describe('AllianceSimulatorView', () => {
     expect(getByTestId('alliance-epa-banner').textContent).toMatch(/local/i);
   });
 
-  it('labels Statbotics as the fallback when local EPA is unavailable', () => {
+  it('labels match13 as the fallback when local EPA is unavailable', () => {
     useEventEpaMock.mockReturnValue(
-      dataResult<EventEpa>({ epaByTeam: new Map(), available: true, source: 'statbotics' }),
+      dataResult<EventEpa>({ epaByTeam: new Map(), available: true, source: 'match13' }),
     );
     const { getByTestId } = render(<AllianceSimulatorView eventKey="2026casnv" />);
-    expect(getByTestId('alliance-epa-banner').textContent).toContain('Statbotics fallback');
+    expect(getByTestId('alliance-epa-banner').textContent).toContain('match13 fallback');
   });
 
   it('Top baseline excludes the picked teams (no self-vs-self ~50%)', () => {

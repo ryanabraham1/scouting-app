@@ -1,4 +1,4 @@
-// Shared path validation for the read-only upstream proxies (tba/statbotics/nexus).
+// Shared path validation for the read-only upstream proxies (tba/nexus).
 //
 // Each proxy interpolates a caller-supplied `path` into `${BASE}${path}`. The
 // functions are open (no auth), so we defend against path-traversal and
@@ -7,7 +7,7 @@
 //   - no ".." segments (traversal to sibling/parent endpoints)
 //   - no backslashes (URL-smuggling / alternate separators)
 //   - no raw whitespace or control characters (chars <= 0x20 or 0x7f)
-// Query strings (statbotics) are allowed; hyphens/underscores (event keys) are fine.
+// Query strings are allowed; hyphens/underscores (event keys) are fine.
 export function isSafeProxyPath(path: string | null): path is string {
   if (!path || !path.startsWith("/")) return false;
   if (path.length > 512) return false;

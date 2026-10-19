@@ -1,7 +1,15 @@
 import { useEffect, useId, useRef } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { tbaGet, nexusGet, syncEventResults, youtubeStreamStart, isUnavailable } from '@/dash/proxies';
+import {
+  tbaGet,
+  nexusGet,
+  match13Season,
+  syncEventResults,
+  youtubeStreamStart,
+  isUnavailable,
+  type Match13Team,
+} from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
 import { computeLocalEpaComponents } from '@/dash/localEpa';
 import { bayesTeamSeason, type BayesCal } from '@/dash/bayesEpaRows';
@@ -105,8 +113,8 @@ export interface EventEpa {
   epaByTeam: Map<number, number | null>;
   /**
    * Auto / teleop / endgame split of each team's local EPA (sums to
-   * `epaByTeam`). Absent/undefined for a team whose EPA is Statbotics-sourced
-   * or whose season data carries no score breakdowns. OPTIONAL so fixtures
+   * `epaByTeam`). For a match13-sourced team it is match13's own split.
+   * Absent/undefined for a team whose season data carries no score breakdowns. OPTIONAL so fixtures
    * without it keep type-checking; `useEventEpa` always sets it.
    */
   componentsByTeam?: Map<number, LocalEpaComponents | null>;
@@ -114,25 +122,25 @@ export interface EventEpa {
   /**
    * Where the EPA values came from:
    *  - 'local': our live, season-wide EPA computed from TBA match results.
-   *  - 'statbotics': Statbotics fallback for at least one team whose local
-   *    match-result EPA was unavailable.
+   *  - 'match13': match13 xP fallback for at least one team whose local
+   *    match-result BSR was unavailable.
    *  - 'none': neither source produced anything (e.g. no matches passed in).
    * Additive + OPTIONAL so existing object-literal fixtures (e.g. RankingView /
    * TeamView tests owned by another agent) keep type-checking. `useEventEpa`
    * ALWAYS sets it, so hook consumers can rely on a concrete value.
    */
-  source?: 'statbotics' | 'local' | 'none';
+  source?: 'match13' | 'local' | 'none';
   /**
    * Per-team EPA source, so a consumer (e.g. the export presets) can label each
    * row's `epa_source` correctly — the event-wide `source` collapses every team
    * into one flag and would mislabel a team that only resolved an in-house
-   * estimate while ANOTHER team has Statbotics. OPTIONAL for the same reason as
+   * estimate while ANOTHER team has match13. OPTIONAL for the same reason as
    * `source` (object-literal fixtures); `useEventEpa` ALWAYS sets it.
    */
-  sourceByTeam?: Map<number, 'statbotics' | 'local' | 'none'>;
+  sourceByTeam?: Map<number, 'match13' | 'local' | 'none'>;
   /**
    * Posterior variance of each team's local (Bayesian) EPA; null for a
-   * Statbotics-sourced or unknown team. With `bayesCal`, lets predictMatch use
+   * match13-sourced or unknown team. With `bayesCal`, lets predictMatch use
    * the calibrated Bayesian win probability. OPTIONAL like the fields above.
    */
   varianceByTeam?: Map<number, number | null>;
@@ -648,7 +656,7 @@ export interface TeamSeasonEpa {
   components?: LocalEpaComponents | null;
   worldRank: number | null;
   record: string | null;
-  source: 'statbotics' | 'inhouse' | 'none';
+  source: EpaSource;
 }
 
 function localSeasonResult(
@@ -687,10 +695,36 @@ function normalizedSeasonTeams(teamNumbers: number[]): number[] {
 }
 
 /**
+ * match13's whole-season table (xP, world rank, component split per team),
+ * cached and persisted under one key so every team, screen and reload shares a
+ * single request. Null when match13 has never answered.
+ */
+async function match13SeasonCached(year: string): Promise<Map<number, Match13Team> | null> {
+  const queryKey = ['match13', 'season', year] as const;
+  try {
+    const table = await queryClient.fetchQuery({
+      queryKey,
+      staleTime: EPA_STALE_TIME,
+      retry: false,
+      queryFn: async () => {
+        const res = await match13Season(year);
+        if (!(res instanceof Map)) throw new Error('match13 is unavailable');
+        return res;
+      },
+    });
+    return table instanceof Map ? table : null;
+  } catch {
+    // Keep serving the last good table through an outage.
+    const last = queryClient.getQueryData<Map<number, Match13Team>>(queryKey);
+    return last instanceof Map ? last : null;
+  }
+}
+
+/**
  * A team's season BSR: our Bayesian in-house model over every complete event
- * this team attended. Statbotics is no longer consulted — it only ever filled
- * teams with no match results, and awaiting it stalled the whole EPA load
- * whenever Statbotics was slow or down. The result is cached per active
+ * this team attended. Only a team with no usable match results falls back to
+ * match13's season xP (one cached season table, so no per-team request, and a
+ * match13 outage answers immediately). The result is cached per active
  * event/team and is independent of which other teams are displayed with it.
  *
  * Both the Total-BSR tile (useTeamSeasonStats) and the match prediction
@@ -721,7 +755,19 @@ export async function seasonEpaForTeam(
           fetchSeasonMatchRows([team], eventKey, year),
           loadEpaPriors(year),
         ]);
-        return localSeasonResult(team, rows, priors);
+        const local = localSeasonResult(team, rows, priors);
+        if (local.epa != null) return local;
+        const m13 = (await match13SeasonCached(year))?.get(team);
+        if (m13?.xp == null) return local;
+        return {
+          epa: m13.xp,
+          components: m13.auto != null && m13.teleop != null && m13.endgame != null
+            ? { auto: m13.auto, teleop: m13.teleop, endgame: m13.endgame }
+            : null,
+          worldRank: m13.rank,
+          record: null,
+          source: 'match13',
+        };
       },
     });
   } catch {
@@ -737,8 +783,8 @@ export async function seasonEpaForTeam(
 /**
  * EPA per team for a match, for the prediction. Reads {@link seasonEpaForTeam}
  * for EACH team, so every team's prediction EPA EQUALS its Total-EPA tile (no
- * more 303-vs-290 discrepancy). `source` is 'statbotics' if any team has a
- * local EPA, else 'statbotics' if at least one team needed the fallback, else
+ * more 303-vs-290 discrepancy). `source` is 'local' if any team has a
+ * local BSR, else 'match13' if at least one team needed the fallback, else
  * 'none'. The third arg is accepted for call-site compatibility but unused —
  * EPA is season-wide, not derived from the current event's rows.
  */
@@ -767,10 +813,10 @@ export function useEventEpa(
       );
       const epaByTeam = new Map<number, number | null>();
       const componentsByTeam = new Map<number, LocalEpaComponents | null>();
-      const sourceByTeam = new Map<number, 'statbotics' | 'local' | 'none'>();
+      const sourceByTeam = new Map<number, 'match13' | 'local' | 'none'>();
       const varianceByTeam = new Map<number, number | null>();
       const cals: BayesCal[] = [];
-      let anyStatbotics = false;
+      let anyMatch13 = false;
       let anyLocal = false;
       let anyEpa = false;
       sortedTeams.forEach((team, index) => {
@@ -779,27 +825,27 @@ export function useEventEpa(
           ? settled.value
           : { epa: null, worldRank: null, record: null, source: 'none' };
         epaByTeam.set(team, r.epa);
-        componentsByTeam.set(team, r.source === 'statbotics' ? null : r.components ?? null);
-        const local = r.epa != null && r.source !== 'statbotics';
+        componentsByTeam.set(team, r.components ?? null);
+        const local = r.epa != null && r.source !== 'match13';
         varianceByTeam.set(team, local ? r.variance ?? null : null);
         if (local && r.bayesCal) cals.push(r.bayesCal);
         // seasonEpaForTeam returns 'inhouse' for the local fallback; normalize to
         // the event-level 'local' label so the per-team source matches `source`.
         sourceByTeam.set(
           team,
-          r.epa == null ? 'none' : r.source === 'statbotics' ? 'statbotics' : 'local',
+          r.epa == null ? 'none' : r.source === 'match13' ? 'match13' : 'local',
         );
         if (r.epa != null) {
           anyEpa = true;
-          if (r.source === 'statbotics') anyStatbotics = true;
+          if (r.source === 'match13') anyMatch13 = true;
           else anyLocal = true;
         }
       });
       const source: EventEpa['source'] = anyEpa
         ? anyLocal
           ? 'local'
-          : anyStatbotics
-            ? 'statbotics'
+          : anyMatch13
+            ? 'match13'
             : 'none'
         : 'none';
       // Each team's replay covers its own event closure, so the fitted
@@ -1518,7 +1564,7 @@ export function useAutoWebcastCalibration(eventKey: string | null, videoId: stri
   }, [enabled, data, eventKey, videoId]);
 }
 
-/** Season-level stats for OUR team: in-house EPA with Statbotics metadata/fallback. */
+/** Season-level stats for OUR team: in-house BSR, match13 world rank/fallback. */
 export interface TeamSeasonStats {
   worldRank: number | null;
   totalEpa: number | null;
@@ -1527,11 +1573,10 @@ export interface TeamSeasonStats {
 }
 
 /**
- * Season EPA + world rank + W-L-T record for a single team. EPA comes from the
- * shared {@link seasonEpaForTeam} (season-wide recency-weighted in-house model,
- * else Statbotics `team_year`) — the SAME source the match prediction uses,
- * so the Total-EPA tile and the prediction always agree. `epaSource` is
- * 'statbotics' | 'inhouse' | 'none'; the record falls back to a TBA-derived W-L-T.
+ * Season BSR + world rank + W-L-T record for a single team. BSR comes from the
+ * shared {@link seasonEpaForTeam} (season-wide in-house model, else match13's
+ * xP) — the SAME source the match prediction uses, so the Total tile and the
+ * prediction always agree. World rank is match13's; the record is TBA-derived.
  */
 export function useTeamSeasonStats(
   team: number,
@@ -1559,14 +1604,17 @@ export function useTeamSeasonStats(
         .then((matches) => seasonRecordFromTbaMatches(matches, team))
         .catch(() => null);
 
+      const match13Promise = match13SeasonCached(year);
+
       // Same single source of truth as the match prediction -> identical EPA.
       const r = await seasonEpaForTeam(team, eventKey as string, year);
+      const worldRank = r.worldRank ?? (await match13Promise)?.get(team)?.rank ?? null;
 
       // tbaGet throws on non-2xx, so a TBA outage just leaves the record null.
       const seasonRecord = r.record ?? await tbaRecordPromise;
 
       const epaSource: EpaSource = r.source;
-      return { worldRank: r.worldRank, totalEpa: r.epa, epaSource, seasonRecord };
+      return { worldRank, totalEpa: r.epa, epaSource, seasonRecord };
     },
   });
 }

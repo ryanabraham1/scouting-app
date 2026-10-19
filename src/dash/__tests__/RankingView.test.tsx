@@ -246,7 +246,7 @@ describe('RankingView', () => {
     expect(queryByTestId('dash-ranking-epa-banner')).toBeNull();
   });
 
-  it('shows the EPA value when Statbotics is available', () => {
+  it('shows the EPA value when match13 is available', () => {
     reportsReturn = { data: reports, isLoading: false };
     epaReturn = {
       data: { epaByTeam: new Map([[254, 55], [1678, null]]), available: true },

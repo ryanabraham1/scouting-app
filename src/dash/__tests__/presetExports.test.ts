@@ -64,7 +64,7 @@ const ENTRIES: PicklistEntry[] = [
 ];
 
 describe('buildPresetRows', () => {
-  it('happy path: ranks 1,2 with metrics + statbotics EPA', () => {
+  it('happy path: ranks 1,2 with metrics + match13 xP', () => {
     const aggByTeam = new Map<number, TeamAgg>([
       [254, agg({ teamNumber: 254, scoutingExpectedPoints: 20.5 })],
       [1678, agg({ teamNumber: 1678, scoutingExpectedPoints: 10 })],
@@ -78,16 +78,16 @@ describe('buildPresetRows', () => {
       aggByTeam,
       epaByTeam,
       true,
-      'statbotics',
+      'match13',
       new Map(),
       new Map([
-        [254, 'statbotics'],
-        [1678, 'statbotics'],
+        [254, 'match13'],
+        [1678, 'match13'],
       ]),
     );
     expect(rows.map((r) => r.rank)).toEqual([1, 2]);
     expect(rows[0].epa).toBe(45);
-    expect(rows[0].epaSource).toBe('statbotics');
+    expect(rows[0].epaSource).toBe('match13');
     expect(rows[0].matchesScouted).toBe(3);
     expect(rows[1].teamNumber).toBe(1678);
   });
@@ -98,9 +98,9 @@ describe('buildPresetRows', () => {
       new Map(), // no agg
       new Map([[9999, 50]]),
       true,
-      'statbotics',
+      'match13',
       new Map([[9999, meta({ teamNumber: 9999, nickname: 'Ghost', city: 'SF', stateProv: 'CA' })]]),
-      new Map([[9999, 'statbotics']]),
+      new Map([[9999, 'match13']]),
     );
     const r = rows[0];
     expect(r.rank).toBe(1);
@@ -137,7 +137,7 @@ describe('buildPresetRows', () => {
       aggByTeam,
       new Map([[254, 42]]),
       true,
-      'statbotics', // event-wide says statbotics
+      'match13', // event-wide says match13
       new Map(),
       new Map([[254, 'local']]), // but THIS team is local
     );
@@ -145,7 +145,7 @@ describe('buildPresetRows', () => {
     expect(rows[0].epaSource).toBe('local');
   });
 
-  it('event source statbotics but team has NO EPA → null / none (never scouted pts)', () => {
+  it('event source match13 but team has NO EPA → null / none (never scouted pts)', () => {
     const aggByTeam = new Map<number, TeamAgg>([
       [254, agg({ teamNumber: 254, scoutingExpectedPoints: 18 })],
     ]);
@@ -154,7 +154,7 @@ describe('buildPresetRows', () => {
       aggByTeam,
       new Map([[254, null]]), // no external number for this team
       true,
-      'statbotics',
+      'match13',
       new Map(),
       new Map([[254, 'none']]),
     );
@@ -283,14 +283,14 @@ describe('allianceSheetToCsv', () => {
           defense: 3,
           reliability: 1,
           epa: 45.4,
-          epaSource: 'statbotics',
+          epaSource: 'match13',
         }),
         row({ rank: 2, teamNumber: 9999 }), // fully unscouted
       ],
       '2026demo',
     );
     const lines = csv.split('\n');
-    expect(lines[1]).toBe('1,254,Poofs,"San Jose, CA",A,shooter,3,20.5,12.5,3.0,100%,45,statbotics');
+    expect(lines[1]).toBe('1,254,Poofs,"San Jose, CA",A,shooter,3,20.5,12.5,3.0,100%,45,match13');
     // unscouted row: numerics render em-dash
     expect(lines[2]).toBe('2,9999,—,—,—,—,—,—,—,—,—,—,none');
   });
@@ -357,9 +357,9 @@ describe('allianceSheetToHtml', () => {
     expect(trCount).toBe(3);
   });
 
-  it('labels Statbotics as the fallback source', () => {
-    const html = allianceSheetToHtml([row({ rank: 1, teamNumber: 254 })], '2026demo', 'statbotics');
+  it('labels match13 as the fallback source', () => {
+    const html = allianceSheetToHtml([row({ rank: 1, teamNumber: 254 })], '2026demo', 'match13');
     expect(html).toContain('<p class="epa-note">');
-    expect(html).toContain('Statbotics fallback');
+    expect(html).toContain('match13 xP fallback');
   });
 });

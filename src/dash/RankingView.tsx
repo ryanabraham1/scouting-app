@@ -1,7 +1,7 @@
 // src/dash/RankingView.tsx
 // Cluster RANKING (contracts §2 aggregate, §5 hooks, §8 testids).
 // Sortable table of every team with scouting data at the event, with optional
-// Statbotics EPA and TBA-rank columns that degrade to "—" when unavailable, and
+// BSR and TBA-rank columns that degrade to "—" when unavailable, and
 // a multi-select compare panel. Read-only; dark theme; shadcn primitives.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -112,7 +112,7 @@ function loadSort(): { key: SortKey; dir: SortDir } | null {
 /** A fully-resolved row: the pure agg plus the external (EPA/TBA) values. */
 interface Row {
   agg: TeamAgg;
-  /** Match-results EPA: local in-house model → Statbotics. Never from scouting. */
+  /** Match-results EPA: local in-house model → match13 xP. Never from scouting. */
   epa: number | null;
   /** TBA rank, or null when unavailable. */
   tbaRank: number | null;
@@ -338,7 +338,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
 
   // Aggregate the scouted teams, then extend with EPA-only rows for every event
   // team that has NO scouting yet — so the Ranking tab still ranks teams by EPA
-  // (in-house or Statbotics) even when scouting data is missing.
+  // (in-house BSR or match13 xP) even when scouting data is missing.
   const aggs = useMemo<TeamAgg[]>(() => {
     const byTeam = reports ? aggregateEvent(reports) : new Map<number, TeamAgg>();
     for (const t of teamsQuery.data ?? []) {
@@ -350,7 +350,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   const teamNumbers = useMemo(() => aggs.map((a) => a.teamNumber), [aggs]);
 
   // Pass the event's played matches so EPA can fall back to a local estimate
-  // (Statbotics-style, computed from real results) when Statbotics is offline.
+  // (computed from real results) even when match13 is offline.
   const matchesQuery = useEventMatches(eventKey);
   const epaQuery = useEventEpa(teamNumbers, eventKey, matchesQuery.data ?? []);
   const tbaQuery = useTbaRankings(eventKey);

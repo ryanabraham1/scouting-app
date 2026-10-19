@@ -88,7 +88,7 @@ function makeInput(over: Partial<SimulateInput>): SimulateInput {
     agg: new Map(),
     epaByTeam: new Map(),
     pits: new Map(),
-    statboticsAvailable: false,
+    epaAvailable: false,
     ...over,
   };
 }
@@ -107,7 +107,7 @@ describe('simulateAlliance — score = sum of predictMatch expected', () => {
       blueTeams: [],
       agg: a,
       epaByTeam: new Map(),
-      statboticsAvailable: false,
+      epaAvailable: false,
     });
     expect(sim.projectedScore).toBe(pred.red.score);
     expect(sim.projectedScore).toBeCloseTo(175, 6);
@@ -123,13 +123,13 @@ describe('source classification', () => {
     ]);
     const epa = new Map<number, number | null>([[1, 95], [2, 88], [3, 70]]);
     const sim = simulateAlliance(
-      makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, statboticsAvailable: true }),
+      makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, epaAvailable: true }),
     );
     expect(sim.teamReads.every((r) => r.source === 'epa')).toBe(true);
     expect(sim.scoreSource).toBe('epa');
   });
 
-  it('scouting when EPA absent (statbotics unavailable)', () => {
+  it('scouting when EPA absent (no BSR available)', () => {
     const a = new Map<number, TeamAgg>([
       [1, agg({ teamNumber: 1, matchesScouted: 3, scoutingExpectedPoints: 100 })],
       [2, agg({ teamNumber: 2, matchesScouted: 3, scoutingExpectedPoints: 90 })],
@@ -137,7 +137,7 @@ describe('source classification', () => {
     ]);
     const epa = new Map<number, number | null>([[1, 95], [2, 88], [3, 70]]);
     const sim = simulateAlliance(
-      makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, statboticsAvailable: false }),
+      makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, epaAvailable: false }),
     );
     expect(sim.teamReads.every((r) => r.source === 'scouting')).toBe(true);
     expect(sim.scoreSource).toBe('scouting');
@@ -153,7 +153,7 @@ describe('source classification', () => {
     ]);
     const epa = new Map<number, number | null>([[2, 88], [3, 70]]);
     const sim = simulateAlliance(
-      makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, statboticsAvailable: true }),
+      makeInput({ pickedTeams: [1, 2, 3], agg: a, epaByTeam: epa, epaAvailable: true }),
     );
     expect(sim.teamReads[0].source).toBe('scouting');
     expect(sim.teamReads[1].source).toBe('epa');
@@ -272,7 +272,7 @@ describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
       makeInput({
         pickedTeams: [99],
         epaByTeam: new Map([[99, 50]]),
-        statboticsAvailable: true,
+        epaAvailable: true,
         fraction,
         playedMatches: 5,
       }),
@@ -290,7 +290,7 @@ describe('no-scouting role estimate (EPA auto/fuel fallback)', () => {
       makeInput({
         pickedTeams: [99],
         epaByTeam: new Map([[99, 50]]),
-        statboticsAvailable: true,
+        epaAvailable: true,
         playedMatches: 5,
       }),
     );
@@ -460,7 +460,7 @@ describe('purity', () => {
         // tolerate a plain-object EPA map (rehydrated cache)
         epaByTeam: {} as unknown as Map<number, number | null>,
         pits: new Map(),
-        statboticsAvailable: true,
+        epaAvailable: true,
       }),
     ).not.toThrow();
   });

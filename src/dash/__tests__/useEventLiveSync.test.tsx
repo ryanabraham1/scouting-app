@@ -61,9 +61,8 @@ vi.mock('@/lib/supabase', () => ({
 const syncEventResultsMock = vi.fn();
 vi.mock('@/dash/proxies', () => ({
   tbaGet: vi.fn(),
-  statboticsGet: vi.fn(),
+  match13Season: vi.fn(),
   nexusGet: vi.fn(),
-  epaFromTeamEvent: vi.fn(),
   syncEventResults: (key: string) => syncEventResultsMock(key),
 }));
 

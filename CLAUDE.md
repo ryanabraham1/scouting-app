@@ -70,7 +70,8 @@ is the current convention for new migrations. Webhook/live-data setup is documen
 `VITE_SUPABASE_PUBLISHABLE_KEY` (anon/publishable key the client ships with). Anything without
 the `VITE_` prefix is server-only and must never reach the browser: `SUPABASE_SECRET_KEY` / the
 deployed functions' `SUPABASE_SERVICE_ROLE_KEY` bypass RLS (Edge Functions and migrations only);
-`TBA_API_KEY` feeds the `tba-proxy` and TBA import/sync functions; `TBA_WEBHOOK_SECRET` and
+`TBA_API_KEY` feeds the `tba-proxy` and TBA import/sync functions; `MATCH13_API_KEY` feeds
+`match13-proxy`; `TBA_WEBHOOK_SECRET` and
 `NEXUS_WEBHOOK_TOKEN` authenticate the inbound webhooks; `SUPABASE_ACCESS_TOKEN` /
 `SUPABASE_DB_PASSWORD` authenticate the Supabase CLI. See `.env.example`; copy to `.env.local`
 (gitignored — never commit real keys).
@@ -144,8 +145,9 @@ covariance, season priors from `epaPriors/<year>.json` (regenerate yearly with
 2016–2026 it beats Statbotics and match13 on winner accuracy (see
 `docs/plans/2026-10-18-bayes-epa.md`; `scripts/bayes-epa-backtest.ts` replays it). `predict.ts`
 sums team EPAs for scores and uses the Bayesian win prob when all six teams carry a local
-variance (`EventEpa.varianceByTeam` + `bayesCal`), else the legacy logistic. Statbotics is only
-the fallback when the local model has nothing. Scouting data never blends into EPA or the
+variance (`EventEpa.varianceByTeam` + `bayesCal`), else the legacy logistic. match13's season xP
+(`match13-proxy`, one cached whole-season table) is only the fallback when the local model has
+nothing, and supplies the world rank. Scouting data never blends into EPA or the
 prediction — it is only a fallback for a team with no match results at all, and is otherwise
 surfaced as a separate "Scouted Pts" metric (Ranking table column, Team tab stat). `sorting.ts`'s
 `resolveRowEpa` is the shared match-results-only EPA resolver for the ranking table / picklist
@@ -157,7 +159,8 @@ outage degrades gracefully.
 
 **Backend** (`supabase/`) — Postgres with RLS. Edge Functions (`supabase/functions/`):
 - Read proxies that **degrade gracefully**, returning `{ available: false }` rather than
-  throwing: `tba-proxy`, `statbotics-proxy`, `nexus-proxy` (live field status).
+  throwing: `tba-proxy`, `match13-proxy` (whole-season xP/rank table; match13's 1000 req/hr allowance is
+  shared by every device, so it never fans out per team), `nexus-proxy` (live field status).
 - `import-event` (open TBA event import via service role), `ingest-reports` (QR/cross-scout
   ingest, gated by the receiver's JWT), `seed-demo` (builds a demo event from a real TBA event
   using a service-role client; scoring shared via `_shared/demoScoring.ts`).

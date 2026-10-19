@@ -106,10 +106,10 @@ beforeEach(() => {
       [1678, 30],
     ]),
     available: true,
-    source: 'statbotics',
+    source: 'match13',
     sourceByTeam: new Map([
-      [254, 'statbotics'],
-      [1678, 'statbotics'],
+      [254, 'match13'],
+      [1678, 'match13'],
     ]),
   };
 });
@@ -595,10 +595,10 @@ describe('PicklistView', () => {
     expect(ids).toEqual(['pick-row-254', 'pick-row-1678', 'pick-row-333']);
   });
 
-  it('labels Statbotics as fallback and the no-result path as in-house scouting', async () => {
+  it('labels match13 as fallback and the no-result path as in-house scouting', async () => {
     const { getByTestId: getInitialByTestId } = await renderLoaded();
     expect(getInitialByTestId('pick-export-epa-banner').textContent).toContain(
-      'Statbotics fallback',
+      'match13 xP fallback',
     );
 
     cleanup();

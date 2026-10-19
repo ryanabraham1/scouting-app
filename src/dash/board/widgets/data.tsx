@@ -281,7 +281,7 @@ export function BoardDataProvider({ eventKey, children }: { eventKey: string; ch
                 agg,
                 epaByTeam: epa.epaByTeam,
                 componentEpaByTeam: epa.componentsByTeam,
-                statboticsAvailable: epa.available,
+                epaAvailable: epa.available,
                 fraction,
                 playedMatches: played.length,
                 bayes: epa,

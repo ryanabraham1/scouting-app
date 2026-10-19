@@ -247,7 +247,7 @@ export default function MatchVideo({
     streamActive = true;
     body = <StreamFallback stream={stream} onTimeMs={onTimeMs ? (ms) => onTimeRef.current?.(ms) : undefined} />;
   } else if (isUnavailable(query.data)) {
-    // TBA offline — calm info-tone note matching the Statbotics/Nexus degrade
+    // TBA offline — calm info-tone note matching the match13/Nexus degrade
     // pattern. Early return so query.data narrows to TbaMatch below.
     body = (
       <Frame>

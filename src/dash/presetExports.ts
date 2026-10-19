@@ -40,7 +40,7 @@ export interface PresetRow {
   defense: number | null; // agg.avgDefenseRating
   reliability: number | null; // agg.reliability (0..1)
   epa: number | null;
-  epaSource: 'statbotics' | 'local' | 'none';
+  epaSource: 'match13' | 'local' | 'none';
 }
 
 /**
@@ -75,7 +75,7 @@ export async function fetchTeamMetadata(
 /**
  * Build the ordered preset rows. PURE — fully testable with plain Maps.
  *
- * EPA matches RankingView: match-results only (local model → Statbotics), never
+ * EPA matches RankingView: match-results only (local model → match13), never
  * scouting — a team without one exports `epa: null` / `epaSource: 'none'`; the
  * scouted expectation is its own `expPts` column. The per-row source label uses
  * the per-team `sourceByTeam` map (falling back to the event-wide source when a
@@ -87,9 +87,9 @@ export function buildPresetRows(
   aggByTeam: Map<number, TeamAgg>,
   epaByTeam: Map<number, number | null>,
   epaAvailable: boolean,
-  eventSource: 'statbotics' | 'local' | 'none',
+  eventSource: 'match13' | 'local' | 'none',
   metaByTeam: Map<number, TeamMetadata>,
-  sourceByTeam?: Map<number, 'statbotics' | 'local' | 'none'>,
+  sourceByTeam?: Map<number, 'match13' | 'local' | 'none'>,
 ): PresetRow[] {
   return entries.map((entry, i) => {
     const team = entry.teamNumber;
@@ -208,26 +208,26 @@ function htmlEscape(value: string | number | null | undefined): string {
 
 /** EPA-source banner copy for exported/printed strategy material. */
 export function epaBannerText(
-  source: 'statbotics' | 'local' | 'none',
+  source: 'match13' | 'local' | 'none',
 ): string | null {
   if (source === 'local') {
     return 'BSR (Bayesian Strength Rating) uses our live in-house calculator over TBA match results.';
   }
-  if (source === 'statbotics') {
-    return 'TBA match results unavailable — using the Statbotics fallback (their EPA).';
+  if (source === 'match13') {
+    return 'TBA match results unavailable — using the match13 xP fallback.';
   }
-  return 'BSR and Statbotics unavailable — using scouting estimates where possible.';
+  return 'BSR and match13 unavailable — using scouting estimates where possible.';
 }
 
 /**
  * Self-contained, print-optimized HTML document (inline styles, works offline).
- * Header + generated-at timestamp + EPA-source note (when not live Statbotics) +
+ * Header + generated-at timestamp + EPA-source note (when not live match13) +
  * a table mirroring the alliance-sheet columns, top-3 rows emphasized.
  */
 export function allianceSheetToHtml(
   rows: PresetRow[],
   eventKey: string,
-  epaSource: 'statbotics' | 'local' | 'none',
+  epaSource: 'match13' | 'local' | 'none',
 ): string {
   const title = `Alliance Selection — ${eventKey}`;
   const generatedAt = new Date().toLocaleString();

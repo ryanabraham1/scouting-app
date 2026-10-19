@@ -2,7 +2,7 @@
 // Cluster PICKLIST — Team EPA Board.
 // A Field-Control-Console leaderboard of EVERY event team ranked by EPA, with a
 // one-tap add-to-picklist control per row. Pure/presentational: it receives the
-// already-resolved per-team EPA (local match-result model → Statbotics, never
+// already-resolved per-team EPA (local match-result model → match13, never
 // scouting; mirroring RankingView) and an `onAdd` callback that reuses PicklistView's
 // dedupe path, so a board add lands dirty exactly like a manual add.
 //
@@ -44,7 +44,7 @@ export interface PicklistEpaBoardProps {
 interface BoardRow {
   teamNumber: number;
   nickname: string | null;
-  /** Match-results EPA: local → Statbotics; null = none ("—"). */
+  /** Match-results EPA: local → match13; null = none ("—"). */
   epa: number | null;
 }
 
@@ -100,9 +100,9 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
   const sourceNote =
     epaSource === 'local'
       ? 'Live BSR (Bayesian Strength Rating) computed from TBA match results.'
-      : epaSource === 'statbotics'
-        ? 'TBA match results unavailable — using the Statbotics fallback (their EPA).'
-        : 'No BSR yet (no match results posted) and Statbotics unavailable.';
+      : epaSource === 'match13'
+        ? 'TBA match results unavailable — using the match13 xP fallback.'
+        : 'No BSR yet (no match results posted) and match13 unavailable.';
 
   return (
     <Card data-testid="picklist-epa-board" className="bg-card">

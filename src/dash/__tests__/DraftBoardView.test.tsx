@@ -62,7 +62,7 @@ beforeEach(() => {
       [3256, 14],
     ]),
     available: true,
-    source: 'statbotics',
+    source: 'match13',
   };
   componentFixture = {
     fraction: { fAuto: 0.15 / 0.7, fFuel: 0.55 / 0.7 },

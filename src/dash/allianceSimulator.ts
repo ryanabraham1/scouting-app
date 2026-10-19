@@ -68,7 +68,7 @@ export interface SimulateInput {
   agg: Map<number, TeamAgg>;
   epaByTeam: Map<number, number | null>;
   pits: Map<number, TeamPit>;
-  statboticsAvailable: boolean;
+  epaAvailable: boolean;
   /**
    * OPTIONAL fitted component fraction — enables OUR EPA-based auto/fuel role
    * estimate for unscouted teams (predictMatch attaches a `components` split).
@@ -94,7 +94,7 @@ function pitStrategy(pit: TeamPit | undefined): string[] {
  * event-wide fitted fraction. Only auto & fuel are knowable this way (defense
  * is scouting-only), so it stays 'unknown'. Estimated roles cap at 'partial' so an EPA guess never reads as a
  * CONFIRMED ('strong' ✓) capability. Falls back to all-unknown when there is no
- * usable estimate (Statbotics down / not enough played matches / no EPA).
+ * usable estimate (match13 down / not enough played matches / no EPA).
  */
 function rolesFromEstimate(estimate: ComponentBreakdown | undefined): TeamRoleRead['roles'] {
   const unknown: TeamRoleRead['roles'] = {
@@ -238,14 +238,14 @@ function expectedFor(
   team: number,
   agg: Map<number, TeamAgg>,
   epaByTeam: Map<number, number | null>,
-  statboticsAvailable: boolean,
+  epaAvailable: boolean,
 ): { expected: number; source: SourceTag } {
   const pred = predictMatch({
     redTeams: [team],
     blueTeams: [],
     agg,
     epaByTeam,
-    statboticsAvailable,
+    epaAvailable,
   });
   const t = pred.red.teams[0];
   return { expected: t.expected, source: t.source };
@@ -262,15 +262,15 @@ export function pickBaseline(
   picks: number[],
   agg: Map<number, TeamAgg>,
   epaByTeam: Map<number, number | null>,
-  statboticsAvailable: boolean,
+  epaAvailable: boolean,
 ): number[] {
   const pickSet = new Set(picks);
   const pool = candidates.filter((t) => !pickSet.has(t));
   if (pool.length < 3) return [];
 
   const ranked = [...pool].sort((a, b) => {
-    const ea = expectedFor(a, agg, epaByTeam, statboticsAvailable).expected;
-    const eb = expectedFor(b, agg, epaByTeam, statboticsAvailable).expected;
+    const ea = expectedFor(a, agg, epaByTeam, epaAvailable).expected;
+    const eb = expectedFor(b, agg, epaByTeam, epaAvailable).expected;
     if (eb !== ea) return eb - ea; // descending expected
     return a - b; // stable tiebreak
   });
@@ -341,7 +341,7 @@ export function simulateVersus(
   agg: Map<number, TeamAgg>,
   epaByTeam: Map<number, number | null>,
   pits: Map<number, TeamPit>,
-  statboticsAvailable: boolean,
+  epaAvailable: boolean,
   fraction?: ComponentFraction,
   playedMatches?: number,
   bayes?: PredictInput['bayes'],
@@ -352,7 +352,7 @@ export function simulateVersus(
     agg,
     epaByTeam,
     pits,
-    statboticsAvailable,
+    epaAvailable,
     fraction,
     playedMatches,
     bayes,
@@ -363,7 +363,7 @@ export function simulateVersus(
     agg,
     epaByTeam,
     pits,
-    statboticsAvailable,
+    epaAvailable,
     fraction,
     playedMatches,
     bayes,
@@ -376,7 +376,7 @@ export function simulateVersus(
     blueTeams: bTeams,
     agg,
     epaByTeam,
-    statboticsAvailable,
+    epaAvailable,
     bayes,
     elim: true,
   });
@@ -413,7 +413,7 @@ function deriveScoreSource(reads: TeamRoleRead[]): AllianceSimulation['scoreSour
  * predictMatch for exact Next-Match consistency.
  */
 export function simulateAlliance(input: SimulateInput): AllianceSimulation {
-  const { pickedTeams, baselineTeams, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, bayes } =
+  const { pickedTeams, baselineTeams, agg, epaByTeam, pits, epaAvailable, fraction, playedMatches, bayes } =
     input;
 
   const pred = predictMatch({
@@ -421,7 +421,7 @@ export function simulateAlliance(input: SimulateInput): AllianceSimulation {
     blueTeams: baselineTeams,
     agg,
     epaByTeam,
-    statboticsAvailable,
+    epaAvailable,
     fraction,
     playedMatches,
     bayes,

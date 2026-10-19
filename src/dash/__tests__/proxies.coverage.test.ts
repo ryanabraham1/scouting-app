@@ -3,7 +3,7 @@
 // Complements proxies.test.ts by covering the degrade-gracefully paths the base
 // suite does not exercise: nexusGet, tbaGetOptional, syncEventResults, and the
 // anonymous (no access token) auth-header branch. These guard the contract that
-// an upstream TBA/Statbotics/Nexus outage NEVER throws into the dashboard —
+// an upstream TBA/match13/Nexus outage NEVER throws into the dashboard —
 // every optional read collapses to the `{ available: false }` sentinel and
 // syncEventResults is best-effort (swallows all failures).
 

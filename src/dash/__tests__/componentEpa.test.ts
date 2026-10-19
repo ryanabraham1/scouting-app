@@ -299,7 +299,7 @@ describe('predictMatch — component parity & invariants', () => {
       [5, 50],
       [6, 50],
     ]),
-    statboticsAvailable: true,
+    epaAvailable: true,
   });
 
   it('without fraction: output byte-identical to legacy (no components attached)', () => {
@@ -390,7 +390,7 @@ describe('resolveComponentBreakdown — component EPA branch', () => {
       agg: new Map(),
       epaByTeam: new Map([[1, 120], [2, 80]]),
       componentEpaByTeam: new Map([[1, { auto: 40, teleop: 80, endgame: 0 }], [2, null]]),
-      statboticsAvailable: true,
+      epaAvailable: true,
       fraction: { fAuto: 0.5, fFuel: 0.5 } as ComponentFraction,
       playedMatches: 99,
     });

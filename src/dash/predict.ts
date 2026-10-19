@@ -1,7 +1,7 @@
 // src/dash/predict.ts
 // Pure next-match prediction (contracts §3).
 // A team's expectation is its EPA (in-house, computed from posted match scores;
-// Statbotics when the local model has nothing). Scouting data does NOT feed the
+// match13 when the local model has nothing). Scouting data does NOT feed the
 // expectation — it is only a fallback for a team with no match results at all
 // (rookie / first event) and is otherwise surfaced as a separate scouted metric.
 // Never throws on missing data.
@@ -78,7 +78,7 @@ export interface MatchPrediction {
   blue: { teams: TeamPrediction[]; score: number };
   /** 0..1. Calibrated Bayesian win prob when `bayes` covers all six teams, else logistic(WINPROB_LOGIT_SCALE * margin / sigma). */
   redWinProb: number;
-  /** 0..1: mean team w, knocked down when Statbotics unavailable */
+  /** 0..1: mean team w, knocked down when no BSR is available */
   confidence: number;
 }
 
@@ -86,9 +86,9 @@ export interface PredictInput {
   redTeams: number[];
   blueTeams: number[];
   agg: Map<number, TeamAgg>;
-  /** Statbotics EPA per team (null = unknown) */
+  /** BSR per team (null = unknown) */
   epaByTeam: Map<number, number | null>;
-  statboticsAvailable: boolean;
+  epaAvailable: boolean;
   /**
    * OPTIONAL fitted component fraction (from `fitComponentFraction`) for the
    * no-scouting (EPA) split branch. When provided, each `TeamPrediction` gets a
@@ -128,13 +128,13 @@ function predictTeam(
   teamNumber: number,
   agg: Map<number, TeamAgg>,
   epaByTeam: Map<number, number | null>,
-  statboticsAvailable: boolean,
+  epaAvailable: boolean,
 ): TeamPrediction {
   const teamAgg = agg.get(teamNumber);
   const scouting = teamAgg?.scoutingExpectedPoints;
   const m = teamAgg?.matchesScouted ?? 0;
-  // Statbotics down -> EPA treated as null everywhere.
-  const epa = statboticsAvailable ? epaByTeam.get(teamNumber) ?? null : null;
+  // No BSR available -> EPA treated as null everywhere.
+  const epa = epaAvailable ? epaByTeam.get(teamNumber) ?? null : null;
 
   if (epa !== null) {
     // EPA is the expectation whenever it exists — scouting never blends in.
@@ -300,11 +300,11 @@ function bayesRedWinProb(
 }
 
 export function predictMatch(input: PredictInput): MatchPrediction {
-  const { redTeams, blueTeams, agg, statboticsAvailable } = input;
+  const { redTeams, blueTeams, agg, epaAvailable } = input;
   const epaByTeam = asEpaMap(input.epaByTeam);
 
-  const redPreds = redTeams.map((t) => predictTeam(t, agg, epaByTeam, statboticsAvailable));
-  const bluePreds = blueTeams.map((t) => predictTeam(t, agg, epaByTeam, statboticsAvailable));
+  const redPreds = redTeams.map((t) => predictTeam(t, agg, epaByTeam, epaAvailable));
+  const bluePreds = blueTeams.map((t) => predictTeam(t, agg, epaByTeam, epaAvailable));
 
   // Optional component decomposition — attached only when a `fraction` is given,
   // so omitting it keeps the output byte-identical to legacy callers (plan §8).
@@ -357,7 +357,7 @@ export function predictMatch(input: PredictInput): MatchPrediction {
     allPreds.length === 0
       ? 0
       : allPreds.reduce((s, p) => s + p.w, 0) / allPreds.length;
-  const confidence = clamp01(meanW * (statboticsAvailable ? 1 : 0.85));
+  const confidence = clamp01(meanW * (epaAvailable ? 1 : 0.85));
 
   return {
     red: { teams: redPreds, score: redScore },

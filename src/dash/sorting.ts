@@ -44,7 +44,7 @@ export function compareDesc(a: RankInput, b: RankInput, key: RankSortKey): numbe
 /**
  * Single source of truth for per-row EPA resolution, shared by the ranking
  * table, the picklist seed and the draft board so they cannot drift. EPA is
- * match-results-only (in-house model over posted scores, Statbotics when the
+ * match-results-only (in-house model over posted scores, match13 when the
  * local model has nothing) — scouting data NEVER substitutes for it; a team
  * with no EPA resolves to `null` ("—"). Scouted expectation is its own metric
  * (`scoutingExpectedPoints`).

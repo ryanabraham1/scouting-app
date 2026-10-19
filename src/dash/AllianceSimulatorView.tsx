@@ -115,7 +115,7 @@ function estimateAlliance(
   teams: number[],
   agg: Map<number, TeamAgg>,
   epaByTeam: Map<number, number | null>,
-  statboticsAvailable: boolean,
+  epaAvailable: boolean,
   fraction: ComponentFraction | undefined,
   playedMatches: number,
 ): TeamPrediction[] {
@@ -125,7 +125,7 @@ function estimateAlliance(
     blueTeams: [],
     agg,
     epaByTeam,
-    statboticsAvailable,
+    epaAvailable,
     fraction,
     playedMatches,
   });
@@ -287,9 +287,9 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
 
   const epaQuery = useEventEpa(epaTeamNumbers, eventKey, matchesQuery.data ?? []);
   const epaByTeam = epaQuery.data?.epaByTeam ?? new Map<number, number | null>();
-  // Load-bearing: pass available === true (NOT source === 'statbotics') so a
+  // Load-bearing: pass available === true (NOT source === 'match13') so a
   // LOCAL match-result EPA drives the projection, matching NextMatchView.
-  const statboticsAvailable = epaQuery.data?.available === true;
+  const epaAvailable = epaQuery.data?.available === true;
   const epaSource = epaQuery.data?.source ?? 'none';
   const pits = pitsQuery.data ?? new Map();
 
@@ -299,8 +299,8 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
   const resolvedBaseline = useMemo<number[]>(() => {
     if (baselineKind === 'custom') return customBaseline;
     if (picks.length !== MAX_PICKS) return [];
-    return pickBaseline(baselineKind, pickableTeams, picks, agg, epaByTeam, statboticsAvailable);
-  }, [baselineKind, customBaseline, picks, pickableTeams, agg, epaByTeam, statboticsAvailable]);
+    return pickBaseline(baselineKind, pickableTeams, picks, agg, epaByTeam, epaAvailable);
+  }, [baselineKind, customBaseline, picks, pickableTeams, agg, epaByTeam, epaAvailable]);
 
   // Component-EPA split inputs (event-wide fitted fraction + scouting-defense map).
   // Shares the persisted ['reports', eventKey] cache — the SAME hook MatchView uses.
@@ -327,33 +327,33 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
         agg,
         epaByTeam,
         pits,
-        statboticsAvailable,
+        epaAvailable,
         fraction,
         playedMatches,
         bayes: epaQuery.data,
       }),
-    [picks, resolvedBaseline, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, epaQuery.data],
+    [picks, resolvedBaseline, agg, epaByTeam, pits, epaAvailable, fraction, playedMatches, epaQuery.data],
   );
 
   const versus = useMemo(
     () =>
-      simulateVersus(picksA, picksB, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, epaQuery.data),
-    [picksA, picksB, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, epaQuery.data],
+      simulateVersus(picksA, picksB, agg, epaByTeam, pits, epaAvailable, fraction, playedMatches, epaQuery.data),
+    [picksA, picksB, agg, epaByTeam, pits, epaAvailable, fraction, playedMatches, epaQuery.data],
   );
 
   // Per-alliance component breakdowns (memoized). predictMatch over one alliance
   // (blue empty) attaches each picked team's auto/fuel (+ scouting defense).
   const estimateSingle = useMemo(
-    () => estimateAlliance(picks, agg, epaByTeam, statboticsAvailable, fraction, playedMatches),
-    [picks, agg, epaByTeam, statboticsAvailable, fraction, playedMatches],
+    () => estimateAlliance(picks, agg, epaByTeam, epaAvailable, fraction, playedMatches),
+    [picks, agg, epaByTeam, epaAvailable, fraction, playedMatches],
   );
   const estimateA = useMemo(
-    () => estimateAlliance(picksA, agg, epaByTeam, statboticsAvailable, fraction, playedMatches),
-    [picksA, agg, epaByTeam, statboticsAvailable, fraction, playedMatches],
+    () => estimateAlliance(picksA, agg, epaByTeam, epaAvailable, fraction, playedMatches),
+    [picksA, agg, epaByTeam, epaAvailable, fraction, playedMatches],
   );
   const estimateB = useMemo(
-    () => estimateAlliance(picksB, agg, epaByTeam, statboticsAvailable, fraction, playedMatches),
-    [picksB, agg, epaByTeam, statboticsAvailable, fraction, playedMatches],
+    () => estimateAlliance(picksB, agg, epaByTeam, epaAvailable, fraction, playedMatches),
+    [picksB, agg, epaByTeam, epaAvailable, fraction, playedMatches],
   );
 
   const ready = picks.length === MAX_PICKS;
@@ -426,13 +426,13 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
       <div data-testid="alliance-epa-banner" className="text-xs text-energy">
         Projections use our live in-house BSR (Bayesian Strength Rating), computed locally from TBA match results.
       </div>
-    ) : epaSource === 'statbotics' ? (
+    ) : epaSource === 'match13' ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-warning">
-        TBA match results unavailable — projections use the Statbotics fallback (their EPA).
+        TBA match results unavailable — projections use the match13 fallback (their EPA).
       </div>
-    ) : !statboticsAvailable ? (
+    ) : !epaAvailable ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-warning">
-        BSR and Statbotics unavailable — projections use our scouting estimate.
+        BSR and match13 unavailable — projections use our scouting estimate.
       </div>
     ) : null;
 

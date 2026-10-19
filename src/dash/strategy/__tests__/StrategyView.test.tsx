@@ -265,7 +265,7 @@ describe('StrategyView', () => {
     expect(queryByTestId('dash-next-match-select')).toBeNull();
   });
 
-  it('renders predicted scores and per-team source badges (Statbotics available)', () => {
+  it('renders predicted scores and per-team source badges (match13 available)', () => {
     setupHappyPath(true);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
@@ -287,13 +287,13 @@ describe('StrategyView', () => {
     expect(document.querySelector('[data-testid="epa-unavailable"]')).toBeNull();
   });
 
-  it('renders predictions with NO EPA banner when Statbotics is down (banner removed)', () => {
+  it('renders predictions with NO EPA banner when match13 is down (banner removed)', () => {
     setupHappyPath(false);
     const utils = render(<StrategyView eventKey="2026evt" />);
     openAnalytics(utils);
     const { getByTestId, getAllByTestId, queryByTestId } = utils;
 
-    // The Statbotics-offline banner was removed from this tab (vertical space).
+    // The match13-offline banner was removed from this tab (vertical space).
     expect(queryByTestId('epa-unavailable')).toBeNull();
     expect(queryByTestId('epa-local')).toBeNull();
     expect(getByTestId('dash-next-red-score').textContent).toMatch(/\d/);

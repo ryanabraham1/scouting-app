@@ -5,7 +5,7 @@
 // generates realistic per-match scouting reports GROUNDED IN TBA match results.
 //
 // Real team numbers make team-scoped features work (TBA team info, world rank,
-// nicknames, Statbotics / cross-event EPA) — which fake demo teams (9001..9029,
+// nicknames, match13 / cross-event EPA) — which fake demo teams (9001..9029,
 // the now-obsolete 0018 approach) broke.
 //
 // Mirrors import-event's idioms: env vars, the `tba<T>()` helper, `teamNum()`,

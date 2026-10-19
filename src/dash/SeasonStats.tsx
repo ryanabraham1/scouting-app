@@ -4,12 +4,12 @@
 // finally made VISIBLE. The in-house EPA (see src/dash/localEpa.ts) is derived
 // purely from played match results (actual_red_score/actual_blue_score on the
 // `match` table, which originate from The Blue Alliance via event import); it is
-// a faithful, Statbotics-style estimate used as the primary live number, and is
-// labelled "in-house" so it is never mistaken for the Statbotics fallback.
+// the primary live number, and is labelled "in-house" so it is never mistaken
+// for the match13 xP fallback.
 //
 // Pure & presentational: props in → JSX out. No fetching, no side effects. The
-// orchestrator resolves which EPA to show (in-house or Statbotics fallback) and passes
-// `epaSource` so this card can label it correctly.
+// orchestrator resolves which rating to show (in-house BSR or match13 xP) and
+// passes `epaSource` so this card can label it correctly.
 
 import { cn } from '@/lib/utils';
 import { RankTile } from '@/dash/Leaderboard';
@@ -27,62 +27,12 @@ export function inHouseEpaForTeam(matches: MatchRow[], team: number): number | n
   return computeLocalEpa(matches).get(team) ?? null;
 }
 
-/** A defensively-parsed slice of a Statbotics v3 `/team_year` response. */
-export interface StatboticsSeason {
-  worldRank: number | null;
-  totalEpa: number | null;
-  record: string | null;
-}
-
 function finiteOrNull(x: unknown): number | null {
   return typeof x === 'number' && Number.isFinite(x) ? x : null;
 }
 
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
-}
-
-/**
- * Defensively read a Statbotics v3 `/team_year/{team}/{year}` object into a
- * {@link StatboticsSeason}. Tolerant of missing/garbage shapes — any unexpected
- * input yields all-null and never throws.
- *   - worldRank ← epa.ranks.total.rank
- *   - totalEpa  ← epa.total_points.mean, else epa.breakdown.total_points
- *   - record    ← record {wins,losses,ties} → "W-L-T"
- */
-export function parseStatboticsTeamYear(json: unknown): StatboticsSeason {
-  const empty: StatboticsSeason = { worldRank: null, totalEpa: null, record: null };
-  if (!isObject(json)) return empty;
-
-  const epa = isObject(json.epa) ? json.epa : null;
-
-  let worldRank: number | null = null;
-  if (epa && isObject(epa.ranks) && isObject(epa.ranks.total)) {
-    worldRank = finiteOrNull(epa.ranks.total.rank);
-  }
-
-  let totalEpa: number | null = null;
-  if (epa) {
-    if (isObject(epa.total_points)) {
-      totalEpa = finiteOrNull(epa.total_points.mean);
-    }
-    if (totalEpa == null && isObject(epa.breakdown)) {
-      totalEpa = finiteOrNull(epa.breakdown.total_points);
-    }
-  }
-
-  let record: string | null = null;
-  if (isObject(json.record)) {
-    const w = finiteOrNull(json.record.wins);
-    const l = finiteOrNull(json.record.losses);
-    const t = finiteOrNull(json.record.ties);
-    // An all-zero record is Statbotics saying "not ingested yet", not a real
-    // 0-0-0 (seen live: 6740 mid-2026iscmp showed 0-0-0 while TBA had 4-4-0).
-    // Return null so the caller's TBA-derived fallback computes the true W-L-T.
-    if (w != null && l != null && t != null && w + l + t > 0) record = `${w}-${l}-${t}`;
-  }
-
-  return { worldRank, totalEpa, record };
 }
 
 /** Is `teamKey` a *scoring* (non-surrogate) member of this TBA match alliance? */
@@ -98,8 +48,8 @@ function teamOnAlliance(alliance: Record<string, unknown>, teamKey: string): boo
 
 /**
  * Compute a team's full-season W-L-T from a TBA `/team/frc{team}/matches/{year}`
- * payload (an array of Match objects). Used as a fallback when Statbotics has no
- * season record. Counts every PLAYED match the team actually competed in (quals +
+ * payload (an array of Match objects). This is the season record shown on the
+ * dashboard. Counts every PLAYED match the team actually competed in (quals +
  * playoffs), skipping unplayed matches (TBA reports an alliance `score` of -1
  * before results) and surrogate appearances. Defensive: any unexpected shape
  * yields null and never throws.
@@ -146,11 +96,11 @@ export function seasonRecordFromTbaMatches(json: unknown, team: number): string 
 
 /* --------------------------------------------------------------- component */
 
-export type EpaSource = 'statbotics' | 'inhouse' | 'none';
+export type EpaSource = 'match13' | 'inhouse' | 'none';
 
 export interface SeasonStatsProps {
   team: number;
-  /** Statbotics world rank, or null if unavailable. */
+  /** match13 world rank, or null if unavailable. */
   worldRank: number | null;
   /** The resolved EPA value to display. */
   totalEpa: number | null;
@@ -192,7 +142,7 @@ function recordTone(record: string | null): 'green' | 'warning' | 'gray' {
 /**
  * "Season Rankings" block for the broadcast dashboard. Shows OUR team's Season
  * Record (gray), World Rank + Total EPA (blue) — the in-house TBA-derived
- * estimate when available, else the Statbotics fallback. Crashes on nothing.
+ * estimate when available, else match13's xP. Crashes on nothing.
  */
 export default function SeasonStats({
   worldRank,
@@ -224,7 +174,7 @@ export default function SeasonStats({
         />
         <RankTile
           tone="blue"
-          label={epaSource === 'statbotics' ? 'Total EPA' : 'Total BSR'}
+          label={epaSource === 'match13' ? 'Total xP' : 'Total BSR'}
           value={totalEpa != null ? totalEpa.toFixed(1) : '—'}
           testid="dash-season-epa"
           sub={showInHouse ? <InHouseBadge /> : null}

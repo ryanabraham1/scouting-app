@@ -10,7 +10,7 @@ const TEAMS: TeamRow[] = [
   { team_number: 9999, nickname: 'No EPA Team' },
 ];
 
-function statboticsEpa(): EventEpa {
+function match13Epa(): EventEpa {
   return {
     epaByTeam: new Map<number, number | null>([
       [254, 60],
@@ -18,10 +18,10 @@ function statboticsEpa(): EventEpa {
       [9999, null],
     ]),
     available: true,
-    source: 'statbotics',
+    source: 'match13',
     sourceByTeam: new Map([
-      [254, 'statbotics'],
-      [1678, 'statbotics'],
+      [254, 'match13'],
+      [1678, 'match13'],
       [9999, 'none'],
     ]),
   };
@@ -39,7 +39,7 @@ describe('PicklistEpaBoard', () => {
     const { getByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={statboticsEpa()}
+        epa={match13Epa()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -51,7 +51,7 @@ describe('PicklistEpaBoard', () => {
 
   it('links a board team number to its Analysis team page', () => {
     const { getByTestId } = render(
-      <PicklistEpaBoard teams={TEAMS} epa={statboticsEpa()} inListTeams={new Set()} onAdd={onAdd} />,
+      <PicklistEpaBoard teams={TEAMS} epa={match13Epa()} inListTeams={new Set()} onAdd={onAdd} />,
     );
     expect(getByTestId('epa-board-team-254')).toHaveAttribute(
       'href',
@@ -63,7 +63,7 @@ describe('PicklistEpaBoard', () => {
     const { getByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={statboticsEpa()}
+        epa={match13Epa()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -85,7 +85,7 @@ describe('PicklistEpaBoard', () => {
     const { getByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={statboticsEpa()}
+        epa={match13Epa()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,
@@ -99,7 +99,7 @@ describe('PicklistEpaBoard', () => {
     const { getByTestId, queryByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={statboticsEpa()}
+        epa={match13Epa()}
         inListTeams={new Set([254])}
         onAdd={onAdd}
       />,
@@ -178,7 +178,7 @@ describe('PicklistEpaBoard', () => {
     const { getByTestId, queryByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={statboticsEpa()}
+        epa={match13Epa()}
         inListTeams={new Set([254])}
         dnpTeams={new Set([1678])}
         onToggleDnp={onToggleDnp}
@@ -199,7 +199,7 @@ describe('PicklistEpaBoard', () => {
     const { queryByTestId } = render(
       <PicklistEpaBoard
         teams={TEAMS}
-        epa={statboticsEpa()}
+        epa={match13Epa()}
         inListTeams={new Set()}
         onAdd={onAdd}
       />,

@@ -1,7 +1,7 @@
 // tests/e2e/dashboard.spec.ts
 // Staff dashboard: an admin (admin >= lead) opens /dashboard, the next-match
 // preview renders a confidence-weighted prediction (resilient to a live
-// Statbotics outage), and a picklist entry persists to the shared server table.
+// match13 outage), and a picklist entry persists to the shared server table.
 import { test, expect } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -40,7 +40,7 @@ test('lead sees a next-match prediction and builds a persisted picklist (no logi
   await expect(page.getByRole('tab', { name: 'Pit Display' })).toBeVisible();
 
   // The confidence-weighted prediction moved to the Strategy tab. This must hold
-  // whether or not Statbotics is reachable (the proxy degrades to unavailable).
+  // whether or not match13 is reachable (the proxy degrades to unavailable).
   await openLeadDashboard(page, '/dashboard?tab=strategy');
   await expect(page.getByTestId('dash-strategy')).toBeVisible({ timeout: 25_000 });
   await ensureStrategyMatchup(page);

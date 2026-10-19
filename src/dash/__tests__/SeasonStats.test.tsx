@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import SeasonStats, {
   inHouseEpaForTeam,
-  parseStatboticsTeamYear,
   seasonRecordFromTbaMatches,
 } from '@/dash/SeasonStats';
 import type { MatchRow } from '@/dash/useEventData';
@@ -76,82 +75,6 @@ describe('inHouseEpaForTeam', () => {
   });
 });
 
-describe('parseStatboticsTeamYear', () => {
-  it('reads worldRank, totalEpa, and record from a realistic object', () => {
-    const json = {
-      team: 3256,
-      year: 2026,
-      epa: {
-        total_points: { mean: 42.7 },
-        ranks: { total: { rank: 18 } },
-        breakdown: { total_points: 41.0 },
-      },
-      record: { wins: 12, losses: 3, ties: 1 },
-    };
-    expect(parseStatboticsTeamYear(json)).toEqual({
-      worldRank: 18,
-      totalEpa: 42.7,
-      record: '12-3-1',
-    });
-  });
-
-  it('falls back to epa.breakdown.total_points when mean is missing', () => {
-    const json = {
-      epa: {
-        total_points: {},
-        breakdown: { total_points: 33.3 },
-        ranks: { total: { rank: 5 } },
-      },
-      record: { wins: 1, losses: 0, ties: 0 },
-    };
-    const out = parseStatboticsTeamYear(json);
-    expect(out.totalEpa).toBe(33.3);
-    expect(out.worldRank).toBe(5);
-  });
-
-  it('returns all-null for garbage input without throwing', () => {
-    expect(parseStatboticsTeamYear(null)).toEqual({
-      worldRank: null,
-      totalEpa: null,
-      record: null,
-    });
-    expect(parseStatboticsTeamYear('nope')).toEqual({
-      worldRank: null,
-      totalEpa: null,
-      record: null,
-    });
-    expect(parseStatboticsTeamYear(42)).toEqual({
-      worldRank: null,
-      totalEpa: null,
-      record: null,
-    });
-  });
-
-  it('returns nulls for missing nested fields without throwing', () => {
-    expect(parseStatboticsTeamYear({})).toEqual({
-      worldRank: null,
-      totalEpa: null,
-      record: null,
-    });
-    expect(parseStatboticsTeamYear({ epa: {} })).toEqual({
-      worldRank: null,
-      totalEpa: null,
-      record: null,
-    });
-    // Partial record → null (needs all three of wins/losses/ties).
-    expect(parseStatboticsTeamYear({ record: { wins: 2, losses: 1 } }).record).toBeNull();
-    // All-zero record → null: Statbotics hasn't ingested results yet (6740 at
-    // 2026iscmp showed 0-0-0 while TBA had 4-4-0) — null triggers the TBA fallback.
-    expect(
-      parseStatboticsTeamYear({ record: { wins: 0, losses: 0, ties: 0, count: 0 } }).record,
-    ).toBeNull();
-    // Non-finite values → null.
-    expect(
-      parseStatboticsTeamYear({ epa: { total_points: { mean: Infinity } } }).totalEpa,
-    ).toBeNull();
-  });
-});
-
 describe('seasonRecordFromTbaMatches', () => {
   // Minimal TBA Match shape: alliances with team_keys + score, and winning_alliance.
   const m = (
@@ -209,13 +132,13 @@ describe('seasonRecordFromTbaMatches', () => {
 });
 
 describe('SeasonStats rendering', () => {
-  it('shows statbotics values and NO in-house badge', () => {
+  it('shows match13 values and NO in-house badge', () => {
     render(
       <SeasonStats
         team={3256}
         worldRank={18}
         totalEpa={42.7}
-        epaSource="statbotics"
+        epaSource="match13"
         seasonRecord="12-3-1"
       />,
     );

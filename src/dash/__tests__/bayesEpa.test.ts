@@ -181,7 +181,7 @@ describe('predictMatch with Bayesian uncertainty', () => {
     blueTeams: [4, 5, 6],
     agg: new Map(),
     epaByTeam,
-    statboticsAvailable: true,
+    epaAvailable: true,
   };
   const cal = { c: BAYES_EPA_PARAMS.c, mean: 75, sd: 25 };
 

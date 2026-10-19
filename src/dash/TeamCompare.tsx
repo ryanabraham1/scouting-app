@@ -10,7 +10,7 @@ import { TeamLink } from '@/components/ui/TeamLink';
 
 export interface CompareTeam {
   agg: TeamAgg;
-  /** Best-available EPA (local → Statbotics → scouting), or null. */
+  /** Best-available EPA (local → match13 → scouting), or null. */
   epa: number | null;
 }
 
