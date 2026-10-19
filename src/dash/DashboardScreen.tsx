@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { BottomTabBar, BOTTOM_BAR_CLEARANCE, type BottomTab } from '@/components/BottomTabBar';
+import { IconTabs } from '@/components/ui/IconTabs';
 import { StationMenu } from '@/components/StationMenu';
 import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
@@ -229,6 +230,14 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         </StationMenu>
       </header>
 
+      <IconTabs<Tab>
+        ariaLabel="Lead Dashboard sections"
+        value={tab}
+        onChange={selectTab}
+        tabs={TABS.map(({ id, label, icon: Icon }) => ({ value: id, label, icon: <Icon /> }))}
+        className="hidden md:grid"
+      />
+
       {!authoritative && eventKey && (!verifying || slowVerify) ? (
         <div
           role="status"
@@ -279,6 +288,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         ariaLabel="Lead dashboard sections"
         testId="dashboard-bottom-nav"
         tabTestIdPrefix="dashboard-tab"
+        desktop="hidden"
       />
     </div>
   );

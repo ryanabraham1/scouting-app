@@ -110,7 +110,7 @@ export default function MyDataView(): JSX.Element {
   return (
     <div
       data-testid="my-data"
-      className="flex min-h-dvh flex-col bg-background pb-24 text-foreground"
+      className="flex min-h-dvh flex-col bg-background pb-24 text-foreground md:pb-6"
     >
       <header className="px-safe pt-safe pb-2">
         <h1 className="text-xl font-medium">My data</h1>

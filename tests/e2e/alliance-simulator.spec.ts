@@ -29,7 +29,8 @@ test.beforeAll(async () => {
   test.skip(!!probe.error, 'Apply migration 0009 (open RLS) to run the login-less dashboard flows.');
 });
 
-test('simulate a 3-team alliance: score, cap+clear, win prob vs baseline', async ({ page }) => {
+// The Alliance tab is hidden for now (HIDDEN_TABS in AnalysisScreen.tsx).
+test.skip('simulate a 3-team alliance: score, cap+clear, win prob vs baseline', async ({ page }) => {
   test.skip(!URL || !SECRET, 'Set VITE_SUPABASE_URL + SUPABASE_SECRET_KEY in .env.local.');
 
   await setActiveEvent(admin, eventKey);

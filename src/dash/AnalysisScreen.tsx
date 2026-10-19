@@ -10,17 +10,32 @@ import MatchView from '@/dash/MatchView';
 import RankingView from '@/dash/RankingView';
 import AllianceSimulatorView from '@/dash/AllianceSimulatorView';
 import { BottomTabBar, BOTTOM_BAR_CLEARANCE, type BottomTab } from '@/components/BottomTabBar';
+import { IconTabs } from '@/components/ui/IconTabs';
 import { StationMenu } from '@/components/StationMenu';
 
 type Tab = 'next' | 'team' | 'match' | 'ranking' | 'alliance';
 
-const TABS: readonly BottomTab<Tab>[] = [
-  { id: 'team', label: 'Team', icon: UserSearch },
-  { id: 'match', label: 'Match', icon: Grid3x3 },
-  { id: 'ranking', label: 'Ranking', icon: ListOrdered },
-  { id: 'alliance', label: 'Alliance', icon: Users },
-  { id: 'next', label: 'Pit', icon: MonitorPlay },
-];
+// Hidden for now, not removed: drop an id from here to bring its tab back.
+const HIDDEN_TABS: ReadonlySet<Tab> = new Set<Tab>(['alliance']);
+
+const TABS: readonly BottomTab<Tab>[] = (
+  [
+    { id: 'team', label: 'Team', icon: UserSearch },
+    { id: 'match', label: 'Match', icon: Grid3x3 },
+    { id: 'ranking', label: 'Ranking', icon: ListOrdered },
+    { id: 'alliance', label: 'Alliance', icon: Users },
+    { id: 'next', label: 'Pit', icon: MonitorPlay },
+  ] satisfies BottomTab<Tab>[]
+).filter((t) => !HIDDEN_TABS.has(t.id));
+
+// Desktop keeps the pre-mobile tab row: Pit Display leads, full label.
+const DESKTOP_TABS = [...TABS.filter((t) => t.id === 'next'), ...TABS.filter((t) => t.id !== 'next')].map(
+  ({ id, label, icon: Icon }) => ({
+    value: id,
+    label: id === 'next' ? 'Pit Display' : label,
+    icon: <Icon />,
+  }),
+);
 
 function readLocation(search: string): { tab: Tab; team: number | null; match: string | null } {
   try {
@@ -96,6 +111,14 @@ export default function AnalysisScreen(): JSX.Element {
         />
       </header>
 
+      <IconTabs<Tab>
+        ariaLabel="Analysis sections"
+        value={tab}
+        onChange={(next) => writeLocation(next)}
+        tabs={DESKTOP_TABS}
+        className="hidden md:grid"
+      />
+
       {loading ? (
         <p data-testid="analysis-loading" className="text-muted-foreground">Loading event…</p>
       ) : !eventKey ? (
@@ -131,6 +154,7 @@ export default function AnalysisScreen(): JSX.Element {
         ariaLabel="Analysis sections"
         testId="analysis-bottom-nav"
         tabTestIdPrefix="analysis-tab"
+        desktop="hidden"
       />
     </div>
   );

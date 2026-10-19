@@ -58,19 +58,19 @@ function currentSearch(): string | null {
 }
 
 describe('AnalysisScreen', () => {
-  it('defaults to Pit Display and shows all five analysis sections', () => {
+  it('defaults to Pit Display and shows the visible analysis sections', () => {
     renderAnalysis();
     expect(screen.getByTestId('view-next')).toBeInTheDocument();
     const bar = screen.getByTestId('analysis-bottom-nav');
     expect(
       Array.from(bar.querySelectorAll('button')).map((tab) => tab.textContent?.trim()),
-    ).toEqual(['Team', 'Match', 'Ranking', 'Alliance', 'Pit']);
+    ).toEqual(['Team', 'Match', 'Ranking', 'Pit']);
   });
 
-  it('brings back the Alliance screen as a visible tab', () => {
-    renderAnalysis();
-    fireEvent.click(screen.getByTestId('analysis-tab-alliance'));
-    expect(screen.getByTestId('view-alliance')).toBeInTheDocument();
+  it('hides the Alliance tab, and a stale ?tab=alliance link falls back to Pit Display', () => {
+    renderAnalysis('/analysis?tab=alliance');
+    expect(screen.queryByTestId('analysis-tab-alliance')).not.toBeInTheDocument();
+    expect(screen.getByTestId('view-next')).toBeInTheDocument();
   });
 
   it('opens a ranking team in Analysis and preserves a shareable query', () => {

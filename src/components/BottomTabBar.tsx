@@ -22,13 +22,19 @@ export interface BottomTabBarProps<T extends string> {
   testId: string;
   /** Prefix for each tab's data-testid (`${prefix}-${id}`). */
   tabTestIdPrefix: string;
+  /**
+   * What the bar does from `md` up, where it is not a phone. `footer` (default)
+   * drops into the page flow at the bottom so it can never cover content;
+   * `hidden` removes it for screens that render their own desktop tabs.
+   */
+  desktop?: 'footer' | 'hidden';
 }
 
 const ITEM =
   'flex min-h-[56px] w-full flex-col items-center justify-center gap-0.5 text-[11px] transition-colors';
 
-/** Bottom padding screens need so content clears the fixed bar. */
-export const BOTTOM_BAR_CLEARANCE = 'pb-24';
+/** Bottom padding screens need so content clears the fixed (phone-only) bar. */
+export const BOTTOM_BAR_CLEARANCE = 'pb-24 md:pb-6';
 
 export function BottomTabBar<T extends string>({
   tabs,
@@ -37,12 +43,18 @@ export function BottomTabBar<T extends string>({
   ariaLabel,
   testId,
   tabTestIdPrefix,
+  desktop = 'footer',
 }: BottomTabBarProps<T>): JSX.Element {
   return (
     <nav
       aria-label={ariaLabel}
       data-testid={testId}
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+      className={cn(
+        'fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur',
+        desktop === 'hidden'
+          ? 'md:hidden'
+          : 'md:static md:mt-auto md:bg-transparent md:pb-0 md:backdrop-blur-none',
+      )}
     >
       <ul
         className="mx-auto grid max-w-2xl"
