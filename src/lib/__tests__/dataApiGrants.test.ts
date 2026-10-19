@@ -11,6 +11,8 @@ const EDGE_FUNCTIONS = join(ROOT, 'supabase/functions');
 const MIGRATION_PATHS = [
   'supabase/migrations/20260722181527_explicit_browser_data_api_grants.sql',
   'supabase/migrations/20260920200000_match_actual_time_and_webcast_sync.sql',
+  'supabase/migrations/20261019120000_board_records.sql',
+  'supabase/migrations/20261019121000_board_record_grants.sql',
 ].map((p) => join(ROOT, p));
 
 type TablePrivilege = 'select' | 'insert' | 'update' | 'delete';
@@ -22,6 +24,7 @@ type EdgeClientRole = 'caller' | 'service';
 
 const EXPECTED_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
   assignment: ['select'],
+  board_record: ['select'],
   event: ['select'],
   event_team: ['select'],
   match: ['select'],
@@ -44,6 +47,13 @@ const EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> =
   match: ['insert', 'select', 'update'],
 };
 
+// Service-role table grants that exist for server-side maintenance (SQL editor,
+// migrations) rather than Edge Function access, so they are not in the
+// Edge-usage manifest above.
+const SERVICE_ROLE_MAINTENANCE_TABLE_GRANTS: Record<string, TablePrivilege[]> = {
+  board_record: ['delete', 'insert', 'select', 'update'],
+};
+
 const PRIVATE_TABLES = [
   'assignment_batch_revision',
   'event_secret',
@@ -62,6 +72,7 @@ const EXPECTED_BROWSER_RPCS = [
   'set_assignments(text,jsonb,bigint)',
   'set_pit_assignments(text,jsonb,bigint)',
   'set_roster_hidden(text,boolean)',
+  'upsert_board_records(text,jsonb)',
   'upsert_match_report(jsonb)',
   'upsert_matchup_note(jsonb)',
   'upsert_pit_report(jsonb)',
@@ -334,7 +345,7 @@ function sortedPrivileges(record: Record<string, Set<TablePrivilege>>): Record<s
 function migrationBrowserRpcGrants(sql: string): string[] {
   const grants: string[] = [];
   const pattern =
-    /grant\s+execute\s+on\s+function\s+public\.([a-z_][a-z0-9_]*\s*\([^;]*?\))\s+to\s+anon\s*,\s*authenticated\s*;/gis;
+    /grant\s+execute\s+on\s+function\s+(?:public\.)?([a-z_][a-z0-9_]*\s*\([^;]*?\))\s+to\s+anon\s*,\s*authenticated\s*;/gis;
   for (const match of sql.matchAll(pattern)) {
     grants.push(match[1].replace(/\s+/g, '').toLowerCase());
   }
@@ -369,9 +380,10 @@ describe('explicit browser Data API grants', () => {
       EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES,
     );
     expect([...usage.service.rpcs].sort()).toEqual(EXPECTED_SERVICE_ROLE_EDGE_RPCS);
-    expect(sortedPrivileges(migrationTableGrants(migration, 'service_role'))).toEqual(
-      EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES,
-    );
+    expect(sortedPrivileges(migrationTableGrants(migration, 'service_role'))).toEqual({
+      ...EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES,
+      ...SERVICE_ROLE_MAINTENANCE_TABLE_GRANTS,
+    });
   });
 
   it('keeps private tables and the private history sequence closed', () => {
