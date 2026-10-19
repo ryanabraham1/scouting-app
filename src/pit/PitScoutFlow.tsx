@@ -385,6 +385,102 @@ export default function PitScoutFlow({
     setActiveOption(-1);
   }, [eventKey]);
 
+  const hasAssignments = assignedTeams.length > 0;
+  // From `md` up the scout's pit assignments become a persistent left pane
+  // beside the picker / 6-step wizard; phones keep the stacked card.
+  const twoPane = hasAssignments
+    ? 'md:grid md:max-w-none md:grid-cols-[18rem_minmax(0,1fr)] md:items-start md:gap-4'
+    : '';
+  const doneCount = assignedTeams.filter((a) => {
+    const status = teamStatuses.get(a.teamNumber);
+    return status === 'submitted' || status === 'queued';
+  }).length;
+  const renderAssignments = (opts: { className?: string; disabled?: boolean } = {}): JSX.Element => (
+    <div
+      data-testid="my-pit-assignments"
+      className={`flex flex-col gap-2 rounded-2xl border border-brand/30 bg-brand/5 p-4 md:border-border md:bg-card md:p-3 ${
+        opts.className ?? ''
+      }`}
+    >
+      <div className="flex items-center gap-2 md:px-1">
+        <ClipboardCheck className="size-5 text-brand md:hidden" />
+        <h3 className="font-semibold md:text-sm md:font-medium">Your pit assignments</h3>
+        <span className="ml-auto rounded-full bg-brand/15 px-2 py-0.5 font-mono text-xs text-brand md:bg-transparent md:px-0 md:text-muted-foreground">
+          <span className="md:hidden">{assignedTeams.length}</span>
+          <span className="hidden md:inline">
+            {doneCount} / {assignedTeams.length}
+          </span>
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-1 md:gap-0.5">
+        {assignedTeams.map((assignment) => {
+          const { teamNumber } = assignment;
+          const option = teamOptions.find((item) => item.team_number === teamNumber);
+          const assignmentStatus = teamStatuses.get(teamNumber) ?? 'assigned';
+          const statusLabel =
+            assignmentStatus === 'assigned'
+              ? 'Start'
+              : assignmentStatus === 'draft'
+                ? 'Continue'
+                : assignmentStatus === 'queued'
+                  ? 'Queued'
+                  : assignmentStatus === 'error'
+                    ? 'Fix'
+                    : 'Edit';
+          // Desktop status tint: green once it's in (or on its way), amber
+          // for an unfinished draft, red for a failed sync.
+          const statusTone =
+            assignmentStatus === 'submitted' || assignmentStatus === 'queued'
+              ? 'md:text-success'
+              : assignmentStatus === 'draft'
+                ? 'md:text-warning'
+                : assignmentStatus === 'error'
+                  ? 'md:text-destructive'
+                  : 'md:text-muted-foreground';
+          const current = team === teamNumber;
+          return (
+            <button
+              key={teamNumber}
+              type="button"
+              data-testid={`pit-assignment-${teamNumber}`}
+              aria-current={current ? 'true' : undefined}
+              disabled={opts.disabled}
+              onClick={() => {
+                if (team !== null && team !== teamNumber) {
+                  window.dispatchEvent(new Event('pit-local-changed'));
+                }
+                setTeam(teamNumber);
+              }}
+              className={`flex min-h-12 items-center gap-3 rounded-xl border border-border bg-card px-3 text-left hover:border-brand/50 hover:bg-accent disabled:opacity-60 md:rounded-lg md:border-transparent md:px-2.5 ${
+                current ? 'md:border-brand/40 md:bg-brand/10' : 'md:bg-transparent'
+              }`}
+            >
+              <span className="font-mono text-lg font-semibold text-brand md:w-12 md:shrink-0 md:text-base md:font-medium md:text-foreground">
+                {teamNumber}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-muted-foreground">
+                  {option?.nickname ?? `Team ${teamNumber}`}
+                </span>
+                {assignment.crewSize > 1 ? (
+                  <span className="block truncate text-xs text-brand">
+                    {assignment.partnerNames.length > 0
+                      ? `With ${assignment.partnerNames.join(' + ')}`
+                      : `${assignment.crewSize}-person shared crew`}
+                  </span>
+                ) : null}
+              </span>
+              <span className={`text-xs font-medium text-brand ${statusTone}`}>
+                {current ? <span className="hidden md:inline">Editing</span> : null}
+                <span className={current ? 'md:hidden' : ''}>{statusLabel}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   if (!eventKey) {
     return (
       <section
@@ -431,16 +527,21 @@ export default function PitScoutFlow({
     return (
       <section
         data-testid="pit-flow"
-        className="mx-auto flex w-full max-w-5xl flex-col gap-5"
+        className={`mx-auto flex w-full max-w-5xl flex-col gap-5 ${twoPane}`}
       >
-        <div className="flex items-center gap-2">
+        {/* Phones: the right-pane wrapper below is `contents`, so these order
+            classes reproduce the stacked order (heading, recovery, drafts,
+            assignments, team picker). From md the list is its own pane. */}
+        {hasAssignments ? renderAssignments({ className: 'order-4 md:order-none' }) : null}
+        <div className="contents md:flex md:min-w-0 md:flex-col md:gap-5">
+        <div className="order-1 flex items-center gap-2 md:hidden">
           <Wrench className="size-6 text-brand" />
           <h2 className="text-xl font-semibold">Pit scouting</h2>
         </div>
         {recovery.quarantined.length > 0 ? (
           <section
             data-testid="pit-quarantine"
-            className="flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 p-4"
+            className="order-2 flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 p-4"
           >
             <div className="flex items-center gap-2">
               <ShieldAlert className="size-5 shrink-0 text-destructive" />
@@ -488,7 +589,7 @@ export default function PitScoutFlow({
         {recovery.drafts.length > 0 ? (
           <section
             data-testid="pit-saved-drafts"
-            className="flex flex-col gap-2 rounded-2xl border border-warning/40 bg-warning/5 p-4"
+            className="order-3 flex flex-col gap-2 rounded-2xl border border-warning/40 bg-warning/5 p-4"
           >
             <div className="flex items-center gap-2">
               <History className="size-5 text-warning" />
@@ -515,73 +616,15 @@ export default function PitScoutFlow({
             </div>
           </section>
         ) : null}
+        {/* -mt-1 keeps the phone's 16px assignments-to-picker spacing. */}
         <div
           data-testid="pit-start-layout"
-          className={
-            assignedTeams.length > 0
-              ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.48fr)] lg:items-start'
-              : ''
-          }
+          className={`order-5 ${hasAssignments ? '-mt-1 md:mt-0' : ''}`}
         >
-          {assignedTeams.length > 0 ? (
-            <div
-              data-testid="my-pit-assignments"
-              className="flex flex-col gap-2 rounded-2xl border border-brand/30 bg-brand/5 p-4"
-            >
-              <div className="flex items-center gap-2">
-                <ClipboardCheck className="size-5 text-brand" />
-                <h3 className="font-semibold">Your pit assignments</h3>
-                <span className="ml-auto rounded-full bg-brand/15 px-2 py-0.5 font-mono text-xs text-brand">
-                  {assignedTeams.length}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {assignedTeams.map((assignment) => {
-                  const { teamNumber } = assignment;
-                  const option = teamOptions.find((item) => item.team_number === teamNumber);
-                  const assignmentStatus = teamStatuses.get(teamNumber) ?? 'assigned';
-                  const statusLabel =
-                    assignmentStatus === 'assigned'
-                      ? 'Start'
-                      : assignmentStatus === 'draft'
-                        ? 'Continue'
-                        : assignmentStatus === 'queued'
-                          ? 'Queued'
-                          : assignmentStatus === 'error'
-                            ? 'Fix'
-                            : 'Edit';
-                  return (
-                    <button
-                      key={teamNumber}
-                      type="button"
-                      data-testid={`pit-assignment-${teamNumber}`}
-                      onClick={() => setTeam(teamNumber)}
-                      className="flex min-h-12 items-center gap-3 rounded-xl border border-border bg-card px-3 text-left hover:border-brand/50 hover:bg-accent"
-                    >
-                      <span className="font-mono text-lg font-semibold text-brand">{teamNumber}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-muted-foreground">
-                          {option?.nickname ?? `Team ${teamNumber}`}
-                        </span>
-                        {assignment.crewSize > 1 ? (
-                          <span className="block truncate text-xs text-brand">
-                            {assignment.partnerNames.length > 0
-                              ? `With ${assignment.partnerNames.join(' + ')}`
-                              : `${assignment.crewSize}-person shared crew`}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="text-xs font-medium text-brand">{statusLabel}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
           <div
             data-testid="pit-team-start-card"
             className={`mx-auto flex w-full max-w-xl flex-col gap-2 rounded-2xl border border-border bg-card p-4 ${
-              assignedTeams.length > 0 ? 'lg:max-w-none' : ''
+              hasAssignments ? 'md:max-w-none md:p-6' : ''
             }`}
           >
             <Label htmlFor="pit-team-input" className="flex items-center gap-1.5 text-base">
@@ -709,6 +752,7 @@ export default function PitScoutFlow({
             </Button>
           </div>
         </div>
+        </div>
       </section>
     );
   }
@@ -723,8 +767,12 @@ export default function PitScoutFlow({
   return (
     <section
       data-testid="pit-flow"
-      className="mx-auto flex w-full max-w-5xl flex-col gap-3"
+      className={`mx-auto flex w-full max-w-5xl flex-col gap-3 ${twoPane}`}
     >
+      {hasAssignments
+        ? renderAssignments({ className: 'hidden md:flex', disabled: storageProtected })
+        : null}
+      <div className="flex min-w-0 flex-col gap-3">
       <Button
         data-testid="pit-change-team"
         variant="outline"
@@ -749,6 +797,7 @@ export default function PitScoutFlow({
         onDone={backToPicker}
         onStorageProtectionChange={setStorageProtected}
       />
+      </div>
     </section>
   );
 }
