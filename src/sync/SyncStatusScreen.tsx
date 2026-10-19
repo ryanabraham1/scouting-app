@@ -12,7 +12,9 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { BackLink } from '@/components/ui/BackLink';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
+import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSyncQueue, listDeadLetters, requeueReport, deleteReport } from '@/db/localStore';
 import {
@@ -544,6 +546,7 @@ export function computeCoverage(data: CoverageData): MatchCoverage[] {
 
 export default function SyncStatusScreen(): JSX.Element {
   const { eventKey } = useActiveEvent();
+  const { online, queued, deadLetters, syncing, syncNow } = useSync();
   const [data, setData] = useState<CoverageData | null>(null);
 
   useEffect(() => {
@@ -561,11 +564,47 @@ export default function SyncStatusScreen(): JSX.Element {
   const noActiveEvent = data !== null && !data.eventKey;
 
   return (
-    <main data-testid="sync-status" className="mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6">
-      <div className="flex items-center gap-3">
-        <BackLink to="/" label="Home" icon="home" />
-        <h1 className="text-2xl font-bold">Sync status</h1>
+    <main
+      data-testid="sync-status"
+      className={`mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6 ${BOTTOM_BAR_CLEARANCE}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-medium">Sync status</h1>
+        <span
+          className={`inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-xs ${
+            online ? 'bg-success/10 text-success' : 'bg-warning/15 text-warning'
+          }`}
+        >
+          {online ? <Wifi className="size-3.5" aria-hidden="true" /> : <WifiOff className="size-3.5" aria-hidden="true" />}
+          {online ? 'Online' : 'Offline'}
+        </span>
       </div>
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary/60 p-3 text-center">
+        <div>
+          <p data-testid="sync-summary-waiting" className="font-mono text-2xl font-medium tabular-nums">
+            {queued}
+          </p>
+          <p className="text-xs text-muted-foreground">Waiting</p>
+        </div>
+        <div>
+          <p
+            data-testid="sync-summary-failed"
+            className={`font-mono text-2xl font-medium tabular-nums ${deadLetters > 0 ? 'text-destructive' : ''}`}
+          >
+            {deadLetters}
+          </p>
+          <p className="text-xs text-muted-foreground">Failed</p>
+        </div>
+      </div>
+      <Button
+        data-testid="sync-status-now"
+        className="h-12 gap-2 rounded-xl bg-foreground text-base font-medium text-background hover:bg-foreground/90"
+        disabled={syncing || !online}
+        onClick={() => syncNow()}
+      >
+        <RefreshCw className={`size-4 ${syncing ? 'animate-spin' : ''}`} aria-hidden="true" />
+        {syncing ? 'Syncing…' : 'Sync now'}
+      </Button>
       <LocalOutbox />
       <Card>
         <CardHeader>
@@ -618,6 +657,7 @@ export default function SyncStatusScreen(): JSX.Element {
           )}
         </CardContent>
       </Card>
+      <ScoutBottomNav active="home" />
     </main>
   );
 }
