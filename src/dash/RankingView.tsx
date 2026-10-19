@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { readPreference, writePreference } from '@/dash/analysisPreferences';
 import { cn } from '@/lib/utils';
 import { TeamLink } from '@/components/ui/TeamLink';
+import { useIsPhoneWidth } from '@/components/useIsPortrait';
+import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import { aggregateEvent, emptyTeamAgg, type TeamAgg } from '@/dash/aggregate';
 import { pctSigned, DEF_EFF_MIN_SAMPLE } from '@/dash/defenseAnalytics';
 import {
@@ -447,6 +449,9 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     }
   }, [aggs.length, tbaSettled, tbaRankAvailable, epaAvailable]);
 
+  const compact = useIsPhoneWidth();
+  const ourTeam = getStoredBaseTeam();
+
   const sortedRows = useMemo(() => {
     const copy = [...rows];
     copy.sort((a, b) => {
@@ -564,6 +569,87 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
 
   return (
     <div data-testid="dash-ranking" className="space-y-4 text-foreground">
+      {compact ? (
+        <section data-testid="ranking-mobile-list">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-xl font-medium">Ranking</h2>
+            <span data-testid="ranking-count" className="text-xs text-muted-foreground">
+              {sortedRows.length} teams
+            </span>
+          </div>
+          <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1">
+            {(
+              [
+                ['epa', 'EPA'],
+                ['scoutingExpectedPoints', 'Scouted pts'],
+                ['reliability', 'Reliability'],
+                ['avgDefenseRating', 'Defense'],
+                ['teamNumber', 'Team'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                data-testid={`ranking-chip-${key}`}
+                onClick={() => onSort(key)}
+                className={cn(
+                  'min-h-9 shrink-0 rounded-full px-3 text-xs',
+                  key === sortKey
+                    ? 'bg-foreground text-background'
+                    : 'bg-secondary text-muted-foreground',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <ul>
+            {sortedRows.map((r, idx) => {
+              const t = r.agg.teamNumber;
+              const us = t === ourTeam;
+              const barWidth =
+                r.epa == null || maxEpa <= 0
+                  ? 0
+                  : Math.max(2, Math.min(100, (r.epa / maxEpa) * 100));
+              return (
+                <li
+                  key={t}
+                  data-testid={`ranking-card-${t}`}
+                  className={cn(
+                    'flex items-center gap-3 border-t border-border px-2 py-3 first:border-t-0',
+                    us && 'rounded-xl border-t-0 bg-secondary',
+                  )}
+                >
+                  <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <TeamLink
+                      team={t}
+                      className="inline-flex min-h-6 items-center font-mono text-sm"
+                    />
+                    {us ? <span className="ml-2 text-xs text-muted-foreground">us</span> : null}
+                    <div className="mt-1.5 h-1 rounded-full bg-secondary">
+                      <div
+                        className={cn('h-1 rounded-full', us ? 'bg-brand' : 'bg-muted-foreground/60')}
+                        style={{ width: `${barWidth}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="font-mono text-[15px] tabular-nums">
+                      {r.epa == null ? EM_DASH : fmt(r.epa, 0)}
+                    </div>
+                    <div className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {hasScouting(r) ? `${fmt(r.agg.scoutingExpectedPoints, 0)} scouted` : EM_DASH}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : (
       <Card className="bg-card">
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
@@ -794,7 +880,9 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {compact ? null : (
       <Card data-testid="compare-panel" className="bg-card">
         <CardHeader>
           <CardTitle>Compare ({selectedRows.length}/{MAX_COMPARE})</CardTitle>
@@ -871,6 +959,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
           </CardContent>
         ) : null}
       </Card>
+      )}
     </div>
   );
 }

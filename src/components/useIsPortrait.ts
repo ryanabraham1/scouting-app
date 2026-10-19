@@ -34,3 +34,8 @@ export function useIsPortrait(): boolean {
 export function useIsPhonePortrait(): boolean {
   return useMediaMatch('(orientation: portrait) and (max-width: 639px)', true);
 }
+
+/** True on phone-width viewports (< 640px), regardless of orientation. */
+export function useIsPhoneWidth(): boolean {
+  return useMediaMatch('(max-width: 639px)', false);
+}

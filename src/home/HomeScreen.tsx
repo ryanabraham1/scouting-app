@@ -4,7 +4,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, ChevronRight } from 'lucide-react';
 import { STATIONS, readLastStation } from '@/components/StationMenu';
-import { useScoutOrigin } from '@/scout/ScoutBottomNav';
 
 const TESTID: Record<string, string> = {
   scout: 'home-go-scout',
@@ -13,7 +12,6 @@ const TESTID: Record<string, string> = {
 };
 
 export default function HomeScreen(): JSX.Element {
-  useScoutOrigin(false);
   const last = readLastStation();
   const resume = STATIONS.find((s) => s.id === last) ?? null;
 

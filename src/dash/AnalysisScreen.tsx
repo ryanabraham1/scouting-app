@@ -1,10 +1,7 @@
 // src/dash/AnalysisScreen.tsx — unlocked match intelligence and team analysis.
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MonitorPlay, UserSearch, ListOrdered, Grid3x3, Users } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { IconTabs } from '@/components/ui/IconTabs';
-import { BackLink } from '@/components/ui/BackLink';
+import { MonitorPlay, UserSearch, ListOrdered, Grid3x3, Users, ChartNoAxesColumn } from 'lucide-react';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
 import NextMatchView from '@/dash/NextMatchView';
@@ -12,23 +9,24 @@ import TeamView from '@/dash/TeamView';
 import MatchView from '@/dash/MatchView';
 import RankingView from '@/dash/RankingView';
 import AllianceSimulatorView from '@/dash/AllianceSimulatorView';
-import { ScoutBottomNav, isScoutOrigin } from '@/scout/ScoutBottomNav';
+import { BottomTabBar, BOTTOM_BAR_CLEARANCE, type BottomTab } from '@/components/BottomTabBar';
+import { StationMenu } from '@/components/StationMenu';
 
 type Tab = 'next' | 'team' | 'match' | 'ranking' | 'alliance';
 
-const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
-  { key: 'next', label: 'Pit Display', icon: MonitorPlay },
-  { key: 'team', label: 'Team', icon: UserSearch },
-  { key: 'match', label: 'Match', icon: Grid3x3 },
-  { key: 'ranking', label: 'Ranking', icon: ListOrdered },
-  { key: 'alliance', label: 'Alliance', icon: Users },
+const TABS: readonly BottomTab<Tab>[] = [
+  { id: 'team', label: 'Team', icon: UserSearch },
+  { id: 'match', label: 'Match', icon: Grid3x3 },
+  { id: 'ranking', label: 'Ranking', icon: ListOrdered },
+  { id: 'alliance', label: 'Alliance', icon: Users },
+  { id: 'next', label: 'Pit', icon: MonitorPlay },
 ];
 
 function readLocation(search: string): { tab: Tab; team: number | null; match: string | null } {
   try {
     const params = new URLSearchParams(search);
     const requested = params.get('tab');
-    const tab = requested && TABS.some((item) => item.key === requested) ? requested as Tab : 'next';
+    const tab = requested && TABS.some((item) => item.id === requested) ? requested as Tab : 'next';
     const teamValue = Number(params.get('team'));
     return {
       tab,
@@ -44,7 +42,6 @@ export default function AnalysisScreen(): JSX.Element {
   const { eventKey, loading } = useActiveEvent();
   useEventLiveSync(eventKey);
   const location = useLocation();
-  const fromScout = isScoutOrigin();
   const navigate = useNavigate();
   const initial = readLocation(location.search);
   const [tab, setTab] = useState<Tab>(initial.tab);
@@ -88,28 +85,16 @@ export default function AnalysisScreen(): JSX.Element {
   return (
     <div
       data-testid="analysis"
-      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4 ${fromScout ? 'pb-24' : ''}`}
+      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4 ${BOTTOM_BAR_CLEARANCE}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <BackLink to="/" label="Home" icon="home" iconOnly className="sm:hidden" />
-          <BackLink to="/" label="Home" icon="home" className="hidden sm:inline-flex" />
-          <h1 className="truncate text-xl font-bold sm:text-2xl">Analysis</h1>
-        </div>
-        <span className="hidden max-w-[7rem] shrink-0 truncate font-mono text-xs text-muted-foreground sm:block sm:max-w-none sm:text-sm">
-          {eventKey ?? '—'}
-        </span>
+        <StationMenu
+          current="analysis"
+          title="Analysis"
+          subtitle={eventKey ?? undefined}
+          avatar={<ChartNoAxesColumn aria-hidden="true" />}
+        />
       </header>
-
-      <IconTabs<Tab>
-        ariaLabel="Analysis sections"
-        value={tab}
-        onChange={writeLocation}
-        tabs={TABS.map((item) => {
-          const Icon = item.icon;
-          return { value: item.key, label: item.label, icon: <Icon /> };
-        })}
-      />
 
       {loading ? (
         <p data-testid="analysis-loading" className="text-muted-foreground">Loading event…</p>
@@ -139,7 +124,14 @@ export default function AnalysisScreen(): JSX.Element {
           {tab === 'alliance' && <AllianceSimulatorView eventKey={eventKey} />}
         </section>
       )}
-      {fromScout ? <ScoutBottomNav active="analysis" /> : null}
+      <BottomTabBar
+        tabs={TABS}
+        active={tab}
+        onSelect={writeLocation}
+        ariaLabel="Analysis sections"
+        testId="analysis-bottom-nav"
+        tabTestIdPrefix="analysis-tab"
+      />
     </div>
   );
 }

@@ -61,24 +61,21 @@ describe('AnalysisScreen', () => {
   it('defaults to Pit Display and shows all five analysis sections', () => {
     renderAnalysis();
     expect(screen.getByTestId('view-next')).toBeInTheDocument();
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())).toEqual([
-      'Pit Display',
-      'Team',
-      'Match',
-      'Ranking',
-      'Alliance',
-    ]);
+    const bar = screen.getByTestId('analysis-bottom-nav');
+    expect(
+      Array.from(bar.querySelectorAll('button')).map((tab) => tab.textContent?.trim()),
+    ).toEqual(['Team', 'Match', 'Ranking', 'Alliance', 'Pit']);
   });
 
   it('brings back the Alliance screen as a visible tab', () => {
     renderAnalysis();
-    fireEvent.click(screen.getByRole('tab', { name: 'Alliance' }));
+    fireEvent.click(screen.getByTestId('analysis-tab-alliance'));
     expect(screen.getByTestId('view-alliance')).toBeInTheDocument();
   });
 
   it('opens a ranking team in Analysis and preserves a shareable query', () => {
     renderAnalysis();
-    fireEvent.click(screen.getByRole('tab', { name: 'Ranking' }));
+    fireEvent.click(screen.getByTestId('analysis-tab-ranking'));
     fireEvent.click(screen.getByRole('link', { name: '254' }));
     expect(screen.getByTestId('view-team')).toHaveAttribute('data-selected', '254');
     expect(currentSearch()).toBe('?tab=team&team=254');

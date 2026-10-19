@@ -11,7 +11,7 @@ import { useActiveEvent } from "@/dash/useActiveEvent";
 import { listReports } from "@/db/localStore";
 import { pullScoutReports } from "@/sync/pullReports";
 import type { LocalMatchReport } from "@/db/types";
-import { ScoutBottomNav, useScoutOrigin } from "@/scout/ScoutBottomNav";
+import { ScoutBottomNav } from "@/scout/ScoutBottomNav";
 import {
   normalizeScouterName,
   reportMatchesScoutScope,
@@ -106,7 +106,6 @@ export default function MyDataView(): JSX.Element {
     sessionLoading,
   ]);
 
-  useScoutOrigin(true);
 
   return (
     <div
