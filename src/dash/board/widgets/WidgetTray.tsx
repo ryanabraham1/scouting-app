@@ -10,7 +10,7 @@ import { insertWidget } from '@/dash/board/widgets/actions';
 
 export function WidgetTray({ editor, onClose, onOpenSearch }: { editor: BoardEditor; onClose: () => void; onOpenSearch?: () => void }): JSX.Element {
   return (
-    <div className={cn(PANEL, 'w-[300px] p-2.5')} role="dialog" aria-label="Add widget">
+    <div className={cn(PANEL, 'max-h-[min(75dvh,560px)] w-[300px] overflow-y-auto p-2.5')} role="dialog" aria-label="Add widget">
       <div className="mb-2 flex items-center justify-between px-0.5">
         <span className="eyebrow">Add widget</span>
         {onOpenSearch && (

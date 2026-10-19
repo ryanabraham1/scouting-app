@@ -8,6 +8,14 @@ export function exportBounds(editor: BoardEditor): { x: number; y: number; w: nu
 }
 
 async function inlineElement(source: Element): Promise<Element> {
+  // Cross-origin video frames cannot be rasterized into a PNG. Keep a readable
+  // placeholder instead of tainting (and failing) the entire board export.
+  if (source instanceof HTMLIFrameElement) {
+    const placeholder = document.createElement('div');
+    placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#151515;color:#9ca3af;font:14px sans-serif;';
+    placeholder.textContent = `${source.title || 'Video'} · play on the board`;
+    return placeholder;
+  }
   const clone = source.cloneNode(false) as HTMLElement | SVGElement;
   const style = getComputedStyle(source);
   for (const prop of Array.from(style)) clone.style.setProperty(prop, style.getPropertyValue(prop));

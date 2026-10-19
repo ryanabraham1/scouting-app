@@ -5,6 +5,7 @@
 import type { MetricKey } from '@/dash/board/widgets/data';
 
 export type Intent =
+  | 'notes' | 'video' | 'pit' | 'photo' | 'reports' | 'autopath' | 'stats' | 'data'
   | 'schedule'
   | 'last'
   | 'next'
@@ -21,6 +22,10 @@ export type Intent =
 
 /** Multi-word phrases folded to a single canonical token (applied in order). */
 export const PHRASES: [RegExp, string][] = [
+  [/\b(?:auto|autonomous)\s+(?:paths?|routines?)\b/g, 'autopath'],
+  [/\b(?:robot|pit)\s+photos?\b/g, 'photo'],
+  [/\ball\s+(?:team\s+)?stats\b/g, 'stats'],
+  [/\bapp\s+data\b/g, 'data'],
   [/\bpick\s*lists?\b/g, 'picklist'],
   [/\balliance\s+selection\b/g, 'picklist'],
   [/\bwatch\s*list\b/g, 'watchlist'],
@@ -44,6 +49,10 @@ export const PHRASES: [RegExp, string][] = [
 ];
 
 export const INTENT_WORDS: Record<string, Intent> = {
+  notes: 'notes', note: 'notes', comments: 'notes', observations: 'notes',
+  video: 'video', videos: 'video', replay: 'video', footage: 'video', vod: 'video',
+  pit: 'pit', questionnaire: 'pit', photo: 'photo', photos: 'photo', picture: 'photo', pictures: 'photo',
+  reports: 'reports', report: 'reports', autopath: 'autopath', stats: 'stats', statistics: 'stats', data: 'data',
   matches: 'schedule',
   games: 'schedule',
   schedule: 'schedule',

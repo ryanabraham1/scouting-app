@@ -87,9 +87,10 @@ export const ShapeView = memo(function ShapeView({
   return (
     <div
       data-shape-id={shape.id}
-      data-board-interactive={interactive ? '' : undefined}
+      data-board-widget={shape.type === 'widget' ? '' : undefined}
       style={{
         position: 'absolute',
+        isolation: 'isolate',
         left: shape.x,
         top: shape.y,
         width: shape.w,

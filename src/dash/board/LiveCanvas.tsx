@@ -47,12 +47,15 @@ export function LiveCanvas({ editor, width, height, remote }: LiveCanvasProps): 
     const fx = setupCanvas(fxCanvas, width, height);
     if (!ink || !fx) return;
     let rendered = 0;
+    let inkCamera = editor.camera;
+    let fxPainted = false;
     let strokeRef: unknown = null;
     let raf: number | null = null;
 
     const drawInk = (): void => {
       const s = editor.live.stroke;
-      if (s !== strokeRef) {
+      if (s !== strokeRef || (s && inkCamera !== editor.camera)) {
+        inkCamera = editor.camera;
         ink.clearRect(0, 0, width, height);
         rendered = 0;
         strokeRef = s;
@@ -94,7 +97,12 @@ export function LiveCanvas({ editor, width, height, remote }: LiveCanvasProps): 
     };
 
     const drawFx = (now: number): boolean => {
+      const remoteLasers = remote ? [...remote.laser()] : [];
+      const remoteStrokes = remote ? [...remote.strokes()] : [];
+      const active = editor.live.laser.length > 0 || !!editor.live.eraser || remoteLasers.some((l) => l.pts.length > 0) || remoteStrokes.length > 0;
+      if (!active && !fxPainted) return false;
       fx.clearRect(0, 0, width, height);
+      fxPainted = active;
       const { x: cx, y: cy, z } = editor.camera;
       let animating = false;
       const drawTrail = (trail: { x: number; y: number; t: number }[], color: string): void => {
@@ -122,13 +130,13 @@ export function LiveCanvas({ editor, width, height, remote }: LiveCanvasProps): 
         animating = true;
       }
       if (remote) {
-        for (const l of remote.laser()) {
+        for (const l of remoteLasers) {
           if (l.pts.length) {
             drawTrail(l.pts, l.color);
             animating = true;
           }
         }
-        for (const s of remote.strokes()) {
+        for (const s of remoteStrokes) {
           if (s.points.length === 0) continue;
           fx.globalAlpha = s.highlighter ? HIGHLIGHTER_OPACITY : 1;
           fx.strokeStyle = s.color;
@@ -167,7 +175,12 @@ export function LiveCanvas({ editor, width, height, remote }: LiveCanvasProps): 
     };
     const unsubLive = editor.subscribeLive(schedule);
     // Camera moves (pinch mid-laser, remote updates) also need a repaint.
-    const unsub = editor.subscribe(schedule);
+    let camera = editor.camera;
+    const unsub = editor.subscribe(() => {
+      if (camera === editor.camera) return;
+      camera = editor.camera;
+      if (editor.live.stroke || editor.live.eraser || editor.live.laser.length || fxPainted) schedule();
+    });
     schedule();
     return () => {
       unsubLive();

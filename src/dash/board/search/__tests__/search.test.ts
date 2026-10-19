@@ -90,6 +90,15 @@ const CORPUS: [string[], string][] = [
   [['rankings', 'standings', 'rank'], 'rankings:rank:asc:5'],
   [['watch 254', 'star 254', 'track cheesy'], 'watch:254'],
   [['watchlist', 'watch list'], 'watchlist'],
+  [['254 notes', 'cheesy scouting notes', 'notes on 254'], 'teamNotes:254'],
+  [['254 video', 'poofs replay', 'video of 254'], 'matchVideo:254'],
+  [['qm32 video', 'qual 32 footage'], `matchVideo:${EK}_qm32`],
+  [['254 pit', 'cheesy pit report'], 'pit:254'],
+  [['254 photo', '254 robot photos'], 'robotPhoto:254'],
+  [['254 auto path'], 'autoPath:254'],
+  [['254 reports'], 'reports:254'],
+  [['254 stats', 'all stats 254'], 'stats:254'],
+  [['app data'], 'data:3256'],
   [['feed lane'], 'board:s:note'],
 ];
 

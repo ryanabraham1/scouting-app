@@ -37,7 +37,8 @@ import {
   type SearchResult,
 } from '@/dash/board/search/interpret';
 
-export const WIDGET_DRAG_TYPE = 'application/x-ryans-board-widget';
+export { WIDGET_DRAG_TYPE } from '@/dash/board/widgets/drag';
+import { WIDGET_DRAG_TYPE } from '@/dash/board/widgets/drag';
 const PICKS_KEY = 'ryans-board-search-picks';
 const RECENT_KEY = 'ryans-board-search-recent';
 
@@ -84,7 +85,8 @@ const EXAMPLES = [
   'our next',
   'poofs last match',
   'who climbs',
-  'top 10 bsr',
+  '254 notes',
+  'qm32 video',
 ];
 
 function readJson<T>(key: string, fallback: T): T {
@@ -250,7 +252,7 @@ export function Spotlight({
     for (const m of interpretation.matches.slice(0, 2))
       chips.push(
         <Chip key={m.match_key} tone="brand">
-          {m.match_key.split('_')[1]}
+          {m.match_key.split('_').pop()}
         </Chip>,
       );
     if (interpretation.metric)

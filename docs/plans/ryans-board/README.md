@@ -45,6 +45,42 @@ editor is exposed as `window.__ryansBoard` for debugging and e2e.
   The complete board chunk, including widgets/search/export, is about 46 KB gzipped.
 - Local changes are committed without pushing, per the hand-off rule below.
 
+**Navigation and interactive-widget follow-up (2026-10-19)**:
+- Camera movement now writes a composited world transform directly. The dot grid is its own
+  layer; the React content tree only changes when edits or the buffered visible set change.
+  Idle effects canvases do not clear/redraw during navigation. The minimap caches document
+  bounds and refreshes at about 12 Hz. Empty overlays and settings no longer subscribe to
+  every camera revision. `overflow: clip` prevents browser focus from scrolling the canvas.
+- A reproducible developer fixture lives at `/tests/fixtures/ryans-board.html?perf`. On the
+  same machine, navigating 300 shapes changed from 119 React commits / 71.0 ms to 14 commits /
+  8.1 ms, with about 119–120 FPS in both runs (95th-percentile frame about 9.1 ms). This is a
+  local stress check, not a measurement on Ryan's device.
+- Widgets are interactive immediately in Select mode. Drag the **header** to move a card;
+  scroll/select text/use controls in its body. Linked rows can be clicked to pin adjacent
+  content or dragged to place it precisely. Clicking a link brings its new card into view.
+- Eight additional widgets: scouting notes (including team strategy notes), scouting reports,
+  pit report, robot photos, match video, auto paths, all team stats, and app data explorer.
+  Schedule rows drag out as match details; their video buttons drag out as video cards.
+  Team numbers throughout the existing cards pin team cards. Team and match cards link into
+  schedules, notes, pit data, reports, videos and the existing Analysis routes.
+- Video widgets reuse `MatchVideo` and its existing match-video/livestream fallback. Players
+  mount only after clicking Load; starting playback pins that specific match so new results
+  do not unexpectedly replace it. Robot photos reuse `useTeamPhoto`; auto paths reuse
+  `FieldDiagram` and preserve unknown (`null`) versus observed no movement (`[]`).
+- App data explorer exposes ten shared datasets: teams, matches, scouting reports, pit
+  reports, notes, aggregate scouting stats, standings, picklist, scouters and assignments.
+  Expand a record, then click/drag its Pin record or field controls to create a live binding.
+  Raw nested values remain inspectable. Heavy record details render only when expanded.
+- Search includes queries such as `254 notes`, `qm32 video`, `cheesy pit`, `254 auto path`
+  and `all stats 254`. No new libraries, schema changes or backend deployment are needed.
+- Browser checks exercised native schedule-row drag-out, match → video, on-demand no-video
+  fallback, scout + strategy notes, pit report → full questionnaire → individual-field pin,
+  and zero native canvas scroll after navigation. Player playback was not verified against
+  YouTube here. The isolated Playwright specs were extended but not run with Playwright.
+- Separate snapshot verification: 187 unit-test files / 2,109 tests pass. The production build
+  and type checking pass there. Other agents were changing Lead Dashboard files in the same
+  checkout during verification; those edits are excluded from the board snapshot/commit.
+
 **Implementation notes discovered while building**
 - Keyboard shortcuts are window-level (`BoardCanvas` attaches keydown/keyup on `window`,
   skipping inputs/textareas/dialogs), because on first load focus sits on `<body>`.
@@ -567,8 +603,8 @@ interface WidgetDef<C> {
 ```
 `WidgetFrame` (in ShapeView) draws the card: a header (icon, eyebrow title, live dot when the
 data is fresh, a gear when `Settings` exists) and a body. In select mode the whole card is the
-drag handle. Double-click enters "interact" mode (scrollable lists, and settings open); Escape
-or a click outside leaves it.
+drag handle. The header is the move handle; the body is directly interactive in Select mode.
+Use the header settings button to edit bindings.
 
 ### 10.2 Shared data (`widgets/data.tsx`)
 `BoardDataProvider({ eventKey })` runs every query **once** for all widgets and exposes

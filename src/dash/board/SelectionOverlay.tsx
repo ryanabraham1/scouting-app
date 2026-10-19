@@ -6,6 +6,7 @@ import { useBoard } from '@/dash/board/useBoard';
 import type { BoardEditor } from '@/dash/board/editor';
 import { unionRects, shapeRect } from '@/dash/board/model';
 
+const IDLE_CAMERA = { x: 0, y: 0, z: 1 };
 const BRAND = 'hsl(199 89% 48%)';
 
 export function SelectionOverlay({
@@ -19,7 +20,7 @@ export function SelectionOverlay({
   height: number;
   handleSize: number;
 }): JSX.Element | null {
-  const camera = useBoard(editor, (e) => e.camera);
+  const camera = useBoard(editor, (e) => e.selection.size || e.marquee ? e.camera : IDLE_CAMERA);
   const selection = useBoard(editor, (e) => e.selection);
   const shapes = useBoard(editor, (e) => e.shapes);
   const marquee = useBoard(editor, (e) => e.marquee);

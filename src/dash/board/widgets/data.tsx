@@ -8,6 +8,11 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   useEventComponentEpas,
+  useMatchupNotes,
+  useEventScouts,
+  useEventAssignments,
+  type ScoutRow,
+  type AssignmentRow,
   useEventEpa,
   useEventMatches,
   useEventReports,
@@ -19,6 +24,8 @@ import {
   type NexusStatusResult,
   type TeamRow,
 } from '@/dash/useEventData';
+import type { MsrRow } from '@/dash/types';
+import { useEventPits, type TeamPit } from '@/dash/useTeamPit';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
 import { predictMatch, type MatchPrediction } from '@/dash/predict';
 import { getCachedPicklist, getPicklist, type PicklistEntry } from '@/dash/picklistClient';
@@ -77,6 +84,11 @@ export interface BoardData {
   matches: MatchRow[];
   epa: EventEpa;
   agg: Map<number, TeamAgg>;
+  reports: MsrRow[];
+  pits: Map<number, TeamPit>;
+  strategyNotes: Map<string, string>;
+  scouts: ScoutRow[];
+  assignments: AssignmentRow[];
   standings: Map<number, TeamStanding>;
   nexus: NexusStatusResult | undefined;
   picklist: PicklistEntry[] | undefined;
@@ -193,6 +205,10 @@ export function BoardDataProvider({ eventKey, children }: { eventKey: string; ch
   const teamsQ = useEventTeams(eventKey);
   const matchesQ = useEventMatches(eventKey);
   const reportsQ = useEventReports(eventKey);
+  const pitsQ = useEventPits(eventKey);
+  const notesQ = useMatchupNotes(eventKey);
+  const scoutsQ = useEventScouts(eventKey);
+  const assignmentsQ = useEventAssignments(eventKey);
   const teams = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
   const matches = useMemo(() => matchesQ.data ?? [], [matchesQ.data]);
   const teamNumbers = useMemo(() => {
@@ -242,6 +258,11 @@ export function BoardDataProvider({ eventKey, children }: { eventKey: string; ch
       matches,
       epa,
       agg,
+      reports: reportsQ.data ?? [],
+      pits: pitsQ.data ?? new Map(),
+      strategyNotes: notesQ.data ?? new Map(),
+      scouts: scoutsQ.data ?? [],
+      assignments: assignmentsQ.data ?? [],
       standings,
       nexus: nexusQ.data,
       picklist: picklistQ.data,
@@ -303,7 +324,7 @@ export function BoardDataProvider({ eventKey, children }: { eventKey: string; ch
         }
       },
     };
-  }, [eventKey, teams, teamNumbers, matches, epa, agg, standings, nexusQ.data, picklistQ.data, baseTeam, fraction, teamsQ.isLoading, matchesQ.isLoading]);
+  }, [eventKey, teams, teamNumbers, matches, epa, agg, standings, nexusQ.data, picklistQ.data, baseTeam, fraction, reportsQ.data, pitsQ.data, notesQ.data, scoutsQ.data, assignmentsQ.data, teamsQ.isLoading, matchesQ.isLoading]);
 
   return <BoardDataContext.Provider value={value}>{children}</BoardDataContext.Provider>;
 }

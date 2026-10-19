@@ -11,6 +11,8 @@ import type { BoardLive } from '@/dash/board/live';
 import { COLORS } from '@/dash/board/model';
 import type { BoardSyncState } from '@/dash/board/cloud';
 
+const IDLE_CAMERA = { x: 0, y: 0, z: 1 };
+
 function useLive(live: BoardLive): number {
   return useSyncExternalStore(live.subscribe, () => live.version);
 }
@@ -24,7 +26,8 @@ function initials(name: string): string {
 export function RemoteCursors({ editor, live }: { editor: BoardEditor; live: BoardLive }): JSX.Element {
   useLive(live);
   const shapes = useBoard(editor, (e) => e.shapes);
-  const camera = useBoard(editor, (e) => e.camera);
+  const active = [...live.peers.values()].some((p) => p.cursor || p.selection.length);
+  const camera = useBoard(editor, (e) => active ? e.camera : IDLE_CAMERA);
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
       <svg className="absolute inset-0 h-full w-full">

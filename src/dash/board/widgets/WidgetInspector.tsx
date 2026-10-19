@@ -1,7 +1,7 @@
 // src/dash/board/widgets/WidgetInspector.tsx
 // Settings for the single selected widget (top-right panel slot): which team,
 // which match, metric, count, expression. Every change is one undo step.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Star, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,7 @@ import { useBoard } from '@/dash/board/useBoard';
 import type { BoardEditor } from '@/dash/board/editor';
 import type { WidgetShape } from '@/dash/board/model';
 import { PANEL } from '@/dash/board/BoardChrome';
+import { DATA_SOURCES } from './sources';
 import { WIDGETS, type WidgetConfig, type WidgetKind } from '@/dash/board/widgets/registry';
 import { METRICS, METRIC_KEYS, type MetricKey } from '@/dash/board/widgets/data';
 import { toggleWatch, updateWidgetConfig, watchedTeams } from '@/dash/board/widgets/actions';
@@ -43,7 +44,8 @@ function Seg<T extends string>({ value, options, onChange }: { value: T; options
 }
 
 function TeamField({ value, onChange, allowBase = true }: { value: unknown; onChange: (v: number | 'base') => void; allowBase?: boolean }): JSX.Element {
-  const [draft, setDraft] = useState(value === 'base' ? '' : String(value ?? ''));
+  const [draft, setDraft] = useState(value === 'base' || value === 'all' ? '' : String(value ?? ''));
+  useEffect(() => setDraft(value === 'base' || value === 'all' ? '' : String(value ?? '')), [value]);
   const commit = (): void => {
     const n = Number(draft);
     if (Number.isInteger(n) && n > 0) onChange(n);
@@ -53,7 +55,7 @@ function TeamField({ value, onChange, allowBase = true }: { value: unknown; onCh
       <input
         className={FIELD}
         inputMode="numeric"
-        placeholder={value === 'base' ? 'Our team' : 'Team #'}
+        placeholder={value === 'base' ? 'Our team' : value === 'all' ? 'All teams' : 'Team #'}
         value={draft}
         onChange={(e) => setDraft(e.target.value.replace(/\D/g, '').slice(0, 5))}
         onBlur={commit}
@@ -117,7 +119,6 @@ function TeamsField({ value, onChange, max = 8 }: { value: unknown; onChange: (t
 export function WidgetInspector({ editor }: { editor: BoardEditor }): JSX.Element | null {
   const selection = useBoard(editor, (e) => e.selection);
   const shapes = useBoard(editor, (e) => e.shapes);
-  useBoard(editor, (e) => e.version);
   if (selection.size !== 1) return null;
   const shape = shapes.get([...selection][0]);
   if (!shape || shape.type !== 'widget') return null;
@@ -160,6 +161,10 @@ function Inspector({ editor, shape }: { editor: BoardEditor; shape: WidgetShape 
         </>
       );
       break;
+    case 'teamNotes':
+    case 'pit':
+    case 'robotPhoto':
+    case 'stats':
     case 'nextMatch':
     case 'schedule':
       body = (
@@ -167,6 +172,19 @@ function Inspector({ editor, shape }: { editor: BoardEditor; shape: WidgetShape 
           <TeamField value={c.team} onChange={(t) => set({ team: t })} />
         </Row>
       );
+      break;
+    case 'reports':
+    case 'matchVideo':
+    case 'autoPath':
+    case 'data':
+      body = <>
+        {kind === 'data' && <Row label="Data source"><select aria-label="Data source" className={FIELD} value={String(c.source ?? 'reports')} onChange={(e) => set({ source: e.target.value, record: undefined, field: undefined, match: undefined })}>{Object.entries(DATA_SOURCES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Row>}
+        <Row label="Team"><TeamField value={c.team} onChange={(team) => set({ team, record: undefined })} /></Row>
+        {(kind === 'reports' || kind === 'data') && <button type="button" onClick={() => set({ team: 'all', record: undefined })} className="text-xs text-brand">All teams</button>}
+        <Row label="Match (optional)"><input className={FIELD} aria-label="Widget match" placeholder="qm32" value={String(c.match ?? '')} onChange={(e) => set({ match: e.target.value })} /></Row>
+        {kind === 'matchVideo' && <button type="button" className="text-xs text-brand" onClick={() => set({ match: undefined })}>Follow this team's latest match</button>}
+        {kind === 'data' && (c.record || c.field) && <button type="button" className="text-xs text-brand" onClick={() => set({ record: undefined, field: undefined })}>Show all matching records</button>}
+      </>;
       break;
     case 'match':
       body = (
@@ -312,6 +330,7 @@ function Inspector({ editor, shape }: { editor: BoardEditor; shape: WidgetShape 
       <div className="flex items-center gap-1.5 text-foreground">
         <Icon className="size-4 text-muted-foreground" aria-hidden />
         <span className="text-sm font-semibold">{def.label}</span>
+        <button type="button" aria-label="Close widget settings" className="ml-auto rounded p-1 hover:bg-white/10" onClick={() => editor.setSelection([])}><X className="size-3.5" /></button>
         {team != null && (kind === 'team' || kind === 'schedule') && (
           <button
             type="button"

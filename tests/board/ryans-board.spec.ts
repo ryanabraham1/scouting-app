@@ -38,3 +38,32 @@ test('offline board: search, comments, ink, reload, presentation and PNG', async
   await page.keyboard.press('Escape');
   await expect(page.getByRole('toolbar', { name: 'Board tools' })).toBeVisible();
 });
+
+test('schedule rows drag out into match cards, videos load on demand, and notes stay readable', async ({ page }) => {
+  await page.goto('/tests/fixtures/ryans-board.html');
+  const search = async (query: string): Promise<void> => {
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill(query);
+    await page.getByRole('textbox', { name: 'Search', exact: true }).press('Enter');
+    await page.getByRole('button', { name: 'Close widget settings', exact: true }).click();
+  };
+  await search('254 schedule');
+  const row = page.locator('[data-widget-kind="schedule"]').getByRole('button', { name: 'Pin qm1 details', exact: true });
+  await row.dragTo(page.getByTestId('board-canvas'), { targetPosition: { x: 540, y: 330 } });
+  const match = page.locator('[data-widget-kind="match"]');
+  await expect(match).toHaveCount(1);
+  await page.getByRole('button', { name: 'Close widget settings', exact: true }).click();
+  await match.getByRole('button', { name: 'Pin qm1 video', exact: true }).click();
+  const video = page.locator('[data-widget-kind="matchVideo"]');
+  await expect(video.getByRole('button', { name: 'Load qm1 video', exact: true })).toBeVisible();
+  await expect(video.locator('iframe')).toHaveCount(0);
+  expect(await page.getByTestId('board-canvas').evaluate((el) => el.scrollTop + el.scrollLeft)).toBe(0);
+  await page.getByRole('button', { name: 'Close widget settings', exact: true }).click();
+  await video.getByRole('button', { name: 'Load qm1 video', exact: true }).click();
+  await expect(video.getByTestId('match-video-none')).toBeVisible();
+  await search('254 notes');
+  await expect(page.locator('[data-widget-kind="teamNotes"]')).toContainText('Strong defense in the feed lane.');
+  await expect(page.locator('[data-widget-kind="teamNotes"]')).toContainText('Protect the feed lane.');
+  await search('254 pit');
+  await expect(page.locator('[data-widget-kind="pit"]')).toContainText('Fast floor pickup');
+});

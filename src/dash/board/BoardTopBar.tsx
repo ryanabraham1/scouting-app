@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import type { MatchRow } from '@/dash/useEventData';
 
 export function matchLabel(matchKey: string): string {
-  const i = matchKey.indexOf('_');
+  const i = matchKey.lastIndexOf('_');
   return i >= 0 ? matchKey.slice(i + 1) : matchKey;
 }
 

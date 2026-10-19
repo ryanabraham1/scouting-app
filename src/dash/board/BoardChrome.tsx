@@ -194,8 +194,9 @@ export function StylePanel({ editor }: { editor: BoardEditor }): JSX.Element | n
 }
 
 export function ZoomControls({ editor, large }: { editor: BoardEditor; large: boolean }): JSX.Element {
-  const z = useBoard(editor, (e) => e.camera.z);
-  useBoard(editor, (e) => e.version); // canUndo/canRedo are getters
+  const percent = useBoard(editor, (e) => Math.round(e.camera.z * 100));
+  const canUndo = useBoard(editor, (e) => e.canUndo);
+  const canRedo = useBoard(editor, (e) => e.canRedo);
   const btn = cn(
     'inline-flex items-center justify-center rounded-lg hover:bg-white/5 hover:text-foreground disabled:opacity-35 disabled:hover:bg-transparent',
     large ? 'size-10' : 'size-8',
@@ -203,10 +204,10 @@ export function ZoomControls({ editor, large }: { editor: BoardEditor; large: bo
   const icon = large ? 'size-5' : 'size-4';
   return (
     <div className={cn(PANEL, 'flex items-center gap-0.5 p-[3px]')}>
-      <button type="button" className={btn} aria-label="Undo" title="Undo (Cmd+Z)" disabled={!editor.canUndo} onClick={() => editor.undo()}>
+      <button type="button" className={btn} aria-label="Undo" title="Undo (Cmd+Z)" disabled={!canUndo} onClick={() => editor.undo()}>
         <Undo2 className={icon} aria-hidden />
       </button>
-      <button type="button" className={btn} aria-label="Redo" title="Redo (Cmd+Shift+Z)" disabled={!editor.canRedo} onClick={() => editor.redo()}>
+      <button type="button" className={btn} aria-label="Redo" title="Redo (Cmd+Shift+Z)" disabled={!canRedo} onClick={() => editor.redo()}>
         <Redo2 className={icon} aria-hidden />
       </button>
       <span className="mx-1 h-[18px] w-px bg-[hsl(0_0%_18%)]" />
@@ -219,7 +220,7 @@ export function ZoomControls({ editor, large }: { editor: BoardEditor; large: bo
         title="Reset to 100% (Shift+0)"
         onClick={() => editor.resetZoom()}
       >
-        {Math.round(z * 100)}%
+        {percent}%
       </button>
       <button type="button" className={btn} aria-label="Zoom in" title="Zoom in (+)" onClick={() => editor.zoomStep(1)}>
         <Plus className={icon} aria-hidden />

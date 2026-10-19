@@ -6,6 +6,8 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useSyncExternalStore,
   useMemo,
   useRef,
   useState,
@@ -13,6 +15,7 @@ import {
 } from 'react';
 import { useBoard } from '@/dash/board/useBoard';
 import type { BoardEditor, PointerInfo, Tool } from '@/dash/board/editor';
+import { visibleShapesSnapshot } from '@/dash/board/viewport';
 import { ShapeView } from '@/dash/board/ShapeView';
 import { SelectionOverlay } from '@/dash/board/SelectionOverlay';
 import { LiveCanvas, type LiveCanvasProps } from '@/dash/board/LiveCanvas';
@@ -21,7 +24,7 @@ import { imageFilesOf } from '@/dash/board/images';
 
 /** Must match Spotlight's WIDGET_DRAG_TYPE (kept here to avoid a module cycle). */
 const WIDGET_DRAG_TYPE = 'application/x-ryans-board-widget';
-import { rectsIntersect, type Point, type WidgetShape } from '@/dash/board/model';
+import { type Point, type WidgetShape } from '@/dash/board/model';
 
 /** After Pencil input, finger/palm touches are ignored this long (FieldWhiteboard). */
 const PEN_PRIORITY_MS = 2500;
@@ -84,15 +87,14 @@ export function BoardCanvas({
 }: BoardCanvasProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const camera = useBoard(editor, (e) => e.camera);
-  const order = useBoard(editor, (e) => e.order);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const snapshot = useMemo(() => visibleShapesSnapshot(editor, exportAll), [editor, exportAll]);
+  const visible = useSyncExternalStore(editor.subscribe, snapshot);
   const pendingErase = useBoard(editor, (e) => e.pendingErase);
   const editingId = useBoard(editor, (e) => e.editingId);
   const tool = useBoard(editor, (e) => e.effectiveTool);
   const penMode = useBoard(editor, (e) => e.penMode);
-  const [interacting, setInteracting] = useState<string | null>(null);
-  const selection = useBoard(editor, (e) => e.selection);
-  useEffect(() => { if (interacting && (!selection.has(interacting) || tool !== 'select')) setInteracting(null); }, [selection, tool, interacting]);
   const [panning, setPanning] = useState(false);
 
   const touches = useRef(new Map<number, TouchTrack>());
@@ -152,7 +154,6 @@ export function BoardCanvas({
   // ---------------------------------------------------------------- pointers
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     if ((e.target as HTMLElement).closest('[data-board-interactive]')) return;
-    setInteracting(null);
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-board-chrome]')) return;
     ref.current?.focus({ preventScroll: true });
     if (editingId) return; // the textarea's blur commits first
@@ -250,7 +251,7 @@ export function BoardCanvas({
     if (editor.tool !== 'select') return;
     const p = local(e.clientX, e.clientY);
     const hit = editor.shapeAtScreen(p.x, p.y);
-    if (hit?.type === 'widget') { editor.cancelGesture(); setInteracting(hit.id); }
+    if (hit?.type === 'widget') { editor.cancelGesture(); editor.setSelection([hit.id]); }
     else if (hit?.type === 'text') editor.startEditing(hit.id);
     else if (!hit) editor.beginTextAt(editor.screenToPage(p.x, p.y));
   };
@@ -302,8 +303,8 @@ export function BoardCanvas({
   // --------------------------------------------------------------- keyboard
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.defaultPrevented) return;
-    if (e.key === 'Escape' && interacting) { setInteracting(null); e.preventDefault(); return; }
     if (isTypingTarget(e.target) || editor.editingId) return;
+    if (e.key !== 'Escape' && e.target instanceof HTMLElement && e.target.closest('[data-board-interactive]')) return;
     // Another dialog/menu owns the keyboard.
     if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"],[role="menu"]') && !ref.current?.contains(e.target)) return;
     if (!ref.current || !ref.current.isConnected) return;
@@ -461,6 +462,8 @@ export function BoardCanvas({
     };
     const onCopy = (e: ClipboardEvent): void => {
       if (!boardFocused() || editor.editingId) return;
+      // Notes and raw record values are selectable text; preserve native copy.
+      if (window.getSelection()?.toString()) return;
       const json = e.type === 'cut' ? editor.cutSelection() : editor.copySelection();
       if (!json) return;
       e.clipboardData?.setData('text/plain', json);
@@ -512,35 +515,45 @@ export function BoardCanvas({
     onImages(files, editor.screenToPage(p.x, p.y));
   };
 
+  // Camera motion updates two composited layers directly. React reconciles
+  // content only when the document or buffered visible set changes.
+  useLayoutEffect(() => {
+    let zoom = -1;
+    let grid = GRID_STEP;
+    const paint = (): void => {
+      const { x, y, z } = editor.camera;
+      if (worldRef.current) worldRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${z})`;
+      const layer = gridRef.current;
+      if (!layer) return;
+      if (zoom !== z) {
+        zoom = z;
+        let step = GRID_STEP;
+        while (step * z < 12) step *= 4;
+        while (step * z > 48) step /= 4;
+        grid = step * z;
+        layer.style.backgroundSize = `${grid}px ${grid}px`;
+        layer.style.backgroundPosition = `${96 - grid / 2}px ${96 - grid / 2}px`;
+      }
+      const phase = (v: number): number => ((v % grid) + grid) % grid;
+      layer.style.transform = `translate3d(${phase(x)}px, ${phase(y)}px, 0)`;
+    };
+    paint();
+    return editor.subscribe(paint);
+  }, [editor]);
+
   // --------------------------------------------------------------- render
-  const { x: cx, y: cy, z } = camera;
-  const visible = useMemo(() => {
-    if (exportAll || size.w === 0) return order;
-    const mx = size.w / z / 2;
-    const my = size.h / z / 2;
-    const view = { x: -cx / z - mx, y: -cy / z - my, w: size.w / z + mx * 2, h: size.h / z + my * 2 };
-    return order.filter((s) => rectsIntersect(view, s));
-  }, [order, cx, cy, z, size.w, size.h, exportAll]);
-
-  let step = GRID_STEP;
-  while (step * z < 12) step *= 4;
-  while (step * z > 48) step /= 4;
-  const grid = step * z;
-
   return (
     <div
       ref={ref}
       tabIndex={0}
       data-testid="board-canvas"
       aria-label="Board canvas"
-      className="relative h-full w-full select-none overflow-hidden outline-none"
+      className="relative h-full w-full select-none overflow-clip outline-none"
       style={{
         touchAction: 'none',
         cursor: panning ? 'grabbing' : CURSOR[tool],
         backgroundColor: 'hsl(0 0% 5.5%)',
-        backgroundImage: 'radial-gradient(circle, hsl(0 0% 19%) 1px, transparent 1.3px)',
-        backgroundSize: `${grid}px ${grid}px`,
-        backgroundPosition: `${cx - grid / 2}px ${cy - grid / 2}px`,
+
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -563,12 +576,15 @@ export function BoardCanvas({
       onDrop={onDrop}
       onContextMenu={(e) => e.preventDefault()}
     >
+      <div ref={gridRef} aria-hidden style={{ position: 'absolute', inset: -96, pointerEvents: 'none', willChange: 'transform', backgroundImage: 'radial-gradient(circle, hsl(0 0% 19%) 1px, transparent 1.3px)' }} />
       <div
+        ref={worldRef}
+        data-board-world
         style={{
           position: 'absolute',
           left: 0,
           top: 0,
-          transform: `translate(${cx}px, ${cy}px) scale(${z})`,
+          willChange: 'transform',
           transformOrigin: '0 0',
         }}
       >
@@ -578,7 +594,7 @@ export function BoardCanvas({
             shape={s}
             erasing={pendingErase.has(s.id)}
             editing={editingId === s.id}
-            interactive={interacting === s.id}
+            interactive={s.type === 'widget' && tool === 'select'}
             renderWidget={renderWidget}
           />
         ))}

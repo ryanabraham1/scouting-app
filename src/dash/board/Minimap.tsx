@@ -11,9 +11,9 @@ const W = 180;
 const H = 112;
 const PAD = 8;
 
-function worldRect(editor: BoardEditor): Rect {
+function worldRect(editor: BoardEditor, bounds: Rect | null): Rect {
   const view = editor.viewPageRect();
-  const all = unionRects([view, ...editor.order.map((s) => ({ x: s.x, y: s.y, w: s.w, h: s.h }))])!;
+  const all = unionRects(bounds ? [view, bounds] : [view])!;
   const m = Math.max(all.w, all.h) * 0.06;
   return { x: all.x - m, y: all.y - m, w: all.w + m * 2, h: all.h + m * 2 };
 }
@@ -31,11 +31,17 @@ export function Minimap({ editor }: { editor: BoardEditor }): JSX.Element {
     const ctx = c.getContext('2d');
     if (!ctx) return;
     let raf: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastDraw = 0;
+    let order = editor.order;
+    let bounds = unionRects(order);
     const draw = (): void => {
       raf = null;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
-      const world = worldRect(editor);
+      lastDraw = performance.now();
+      if (order !== editor.order) { order = editor.order; bounds = unionRects(order); }
+      const world = worldRect(editor, bounds);
       const scale = Math.min((W - PAD * 2) / world.w, (H - PAD * 2) / world.h);
       const ox = (W - world.w * scale) / 2;
       const oy = (H - world.h * scale) / 2;
@@ -53,13 +59,17 @@ export function Minimap({ editor }: { editor: BoardEditor }): JSX.Element {
       ctx.strokeRect(tx(v.x), ty(v.y), v.w * scale, v.h * scale);
     };
     const schedule = (): void => {
-      if (raf == null) raf = requestAnimationFrame(draw);
+      if (raf != null || timer != null) return;
+      const remaining = order === editor.order ? 80 - (performance.now() - lastDraw) : 0;
+      if (remaining > 0) timer = setTimeout(() => { timer = null; raf = requestAnimationFrame(draw); }, remaining);
+      else raf = requestAnimationFrame(draw);
     };
     const unsub = editor.subscribe(schedule);
     schedule();
     return () => {
       unsub();
       if (raf != null) cancelAnimationFrame(raf);
+      if (timer != null) clearTimeout(timer);
     };
   }, [editor]);
 

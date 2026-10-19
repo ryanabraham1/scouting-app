@@ -3,9 +3,19 @@
 // sizes, default config, eyebrow title and body. Bodies read the shared
 // BoardData context, so they update whenever the dashboard's queries do.
 // Plan: docs/plans/ryans-board/README.md §10.
+import { AutoPathBody, DataBody, NotesBody, PhotoBody, PitBody, ReportsBody, StatsBody, VideoBody, TeamLinks, MatchLinks } from './Explorers';
+import { WidgetLink } from './interaction';
+import { DATA_SOURCES, fieldLabel } from './sources';
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import {
+  Database,
+  FileText,
+  Image,
+  MapPin,
+  MessageSquare,
+  Video,
+  Wrench,
   Bot,
   CalendarRange,
   ClipboardList,
@@ -43,6 +53,7 @@ import { entryList } from '@/dash/picklistClient';
 import type { MatchRow } from '@/dash/useEventData';
 
 export type WidgetKind =
+  | 'teamNotes' | 'reports' | 'pit' | 'robotPhoto' | 'matchVideo' | 'autoPath' | 'stats' | 'data'
   | 'team'
   | 'match'
   | 'nextMatch'
@@ -183,10 +194,11 @@ function TeamBody({ config }: { config: WidgetConfig }): JSX.Element {
       <div className="min-h-0 flex-1">
         <Sparkline values={points} color="hsl(199 89% 48%)" />
       </div>
+      <TeamLinks team={team} />
       {next && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span>Next</span>
-          <b className="tnum text-foreground">{matchLabel(next.match_key)}</b>
+          <WidgetLink kind="match" config={{ match: next.match_key, focus: team }} label={`Pin ${matchLabel(next.match_key)} details`} className="tnum font-semibold text-foreground">{matchLabel(next.match_key)}</WidgetLink>
           <AllianceChip side={allianceOf(next, team)} />
           {t != null && <span className="ml-auto">{countdown(t, now)}</span>}
         </div>
@@ -219,7 +231,7 @@ function MatchCard({ m, focus }: { m: MatchRow; focus?: number | null }): JSX.El
     ts.map((t, i) => (
       <span key={t}>
         {i > 0 && ' · '}
-        <span className={cn(t === focus && 'underline decoration-2 underline-offset-2', t === data.baseTeam && 'font-bold')}>{t}</span>
+        <WidgetLink kind="team" config={{ team: t }} label={`Pin team ${t}`} className={cn(t === focus && 'underline decoration-2 underline-offset-2', t === data.baseTeam && 'font-bold')}>{t}</WidgetLink>
       </span>
     ));
   return (
@@ -243,6 +255,7 @@ function MatchCard({ m, focus }: { m: MatchRow; focus?: number | null }): JSX.El
           </div>
         </>
       )}
+      <MatchLinks match={m.match_key} team={focus} />
       {pred && played && (
         <div className="text-[11px] text-muted-foreground">
           Predicted {Math.round(pred.red.score)}–{Math.round(pred.blue.score)} · {pred.redWinProb >= 0.5 ? `Red ${Math.round(pred.redWinProb * 100)}%` : `Blue ${Math.round((1 - pred.redWinProb) * 100)}%`}
@@ -282,7 +295,7 @@ function ScheduleBody({ config }: { config: WidgetConfig }): JSX.Element {
   const ms = teamMatches(data.matches, team);
   if (!ms.length) return <Empty>No matches scheduled for {team} yet.</Empty>;
   return (
-    <div data-board-scroll className="tnum grid h-full auto-rows-min grid-cols-[auto_auto_1fr] items-center gap-x-2.5 gap-y-1.5 overflow-y-auto px-3 py-2 text-xs">
+    <div data-board-scroll className="tnum grid h-full auto-rows-min grid-cols-[auto_auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5 overflow-y-auto px-3 py-2 text-xs">
       {ms.map((m) => {
         const r = resultFor(m, team);
         const side = allianceOf(m, team);
@@ -293,11 +306,12 @@ function ScheduleBody({ config }: { config: WidgetConfig }): JSX.Element {
         const win = pred ? (side === 'red' ? pred.redWinProb : 1 - pred.redWinProb) : null;
         return (
           <div key={m.match_key} className="contents">
-            <span className={cn(!isPlayed(m) && 'text-foreground')}>{matchLabel(m.match_key)}</span>
+            <WidgetLink kind="match" config={{ match: m.match_key, focus: team }} label={`Pin ${matchLabel(m.match_key)} details`} className={cn(!isPlayed(m) && 'text-foreground')}>{matchLabel(m.match_key)}</WidgetLink>
             <AllianceChip side={side} />
             <span className={cn('text-right', r === 'W' ? GOOD : r === 'L' ? 'text-destructive' : 'text-muted-foreground')}>
               {r ? `${r} ${ours}–${theirs}` : `${t != null ? countdown(t, now) : 'upcoming'}${win != null ? ` · ${Math.round(win * 100)}%` : ''}`}
             </span>
+            <WidgetLink kind="matchVideo" config={{ match: m.match_key, team }} label={`Pin ${matchLabel(m.match_key)} video`} className="p-1 text-brand"><Video className="size-3.5" /></WidgetLink>
           </div>
         );
       })}
@@ -371,7 +385,7 @@ function WatchlistBody({ config }: { config: WidgetConfig }): JSX.Element {
           );
         return (
           <div key={t} className="flex min-w-0 items-center gap-2">
-            <span className="tnum w-11 shrink-0 font-semibold">{t}</span>
+            <WidgetLink kind="team" config={{ team: t }} label={`Pin team ${t}`} className="tnum w-11 shrink-0 font-semibold">{t}</WidgetLink>
             <span className="min-w-0 flex-1 truncate text-muted-foreground">{data.nickname(t)}</span>
             <span className="tnum">{fmt('bsr', bsr)}</span>
             {badge}
@@ -402,7 +416,7 @@ function RankingsBody({ config }: { config: WidgetConfig }): JSX.Element {
         <div key={r.t} className="contents">
           <span className="text-muted-foreground">{i + 1}</span>
           <span className={cn('truncate', r.t === data.baseTeam && 'text-brand')}>
-            {r.t} <span className="font-sans text-xs text-muted-foreground">{data.nickname(r.t)}</span>
+            <WidgetLink kind="team" config={{ team: r.t }} label={`Pin team ${r.t}`}>{r.t} <span className="font-sans text-xs text-muted-foreground">{data.nickname(r.t)}</span></WidgetLink>
           </span>
           <span>{fmt(metric, r.v)}</span>
         </div>
@@ -423,7 +437,7 @@ function CompareBody({ config }: { config: WidgetConfig }): JSX.Element {
     <div className="tnum grid auto-rows-min gap-x-3 gap-y-1 px-3 py-2 text-xs" style={{ gridTemplateColumns: `minmax(70px,auto) repeat(${teams.length}, minmax(0,1fr))` }}>
       <span />
       {teams.map((t) => (
-        <b key={t} className={cn(t === data.baseTeam && 'text-brand')}>{t}</b>
+        <WidgetLink key={t} kind="team" config={{ team: t }} label={`Pin team ${t}`} className={cn('font-bold', t === data.baseTeam && 'text-brand')}>{t}</WidgetLink>
       ))}
       {metrics.map((k) => {
         const vals = teams.map((t) => data.metric(t, k));
@@ -462,7 +476,7 @@ function EpaHistoryBody({ config }: { config: WidgetConfig }): JSX.Element {
     <div className="flex h-full flex-col px-3 pb-2 pt-1">
       <div className="flex gap-3 text-[11px]">
         {teams.map((t, i) => (
-          <span key={t} style={{ color: SERIES[i] }}>— {t}</span>
+          <span key={t} style={{ color: SERIES[i] }}><WidgetLink kind="team" config={{ team: t }} label={`Pin team ${t}`}>— {t}</WidgetLink></span>
         ))}
         <span className="tnum ml-auto text-muted-foreground">{min.toFixed(0)}–{max.toFixed(0)}</span>
       </div>
@@ -502,8 +516,8 @@ function OnFieldBody(): JSX.Element {
         <span className="size-1.5 rounded-full bg-success" />
         <span className="eyebrow">{st.onField.label}</span>
       </div>
-      <div className="tnum" style={{ color: RED }}>{st.onField.redTeams.join(' · ')}</div>
-      <div className="tnum" style={{ color: BLUE }}>{st.onField.blueTeams.join(' · ')}</div>
+      <div className="tnum flex gap-2" style={{ color: RED }}>{st.onField.redTeams.map((team) => <WidgetLink key={team} kind="team" config={{ team }} label={`Pin team ${team}`}>{team}</WidgetLink>)}</div>
+      <div className="tnum flex gap-2" style={{ color: BLUE }}>{st.onField.blueTeams.map((team) => <WidgetLink key={team} kind="team" config={{ team }} label={`Pin team ${team}`}>{team}</WidgetLink>)}</div>
       {st.queuing && <div className="mt-0.5 text-[11px] text-muted-foreground">Queuing: {st.queuing.label}</div>}
     </div>
   );
@@ -536,7 +550,7 @@ function PicklistBody(): JSX.Element {
         {rows.map((e, i) => (
           <div key={e.teamNumber} className="tnum flex items-center gap-2 border-b border-border py-1 last:border-0">
             <span className="text-muted-foreground">{i + 1}</span>
-            <b>{e.teamNumber}</b>
+            <WidgetLink kind="team" config={{ team: e.teamNumber }} label={`Pin team ${e.teamNumber}`} className="font-bold">{e.teamNumber}</WidgetLink>
             <span className="ml-auto text-muted-foreground">{fmt('bsr', data.metric(e.teamNumber, 'bsr'))}</span>
           </div>
         ))}
@@ -552,12 +566,22 @@ function PicklistBody(): JSX.Element {
 }
 
 // ----------------------------------------------------------------- registry
+const fieldTitle = (c: WidgetConfig): string => `${c.record ?? c.team ?? ''} · ${fieldLabel(String(c.field))}`;
+
 const teamTitle = (c: WidgetConfig, d: BoardData): string => {
   const t = resolveTeam(c.team, d);
   return c.team === 'base' ? `Team · ${t ?? ''} (us)` : `Team · ${t ?? '—'}`;
 };
 
 export const WIDGETS: Record<WidgetKind, WidgetDef> = {
+  teamNotes: { kind: 'teamNotes', label: 'Team scouting notes', icon: MessageSquare, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 360, h: 320 }), minSize: { w: 250, h: 150 }, title: (c, d) => `${resolveTeam(c.team, d) ?? '—'} · scouting notes`, Body: NotesBody },
+  reports: { kind: 'reports', label: 'Scouting reports', icon: FileText, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 380, h: 320 }), minSize: { w: 260, h: 150 }, title: (c, d) => `Scouting · ${c.match ? matchLabel(String(c.match)) : resolveTeam(c.team, d) ?? 'all teams'}`, Body: ReportsBody },
+  pit: { kind: 'pit', label: 'Pit report', icon: Wrench, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 340, h: 280 }), minSize: { w: 240, h: 150 }, title: (c, d) => `${resolveTeam(c.team, d) ?? '—'} · pit report`, Body: PitBody },
+  robotPhoto: { kind: 'robotPhoto', label: 'Robot photos', icon: Image, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 320, h: 280 }), minSize: { w: 200, h: 150 }, title: (c, d) => `${resolveTeam(c.team, d) ?? '—'} · robot photos`, Body: PhotoBody },
+  matchVideo: { kind: 'matchVideo', label: 'Match video', icon: Video, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 480, h: 380 }), minSize: { w: 280, h: 240 }, title: (c, d) => `Video · ${c.match ? matchLabel(String(c.match)) : `${resolveTeam(c.team, d) ?? '—'} latest match`}`, Body: VideoBody },
+  autoPath: { kind: 'autoPath', label: 'Auto paths', icon: MapPin, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 430, h: 260 }), minSize: { w: 280, h: 180 }, title: (c, d) => `${resolveTeam(c.team, d) ?? '—'} · auto path`, Body: AutoPathBody },
+  stats: { kind: 'stats', label: 'All team stats', icon: Sigma, defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 340, h: 360 }), minSize: { w: 240, h: 160 }, title: (c, d) => `${resolveTeam(c.team, d) ?? '—'} · all stats`, Body: StatsBody },
+  data: { kind: 'data', label: 'App data explorer', icon: Database, defaultConfig: () => ({ source: 'reports', team: 'all' }), size: () => ({ w: 380, h: 340 }), minSize: { w: 240, h: 120 }, title: (c) => typeof c.label === 'string' && c.label ? c.label : c.field ? fieldTitle(c) : DATA_SOURCES[c.source as keyof typeof DATA_SOURCES] ?? 'App data', Body: DataBody },
   team: {
     kind: 'team',
     label: 'Team',

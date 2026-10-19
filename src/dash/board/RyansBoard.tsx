@@ -39,6 +39,7 @@ import { dropTeamsOnCompare, insertWidget } from '@/dash/board/widgets/actions';
 import { search } from '@/dash/board/search/interpret';
 import type { WidgetKind } from '@/dash/board/widgets/registry';
 import { widgetMinSize } from '@/dash/board/widgets/registry';
+import { WidgetActionsProvider } from '@/dash/board/widgets/interaction';
 import { Comments } from '@/dash/board/Comments';
 import { exportPng } from '@/dash/board/exportPng';
 import { cn } from '@/lib/utils';
@@ -264,6 +265,7 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
         )}
         {status === 'ready' && (
           <BoardDataProvider eventKey={eventKey}>
+            <WidgetActionsProvider editor={editor}>
             <BoardCanvas
               editor={editor}
               exportAll={exporting}
@@ -336,6 +338,7 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
                 </div>
               )}
             </BoardCanvas>
+            </WidgetActionsProvider>
           </BoardDataProvider>
         )}
         <input

@@ -296,7 +296,7 @@ export function interpret(query: string, ctx: SearchContext): Interpretation {
 // ---------------------------------------------------------------------------
 
 function shortLabel(m: MatchRow): string {
-  const i = m.match_key.indexOf('_');
+  const i = m.match_key.lastIndexOf('_');
   return i >= 0 ? m.match_key.slice(i + 1) : m.match_key;
 }
 
@@ -387,7 +387,16 @@ export function search(query: string, ctx: SearchContext): { interpretation: Int
 
   const T = it.teams;
   const I = it.intents;
-  if (T.length >= 1 && I.has('watch')) {
+  const explorer = (['video', 'photo', 'autopath', 'notes', 'pit', 'reports', 'stats', 'data'] as const).find((intent) => I.has(intent));
+  if (explorer) {
+    const t = T[0] ?? ctx.baseTeam;
+    const kind = ({ video: 'matchVideo', photo: 'robotPhoto', autopath: 'autoPath', notes: 'teamNotes', pit: 'pit', reports: 'reports', stats: 'stats', data: 'data' } as const)[explorer];
+    const label = ({ video: 'Match video', photo: 'Robot photos', autopath: 'Auto path', notes: 'Scouting notes', pit: 'Pit report', reports: 'Scouting reports', stats: 'All stats', data: 'App data explorer' } as const)[explorer];
+    const m = it.matches[0] ?? (I.has('next') ? nextMatchOf(ctx.matches, t) : I.has('last') ? lastPlayedMatch(ctx.matches, t) : null);
+    const config: WidgetConfig = { team: it.matches.length && !T.length ? 'all' : t, ...(m ? { match: m.match_key } : {}), ...(kind === 'data' ? { source: 'reports' } : {}) };
+    add({ key: `${kind}:${m?.match_key ?? t}`, kind: 'widget', title: `${label} · ${m ? shortLabel(m) : name(t)}`, score: base + 0.5, group: 'best', widget: { kind, config } });
+    if (T.length) teamSection(t, base - 0.4);
+  } else if (T.length >= 1 && I.has('watch')) {
     add({
       key: `watch:${T[0]}`,
       kind: 'watch',
