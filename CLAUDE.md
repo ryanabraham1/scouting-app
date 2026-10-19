@@ -137,15 +137,21 @@ math and `fouls.ts` for penalties. `migrations.ts`/`migrateUp` upgrades old repo
 is duplicated server-side (the RPC recomputes) — the client computation is for display/preview.
 `index.ts` is the public entry point.
 
-**Dashboard prediction** (`src/dash/`) — `predict.ts` is a pure next-match prediction driven by
-EPA only: a team's expectation is its in-house EPA (computed from posted match scores; Statbotics
-when the local model has nothing). Scouting data never blends into EPA or the prediction — it is
-only a fallback for a team with no match results at all, and is otherwise surfaced as a separate
-"Scouted Pts" metric (Ranking table column, Team tab stat). `sorting.ts`'s `resolveRowEpa` is the
-shared match-results-only EPA resolver for the ranking table / picklist seed / draft board.
-`localEpa.ts` / `seasonEpa.ts` compute the cross-event (season carry-over) scalar EPA locally over
-TBA results — `localEpa.ts` mirrors the live Statbotics repo math (not the 2023 blog) and is fed
-by TBA matches since the local table has no scores. `demoEvent.ts` drives
+**Dashboard prediction** (`src/dash/`) — the team-strength model is the **Bayesian EPA**
+(`bayesEpa.ts`, adapters in `bayesEpaRows.ts`): Gaussian team strengths with full within-event
+covariance, season priors from `epaPriors/<year>.json` (regenerate yearly with
+`scripts/build-epa-priors.ts`), and an in-season-calibrated probit win probability. Backtested
+2016–2026 it beats Statbotics and match13 on winner accuracy (see
+`docs/plans/2026-10-18-bayes-epa.md`; `scripts/bayes-epa-backtest.ts` replays it). `predict.ts`
+sums team EPAs for scores and uses the Bayesian win prob when all six teams carry a local
+variance (`EventEpa.varianceByTeam` + `bayesCal`), else the legacy logistic. Statbotics is only
+the fallback when the local model has nothing. Scouting data never blends into EPA or the
+prediction — it is only a fallback for a team with no match results at all, and is otherwise
+surfaced as a separate "Scouted Pts" metric (Ranking table column, Team tab stat). `sorting.ts`'s
+`resolveRowEpa` is the shared match-results-only EPA resolver for the ranking table / picklist
+seed / draft board. `localEpa.ts` keeps the Statbotics-port scalar EWMA (still used for the
+auto/teleop/endgame component split, rescaled to the Bayesian total) and the TBA → MatchRow
+bridge (`tbaMatchesToRows`); `seasonEpa.ts` builds the complete-event season closure. `demoEvent.ts` drives
 demo mode. `proxies.ts` reads the Edge proxies' `{ available: false }` sentinel so an upstream
 outage degrades gracefully.
 

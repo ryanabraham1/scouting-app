@@ -678,6 +678,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
         statboticsAvailable: epa.available,
         fraction,
         playedMatches,
+        bayes: epa,
       }),
     [redTeams, blueTeams, agg, epa, fraction, playedMatches],
   );

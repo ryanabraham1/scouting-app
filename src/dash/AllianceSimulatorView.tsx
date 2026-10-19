@@ -330,13 +330,15 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
         statboticsAvailable,
         fraction,
         playedMatches,
+        bayes: epaQuery.data,
       }),
-    [picks, resolvedBaseline, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches],
+    [picks, resolvedBaseline, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, epaQuery.data],
   );
 
   const versus = useMemo(
-    () => simulateVersus(picksA, picksB, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches),
-    [picksA, picksB, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches],
+    () =>
+      simulateVersus(picksA, picksB, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, epaQuery.data),
+    [picksA, picksB, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, epaQuery.data],
   );
 
   // Per-alliance component breakdowns (memoized). predictMatch over one alliance

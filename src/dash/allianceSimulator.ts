@@ -5,7 +5,7 @@
 // Role classification + gap summary are local heuristics over match aggregates and
 // (when present) pit capability/strategy. No React, no I/O — never throws on missing data.
 
-import { predictMatch } from './predict';
+import { predictMatch, type PredictInput } from './predict';
 import type { ComponentBreakdown } from './predict';
 import type { TeamAgg, ComponentFraction } from './aggregate';
 import type { TeamPit } from './useTeamPit';
@@ -77,6 +77,8 @@ export interface SimulateInput {
   fraction?: ComponentFraction;
   /** OPTIONAL played-match count gating the EPA split (see predict.ts). */
   playedMatches?: number;
+  /** OPTIONAL Bayesian-EPA uncertainty for the calibrated playoff win prob (see predict.ts). */
+  bayes?: PredictInput['bayes'];
 }
 
 function pitCapabilities(pit: TeamPit | undefined): string[] {
@@ -342,6 +344,7 @@ export function simulateVersus(
   statboticsAvailable: boolean,
   fraction?: ComponentFraction,
   playedMatches?: number,
+  bayes?: PredictInput['bayes'],
 ): VersusSimulation {
   const a = simulateAlliance({
     pickedTeams: aTeams,
@@ -352,6 +355,7 @@ export function simulateVersus(
     statboticsAvailable,
     fraction,
     playedMatches,
+    bayes,
   });
   const b = simulateAlliance({
     pickedTeams: bTeams,
@@ -362,6 +366,7 @@ export function simulateVersus(
     statboticsAvailable,
     fraction,
     playedMatches,
+    bayes,
   });
 
   const bothFull = aTeams.length === 3 && bTeams.length === 3;
@@ -372,6 +377,8 @@ export function simulateVersus(
     agg,
     epaByTeam,
     statboticsAvailable,
+    bayes,
+    elim: true,
   });
   const aWinProb = bothFull ? pred.redWinProb : null;
 
@@ -406,7 +413,7 @@ function deriveScoreSource(reads: TeamRoleRead[]): AllianceSimulation['scoreSour
  * predictMatch for exact Next-Match consistency.
  */
 export function simulateAlliance(input: SimulateInput): AllianceSimulation {
-  const { pickedTeams, baselineTeams, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches } =
+  const { pickedTeams, baselineTeams, agg, epaByTeam, pits, statboticsAvailable, fraction, playedMatches, bayes } =
     input;
 
   const pred = predictMatch({
@@ -417,6 +424,8 @@ export function simulateAlliance(input: SimulateInput): AllianceSimulation {
     statboticsAvailable,
     fraction,
     playedMatches,
+    bayes,
+    elim: true,
   });
 
   const teamReads: TeamRoleRead[] = pickedTeams.map((team, i) => {

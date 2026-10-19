@@ -16,6 +16,8 @@ import {
 } from './constants';
 import type { TeamAgg, ComponentFraction } from './aggregate';
 import type { LocalEpaComponents } from '@/dash/localEpa';
+import type { BayesCal } from '@/dash/bayesEpaRows';
+import { bayesWinProb } from '@/dash/bayesEpa';
 import {
   aggregateTeamComponentSplit,
   aggregateTeamDefensePts,
@@ -74,7 +76,7 @@ export interface TeamPrediction {
 export interface MatchPrediction {
   red: { teams: TeamPrediction[]; score: number };
   blue: { teams: TeamPrediction[]; score: number };
-  /** logistic(WINPROB_LOGIT_SCALE * (redScore - blueScore) / sigma), 0..1 */
+  /** 0..1. Calibrated Bayesian win prob when `bayes` covers all six teams, else logistic(WINPROB_LOGIT_SCALE * margin / sigma). */
   redWinProb: number;
   /** 0..1: mean team w, knocked down when Statbotics unavailable */
   confidence: number;
@@ -105,6 +107,15 @@ export interface PredictInput {
    * has one, its EPA-branch split uses it instead of the fitted fraction.
    */
   componentEpaByTeam?: Map<number, LocalEpaComponents | null>;
+  /**
+   * OPTIONAL Bayesian-EPA uncertainty (`EventEpa.varianceByTeam` + `bayesCal`).
+   * When every team on both alliances has a local EPA with a variance, the win
+   * probability is the calibrated Bayesian one (bayesEpa.ts); otherwise the
+   * legacy sigma-normalized logistic is used. Scores are unaffected either way.
+   */
+  bayes?: { varianceByTeam?: Map<number, number | null>; bayesCal?: BayesCal | null };
+  /** Playoff match (Bayesian win prob uses playoff noise). */
+  elim?: boolean;
 }
 
 function clamp01(x: number): number {
@@ -248,6 +259,46 @@ export function resolveComponentBreakdown(
   return { auto: 0, fuel: 0, defense: null, source: 'none', provisional: false };
 }
 
+function legacyRedWinProb(redScore: number, blueScore: number): number {
+  const sigma = Math.max(WINPROB_SIGMA_FLOOR, WINPROB_SIGMA_FRACTION * (redScore + blueScore));
+  const z = (WINPROB_LOGIT_SCALE * (redScore - blueScore)) / sigma;
+  return 1 / (1 + Math.exp(-z));
+}
+
+/**
+ * Calibrated Bayesian win probability, or null when it does not apply (a team
+ * lacks a local EPA variance, the alliances are not full, or defense moved the
+ * scores away from the plain EPA sums).
+ */
+function bayesRedWinProb(
+  input: PredictInput,
+  redPreds: TeamPrediction[],
+  bluePreds: TeamPrediction[],
+  redScore: number,
+  blueScore: number,
+): number | null {
+  const cal = input.bayes?.bayesCal;
+  const variances = input.bayes?.varianceByTeam;
+  if (!cal || !(variances instanceof Map)) return null;
+  if (redPreds.length !== 3 || bluePreds.length !== 3) return null;
+  const marg = (preds: TeamPrediction[]): Array<{ mean: number; variance: number }> | null => {
+    const out: Array<{ mean: number; variance: number }> = [];
+    for (const p of preds) {
+      const v = variances.get(p.teamNumber);
+      if (p.source !== 'epa' || v == null || !Number.isFinite(v) || v < 0) return null;
+      out.push({ mean: p.expected, variance: v });
+    }
+    return out;
+  };
+  const red = marg(redPreds);
+  const blue = marg(bluePreds);
+  if (!red || !blue) return null;
+  const sum = (xs: Array<{ mean: number }>): number => xs.reduce((s, x) => s + x.mean, 0);
+  if (Math.abs(sum(red) - redScore) > 1e-9 || Math.abs(sum(blue) - blueScore) > 1e-9) return null;
+  const p = bayesWinProb(red, blue, cal, cal.c, input.elim ?? false).redWinProb;
+  return Number.isFinite(p) ? p : null;
+}
+
 export function predictMatch(input: PredictInput): MatchPrediction {
   const { redTeams, blueTeams, agg, statboticsAvailable } = input;
   const epaByTeam = asEpaMap(input.epaByTeam);
@@ -297,9 +348,9 @@ export function predictMatch(input: PredictInput): MatchPrediction {
 
   // Scale the margin by an estimated match-margin SD that grows with the total
   // predicted score, so a given point edge means less in a high-scoring game.
-  const sigma = Math.max(WINPROB_SIGMA_FLOOR, WINPROB_SIGMA_FRACTION * (redScore + blueScore));
-  const z = (WINPROB_LOGIT_SCALE * (redScore - blueScore)) / sigma;
-  const redWinProb = 1 / (1 + Math.exp(-z));
+  const redWinProb =
+    bayesRedWinProb(input, redPreds, bluePreds, redScore, blueScore) ??
+    legacyRedWinProb(redScore, blueScore);
 
   const allPreds = [...redPreds, ...bluePreds];
   const meanW =

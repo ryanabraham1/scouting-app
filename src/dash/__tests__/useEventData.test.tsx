@@ -66,8 +66,9 @@ import {
 // SHARED query client (queryClient.fetchQuery), so they cache /
 // dedupe across hooks. Clear it between tests to keep them isolated.
 import { queryClient as sharedQueryClient } from '@/lib/queryPersist';
-import { computeLocalEpa, tbaMatchesToRows } from '@/dash/localEpa';
-import { EPA_RECENCY_BOOST } from '@/dash/constants';
+import { tbaMatchesToRows } from '@/dash/localEpa';
+import { bayesTeamSeason } from '@/dash/bayesEpaRows';
+import { loadEpaPriors } from '@/dash/epaPriors';
 import {
   fetchSeasonMatchRows,
 } from '@/dash/seasonEpa';
@@ -978,12 +979,8 @@ describe('useEventData', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    const inflatedSlice = computeLocalEpa(tbaMatchesToRows(currentEvent), {
-      recencyBoost: EPA_RECENCY_BOOST,
-    }).get(1);
-    const completeEvent = computeLocalEpa(tbaMatchesToRows(fullEvent), {
-      recencyBoost: EPA_RECENCY_BOOST,
-    }).get(1);
+    const inflatedSlice = bayesTeamSeason(tbaMatchesToRows(currentEvent), 1, await loadEpaPriors('2026'))?.mean;
+    const completeEvent = bayesTeamSeason(tbaMatchesToRows(fullEvent), 1, await loadEpaPriors('2026'))?.mean;
 
     expect(priorEvent).toHaveLength(4);
     expect(tbaGetMock).toHaveBeenCalledWith('/team/frc1/events/2026');
@@ -1104,12 +1101,8 @@ describe('useEventData', () => {
     expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
     expect(tbaGetMock).toHaveBeenCalledWith('/event/2026casnv/matches');
     expect(result.current.data?.epaSource).toBe('inhouse');
-    const fullValue = computeLocalEpa(tbaMatchesToRows(completeEvent), {
-      recencyBoost: EPA_RECENCY_BOOST,
-    }).get(3256);
-    const sliceValue = computeLocalEpa(tbaMatchesToRows(teamSlice), {
-      recencyBoost: EPA_RECENCY_BOOST,
-    }).get(3256);
+    const fullValue = bayesTeamSeason(tbaMatchesToRows(completeEvent), 3256, await loadEpaPriors('2026'))?.mean;
+    const sliceValue = bayesTeamSeason(tbaMatchesToRows(teamSlice), 3256, await loadEpaPriors('2026'))?.mean;
     expect(result.current.data?.totalEpa).toBe(fullValue);
     expect(result.current.data?.totalEpa).not.toBe(sliceValue);
   });

@@ -26,3 +26,8 @@ supabase/.temp/
 
 # vite-plugin-pwa devOptions emits the dev service worker here
 /dev-dist/
+
+# TBA response cache for scripts/build-epa-priors.ts
+.cache/
+scripts/epa-research/data/
+scripts/epa-research/__pycache__/

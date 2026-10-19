@@ -32,7 +32,7 @@ export const EPA_STALE_TIME = 5 * 60_000;
 
 // Bump whenever the season fan-out/replay semantics change so persisted results
 // produced by an older, slower traversal cannot mask the new path.
-export const SEASON_EPA_CLOSURE_VERSION = 6;
+export const SEASON_EPA_CLOSURE_VERSION = 7;
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;

@@ -1,8 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import {
-  computeLocalEpaHistory,
-  type LocalEpaHistoryPoint,
-} from '@/dash/localEpa';
+import type { LocalEpaHistoryPoint } from '@/dash/localEpa';
+import { bayesTeamSeason } from '@/dash/bayesEpaRows';
+import { loadEpaPriors } from '@/dash/epaPriors';
 import {
   EPA_STALE_TIME,
   SEASON_EPA_CLOSURE_VERSION,
@@ -12,16 +11,19 @@ import { EPA_RECENCY_BOOST } from '@/dash/constants';
 
 /**
  * The selected team's in-house EPA after each match it played this season.
- * This reuses the same complete-event match closure and exact recurrence as the
- * headline EPA value, so the last chart point cannot drift from the dashboard.
+ * This reuses the same complete-event match closure, priors and Bayesian model
+ * as the headline EPA value, so the last chart point cannot drift from the dashboard.
  */
 export async function teamEpaHistoryForTeam(
   team: number,
   eventKey: string,
   year: string,
 ): Promise<LocalEpaHistoryPoint[]> {
-  const rows = await fetchSeasonMatchRows([team], eventKey, year);
-  return computeLocalEpaHistory(rows, team, { recencyBoost: EPA_RECENCY_BOOST });
+  const [rows, priors] = await Promise.all([
+    fetchSeasonMatchRows([team], eventKey, year),
+    loadEpaPriors(year),
+  ]);
+  return bayesTeamSeason(rows, team, priors, true)?.history ?? [];
 }
 
 export function useTeamEpaHistory(

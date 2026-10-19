@@ -3,7 +3,10 @@ import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-q
 import { supabase } from '@/lib/supabase';
 import { tbaGet, statboticsGet, nexusGet, syncEventResults, youtubeStreamStart, isUnavailable } from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
-import { computeLocalEpa, computeLocalEpaComponents } from '@/dash/localEpa';
+import { computeLocalEpaComponents } from '@/dash/localEpa';
+import { bayesTeamSeason, type BayesCal } from '@/dash/bayesEpaRows';
+import { loadEpaPriors } from '@/dash/epaPriors';
+import type { PriorZ } from '@/dash/bayesEpa';
 import type { LocalEpaComponents } from '@/dash/localEpa';
 import {
   fetchSeasonMatchRows,
@@ -128,6 +131,14 @@ export interface EventEpa {
    * `source` (object-literal fixtures); `useEventEpa` ALWAYS sets it.
    */
   sourceByTeam?: Map<number, 'statbotics' | 'local' | 'none'>;
+  /**
+   * Posterior variance of each team's local (Bayesian) EPA; null for a
+   * Statbotics-sourced or unknown team. With `bayesCal`, lets predictMatch use
+   * the calibrated Bayesian win probability. OPTIONAL like the fields above.
+   */
+  varianceByTeam?: Map<number, number | null>;
+  /** Win-prob calibration of the local model (null when no team is local). */
+  bayesCal?: BayesCal | null;
 }
 
 /** Parsed Nexus live status plus an availability flag for graceful degradation. */
@@ -630,6 +641,10 @@ export function useTbaTeamEventStatus(
 /** A team's season EPA from one cached source (so every display agrees). */
 export interface TeamSeasonEpa {
   epa: number | null;
+  /** Posterior variance of `epa` (local Bayesian model only). */
+  variance?: number | null;
+  /** Win-prob calibration from the same replay (local Bayesian model only). */
+  bayesCal?: BayesCal | null;
   /** Auto / teleop / endgame split of `epa` (local model only; null otherwise). */
   components?: LocalEpaComponents | null;
   worldRank: number | null;
@@ -648,13 +663,28 @@ function statboticsSeasonResult(sb: StatboticsSeasonEpa): TeamSeasonEpa {
   };
 }
 
-function localSeasonResult(team: number, localRows: MatchRow[]): TeamSeasonEpa {
-  const options = { recencyBoost: EPA_RECENCY_BOOST };
-  const computed = computeLocalEpa(localRows, options).get(team);
-  const epa = computed != null && Number.isFinite(computed) ? computed : null;
-  const components = epa != null ? computeLocalEpaComponents(localRows, options).get(team) ?? null : null;
+function localSeasonResult(
+  team: number,
+  localRows: MatchRow[],
+  priors: ReadonlyMap<number, PriorZ>,
+): TeamSeasonEpa {
+  const bayes = bayesTeamSeason(localRows, team, priors);
+  const epa = bayes != null && Number.isFinite(bayes.mean) ? bayes.mean : null;
+  // The auto / teleop / endgame split comes from the component streams; rescale
+  // it so it still sums to the (Bayesian) total every screen shows.
+  let components: LocalEpaComponents | null = null;
+  if (epa != null) {
+    const c = computeLocalEpaComponents(localRows, { recencyBoost: EPA_RECENCY_BOOST }).get(team);
+    const total = c ? c.auto + c.teleop + c.endgame : 0;
+    if (c && total > 0) {
+      const k = epa / total;
+      components = { auto: c.auto * k, teleop: c.teleop * k, endgame: c.endgame * k };
+    }
+  }
   return {
     epa,
+    variance: epa != null ? bayes?.variance ?? null : null,
+    bayesCal: epa != null ? bayes?.cal ?? null : null,
     components,
     worldRank: null,
     record: null,
@@ -664,6 +694,7 @@ function localSeasonResult(team: number, localRows: MatchRow[]): TeamSeasonEpa {
 
 function sameSeasonResult(a: TeamSeasonEpa, b: TeamSeasonEpa): boolean {
   return a.epa === b.epa &&
+    a.variance === b.variance &&
     a.components?.auto === b.components?.auto &&
     a.components?.teleop === b.components?.teleop &&
     a.components?.endgame === b.components?.endgame &&
@@ -745,8 +776,10 @@ export async function seasonEpaForTeam(
       retry: false,
       queryFn: async (): Promise<TeamSeasonEpa> => {
         const statboticsPromise = statboticsSeasonEpa(team, year);
-        const localPromise = fetchSeasonMatchRows([team], eventKey, year)
-          .then((rows) => localSeasonResult(team, rows));
+        const localPromise = Promise.all([
+          fetchSeasonMatchRows([team], eventKey, year),
+          loadEpaPriors(year),
+        ]).then(([rows, priors]) => localSeasonResult(team, rows, priors));
         const local = await localPromise;
         if (local.epa != null) {
           // EPA stays local. Statbotics may still enrich rank/record metadata in
@@ -846,6 +879,8 @@ export function useEventEpa(
       const epaByTeam = new Map<number, number | null>();
       const componentsByTeam = new Map<number, LocalEpaComponents | null>();
       const sourceByTeam = new Map<number, 'statbotics' | 'local' | 'none'>();
+      const varianceByTeam = new Map<number, number | null>();
+      const cals: BayesCal[] = [];
       let anyStatbotics = false;
       let anyLocal = false;
       let anyEpa = false;
@@ -856,6 +891,9 @@ export function useEventEpa(
           : { epa: null, worldRank: null, record: null, source: 'none' };
         epaByTeam.set(team, r.epa);
         componentsByTeam.set(team, r.source === 'statbotics' ? null : r.components ?? null);
+        const local = r.epa != null && r.source !== 'statbotics';
+        varianceByTeam.set(team, local ? r.variance ?? null : null);
+        if (local && r.bayesCal) cals.push(r.bayesCal);
         // seasonEpaForTeam returns 'inhouse' for the local fallback; normalize to
         // the event-level 'local' label so the per-team source matches `source`.
         sourceByTeam.set(
@@ -875,7 +913,21 @@ export function useEventEpa(
             ? 'statbotics'
             : 'none'
         : 'none';
-      return { epaByTeam, componentsByTeam, available: anyEpa, source, sourceByTeam };
+      // Each team's replay covers its own event closure, so the fitted
+      // calibration differs slightly per team; average them for one match-level value.
+      const avg = (f: (c: BayesCal) => number): number => cals.reduce((s, c) => s + f(c), 0) / cals.length;
+      const bayesCal = cals.length > 0
+        ? { c: avg((c) => c.c), mean: avg((c) => c.mean), sd: avg((c) => c.sd) }
+        : null;
+      return {
+        epaByTeam,
+        componentsByTeam,
+        available: anyEpa,
+        source,
+        sourceByTeam,
+        varianceByTeam,
+        bayesCal,
+      };
     },
   });
 }

@@ -46,6 +46,8 @@ export interface LocalEpaMatchRow extends MatchRow {
   /** Per-alliance component scores off the breakdown (2026); absent when unavailable. */
   local_epa_red_components?: LocalEpaComponents;
   local_epa_blue_components?: LocalEpaComponents;
+  /** When the match was played (TBA actual/predicted/scheduled time, epoch seconds). */
+  local_epa_time?: number;
 }
 
 /** Additive point components of an alliance score / a team's EPA. */
@@ -127,7 +129,7 @@ const COMP_LEVEL_ORDER: Record<string, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f
  */
 export function tbaMatchesToRows(json: unknown): LocalEpaMatchRow[] {
   if (!Array.isArray(json)) return [];
-  const parsed: Array<{ row: MatchRow; t: number; cl: number; n: number }> = [];
+  const parsed: Array<{ row: LocalEpaMatchRow; t: number; cl: number; n: number }> = [];
 
   for (const m of json) {
     if (!isObject(m) || !isObject(m.alliances)) continue;
@@ -174,6 +176,7 @@ export function tbaMatchesToRows(json: unknown): LocalEpaMatchRow[] {
           : {}),
         winner: played && winner ? winner : null,
         result_synced_at: null,
+        ...(matchTime(m) > 0 ? { local_epa_time: matchTime(m) } : {}),
       },
     });
   }
