@@ -112,12 +112,12 @@ export default function MyDataView(): JSX.Element {
       data-testid="my-data"
       className="flex min-h-dvh flex-col bg-background pb-24 text-foreground md:pb-6"
     >
-      <header className="px-safe pt-safe pb-2">
+      <header className="px-safe pt-safe pb-2 md:mx-auto md:w-full md:max-w-5xl">
         <ScoutTopNav active="my-data" className="mb-4" />
         <h1 className="text-xl font-medium">My data</h1>
       </header>
 
-      <main className="flex flex-1 flex-col gap-3 px-safe pb-safe pt-4">
+      <main className="flex flex-1 flex-col gap-3 px-safe pb-safe pt-4 md:mx-auto md:w-full md:max-w-5xl">
         {showUpdated && (
           <div
             data-testid="my-data-updated-toast"
@@ -163,14 +163,29 @@ export default function MyDataView(): JSX.Element {
           </p>
         )}
 
+        {/* Desktop: the rows below line up as a table under this header. */}
+        {reports.length > 0 ? (
+          <div
+            aria-hidden="true"
+            className="hidden gap-4 border-b border-border pb-2 text-xs text-muted-foreground md:grid md:grid-cols-[8.5rem_9rem_minmax(0,1fr)_4.5rem_4.5rem_4.5rem_auto]"
+          >
+            <span>Match</span>
+            <span>Team</span>
+            <span>Sync</span>
+            <span className="text-right">Fuel</span>
+            <span className="text-right">Defense</span>
+            <span className="text-right">Defended</span>
+            <span className="w-[4.5rem]" />
+          </div>
+        ) : null}
         <ul className="flex flex-col">
           {reports.map((r) => (
             <li
               key={r.id}
               data-testid="my-data-row"
-              className="border-t border-border py-3 first:border-t-0"
+              className="border-t border-border py-3 first:border-t-0 md:grid md:items-center md:gap-4 md:py-2 md:grid-cols-[8.5rem_9rem_minmax(0,1fr)_4.5rem_4.5rem_4.5rem_auto]"
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 md:contents">
                 <span className="flex items-baseline gap-2">
                   <span className="flex flex-col">
                     <span className="text-lg font-semibold leading-tight">
@@ -202,38 +217,43 @@ export default function MyDataView(): JSX.Element {
               {r.syncState === "error" ? (
                 <p
                   data-testid={`my-data-needs-sync-${r.id}`}
-                  className="mt-2 text-xs font-medium text-destructive"
+                  className="mt-2 text-xs font-medium text-destructive md:mt-0"
                 >
                   failed to sync — fix &amp; re-save
                 </p>
               ) : r.syncState === "dirty" || r.syncState === "pending" ? (
                 <p
                   data-testid={`my-data-uploading-${r.id}`}
-                  className="mt-2 text-xs font-medium text-warning"
+                  className="mt-2 text-xs font-medium text-warning md:mt-0"
                 >
                   saved on this device — queued to upload
                 </p>
-              ) : null}
-              <div className="mt-3 flex items-end justify-between gap-3">
-                <dl className="grid flex-1 grid-cols-3 gap-x-3">
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              ) : (
+                <span className="hidden items-center gap-1.5 text-xs text-muted-foreground md:inline-flex">
+                  <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
+                  Synced
+                </span>
+              )}
+              <div className="mt-3 flex items-end justify-between gap-3 md:contents">
+                <dl className="grid flex-1 grid-cols-3 gap-x-3 md:contents">
+                  <div className="flex flex-col gap-0.5 md:items-end">
+                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground md:sr-only">
                       Fuel
                     </dt>
                     <dd className="font-mono text-base font-semibold text-energy tabular-nums">
                       {r.fuelPoints}
                     </dd>
                   </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="flex flex-col gap-0.5 md:items-end">
+                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground md:sr-only">
                       Defense
                     </dt>
                     <dd className="font-mono text-base font-semibold text-brand tabular-nums">
                       {fmtSeconds(r.defenseDurationMs)}
                     </dd>
                   </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="flex flex-col gap-0.5 md:items-end">
+                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground md:sr-only">
                       Defended
                     </dt>
                     <dd className="font-mono text-base font-semibold tabular-nums">
@@ -254,7 +274,7 @@ export default function MyDataView(): JSX.Element {
                 </button>
               </div>
               {r.notes && (
-                <p className="mt-2 text-sm">
+                <p className="mt-2 text-sm md:col-span-full md:mt-0 md:text-muted-foreground">
                   <span className="text-muted-foreground">Notes: </span>
                   {r.notes}
                 </p>

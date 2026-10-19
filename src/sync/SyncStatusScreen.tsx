@@ -14,7 +14,7 @@ import { useActiveEvent } from '@/dash/useActiveEvent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
 import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
-import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { QrCode, RefreshCw, ScanLine, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSyncQueue, listDeadLetters, requeueReport, deleteReport } from '@/db/localStore';
 import {
@@ -566,9 +566,12 @@ export default function SyncStatusScreen(): JSX.Element {
   return (
     <main
       data-testid="sync-status"
-      className={`mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6 ${BOTTOM_BAR_CLEARANCE}`}
+      className={`mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6 lg:max-w-6xl ${BOTTOM_BAR_CLEARANCE}`}
     >
       <ScoutTopNav active="sync" />
+      {/* Desktop: this device on the left, server coverage on the right. */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start lg:gap-6">
+      <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-medium">Sync status</h1>
         <span
@@ -607,6 +610,32 @@ export default function SyncStatusScreen(): JSX.Element {
         {syncing ? 'Syncing…' : 'Sync now'}
       </Button>
       <LocalOutbox />
+      {/* Desktop shortcut to QR transfer (phones reach it from Scout home). */}
+      <div className="hidden flex-col gap-3 rounded-xl border border-border p-4 md:flex">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">No network? Transfer by QR</span>
+          <span className="text-xs text-muted-foreground">
+            Pass reports phone to phone; the receiving device uploads them.
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Link
+            to="/qr/send"
+            data-testid="sync-qr-send"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-accent"
+          >
+            <QrCode className="size-4 text-brand" aria-hidden="true" /> Send
+          </Link>
+          <Link
+            to="/qr/receive"
+            data-testid="sync-qr-receive"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-accent"
+          >
+            <ScanLine className="size-4 text-brand" aria-hidden="true" /> Receive
+          </Link>
+        </div>
+      </div>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle className="text-xl text-brand">Server coverage</CardTitle>
@@ -658,6 +687,7 @@ export default function SyncStatusScreen(): JSX.Element {
           )}
         </CardContent>
       </Card>
+      </div>
       <ScoutBottomNav active="home" />
     </main>
   );
