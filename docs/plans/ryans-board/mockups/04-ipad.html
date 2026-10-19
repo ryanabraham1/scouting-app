@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="mock.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>body{width:1180px;height:820px;overflow:hidden}.tb span{width:44px;height:44px}.tb .ico{width:20px;height:20px}</style></head>
+<body>
+<div class="dots" style="position:absolute;inset:0"></div>
+<!-- compact top bar (full screen) -->
+<div style="position:absolute;left:12px;right:12px;top:12px;display:flex;align-items:center;gap:10px">
+  <div style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:7px 12px"><i data-lucide="pen-tool" class="ico" style="color:var(--fg2)"></i><b>Ryan's board</b><span class="chip n" style="background:var(--muted);color:var(--fg2)">2026casj</span></div>
+  <div style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:8px 12px;color:var(--fg3);width:260px"><i data-lucide="search" class="ico"></i>Search</div>
+  <div style="flex:1"></div>
+  <span class="chip" style="background:var(--brand-bg);color:var(--brand);padding:5px 10px;font-size:12px"><i data-lucide="pen-line" class="ico" style="width:13px;height:13px"></i>Pencil draws · finger pans</span>
+  <span class="chip" style="background:var(--success-bg);color:var(--success);padding:5px 10px;font-size:12px"><i data-lucide="cloud-check" class="ico" style="width:13px;height:13px"></i>Synced</span>
+  <div style="background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:8px;display:flex;color:var(--fg2)"><i data-lucide="minimize-2" class="ico"></i></div>
+</div>
+<!-- toolbar -->
+<div class="tb" style="position:absolute;left:12px;top:80px">
+  <span><i data-lucide="mouse-pointer-2" class="ico"></i></span><span><i data-lucide="hand" class="ico"></i></span><div class="sep"></div>
+  <span class="on"><i data-lucide="pen" class="ico"></i></span><span><i data-lucide="highlighter" class="ico"></i></span><span><i data-lucide="eraser" class="ico"></i></span><span><i data-lucide="type" class="ico"></i></span><span><i data-lucide="pointer" class="ico"></i></span>
+  <div class="sep"></div><span><i data-lucide="image-plus" class="ico"></i></span><span><i data-lucide="layout-grid" class="ico"></i></span>
+</div>
+<!-- quick color strip for the pen (thumb reachable) -->
+<div style="position:absolute;left:76px;top:200px;display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:8px">
+  <span style="width:26px;height:26px;border-radius:50%;background:#f4f4f5"></span><span style="width:26px;height:26px;border-radius:50%;background:#f87171;outline:2px solid var(--brand);outline-offset:2px"></span><span style="width:26px;height:26px;border-radius:50%;background:#facc15"></span><span style="width:26px;height:26px;border-radius:50%;background:#4ade80"></span><span style="width:26px;height:26px;border-radius:50%;background:#60a5fa"></span>
+</div>
+<!-- content -->
+<div class="w" style="left:170px;top:90px;width:340px">
+  <div class="wh"><i data-lucide="swords" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Match · qm38</span><span class="chip" style="margin-left:auto;background:var(--warn-bg);color:var(--warn)">in 6 min</span></div>
+  <div class="wb"><div style="display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center"><div class="n red">3256 · 649 · 8033</div><div class="n red" style="font-size:20px;font-weight:700">142</div><div class="n blue">1678 · 604 · 5940</div><div class="n blue" style="font-size:20px;font-weight:700">158</div></div>
+  <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:8px"><div style="width:38%;background:var(--red)"></div><div style="flex:1;background:var(--blue)"></div></div></div></div>
+<div class="w" style="left:560px;top:90px;width:300px">
+  <div class="wh"><i data-lucide="columns-3" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Compare</span></div>
+  <div class="wb n" style="display:grid;grid-template-columns:80px repeat(3,1fr);gap:4px 8px;font-size:12px"><span></span><b>649</b><b>8033</b><b>3256</b><span style="font-family:system-ui;color:var(--fg2)">BSR</span><span>63.0</span><span>40.2</span><span class="good">71.4</span><span style="font-family:system-ui;color:var(--fg2)">Auto</span><span>20.9</span><span>12.0</span><span class="good">26.1</span></div></div>
+<!-- handwriting with pencil -->
+<svg style="position:absolute;left:170px;top:300px;overflow:visible" width="700" height="360">
+  <path d="M20,40 C60,10 90,70 130,40 S200,10 230,45" fill="none" stroke="#f87171" stroke-width="4" stroke-linecap="round"/>
+  <path d="M260,30 L262,60 M250,44 L276,44" fill="none" stroke="#f87171" stroke-width="4" stroke-linecap="round"/>
+  <path d="M300,20 C330,15 340,60 310,62 C290,64 300,35 330,40" fill="none" stroke="#f87171" stroke-width="4" stroke-linecap="round"/>
+  <path d="M40,140 C120,120 220,170 320,130 C420,90 520,150 600,120" fill="none" stroke="#facc15" stroke-width="5" stroke-linecap="round"/>
+  <path d="M582,104 L604,120 L584,138" fill="none" stroke="#facc15" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="460" cy="250" rx="120" ry="50" fill="none" stroke="#4ade80" stroke-width="4"/>
+</svg>
+<div style="position:absolute;left:574px;top:532px;font-size:20px;color:#4ade80;font-weight:500">8033 feeds, 649 defends</div>
+<!-- pencil cursor -->
+<div style="position:absolute;left:748px;top:430px;width:14px;height:14px;border-radius:50%;border:2px solid #f87171"></div>
+<!-- zoom/undo, large -->
+<div style="position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:4px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:4px;color:var(--fg2)">
+  <span style="padding:9px;display:flex"><i data-lucide="undo-2" class="ico" style="width:20px;height:20px"></i></span><span style="padding:9px;display:flex"><i data-lucide="redo-2" class="ico" style="width:20px;height:20px"></i></span>
+  <span style="width:1px;height:22px;background:var(--border)"></span><span class="n" style="padding:0 10px">100%</span>
+</div>
+<div style="position:absolute;right:12px;bottom:12px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:8px 12px;color:var(--fg3);font-size:11.5px">Two-finger tap: undo · three-finger tap: redo</div>
+<script>lucide.createIcons();</script>
+</body></html>

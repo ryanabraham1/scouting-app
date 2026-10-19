@@ -1,0 +1,92 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="mock.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+body{width:1440px;height:1000px;overflow:hidden;padding:28px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;align-items:start}
+.cell .lbl{font-size:11.5px;color:var(--fg3);margin:0 0 7px}
+.cell .w{position:static}
+.row{display:flex;align-items:center;gap:8px}
+</style></head>
+<body class="dots">
+<div class="grid">
+
+<div class="cell"><p class="lbl">team · detailed (kind: team, size: detailed)</p><div class="w">
+  <div class="wh"><i data-lucide="bot" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Team</span><span class="chip good" style="margin-left:auto"><span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>live</span></div>
+  <div class="wb">
+    <div class="row"><span class="n" style="font-size:20px;font-weight:700">1678</span><span style="color:var(--fg2)">Citrus Circuits</span><i data-lucide="star" class="ico" style="margin-left:auto;color:var(--warn)"></i></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
+      <div class="stat"><div class="l">BSR</div><div class="v">88.2</div><div class="l n">±4.1</div></div>
+      <div class="stat"><div class="l">Rank</div><div class="v">1</div><div class="l n">9-0-0</div></div>
+      <div class="stat"><div class="l">Scouted</div><div class="v">79</div><div class="l n">6 reports</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
+      <div class="stat"><div class="l">Auto</div><div class="v" style="font-size:14px">31.2</div></div>
+      <div class="stat"><div class="l">Teleop</div><div class="v" style="font-size:14px">41.0</div></div>
+      <div class="stat"><div class="l">Endgame</div><div class="v" style="font-size:14px">16.0</div></div>
+    </div>
+    <div class="row" style="margin-top:8px;color:var(--fg2);font-size:12px"><span>Next</span><b class="n" style="color:var(--fg)">qm41</b><span class="chip blue" style="background:var(--blue-bg)">blue</span><span style="margin-left:auto">in 18 min</span></div>
+  </div></div></div>
+
+<div class="cell"><p class="lbl">team · compact</p><div class="w"><div class="wb row"><span class="n" style="font-weight:700">604</span><span style="color:var(--fg2)">Quixilver</span><span class="n" style="margin-left:auto">61.7</span><span class="chip" style="background:var(--red-bg);color:var(--red)">−5</span></div></div>
+  <p class="lbl" style="margin-top:22px">stat tile (kind: stat, expression)</p><div class="w"><div class="wb"><div style="color:var(--fg2);font-size:12px">BSR gap <span class="n">1678 − 3256</span></div><div class="n" style="font-size:28px;font-weight:700">+16.8</div><div style="color:var(--fg3);font-size:11px">updates live</div></div></div>
+  <p class="lbl" style="margin-top:22px">on field now (Nexus)</p><div class="w"><div class="wb"><div class="row"><span style="width:7px;height:7px;border-radius:50%;background:var(--success)"></span><span class="eb">qm36 · teleop</span></div><div class="n red" style="margin-top:6px">254 · 1323 · 4414</div><div class="n blue">971 · 846 · 5419</div><div style="color:var(--fg3);font-size:11px;margin-top:4px">Queuing: qm37, qm38</div></div></div>
+</div>
+
+<div class="cell"><p class="lbl">match · upcoming</p><div class="w">
+  <div class="wh"><i data-lucide="swords" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Match · qm38</span><span class="chip" style="margin-left:auto;background:var(--warn-bg);color:var(--warn)">in 6 min</span></div>
+  <div class="wb"><div style="display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center"><div class="n red">3256 · 649 · 8033</div><div class="n red" style="font-size:20px;font-weight:700">142</div><div class="n blue">1678 · 604 · 5940</div><div class="n blue" style="font-size:20px;font-weight:700">158</div></div>
+  <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:8px"><div style="width:38%;background:var(--red)"></div><div style="flex:1;background:var(--blue)"></div></div>
+  <div style="display:flex;justify-content:space-between;color:var(--fg3);margin-top:4px;font-size:11px"><span>Red 38%</span><span>predicted</span><span>Blue 62%</span></div></div></div>
+  <p class="lbl" style="margin-top:22px">match · played</p><div class="w">
+  <div class="wh"><i data-lucide="swords" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Match · qm22</span><span class="chip" style="margin-left:auto;background:var(--muted);color:var(--fg2)">final</span></div>
+  <div class="wb"><div style="display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center"><div class="n red">254 · 971 · 115</div><div class="n red" style="font-size:20px;font-weight:700;opacity:.55">127</div><div class="n blue">1678 · 846 · 199</div><div class="n blue" style="font-size:20px;font-weight:700">131</div></div>
+  <div style="color:var(--fg3);font-size:11px;margin-top:6px">Predicted 124–129 · Blue 58%</div></div></div>
+</div>
+
+<div class="cell"><p class="lbl">schedule (team matches)</p><div class="w">
+  <div class="wh"><i data-lucide="calendar-range" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">3256 schedule</span></div>
+  <div class="wb n" style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;font-size:12px;align-items:center">
+    <span>qm30</span><span class="chip red" style="background:var(--red-bg);justify-self:start">red</span><span class="good">W 120–101</span>
+    <span>qm38</span><span class="chip red" style="background:var(--red-bg);justify-self:start">red</span><span style="color:var(--warn)">6 min · 38%</span>
+    <span>qm45</span><span class="chip blue" style="background:var(--blue-bg);justify-self:start">blue</span><span style="color:var(--fg3)">52 min · 61%</span>
+    <span>qm53</span><span class="chip red" style="background:var(--red-bg);justify-self:start">red</span><span style="color:var(--fg3)">1h 40m · 47%</span>
+  </div></div>
+  <p class="lbl" style="margin-top:22px">rankings (metric + count)</p><div class="w">
+  <div class="wh"><i data-lucide="list-ordered" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Top 5 · climb rate</span></div>
+  <div class="wb n" style="display:grid;grid-template-columns:20px 1fr auto;gap:5px 8px"><span style="color:var(--fg3)">1</span><span>1678</span><span>94%</span><span style="color:var(--fg3)">2</span><span style="color:var(--brand)">3256</span><span>88%</span><span style="color:var(--fg3)">3</span><span>254</span><span>81%</span><span style="color:var(--fg3)">4</span><span>971</span><span>77%</span><span style="color:var(--fg3)">5</span><span>604</span><span>70%</span></div></div>
+</div>
+
+<div class="cell" style="grid-column:span 2"><p class="lbl">compare (teams[], metrics[])</p><div class="w">
+  <div class="wh"><i data-lucide="columns-3" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Compare</span><span style="margin-left:auto">drop a team card here to add it</span></div>
+  <div class="wb n" style="display:grid;grid-template-columns:120px repeat(4,1fr);gap:5px 10px;font-size:12px">
+    <span></span><b>1678</b><b>254</b><b>3256</b><b>604</b>
+    <span style="font-family:system-ui;color:var(--fg2)">BSR</span><span class="good">88.2</span><span>84.9</span><span>71.4</span><span>61.7</span>
+    <span style="font-family:system-ui;color:var(--fg2)">Auto pts</span><span class="good">31.2</span><span>29.8</span><span>26.1</span><span>22.4</span>
+    <span style="font-family:system-ui;color:var(--fg2)">Teleop pts</span><span>41.0</span><span class="good">42.3</span><span>33.0</span><span>29.1</span>
+    <span style="font-family:system-ui;color:var(--fg2)">Climb rate</span><span class="good">94%</span><span>81%</span><span>88%</span><span>70%</span>
+    <span style="font-family:system-ui;color:var(--fg2)">Scouted pts</span><span class="good">79</span><span>74</span><span>64</span><span>55</span>
+  </div></div></div>
+
+<div class="cell" style="grid-column:span 2"><p class="lbl">BSR history (teams[])</p><div class="w">
+  <div class="wh"><i data-lucide="trending-up" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">BSR history</span><span style="margin-left:auto"><span style="color:var(--brand)">— 1678</span>&nbsp;&nbsp;<span style="color:var(--fg3)">- - 3256</span></span></div>
+  <div class="wb"><svg viewBox="0 0 640 120" width="100%" height="120"><g stroke="#232323"><line x1="0" y1="30" x2="640" y2="30"/><line x1="0" y1="60" x2="640" y2="60"/><line x1="0" y1="90" x2="640" y2="90"/></g><polyline points="0,104 70,95 140,88 210,74 280,66 350,54 420,46 490,36 560,26 640,16" fill="none" stroke="var(--brand)" stroke-width="2.4"/><polyline points="0,110 70,108 140,99 210,97 280,85 350,80 420,73 490,69 560,62 640,54" fill="none" stroke="var(--fg3)" stroke-width="2" stroke-dasharray="5 5"/></svg></div></div></div>
+
+<div class="cell" style="grid-column:span 2"><p class="lbl">picklist (live, tiers read from / written to the real picklist)</p><div class="w">
+  <div class="wh"><i data-lucide="clipboard-list" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Picklist</span><span style="margin-left:auto">synced with Picklist tab</span></div>
+  <div class="wb" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div><div class="eb" style="margin-bottom:6px">1st pick</div><div class="row n" style="padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--fg3)">1</span><b>1678</b><span style="margin-left:auto;color:var(--fg2)">88.2</span></div><div class="row n" style="padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--fg3)">2</span><b>254</b><span style="margin-left:auto;color:var(--fg2)">84.9</span></div><div class="row n" style="padding:5px 0"><span style="color:var(--fg3)">3</span><b>971</b><span style="margin-left:auto;color:var(--fg2)">80.3</span></div></div>
+    <div><div class="eb" style="margin-bottom:6px">2nd pick</div><div class="row n" style="padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--fg3)">1</span><b>649</b><span style="margin-left:auto;color:var(--fg2)">63.0</span></div><div class="row n" style="padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--fg3)">2</span><b>604</b><span style="margin-left:auto;color:var(--fg2)">61.7</span></div><div class="row n" style="padding:5px 0"><span style="color:var(--fg3)">3</span><b>5940</b><span style="margin-left:auto;color:var(--fg2)">58.2</span></div></div>
+  </div></div></div>
+
+<div class="cell" style="grid-column:span 2"><p class="lbl">widget tray (left toolbar, layout-grid button)</p><div class="w">
+  <div class="wh"><i data-lucide="layout-grid" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Add widget</span><span class="k" style="margin-left:auto;font-family:var(--mono);font-size:10.5px;border:1px solid var(--border-strong);border-radius:4px;padding:0 5px">⌘K to search</span></div>
+  <div class="wb" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px;color:var(--fg2)">
+    <div class="stat row"><i data-lucide="bot" class="ico"></i>Team</div><div class="stat row"><i data-lucide="swords" class="ico"></i>Match</div><div class="stat row"><i data-lucide="calendar-range" class="ico"></i>Schedule</div><div class="stat row"><i data-lucide="star" class="ico"></i>Watchlist</div>
+    <div class="stat row"><i data-lucide="list-ordered" class="ico"></i>Rankings</div><div class="stat row"><i data-lucide="columns-3" class="ico"></i>Compare</div><div class="stat row"><i data-lucide="trending-up" class="ico"></i>BSR history</div><div class="stat row"><i data-lucide="radio" class="ico"></i>On field</div>
+    <div class="stat row"><i data-lucide="sigma" class="ico"></i>Stat tile</div><div class="stat row"><i data-lucide="clipboard-list" class="ico"></i>Picklist</div><div class="stat row"><i data-lucide="clock" class="ico"></i>Next match</div><div class="stat row"><i data-lucide="image" class="ico"></i>Image</div>
+  </div></div></div>
+
+</div>
+<script>lucide.createIcons();</script>
+</body></html>

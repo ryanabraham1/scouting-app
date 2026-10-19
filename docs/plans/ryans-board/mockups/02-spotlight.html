@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="mock.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+body{width:1440px;height:900px;overflow:hidden}
+.r{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;font-size:13px}
+.r .ico{color:var(--fg3)}
+.g{padding:12px 12px 4px}
+.k{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border-strong);border-radius:4px;padding:0 5px;color:var(--fg3)}
+.sub{margin-left:auto;color:var(--fg3);font-size:12px}
+</style></head>
+<body>
+<div class="dots" style="position:absolute;inset:0;opacity:.5"></div>
+<div style="position:absolute;inset:0;background:rgba(0,0,0,.55)"></div>
+<div style="position:absolute;left:50%;top:90px;transform:translateX(-50%);width:880px;background:var(--panel);border:1px solid var(--border-strong);border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.6)">
+  <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)">
+    <i data-lucide="search" class="ico" style="width:18px;height:18px;color:var(--fg3)"></i>
+    <span style="font-size:17px">cheesy matches</span><span style="width:2px;height:20px;background:var(--brand)"></span>
+    <span class="chip" style="margin-left:12px;background:var(--brand-bg);color:var(--brand)">team 254</span>
+    <span class="chip" style="background:var(--muted);color:var(--fg2)">intent: matches</span>
+    <span class="k" style="margin-left:auto">esc</span>
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 340px">
+    <div style="padding:4px 8px 10px;border-right:1px solid var(--border)">
+      <div class="g eb">Best match</div>
+      <div class="r" style="background:var(--brand-bg)"><i data-lucide="calendar-range" class="ico" style="color:var(--brand)"></i><span style="color:var(--fg)"><b class="n">254</b> matches · last, next and full schedule</span><span class="k" style="margin-left:auto">enter</span></div>
+      <div class="g eb">254 · The Cheesy Poofs</div>
+      <div class="r"><i data-lucide="history" class="ico"></i>Last match <b class="n">qm36</b><span class="chip" style="background:var(--success-bg);color:var(--success)">W 131–127</span><span class="sub">12 min ago</span></div>
+      <div class="r"><i data-lucide="clock" class="ico"></i>Next match <b class="n">qm44</b><span class="chip" style="background:var(--blue-bg);color:var(--blue)">blue</span><span class="sub">in 41 min · 57% win</span></div>
+      <div class="r"><i data-lucide="list" class="ico"></i>All 12 matches<span class="sub">8 played · 4 upcoming</span></div>
+      <div class="r"><i data-lucide="bot" class="ico"></i>Team card<span class="sub n">BSR 84.9 · rank 2</span></div>
+      <div class="g eb">Also matches</div>
+      <div class="r"><i data-lucide="swords" class="ico"></i><b class="n">qm22</b> 1678 vs 254<span class="sub n">131–127</span></div>
+      <div class="r"><i data-lucide="sticky-note" class="ico"></i>Board text: "cheesy defends the feed lane"<span class="sub">on board</span></div>
+      <div class="g eb">Actions</div>
+      <div class="r"><i data-lucide="star" class="ico"></i>Add 254 to watchlist<span class="k" style="margin-left:auto">⌘ enter</span></div>
+    </div>
+    <div style="padding:14px;background:var(--card)">
+      <div class="eb" style="margin-bottom:8px">Preview</div>
+      <div style="background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;overflow:hidden">
+        <div class="wh"><i data-lucide="calendar-range" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">254 schedule</span></div>
+        <div class="wb n" style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;font-size:12px;align-items:center">
+          <span>qm05</span><span class="chip red" style="background:var(--red-bg);justify-self:start">red</span><span class="good">W 118–96</span>
+          <span>qm13</span><span class="chip blue" style="background:var(--blue-bg);justify-self:start">blue</span><span class="good">W 125–110</span>
+          <span>qm22</span><span class="chip red" style="background:var(--red-bg);justify-self:start">red</span><span style="color:var(--red)">L 127–131</span>
+          <span>qm36</span><span class="chip blue" style="background:var(--blue-bg);justify-self:start">blue</span><span class="good">W 131–127</span>
+          <span style="color:var(--fg)">qm44</span><span class="chip blue" style="background:var(--blue-bg);justify-self:start">blue</span><span style="color:var(--warn)">in 41 min</span>
+          <span style="color:var(--fg2)">qm52</span><span class="chip red" style="background:var(--red-bg);justify-self:start">red</span><span style="color:var(--fg3)">1h 30m</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--fg2);margin-top:12px;line-height:1.5">Enter places it at the center of your view. Drag a result onto the board to drop it exactly where you want.</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:18px;padding:9px 16px;border-top:1px solid var(--border);font-size:11.5px;color:var(--fg3)">
+    <span>Try</span><span class="n">qm32</span><span class="n">q 32</span><span>quals 32</span><span>1678 vs 254</span><span>best auto</span><span>our next</span><span>poofs last match</span><span>who climbs</span>
+  </div>
+</div>
+<script>lucide.createIcons();</script>
+</body></html>

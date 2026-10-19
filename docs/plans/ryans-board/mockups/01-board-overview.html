@@ -1,0 +1,171 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="mock.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>body{width:1440px;height:900px;overflow:hidden}</style></head>
+<body>
+<!-- Lead dashboard chrome -->
+<div style="display:flex;align-items:center;gap:10px;height:58px;padding:0 20px">
+  <div style="width:36px;height:36px;border-radius:50%;background:var(--muted);display:flex;align-items:center;justify-content:center;color:var(--brand)"><i data-lucide="layout-dashboard" class="ico"></i></div>
+  <div><div style="font-weight:600;font-size:14px">Lead dashboard <i data-lucide="chevron-down" class="ico" style="width:13px;vertical-align:-2px"></i></div><div class="n" style="font-size:11px;color:var(--fg2)">2026casj</div></div>
+</div>
+
+<!-- Board card -->
+<div style="position:absolute;left:20px;right:20px;top:62px;bottom:78px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--card)">
+  <!-- top bar -->
+  <div style="display:flex;align-items:center;gap:10px;height:46px;padding:0 12px;border-bottom:1px solid var(--border)">
+    <i data-lucide="pen-tool" class="ico" style="color:var(--fg2)"></i>
+    <span style="font-weight:600;font-size:14px">Ryan's board</span>
+    <span class="chip n" style="background:var(--muted);color:var(--fg2)">2026casj</span>
+    <span class="chip" style="background:var(--warn-bg);color:var(--warn)"><i data-lucide="clock" class="ico" style="width:12px;height:12px"></i>qm38 in 6 min</span>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:8px;width:300px;height:30px;padding:0 10px;border:1px solid var(--border-strong);border-radius:8px;color:var(--fg3)"><i data-lucide="search" class="ico"></i>Search teams, matches, stats<span class="n" style="margin-left:auto;font-size:11px;border:1px solid var(--border-strong);border-radius:4px;padding:0 5px">⌘K</span></div>
+    <div style="display:flex;margin-left:6px">
+      <span style="width:26px;height:26px;border-radius:50%;background:var(--brand-bg);color:var(--brand);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;border:2px solid var(--card)">RA</span>
+      <span style="width:26px;height:26px;border-radius:50%;background:var(--success-bg);color:var(--success);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;margin-left:-7px;border:2px solid var(--card)">AL</span>
+    </div>
+    <span class="chip" style="background:var(--success-bg);color:var(--success)"><i data-lucide="cloud-check" class="ico" style="width:12px;height:12px"></i>Synced</span>
+    <span style="color:var(--fg2);display:flex"><i data-lucide="maximize-2" class="ico"></i></span>
+  </div>
+
+  <!-- canvas -->
+  <div class="dots" style="position:absolute;left:0;right:0;top:46px;bottom:0">
+    <!-- toolbar -->
+    <div class="tb" style="position:absolute;left:12px;top:14px">
+      <span class="on"><i data-lucide="mouse-pointer-2" class="ico"></i></span>
+      <span><i data-lucide="hand" class="ico"></i></span>
+      <div class="sep"></div>
+      <span><i data-lucide="pen" class="ico"></i></span>
+      <span><i data-lucide="highlighter" class="ico"></i></span>
+      <span><i data-lucide="eraser" class="ico"></i></span>
+      <span><i data-lucide="type" class="ico"></i></span>
+      <span><i data-lucide="pointer" class="ico"></i></span>
+      <div class="sep"></div>
+      <span><i data-lucide="image-plus" class="ico"></i></span>
+      <span><i data-lucide="layout-grid" class="ico"></i></span>
+    </div>
+
+    <!-- Watchlist widget -->
+    <div class="w" style="left:80px;top:24px;width:300px">
+      <div class="wh"><i data-lucide="star" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Watchlist</span><span style="margin-left:auto" class="n">3 teams</span></div>
+      <div class="wb" style="display:flex;flex-direction:column;gap:7px">
+        <div style="display:flex;align-items:center;gap:8px"><span class="n" style="font-weight:600;width:42px">3256</span><span style="color:var(--fg2)">WarriorBorgs</span><span class="n" style="margin-left:auto">71.4</span><span class="chip" style="background:var(--success-bg);color:var(--success)">+8</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span class="n" style="font-weight:600;width:42px">1678</span><span style="color:var(--fg2)">Citrus Circuits</span><span class="n" style="margin-left:auto">88.2</span><span class="chip" style="background:var(--warn-bg);color:var(--warn)">new report</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span class="n" style="font-weight:600;width:42px">254</span><span style="color:var(--fg2)">The Cheesy Poofs</span><span class="n" style="margin-left:auto">84.9</span><span class="chip" style="background:var(--muted);color:var(--fg2)">played qm36</span></div>
+      </div>
+    </div>
+
+    <!-- Team card (selected) -->
+    <div class="w" style="left:80px;top:176px;width:300px;outline:1.5px solid var(--brand);outline-offset:3px;overflow:visible">
+      <div class="wh"><i data-lucide="bot" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Team</span><span style="margin-left:auto" class="chip good"><span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>live</span></div>
+      <div class="wb">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="n" style="font-size:20px;font-weight:700">1678</span><span style="color:var(--fg2)">Citrus Circuits</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
+          <div class="stat"><div class="l">BSR</div><div class="v">88.2</div></div>
+          <div class="stat"><div class="l">Rank</div><div class="v">1</div></div>
+          <div class="stat"><div class="l">Record</div><div class="v">9-0-0</div></div>
+        </div>
+        <svg viewBox="0 0 270 34" width="100%" height="34" style="margin-top:6px"><polyline points="0,30 30,27 60,25 90,20 120,18 150,14 180,12 210,9 240,6 270,4" fill="none" stroke="var(--brand)" stroke-width="2"/></svg>
+      </div>
+      <span class="h" style="left:-8px;top:-8px"></span><span class="h" style="right:-8px;top:-8px"></span><span class="h" style="left:-8px;bottom:-8px"></span><span class="h" style="right:-8px;bottom:-8px"></span>
+      <span class="h" style="left:calc(50% - 4px);top:-8px"></span><span class="h" style="left:calc(50% - 4px);bottom:-8px"></span><span class="h" style="left:-8px;top:calc(50% - 4px)"></span><span class="h" style="right:-8px;top:calc(50% - 4px)"></span>
+    </div>
+
+    <!-- Match card -->
+    <div class="w" style="left:430px;top:24px;width:330px">
+      <div class="wh"><i data-lucide="swords" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Match · qm38</span><span class="chip" style="margin-left:auto;background:var(--warn-bg);color:var(--warn)">in 6 min</span></div>
+      <div class="wb">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center">
+          <div class="n red">3256 · 649 · 8033</div><div class="n red" style="font-size:20px;font-weight:700">142</div>
+          <div class="n blue">1678 · 604 · 5940</div><div class="n blue" style="font-size:20px;font-weight:700">158</div>
+        </div>
+        <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:8px"><div style="width:38%;background:var(--red)"></div><div style="flex:1;background:var(--blue)"></div></div>
+        <div style="display:flex;justify-content:space-between;color:var(--fg3);margin-top:4px;font-size:11px"><span>Red 38%</span><span>predicted</span><span>Blue 62%</span></div>
+      </div>
+    </div>
+
+    <!-- EPA history -->
+    <div class="w" style="left:430px;top:190px;width:330px">
+      <div class="wh"><i data-lucide="trending-up" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">BSR history</span><span style="margin-left:auto" class="n">1678 vs 3256</span></div>
+      <div class="wb">
+        <svg viewBox="0 0 300 92" width="100%" height="92"><g stroke="#232323"><line x1="0" y1="23" x2="300" y2="23"/><line x1="0" y1="46" x2="300" y2="46"/><line x1="0" y1="69" x2="300" y2="69"/></g>
+        <polyline points="0,78 33,70 66,66 99,55 132,50 165,40 198,35 231,28 264,20 300,13" fill="none" stroke="var(--brand)" stroke-width="2.2"/>
+        <polyline points="0,84 33,82 66,75 99,74 132,64 165,60 198,55 231,52 264,47 300,41" fill="none" stroke="var(--fg3)" stroke-width="1.8" stroke-dasharray="4 4"/></svg>
+      </div>
+    </div>
+
+    <!-- Rankings -->
+    <div class="w" style="left:810px;top:24px;width:250px">
+      <div class="wh"><i data-lucide="list-ordered" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Top 5 · auto</span></div>
+      <div class="wb n" style="display:grid;grid-template-columns:20px 1fr auto;gap:5px 8px">
+        <span style="color:var(--fg3)">1</span><span>1678</span><span>31.2</span>
+        <span style="color:var(--fg3)">2</span><span>254</span><span>29.8</span>
+        <span style="color:var(--fg3)">3</span><span style="color:var(--brand)">3256</span><span>26.1</span>
+        <span style="color:var(--fg3)">4</span><span>604</span><span>22.4</span>
+        <span style="color:var(--fg3)">5</span><span>649</span><span>20.9</span>
+      </div>
+    </div>
+
+    <!-- Text note + ink -->
+    <div style="position:absolute;left:820px;top:240px;width:300px;font-size:22px;line-height:1.3;color:#facc15;font-weight:500">Ask 1678 pit about deep climb. Possible 1st pick.</div>
+    <svg style="position:absolute;left:380px;top:250px;overflow:visible" width="460" height="200">
+      <path d="M440,40 C360,30 300,60 250,40 C190,20 120,5 10,0" fill="none" stroke="#facc15" stroke-width="4" stroke-linecap="round"/>
+      <path d="M26,-14 L8,0 L28,12" fill="none" stroke="#facc15" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <svg style="position:absolute;left:806px;top:62px;overflow:visible" width="280" height="40"><path d="M10,58 C60,52 140,60 200,56" fill="none" stroke="#4ade80" stroke-width="14" stroke-linecap="round" opacity=".35"/></svg>
+    <svg style="position:absolute;left:418px;top:380px;overflow:visible" width="380" height="200"><ellipse cx="190" cy="60" rx="185" ry="58" fill="none" stroke="#f87171" stroke-width="3.5" transform="rotate(-3 190 60)"/></svg>
+
+    <!-- Compare widget -->
+    <div class="w" style="left:440px;top:400px;width:340px">
+      <div class="wh"><i data-lucide="columns-3" class="ico" style="width:13px"></i><span class="eb" style="letter-spacing:.12em">Compare</span></div>
+      <div class="wb n" style="display:grid;grid-template-columns:90px repeat(3,1fr);gap:4px 8px;font-size:12px">
+        <span></span><b>1678</b><b>254</b><b>3256</b>
+        <span style="font-family:system-ui;color:var(--fg2)">BSR</span><span class="good">88.2</span><span>84.9</span><span>71.4</span>
+        <span style="font-family:system-ui;color:var(--fg2)">Auto</span><span class="good">31.2</span><span>29.8</span><span>26.1</span>
+        <span style="font-family:system-ui;color:var(--fg2)">Climb rate</span><span class="good">94%</span><span>81%</span><span>88%</span>
+      </div>
+    </div>
+
+    <!-- remote cursor + remote live ink -->
+    <svg style="position:absolute;left:1080px;top:420px;overflow:visible" width="160" height="80"><path d="M0,60 C20,20 50,10 80,30 S130,60 150,20" fill="none" stroke="#60a5fa" stroke-width="5" stroke-linecap="round"/></svg>
+    <div style="position:absolute;left:1226px;top:430px;display:flex;align-items:flex-start;gap:2px"><i data-lucide="mouse-pointer-2" class="ico" style="color:var(--success);fill:var(--success);width:18px;height:18px"></i><span class="chip" style="background:var(--success);color:#052e16;margin-top:14px;font-weight:600">Alex</span></div>
+
+    <!-- style panel -->
+    <div style="position:absolute;right:12px;top:14px;width:172px;background:var(--panel);border:1px solid var(--border-strong);border-radius:12px;padding:10px">
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">
+        <span style="width:24px;height:24px;border-radius:50%;background:#f4f4f5;outline:2px solid var(--brand);outline-offset:2px"></span><span style="width:24px;height:24px;border-radius:50%;background:#9ca3af"></span><span style="width:24px;height:24px;border-radius:50%;background:#f87171"></span><span style="width:24px;height:24px;border-radius:50%;background:#fb923c"></span><span style="width:24px;height:24px;border-radius:50%;background:#facc15"></span>
+        <span style="width:24px;height:24px;border-radius:50%;background:#4ade80"></span><span style="width:24px;height:24px;border-radius:50%;background:#2dd4bf"></span><span style="width:24px;height:24px;border-radius:50%;background:#60a5fa"></span><span style="width:24px;height:24px;border-radius:50%;background:#c084fc"></span><span style="width:24px;height:24px;border-radius:50%;background:#f472b6"></span>
+      </div>
+      <div class="sep" style="margin:10px 0"></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;text-align:center;font-size:12px;font-weight:600;color:var(--fg2)">
+        <span style="padding:5px 0;border-radius:6px">S</span><span style="padding:5px 0;border-radius:6px;background:var(--accent);color:var(--fg)">M</span><span style="padding:5px 0;border-radius:6px">L</span><span style="padding:5px 0;border-radius:6px">XL</span>
+      </div>
+    </div>
+
+    <!-- zoom + undo -->
+    <div style="position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:2px;background:var(--panel);border:1px solid var(--border-strong);border-radius:10px;padding:3px;color:var(--fg2)">
+      <span style="padding:5px;display:flex"><i data-lucide="undo-2" class="ico"></i></span><span style="padding:5px;display:flex"><i data-lucide="redo-2" class="ico"></i></span>
+      <span style="width:1px;height:18px;background:var(--border);margin:0 3px"></span>
+      <span style="padding:5px;display:flex"><i data-lucide="minus" class="ico"></i></span><span class="n" style="font-size:12px;width:44px;text-align:center">84%</span><span style="padding:5px;display:flex"><i data-lucide="plus" class="ico"></i></span>
+      <span style="padding:5px;display:flex"><i data-lucide="scan" class="ico"></i></span>
+    </div>
+    <!-- minimap -->
+    <div style="position:absolute;right:12px;bottom:12px;width:180px;height:112px;background:var(--panel);border:1px solid var(--border-strong);border-radius:10px">
+      <div style="position:absolute;left:14px;top:14px;width:36px;height:20px;background:#2a2a2a;border-radius:2px"></div><div style="position:absolute;left:14px;top:38px;width:36px;height:22px;background:#2a2a2a;border-radius:2px"></div>
+      <div style="position:absolute;left:58px;top:14px;width:40px;height:20px;background:#2a2a2a;border-radius:2px"></div><div style="position:absolute;left:58px;top:38px;width:40px;height:20px;background:#2a2a2a;border-radius:2px"></div>
+      <div style="position:absolute;left:106px;top:14px;width:30px;height:24px;background:#2a2a2a;border-radius:2px"></div><div style="position:absolute;left:60px;top:64px;width:42px;height:18px;background:#2a2a2a;border-radius:2px"></div>
+      <div style="position:absolute;left:8px;top:8px;width:150px;height:84px;border:1.5px solid var(--brand);border-radius:4px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- bottom tab bar -->
+<div style="position:absolute;left:0;right:0;bottom:0;height:66px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:44px;align-items:center;color:var(--fg3);font-size:11px">
+  <div style="text-align:center"><i data-lucide="presentation" class="ico"></i><div>Strategy</div></div>
+  <div style="text-align:center;color:var(--fg)"><i data-lucide="pen-tool" class="ico"></i><div>Ryan's Board</div></div>
+  <div style="text-align:center"><i data-lucide="user-check" class="ico"></i><div>Scouters</div></div>
+  <div style="text-align:center"><i data-lucide="clipboard-list" class="ico"></i><div>Picklist</div></div>
+  <div style="text-align:center"><i data-lucide="gavel" class="ico"></i><div>Draft</div></div>
+  <div style="text-align:center"><i data-lucide="settings" class="ico"></i><div>Settings</div></div>
+</div>
+<script>lucide.createIcons();</script>
+</body></html>
