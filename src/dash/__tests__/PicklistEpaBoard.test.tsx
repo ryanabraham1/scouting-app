@@ -134,7 +134,7 @@ describe('PicklistEpaBoard', () => {
       />,
     );
     expect(getByTestId('epa-board-epa-254').textContent).toContain('—');
-    expect(getByTestId('epa-board-source-note').textContent).toMatch(/no match-result epa/i);
+    expect(getByTestId('epa-board-source-note').textContent).toMatch(/no bsr yet/i);
     expect(getByTestId('epa-board-epa-1678').textContent).toContain('—');
   });
 

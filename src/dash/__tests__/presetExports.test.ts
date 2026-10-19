@@ -262,7 +262,7 @@ function row(overrides: Partial<PresetRow> & { rank: number; teamNumber: number 
 describe('allianceSheetToCsv', () => {
   it('emits the exact header', () => {
     expect(allianceSheetToCsv([], '2026demo').split('\n')[0]).toBe(
-      'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Defense,Reliability,EPA,EPA Source',
+      'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Defense,Reliability,BSR,BSR Source',
     );
   });
 

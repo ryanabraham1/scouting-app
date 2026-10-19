@@ -1059,7 +1059,7 @@ function TeamDetail(props: {
   // Jump-rail entries, in page order; sections that don't render are omitted.
   const sections: TeamSection[] = [
     { id: 'team-sec-overview', label: 'Overview' },
-    { id: 'team-sec-epa', label: 'EPA' },
+    { id: 'team-sec-epa', label: 'BSR' },
     ...(props.lastMatchNode ? [{ id: 'team-sec-last-match', label: 'Last match' }] : []),
     { id: 'team-sec-scoring', label: 'Scoring' },
     { id: 'team-sec-defense', label: 'Defense' },
@@ -1561,7 +1561,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         </div>
       ) : (
         <span className="text-sm text-zinc-400">
-          EPA unavailable — no TBA match-result or Statbotics data for this team.
+          BSR unavailable — no TBA match-result or Statbotics data for this team.
         </span>
       )}
     </div>
@@ -1594,7 +1594,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
         <CardHeader className="space-y-0 pb-3">
           <CardTitle className="flex items-center gap-2 text-zinc-100">
             <Gauge className="size-5 text-energy" />
-            EPA
+            BSR
           </CardTitle>
         </CardHeader>
         <CardContent>{epaNode}</CardContent>

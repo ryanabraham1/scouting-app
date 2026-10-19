@@ -145,7 +145,7 @@ describe('AllianceSimulatorView', () => {
     fireEvent.click(getByTestId('alliance-pick-33'));
     // Team 11 (scouted + EPA, 4 matches) → EPA wins outright; scouting never blends in.
     const chip = getByTestId('alliance-team-chip-11');
-    expect(chip.textContent).toMatch(/EPA/i);
+    expect(chip.textContent).toMatch(/BSR/i);
     expect(chip.textContent).not.toMatch(/scouting|blend/);
   });
 

@@ -384,7 +384,7 @@ describe('TeamView', () => {
     const { getByTestId } = render(<TeamView eventKey="2026casnv" />);
     selectTeam(getByTestId, '254');
     const epa = getByTestId('team-epa');
-    expect(epa.textContent?.toLowerCase()).toContain('epa unavailable');
+    expect(epa.textContent?.toLowerCase()).toContain('bsr unavailable');
     // The scouted expectation is its own separate stat, still rendered.
     expect(getByTestId('team-scouting-expected').textContent).not.toBe('—');
   });

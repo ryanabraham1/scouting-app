@@ -174,7 +174,7 @@ function ScoringChart({
   return (
     <ChartFrame
       title="Scoring composition"
-      subtitle="Expected points per match split into auto fuel and teleop/endgame fuel. The line marks best-available EPA on the same points scale."
+      subtitle="Expected points per match split into auto fuel and teleop/endgame fuel. The line marks best-available BSR on the same points scale."
       testid={testid}
       wide
     >
@@ -185,7 +185,7 @@ function ScoringChart({
             { key: 'auto', value: scoring.auto, opacity: 0.45 },
             { key: 'teleop', value: scoring.teleopEndgame, opacity: 1 },
           ];
-          const details = `Team ${team.teamNumber}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel${scoring.epa == null ? '; EPA unavailable' : `; ${scoring.epa.toFixed(1)} EPA`}`;
+          const details = `Team ${team.teamNumber}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel${scoring.epa == null ? '; BSR unavailable' : `; ${scoring.epa.toFixed(1)} BSR`}`;
           return (
             <div
               key={team.teamNumber}
@@ -253,7 +253,7 @@ function ScoringChart({
         ))}
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="h-3 w-0.5 bg-foreground" />
-          EPA
+          BSR
         </span>
       </div>
     </ChartFrame>

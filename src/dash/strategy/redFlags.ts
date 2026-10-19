@@ -238,14 +238,14 @@ export function evaluateEpaDrop(before: number | null, now: number | null): RedF
     return {
       kind: 'epa-drop',
       severity: 'high',
-      text: `EPA falling hard — ${Math.round(now)} now vs ${Math.round(before)} before their last matches (−${Math.round(frac * 100)}%)`,
+      text: `BSR falling hard — ${Math.round(now)} now vs ${Math.round(before)} before their last matches (−${Math.round(frac * 100)}%)`,
     };
   }
   if (drop >= EPA_DROP_MED.abs && frac >= EPA_DROP_MED.frac) {
     return {
       kind: 'epa-drop',
       severity: 'med',
-      text: `EPA declining — ${Math.round(now)} now vs ${Math.round(before)} before their last matches (−${Math.round(frac * 100)}%)`,
+      text: `BSR declining — ${Math.round(now)} now vs ${Math.round(before)} before their last matches (−${Math.round(frac * 100)}%)`,
     };
   }
   return null;

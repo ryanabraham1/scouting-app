@@ -166,7 +166,7 @@ function InHouseBadge() {
   return (
     <span
       data-testid="dash-season-epa-source"
-      title="Computed live in-house from The Blue Alliance match results"
+      title="BSR (Bayesian Strength Rating), computed live in-house from The Blue Alliance match results"
       className="inline-flex items-center rounded-full border border-energy/40 bg-energy/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-energy"
     >
       in-house
@@ -224,7 +224,7 @@ export default function SeasonStats({
         />
         <RankTile
           tone="blue"
-          label="Total EPA"
+          label={epaSource === 'statbotics' ? 'Total EPA' : 'Total BSR'}
           value={totalEpa != null ? totalEpa.toFixed(1) : '—'}
           testid="dash-season-epa"
           sub={showInHouse ? <InHouseBadge /> : null}

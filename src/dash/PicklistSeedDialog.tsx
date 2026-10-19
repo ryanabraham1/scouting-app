@@ -25,7 +25,7 @@ export interface PicklistSeedDialogProps {
 }
 
 const METRIC_OPTIONS: Array<{ value: RankSortKey; label: string }> = [
-  { value: 'epa', label: 'EPA' },
+  { value: 'epa', label: 'BSR' },
   { value: 'scoutingExpectedPoints', label: 'Scouted Pts' },
   { value: 'avgDefenseRating', label: 'Defense' },
 ];
@@ -162,7 +162,7 @@ export default function PicklistSeedDialog(props: PicklistSeedDialogProps): JSX.
 
             {epaFallback ? (
               <div data-testid="pick-seed-epa-note" className="text-xs text-warning">
-                EPA unavailable (no posted match results yet) — pick another metric or seed will be by team number.
+                BSR unavailable (no posted match results yet) — pick another metric or seed will be by team number.
               </div>
             ) : null}
 

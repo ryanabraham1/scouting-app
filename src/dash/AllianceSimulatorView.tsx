@@ -78,7 +78,7 @@ function sourceLabel(s: string): string {
     case 'scouting':
       return 'scouting';
     case 'epa':
-      return 'EPA';
+      return 'BSR';
     case 'mixed':
       return 'mixed';
     default:
@@ -198,7 +198,7 @@ function AllianceEstimateBlock({
     <div data-testid={testId} className="flex min-w-0 flex-1 flex-col gap-2">
       {!anyData ? (
         <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          No scouting or EPA yet — estimates appear once teams have data.
+          No scouting or BSR yet — estimates appear once teams have data.
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -228,7 +228,7 @@ function AllianceEstimateBlock({
 }
 
 const ESTIMATE_FOOTNOTE =
-  'Estimates derived from scouting (else EPA). Defense is the points a team removes ' +
+  'Estimates derived from scouting (else BSR). Defense is the points a team removes ' +
   'from the opposing alliance — not added to its own.';
 
 export default function AllianceSimulatorView(props: AllianceSimulatorViewProps): JSX.Element {
@@ -424,15 +424,15 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
   const epaBanner =
     epaSource === 'local' ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-energy">
-        Projections use our live local EPA computed in-house from TBA match results.
+        Projections use our live in-house BSR (Bayesian Strength Rating), computed locally from TBA match results.
       </div>
     ) : epaSource === 'statbotics' ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-warning">
-        TBA match-result EPA unavailable — projections use the Statbotics fallback.
+        TBA match results unavailable — projections use the Statbotics fallback (their EPA).
       </div>
     ) : !statboticsAvailable ? (
       <div data-testid="alliance-epa-banner" className="text-xs text-warning">
-        Match-result EPA and Statbotics unavailable — projections use our scouting estimate.
+        BSR and Statbotics unavailable — projections use our scouting estimate.
       </div>
     ) : null;
 
@@ -737,7 +737,7 @@ export default function AllianceSimulatorView(props: AllianceSimulatorViewProps)
                   className="px-3 text-[11px] leading-snug text-muted-foreground/80 sm:px-0"
                 >
                   <span className="text-warning">~</span> Auto / Fuel for teams with no scouting
-                  data are EPA estimates; defense stays unknown.
+                  data are BSR estimates; defense stays unknown.
                 </p>
               ) : null}
 

@@ -316,7 +316,7 @@ const COMPARE_ROWS: CompareRow[] = [
     better: 'higher',
   },
   {
-    label: 'EPA',
+    label: 'BSR',
     get: (r) => (r.epa === null ? EM_DASH : fmt(r.epa, 0)),
     value: (r) => r.epa,
     better: 'higher',
@@ -501,7 +501,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     { key: 'reliability', label: 'Reliability' },
     { key: 'fuelSuppression', label: 'Def ↓' },
     { key: 'defenderEffectiveness', label: 'Defender' },
-    { key: 'epa', label: 'EPA' },
+    { key: 'epa', label: 'BSR' },
     { key: 'tbaRank', label: 'TBA Rank' },
   ];
 
@@ -580,7 +580,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
           <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1">
             {(
               [
-                ['epa', 'EPA'],
+                ['epa', 'BSR'],
                 ['scoutingExpectedPoints', 'Scouted pts'],
                 ['reliability', 'Reliability'],
                 ['avgDefenseRating', 'Defense'],
@@ -710,7 +710,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
               data-testid="dash-ranking-epa-banner"
               className="text-xs text-warning"
             >
-              EPA column uses our live in-house calculator over TBA match results.
+              BSR column is our live Bayesian Strength Rating over TBA match results.
             </div>
           ) : null}
         </CardHeader>

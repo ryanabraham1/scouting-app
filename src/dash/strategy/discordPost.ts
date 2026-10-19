@@ -309,7 +309,7 @@ export function buildStrategyMessage(input: StrategyMessageInput): Record<string
   const favoredPct = pred.redWinProb >= 0.5 ? redPct : 100 - redPct;
   const prediction = predictable
     ? `Red **${num(pred.red.score)}** – **${num(pred.blue.score)}** Blue · ${favored} ${favoredPct}% to win`
-    : 'Prediction unavailable — no scouting or season EPA for this matchup.';
+    : 'Prediction unavailable — no scouting or season BSR for this matchup.';
 
   const allianceField = (side: 'red' | 'blue'): { name: string; value: string; inline: boolean } => {
     const teams = side === 'red' ? pred.red.teams : pred.blue.teams;

@@ -459,8 +459,8 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span data-testid="draft-best-source" className="text-xs text-muted-foreground">
               {hasPicklist
-                ? `Your ${listLabel}-pick list order, then EPA`
-                : `By EPA — no ${listLabel}-pick list yet`}
+                ? `Your ${listLabel}-pick list order, then BSR`
+                : `By BSR — no ${listLabel}-pick list yet`}
               {ourRank != null ? ` · excludes teams ranked above #${ourRank}` : ''}
             </span>
             {/* Active-list switcher: auto-flips to 2nd pick when our first pick
@@ -530,7 +530,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           ) : null}
                         </div>
                         <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
-                          <span>EPA {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
+                          <span>BSR {r.epa == null ? EM_DASH : fmt(r.epa)}</span>
                           <span>{fmt(r.expectedPoints, 1)} pts</span>
                         </span>
                       </div>
@@ -592,7 +592,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       </span>
                       <span className="flex items-center gap-3 font-mono text-xs tabular-nums text-muted-foreground">
                         <span className="whitespace-nowrap">
-                          EPA {r.epa == null ? EM_DASH : fmt(r.epa)}
+                          BSR {r.epa == null ? EM_DASH : fmt(r.epa)}
                         </span>
                         <span className="whitespace-nowrap">{fmt(r.expectedPoints, 1)} pts</span>
                         <span className="grid flex-1 grid-cols-2 gap-2 sm:flex sm:flex-none sm:gap-3">
@@ -696,7 +696,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
               <div className="grid grid-cols-3 gap-2">
                 <div className="flex flex-col rounded-lg border border-border bg-muted/30 px-3 py-2">
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Alliance EPA
+                    Alliance BSR
                   </span>
                   <span data-testid="draft-alliance-epa" className="text-lg font-semibold tabular-nums text-energy">
                     {allianceStats.epaSum == null ? EM_DASH : fmt(allianceStats.epaSum)}
@@ -712,7 +712,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                 </div>
                 <div
                   className="flex flex-col rounded-lg border border-border bg-muted/30 px-3 py-2"
-                  title="Sum of one auto-points value per alliance team; scouting preferred, EPA component estimate used when unscouted"
+                  title="Sum of one auto-points value per alliance team; scouting preferred, BSR component estimate used when unscouted"
                 >
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                     Total auto
@@ -765,7 +765,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         )}
                       />
                       <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {r.epa == null ? EM_DASH : `EPA ${fmt(r.epa)}`}
+                        {r.epa == null ? EM_DASH : `BSR ${fmt(r.epa)}`}
                       </span>
                       {isCaptain ? (
                         <span className="rounded-full bg-brand/20 px-1.5 text-[10px] font-medium text-brand">
@@ -892,7 +892,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   >
                     <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 first:border-l-0 first:pl-0 lg:items-end">
                       <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
-                        EPA
+                        BSR
                       </span>
                       <span
                         data-testid={`draft-epa-${r.teamNumber}`}
@@ -923,7 +923,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           r.autoSource === 'scouting'
                             ? 'Average auto points from scouting'
                             : r.autoSource === 'epa'
-                              ? 'Estimated auto points from the event EPA component model'
+                              ? 'Estimated auto points from the event BSR component model'
                               : 'No auto score available'
                         }
                       >

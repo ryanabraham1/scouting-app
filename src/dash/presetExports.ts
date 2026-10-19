@@ -133,7 +133,7 @@ function pct(n: number | null, dash: string): string {
 }
 
 const ALLIANCE_HEADER =
-  'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Defense,Reliability,EPA,EPA Source';
+  'Rank,Team,Nickname,Location,Tier,Note,Matches,Exp Pts,FUEL Pts,Defense,Reliability,BSR,BSR Source';
 
 /**
  * Human-readable, printable alliance-selection sheet CSV. Numbers formatted for
@@ -211,12 +211,12 @@ export function epaBannerText(
   source: 'statbotics' | 'local' | 'none',
 ): string | null {
   if (source === 'local') {
-    return 'EPA uses our live in-house calculator over TBA match results.';
+    return 'BSR (Bayesian Strength Rating) uses our live in-house calculator over TBA match results.';
   }
   if (source === 'statbotics') {
-    return 'TBA match-result EPA unavailable — EPA uses the Statbotics fallback.';
+    return 'TBA match results unavailable — using the Statbotics fallback (their EPA).';
   }
-  return 'Match-result EPA and Statbotics unavailable — EPA uses scouting estimates where possible.';
+  return 'BSR and Statbotics unavailable — using scouting estimates where possible.';
 }
 
 /**
@@ -248,8 +248,8 @@ export function allianceSheetToHtml(
     'FUEL Pts',
     'Defense',
     'Reliability',
-    'EPA',
-    'EPA Source',
+    'BSR',
+    'BSR Source',
   ];
   const thead = `<tr>${headerCols.map((c) => `<th>${htmlEscape(c)}</th>`).join('')}</tr>`;
 

@@ -1127,7 +1127,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
               data-testid="dash-next-prediction-unavailable"
               className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground"
             >
-              Prediction unavailable — no scouting or season EPA is available for this matchup.
+              Prediction unavailable — no scouting or season BSR is available for this matchup.
             </div>
           )}
 

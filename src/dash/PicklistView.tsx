@@ -886,10 +886,10 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
           className="pb-2 text-xs text-warning sm:px-6"
         >
           {epaSource === 'local'
-            ? 'Exported EPA uses our live in-house calculator over TBA match results.'
+            ? 'Exported BSR uses our live Bayesian Strength Rating over TBA match results.'
             : epaSource === 'statbotics'
-              ? 'TBA match-result EPA unavailable — exported EPA uses the Statbotics fallback.'
-              : 'Match-result EPA and Statbotics unavailable — exported EPA uses in-house scouting estimates where possible.'}
+              ? 'TBA match results unavailable — export uses the Statbotics fallback (their EPA).'
+              : 'BSR and Statbotics unavailable — export uses in-house scouting estimates where possible.'}
         </div>
         {loadError || readOnly ? (
           <div

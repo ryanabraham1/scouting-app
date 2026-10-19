@@ -20,10 +20,10 @@ describe('TeamEpaHistoryChart', () => {
     );
 
     const accessiblePoints = within(
-      getByRole('list', { name: 'Team 9470 EPA progression by match' }),
+      getByRole('list', { name: 'Team 9470 BSR progression by match' }),
     ).getAllByRole('listitem');
     expect(accessiblePoints).toHaveLength(3);
-    expect(accessiblePoints[2]?.textContent).toContain('40.8 EPA');
+    expect(accessiblePoints[2]?.textContent).toContain('40.8 BSR');
     expect(getByTestId('team-epa-history').textContent).toContain('40.8');
     expect(getByTestId('team-epa-history').textContent).toContain('-5.5');
     expect(getByTestId('team-epa-history').textContent).toContain('46.3');

@@ -99,16 +99,16 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
 
   const sourceNote =
     epaSource === 'local'
-      ? 'Live in-house EPA computed from TBA match results.'
+      ? 'Live BSR (Bayesian Strength Rating) computed from TBA match results.'
       : epaSource === 'statbotics'
-        ? 'TBA match-result EPA unavailable — using the Statbotics fallback.'
-        : 'No match-result EPA yet (nothing posted) and Statbotics unavailable.';
+        ? 'TBA match results unavailable — using the Statbotics fallback (their EPA).'
+        : 'No BSR yet (no match results posted) and Statbotics unavailable.';
 
   return (
     <Card data-testid="picklist-epa-board" className="bg-card">
       <CardHeader className="space-y-1">
         <CardTitle className="flex items-baseline justify-between gap-2">
-          <span>Team EPA Board</span>
+          <span>Team BSR Board</span>
           <span
             data-testid="epa-board-count"
             className="text-xs font-normal tabular-nums text-muted-foreground"
@@ -121,7 +121,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
             {sourceNote}
           </div>
         ) : (
-          <div className="text-xs text-muted-foreground">Season-wide EPA, ranked.</div>
+          <div className="text-xs text-muted-foreground">Season-wide BSR, ranked.</div>
         )}
       </CardHeader>
       <CardContent className="p-0">

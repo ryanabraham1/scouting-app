@@ -46,7 +46,7 @@ function EpaTooltip({
       </div>
       <div className="mt-0.5 text-sm font-semibold text-zinc-100">{point.matchLabel}</div>
       <div className="mt-1 font-mono text-lg font-bold tabular-nums text-cyan-300">
-        {point.value.toFixed(1)} EPA
+        {point.value.toFixed(1)} BSR
       </div>
     </div>
   );
@@ -85,7 +85,7 @@ export default function TeamEpaHistoryChart({
       <CardHeader className="space-y-0 pb-3">
         <CardTitle className="flex items-center gap-2 text-zinc-100">
           <TrendingUp className="size-5 text-cyan-300" />
-          EPA
+          BSR
         </CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-[9rem_minmax(0,1fr)]">
@@ -150,7 +150,7 @@ export default function TeamEpaHistoryChart({
                 <Line
                   type="monotone"
                   dataKey="value"
-                  name="EPA"
+                  name="BSR"
                   stroke={TRACE}
                   strokeWidth={2}
                   dot={showDots ? { r: 2.5, fill: '#09090b', stroke: TRACE, strokeWidth: 1.5 } : false}
@@ -161,10 +161,10 @@ export default function TeamEpaHistoryChart({
             </ResponsiveContainer>
           </div>
         )}
-        <ol className="sr-only" aria-label={`Team ${teamNumber} EPA progression by match`}>
+        <ol className="sr-only" aria-label={`Team ${teamNumber} BSR progression by match`}>
           {data.map((point) => (
             <li key={point.matchKey}>
-              {point.eventKey}, {point.matchLabel}: {point.value.toFixed(1)} EPA
+              {point.eventKey}, {point.matchLabel}: {point.value.toFixed(1)} BSR
             </li>
           ))}
         </ol>
