@@ -726,8 +726,14 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
           heroLabel={heartbeatAnchor ? formatMatchKeyRaw(heartbeatAnchor.matchKey) : undefined}
         />
       ) : null}
-      {eventKey ? <MissedAssignmentsCard scouters={unified} onOpen={setSelected} /> : null}
-      <Card data-testid="roster-tab" className={cn(CARD_FLAT_PHONE, "border-border ")}>
+      {/* Extra-wide screens: roster on the left, missed assignments pinned right. */}
+      <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_26rem] xl:items-start">
+      {eventKey ? (
+        <div className="xl:sticky xl:top-4 xl:col-start-2 xl:row-start-1 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+          <MissedAssignmentsCard scouters={unified} onOpen={setSelected} />
+        </div>
+      ) : null}
+      <Card data-testid="roster-tab" className={cn(CARD_FLAT_PHONE, "border-border xl:col-start-1 xl:row-start-1")}>
         <CardHeader className={cn(CARD_PAD_PHONE, "flex flex-row items-center gap-2 space-y-0")}>
           <Users className="size-5 text-brand" />
           <CardTitle className="text-foreground">Scouters ({unified.length})</CardTitle>
@@ -980,6 +986,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
           ) : null}
         </CardContent>
       </Card>
+      </div>
 
       <Sheet
         open={openReport != null}
