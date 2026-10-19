@@ -527,29 +527,29 @@ export function CaptureScreen(props: {
             edge on a narrow portrait phone (min-w-0 + truncate). Hidden while
             the auto path is open so the drawing field gets the room. */}
         <div className={`flex shrink-0 items-stretch gap-2 ${autoPathOpen ? 'hidden' : ''}`}>
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-energy/30 bg-energy/10 px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-energy/30 bg-energy/10 px-3 py-1.5 md:gap-4 md:px-5 md:py-3">
             <span
               data-testid="capture-running-fuel"
-              className="shrink-0 font-mono text-4xl font-bold leading-none tabular-nums text-energy"
+              className="shrink-0 font-mono text-4xl font-bold leading-none tabular-nums text-energy md:text-6xl"
             >
               {fuelCount}
             </span>
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="truncate text-sm text-muted-foreground">
+              <span className="truncate text-sm text-muted-foreground md:text-base">
                 fuel scored
               </span>
 
             </div>
           </div>
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-brand/30 bg-brand/10 px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-brand/30 bg-brand/10 px-3 py-1.5 md:gap-4 md:px-5 md:py-3">
             <span
               data-testid="capture-running-feed"
-              className="shrink-0 font-mono text-4xl font-bold leading-none tabular-nums text-brand"
+              className="shrink-0 font-mono text-4xl font-bold leading-none tabular-nums text-brand md:text-6xl"
             >
               {s.liveFeedingCount}
             </span>
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="truncate text-sm text-muted-foreground">
+              <span className="truncate text-sm text-muted-foreground md:text-base">
                 fed
               </span>
 

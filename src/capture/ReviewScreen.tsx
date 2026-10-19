@@ -171,17 +171,28 @@ export function ReviewScreen(props: {
           </div>
         </div>
         <p className="text-sm text-muted-foreground">Team {s.targetTeamNumber}</p>
-        <p className="text-base font-semibold text-brand landscape:text-lg">{STEP_TITLES[step]}</p>
-        <nav aria-label="Review sections" className="grid grid-cols-3 gap-1.5">
+        <p className="text-base font-semibold text-brand landscape:text-lg md:hidden">{STEP_TITLES[step]}</p>
+      </header>
+
+      {/* Tablets and up: the sections become a step rail beside the content. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 landscape:gap-3 md:flex-row md:gap-5">
+        <nav aria-label="Review sections" className="grid shrink-0 grid-cols-3 gap-1.5 md:flex md:w-52 md:flex-col md:gap-1">
           {STEP_TITLES.map((title, i) => (
             <button type="button" key={title} data-testid={`review-jump-${i}`}
               aria-current={i === step ? 'step' : undefined}
               onClick={() => s.setReviewStep(storedSteps[i])}
-              className={`min-h-11 rounded-lg border px-2 py-1 text-xs font-semibold ${i === step ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:bg-accent'}`}
-            >{title}</button>
+              className={`min-h-11 rounded-lg border px-2 py-1 text-xs font-semibold md:flex md:items-center md:gap-2.5 md:px-3 md:text-left md:text-sm ${i === step ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground hover:bg-accent md:border-transparent'}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`hidden size-6 shrink-0 items-center justify-center rounded-full font-mono text-xs md:inline-flex ${i < step ? 'bg-success/15 text-success' : i === step ? 'bg-brand text-brand-foreground' : 'border border-border'}`}
+              >
+                {i < step ? <Check className="size-3.5" /> : i + 1}
+              </span>
+              {title}
+            </button>
           ))}
         </nav>
-      </header>
 
       <div ref={contentRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto landscape:gap-4">
         {/* Step 1: Ratings */}
@@ -437,6 +448,8 @@ export function ReviewScreen(props: {
       </div>
 
       {/* Navigation */}
+      </div>
+
       <nav className="flex shrink-0 gap-3">
         <Button
           data-testid="review-back"
