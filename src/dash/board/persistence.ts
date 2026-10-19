@@ -145,7 +145,10 @@ export function persistBoard(editor: BoardEditor, boardKey: string): () => void 
       if (c.source === 'remote' && prev?.source === 'local') continue;
       pending.set(t.id, { record: t, source: c.source });
     }
-    if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
+    // onChange fires at gesture commit, not every pointer sample. Start local
+    // writes immediately so a quick reload does not lose the last stroke.
+    if (c.source === 'local') flush();
+    else if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
   });
 
   let lastCam = editor.camera;

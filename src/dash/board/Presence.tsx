@@ -23,9 +23,16 @@ function initials(name: string): string {
 
 export function RemoteCursors({ editor, live }: { editor: BoardEditor; live: BoardLive }): JSX.Element {
   useLive(live);
+  const shapes = useBoard(editor, (e) => e.shapes);
   const camera = useBoard(editor, (e) => e.camera);
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <svg className="absolute inset-0 h-full w-full">
+        {[...live.peers.values()].flatMap((p) => p.selection.map((id) => {
+          const s = shapes.get(id);
+          return s ? <rect key={`${p.clientId}:${id}`} x={s.x * camera.z + camera.x} y={s.y * camera.z + camera.y} width={s.w * camera.z} height={s.h * camera.z} fill="none" stroke={COLORS[p.color]} strokeWidth={2} strokeDasharray="5 3" /> : null;
+        }))}
+      </svg>
       {[...live.peers.values()].map((p) => {
         if (!p.cursor) return null;
         const x = p.cursor.x * camera.z + camera.x;
@@ -89,6 +96,7 @@ export function PresenceStack({ live }: { live: BoardLive }): JSX.Element {
           </span>
         )}
       </button>
+      {live.following && <button type="button" onClick={() => live.follow(null)} className="absolute right-0 top-9 z-30 whitespace-nowrap rounded-lg border border-brand bg-card px-2 py-1 text-xs text-brand">Following {live.peers.get(live.following)?.name} · Stop</button>}
       {open && (
         <div
           role="dialog"
@@ -128,7 +136,7 @@ export function PresenceStack({ live }: { live: BoardLive }): JSX.Element {
             {peers.map((p) => (
               <li key={p.clientId} className="flex items-center gap-2">
                 <span className="size-2 rounded-full" style={{ background: COLORS[p.color] }} />
-                {p.name}
+                <button type="button" className="flex-1 text-left hover:text-brand" onClick={() => { live.follow(live.following === p.clientId ? null : p.clientId); setOpen(false); }}>{p.name} <span className="text-xs text-muted-foreground">{live.following === p.clientId ? 'Stop following' : 'Follow'}</span></button>
               </li>
             ))}
           </ul>

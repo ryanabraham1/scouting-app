@@ -16,7 +16,6 @@ import { measureTextHeight } from '@/dash/board/measureText';
 import { prepareImage } from '@/dash/board/images';
 import {
   boardClientId,
-  liveShapes,
   loadBoardRecords,
   loadCamera,
   loadPrefs,
@@ -35,8 +34,45 @@ import { BoardDataProvider } from '@/dash/board/widgets/data';
 import { WidgetFrame } from '@/dash/board/widgets/WidgetFrame';
 import { WidgetInspector } from '@/dash/board/widgets/WidgetInspector';
 import { WidgetTray } from '@/dash/board/widgets/WidgetTray';
+import { Spotlight, useSearchContext } from '@/dash/board/Spotlight';
+import { dropTeamsOnCompare, insertWidget } from '@/dash/board/widgets/actions';
+import { search } from '@/dash/board/search/interpret';
+import type { WidgetKind } from '@/dash/board/widgets/registry';
 import { widgetMinSize } from '@/dash/board/widgets/registry';
+import { Comments } from '@/dash/board/Comments';
+import { exportPng } from '@/dash/board/exportPng';
 import { cn } from '@/lib/utils';
+
+/**
+ * Pasting a bare team number or match ("254", "qm32") drops its widget instead
+ * of a text box. Registers a capture-phase paste listener ahead of the canvas.
+ */
+function SmartPaste({ editor }: { editor: BoardEditor }): null {
+  const ctx = useSearchContext(editor);
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent): void => {
+      const text = e.clipboardData?.getData('text/plain')?.trim() ?? '';
+      if (!text || text.length > 24 || editor.editingId) return;
+      const a = document.activeElement;
+      if (a instanceof HTMLElement && (a.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName))) return;
+      const { interpretation, results } = search(text, ctx);
+      const top = results[0];
+      const exact =
+        interpretation.complete &&
+        interpretation.quality >= 0.95 &&
+        interpretation.teams.length + interpretation.matches.length === 1 &&
+        top?.widget &&
+        (top.kind === 'team' || top.kind === 'match');
+      if (!exact || !top?.widget) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      insertWidget(editor, top.widget.kind, top.widget.config);
+    };
+    window.addEventListener('paste', onPaste, true);
+    return () => window.removeEventListener('paste', onPaste, true);
+  }, [editor, ctx]);
+  return null;
+}
 
 export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Element {
   const editor = useMemo(
@@ -47,7 +83,17 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
   );
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [expanded, setExpanded] = useState(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [presenting, setPresenting] = useState(false);
+  const previousTool = useRef(editor.tool);
   const [trayOpen, setTrayOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => {
+    setTrayOpen(false);
+    setSearchOpen(true);
+  }, []);
   const fileInput = useRef<HTMLInputElement>(null);
   const penMode = useBoard(editor, (e) => e.penMode);
   const live = useMemo(() => new BoardLive(editor, eventKey), [editor, eventKey]);
@@ -84,7 +130,7 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
     loadBoardRecords(eventKey)
       .then((records) => {
         if (cancelled) return;
-        editor.load(liveShapes(records));
+        editor.load(records);
         dispose = persistBoard(editor, eventKey);
         setStatus('ready');
         live.start();
@@ -115,6 +161,30 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
     return () => window.removeEventListener('keydown', onKey);
   }, [expanded, editor]);
 
+  const stopPresenting = useCallback(() => {
+    setPresenting(false);
+    editor.setTool(previousTool.current);
+  }, [editor]);
+  useEffect(() => {
+    if (!presenting) return;
+    const escape = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { e.preventDefault(); stopPresenting(); }
+    };
+    window.addEventListener('keydown', escape, true);
+    return () => window.removeEventListener('keydown', escape, true);
+  }, [presenting, stopPresenting]);
+
+  const download = async (): Promise<void> => {
+    setNotice('');
+    setExporting(true);
+    try {
+      // Two frames let React mount all culled widgets before reading their DOM.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      if (boardRef.current) await exportPng(editor, boardRef.current, `ryans-board-${eventKey}.png`);
+    } catch (err) { setNotice(err instanceof Error ? err.message : 'Export failed.'); }
+    finally { setExporting(false); }
+  };
+
   const onImages = useCallback(
     (files: File[], at: Point | undefined) => {
       void (async () => {
@@ -130,6 +200,7 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
             i += 1;
           } catch (err) {
             console.error("Ryan's Board: image import failed", err);
+            setNotice("Could not import that image. Try a different image file.");
           }
         }
       })();
@@ -144,12 +215,13 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
   );
 
   const renderWidget = useCallback(
-    (shape: WidgetShape): ReactNode => <WidgetFrame shape={shape} />,
-    [],
+    (shape: WidgetShape): ReactNode => <WidgetFrame shape={shape} editor={editor} />,
+    [editor],
   );
 
   return (
     <div
+      ref={boardRef}
       data-testid="ryans-board"
       className={cn(
         'flex flex-col overflow-hidden bg-card',
@@ -158,14 +230,27 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
           : 'h-[calc(100dvh-11rem)] min-h-[420px] rounded-xl border border-border',
       )}
     >
-      <BoardTopBar
+      {!presenting && <BoardTopBar
         eventKey={eventKey}
         nextMatch={nextMatch}
         expanded={expanded}
         onToggleExpanded={() => setExpanded((v) => !v)}
+        onOpenSearch={status === 'ready' ? openSearch : undefined}
         status={<SyncChip state={syncState} />}
         presence={<PresenceStack live={live} />}
-      />
+        exporting={exporting}
+        onExport={status === 'ready' ? () => void download() : undefined}
+        onPresent={status === 'ready' ? () => {
+          previousTool.current = editor.tool;
+          editor.setSelection([]);
+          editor.setTool('laser');
+          setSearchOpen(false);
+          setTrayOpen(false);
+          setExpanded(true);
+          setPresenting(true);
+        } : undefined}
+      />}
+      {notice && <div role="alert" className="flex items-center justify-between gap-2 bg-destructive/10 px-3 py-2 text-xs text-destructive">{notice}<button type="button" onClick={() => setNotice('')}>Dismiss</button></div>}
       <div className="relative min-h-0 flex-1">
         {status === 'loading' && (
           <p role="status" className="p-4 text-sm text-muted-foreground">
@@ -181,13 +266,27 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
           <BoardDataProvider eventKey={eventKey}>
             <BoardCanvas
               editor={editor}
+              exportAll={exporting}
+              onDropTeams={(ids, at) => dropTeamsOnCompare(editor, ids, at, getStoredBaseTeam())}
               renderWidget={renderWidget}
               onImages={onImages}
               onPointerPage={(p) => live.setCursor(p)}
+              onOpenSearch={openSearch}
+              onDropWidget={(payload, at) => {
+                try {
+                  const w = JSON.parse(payload) as {
+                    kind: WidgetKind;
+                    config: Record<string, unknown>;
+                  };
+                  insertWidget(editor, w.kind, w.config, at);
+                } catch {
+                  // not ours
+                }
+              }}
               remote={live.remote}
             >
               <RemoteCursors editor={editor} live={live} />
-              <div data-board-chrome className="absolute left-3 top-3">
+              {!presenting && <><div data-board-chrome className="absolute left-3 top-3">
                 <Toolbar
                   editor={editor}
                   large={penMode}
@@ -200,13 +299,18 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
                   data-board-chrome
                   className={cn('absolute top-3', penMode ? 'left-[76px]' : 'left-[62px]')}
                 >
-                  <WidgetTray editor={editor} onClose={() => setTrayOpen(false)} />
+                  <WidgetTray
+                    editor={editor}
+                    onClose={() => setTrayOpen(false)}
+                    onOpenSearch={openSearch}
+                  />
                 </div>
               )}
               <div
                 data-board-chrome
                 className="absolute right-3 top-3 flex flex-col items-end gap-2"
               >
+                <Comments editor={editor} author={live.name} />
                 <WidgetInspector editor={editor} />
                 <StylePanel editor={editor} />
               </div>
@@ -216,7 +320,11 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
               <div data-board-chrome className="absolute bottom-3 right-3 hidden sm:block">
                 <Minimap editor={editor} />
               </div>
-              {penMode && (
+              </>}
+              {presenting && <button data-board-chrome type="button" onClick={stopPresenting} className="absolute right-3 top-3 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground opacity-40 hover:opacity-100">Exit presentation (Esc)</button>}
+              <SmartPaste editor={editor} />
+              {searchOpen && <Spotlight editor={editor} onClose={() => setSearchOpen(false)} />}
+              {penMode && !presenting && (
                 <div
                   data-board-chrome
                   className={cn(

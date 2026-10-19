@@ -45,6 +45,7 @@ import type { MatchRow } from '@/dash/useEventData';
 export type WidgetKind =
   | 'team'
   | 'match'
+  | 'nextMatch'
   | 'schedule'
   | 'watchlist'
   | 'rankings'
@@ -258,6 +259,13 @@ function MatchBody({ config }: { config: WidgetConfig }): JSX.Element {
   return <MatchCard m={m} focus={resolveTeam(config.focus, data)} />;
 }
 
+function NextMatchBody({ config }: { config: WidgetConfig }): JSX.Element {
+  const data = useBoardData();
+  const team = resolveTeam(config.team, data);
+  const m = team ? nextMatchOf(data.matches, team) : null;
+  return m ? <MatchCard m={m} focus={team} /> : <Empty>No upcoming match scheduled.</Empty>;
+}
+
 function matchAside(m: MatchRow | null, now: number): ReactNode {
   if (!m) return null;
   if (isPlayed(m)) return <Chip className="bg-muted text-muted-foreground">final</Chip>;
@@ -274,7 +282,7 @@ function ScheduleBody({ config }: { config: WidgetConfig }): JSX.Element {
   const ms = teamMatches(data.matches, team);
   if (!ms.length) return <Empty>No matches scheduled for {team} yet.</Empty>;
   return (
-    <div data-board-scroll className="tnum grid h-full auto-rows-min grid-cols-[auto_auto_1fr] items-center gap-x-2.5 gap-y-1.5 overflow-hidden px-3 py-2 text-xs">
+    <div data-board-scroll className="tnum grid h-full auto-rows-min grid-cols-[auto_auto_1fr] items-center gap-x-2.5 gap-y-1.5 overflow-y-auto px-3 py-2 text-xs">
       {ms.map((m) => {
         const r = resultFor(m, team);
         const side = allianceOf(m, team);
@@ -333,12 +341,15 @@ function WatchlistBody({ config }: { config: WidgetConfig }): JSX.Element {
         // per-device convenience only
       }
     };
+    const onHide = (): void => { if (document.visibilityState === 'hidden') save(); };
+    document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', save);
     return () => {
+      document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', save);
       save();
     };
-  });
+  }, [data, config.teams]);
   if (!teams.length) return <Empty>Star teams from the widget settings or search to watch them here.</Empty>;
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2">
@@ -533,10 +544,10 @@ function PicklistBody(): JSX.Element {
     );
   };
   return (
-    <div className="grid h-full grid-cols-2 gap-3 px-3 py-2 text-xs">
+    <div className="flex h-full flex-col"><a className="mx-3 mt-1 text-xs text-brand underline" href="?tab=picklist">Open Picklist</a><div className="grid min-h-0 flex-1 grid-cols-2 gap-3 px-3 py-2 text-xs">
       {col('first', '1st pick')}
       {col('second', '2nd pick')}
-    </div>
+    </div></div>
   );
 }
 
@@ -572,6 +583,12 @@ export const WIDGETS: Record<WidgetKind, WidgetDef> = {
     },
     aside: (c, d, now) => matchAside(resolveMatch(c.match, d), now),
     Body: MatchBody,
+  },
+  nextMatch: {
+    kind: 'nextMatch', label: 'Next match', icon: Swords,
+    defaultConfig: () => ({ team: 'base' }), size: () => ({ w: 340, h: 156 }), minSize: { w: 240, h: 110 },
+    title: (c, d) => `${resolveTeam(c.team, d) ?? '—'} · next match`,
+    Body: NextMatchBody,
   },
   schedule: {
     kind: 'schedule',

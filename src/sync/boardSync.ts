@@ -7,6 +7,7 @@
 // dozens of shapes. The RPC is a per-record last-writer-wins merge by
 // (rev, client_id), so re-sending is always safe and idempotent.
 // Plan: docs/plans/ryans-board/README.md §8.2.
+import { uploadBoardImage } from '@/dash/board/assets';
 import { supabase } from '@/lib/supabase';
 import {
   getDueBoardSyncQueue,
@@ -99,9 +100,11 @@ export async function syncBoardOnce(): Promise<BoardSyncSummary> {
       let failure: unknown = null;
       let verdict: Verdict | null = null;
       try {
+        const records: unknown[] = [];
+        for (const row of batch) records.push(await uploadBoardImage(boardKey, row.data));
         const { data, error } = await supabase.rpc('upsert_board_records', {
           p_board_key: boardKey,
-          p_records: batch.map((r) => r.data),
+          p_records: records,
         });
         if (error) failure = error;
         else {

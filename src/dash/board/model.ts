@@ -112,9 +112,15 @@ export interface WidgetShape extends ShapeBase {
   config: Record<string, unknown>;
 }
 
-export type Shape = InkShape | TextShape | ImageShape | WidgetShape;
+export interface CommentShape extends ShapeBase {
+  type: 'comment';
+  thread: { id: string; author: string; text: string; at: number }[];
+  resolved: boolean;
+}
+
+export type Shape = InkShape | TextShape | ImageShape | WidgetShape | CommentShape;
 export type ShapeType = Shape['type'];
-export const SHAPE_TYPES: readonly ShapeType[] = ['ink', 'text', 'image', 'widget'];
+export const SHAPE_TYPES: readonly ShapeType[] = ['ink', 'text', 'image', 'widget', 'comment'];
 
 export interface Tombstone {
   id: string;
@@ -164,7 +170,7 @@ export function recordWins(
 export function parseRecord(raw: unknown): BoardRecord | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
-  if (typeof r.id !== 'string' || typeof r.rev !== 'number' || typeof r.by !== 'string') {
+  if (typeof r.id !== 'string' || (typeof r.rev !== 'number' || !Number.isFinite(r.rev)) || typeof r.by !== 'string') {
     return null;
   }
   if (r.deleted === true) return { id: r.id, deleted: true, rev: r.rev, by: r.by };
@@ -175,9 +181,15 @@ export function parseRecord(raw: unknown): BoardRecord | null {
   if (r.type === 'ink' && !Array.isArray(r.points)) return null;
   if (r.type === 'text' && typeof r.text !== 'string') return null;
   if (r.type === 'image' && typeof r.src !== 'string') return null;
-  if (r.type === 'widget' && (typeof r.kind !== 'string' || typeof r.config !== 'object')) {
+  if (r.type === 'widget' && (typeof r.kind !== 'string' || !r.config || typeof r.config !== 'object' || Array.isArray(r.config))) {
     return null;
   }
+  if (r.type === 'comment' && (typeof r.resolved !== 'boolean' || !Array.isArray(r.thread) ||
+    !r.thread.every((v: unknown) => {
+      if (!v || typeof v !== 'object') return false;
+      const m = v as Record<string, unknown>;
+      return typeof m.id === 'string' && typeof m.author === 'string' && typeof m.text === 'string' && typeof m.at === 'number' && Number.isFinite(m.at);
+    }))) return null;
   return raw as Shape;
 }
 

@@ -2,6 +2,8 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the network: the upsert_board_records RPC. The local Dexie outbox is real.
+const { uploadImage } = vi.hoisted(() => ({ uploadImage: vi.fn() }));
+vi.mock('@/dash/board/assets', () => ({ uploadBoardImage: uploadImage }));
 const rpcMock = vi.fn();
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -27,6 +29,7 @@ describe('syncBoardOnce', () => {
     clearSyncCircuit();
     await db.boardRecords.clear();
     rpcMock.mockReset();
+    uploadImage.mockReset().mockImplementation(async (_board, data) => data);
   });
 
   it('sends one batched RPC per board and marks rows synced', async () => {
@@ -71,6 +74,26 @@ describe('syncBoardOnce', () => {
     expect(summary.deadLettered).toBe(1);
     expect((await row('s:big'))?.syncState).toBe('error');
     expect((await row('s:a'))?.syncState).toBe('synced');
+  });
+
+  it('uploads image bytes before sending the small record through the RPC', async () => {
+    await writeBoardRecords('2026casj', [rec('s:image', { type: 'image', src: 'data:image/png;base64,aGk=' })]);
+    uploadImage.mockImplementation(async (_board, data) => ({ ...data, src: 'https://assets.test/image.png' }));
+    rpcMock.mockResolvedValue({ data: { ok: true, rejected: [] }, error: null });
+    await syncBoardOnce();
+    expect(rpcMock.mock.calls[0][1].p_records[0].src).toBe('https://assets.test/image.png');
+    expect((await row('s:image'))?.data).toMatchObject({ src: 'data:image/png;base64,aGk=' });
+    expect((await row('s:image'))?.syncState).toBe('synced');
+  });
+
+  it('keeps the original image queued when its asset upload loses the network', async () => {
+    await writeBoardRecords('2026casj', [rec('s:image', { type: 'image', src: 'data:image/png;base64,aGk=' })]);
+    uploadImage.mockRejectedValue(new TypeError('Failed to fetch'));
+    const result = await syncBoardOnce();
+    expect(result.retried).toBe(1);
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect((await row('s:image'))?.syncAttempts ?? 0).toBe(0);
+    expect((await row('s:image'))?.syncState).toBe('dirty');
   });
 
   it('an unknown-event verdict keeps every row as an error, never synced', async () => {

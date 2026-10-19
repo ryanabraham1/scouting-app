@@ -43,7 +43,7 @@ import {
   type WidgetShape,
 } from '@/dash/board/model';
 
-export type Tool = 'select' | 'hand' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'laser';
+export type Tool = 'select' | 'hand' | 'pen' | 'highlighter' | 'eraser' | 'text' | 'laser' | 'comment';
 export type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 export interface Camera {
@@ -269,9 +269,17 @@ export class BoardEditor {
   // -------------------------------------------------------------------------
 
   /** Replace the whole document (initial load). No history, no change event. */
-  load(shapes: Iterable<Shape>): void {
+  private revisions = new Map<string, { rev: number; by: string }>();
+
+  load(records: Iterable<BoardRecord>): void {
     const map = new Map<string, Shape>();
-    for (const s of shapes) map.set(s.id, s);
+    this.revisions.clear();
+    for (const r of records) {
+      if (!recordWins(r, this.revisions.get(r.id))) continue;
+      this.revisions.set(r.id, { rev: r.rev, by: r.by });
+      if (isTombstone(r)) map.delete(r.id);
+      else map.set(r.id, r);
+    }
     this.setShapes(map);
     this.undoStack = [];
     this.redoStack = [];
@@ -301,7 +309,8 @@ export class BoardEditor {
     const tombstones: Tombstone[] = [];
     for (const s of puts) {
       if (!before.has(s.id)) before.set(s.id, this.shapes.get(s.id) ?? null);
-      const out = { ...s, rev: nextRev(), by: this.clientId } as Shape;
+      const out = { ...s, rev: Math.max(nextRev(), (this.revisions.get(s.id)?.rev ?? 0) + 1), by: this.clientId } as Shape;
+      this.revisions.set(s.id, { rev: out.rev, by: out.by });
       next.set(out.id, out);
       stamped.push(out);
     }
@@ -309,7 +318,9 @@ export class BoardEditor {
       if (!this.shapes.has(id) && !next.has(id)) continue;
       if (!before.has(id)) before.set(id, this.shapes.get(id) ?? null);
       next.delete(id);
-      tombstones.push({ id, deleted: true, rev: nextRev(), by: this.clientId });
+      const t: Tombstone = { id, deleted: true, rev: Math.max(nextRev(), (this.revisions.get(id)?.rev ?? 0) + 1), by: this.clientId };
+      this.revisions.set(id, { rev: t.rev, by: t.by });
+      tombstones.push(t);
     }
     this.setShapes(next);
     for (const fn of this.changeListeners) fn({ puts: stamped, tombstones, source: 'local' });
@@ -340,9 +351,8 @@ export class BoardEditor {
     const puts: Shape[] = [];
     const tombstones: Tombstone[] = [];
     for (const r of records) {
-      const current = (next ?? this.shapes).get(r.id);
-      if (current && !recordWins(r, current)) continue;
-      if (!current && isTombstone(r)) continue;
+      if (!recordWins(r, this.revisions.get(r.id))) continue;
+      this.revisions.set(r.id, { rev: r.rev, by: r.by });
       next ??= new Map(this.shapes);
       if (isTombstone(r)) {
         next.delete(r.id);
@@ -673,6 +683,14 @@ export class BoardEditor {
     return shape.id;
   }
 
+  insertComment(at: Point): string {
+    const id = newShapeId();
+    this.setTool('select');
+    this.commit([{ id, type: 'comment', ...at, w: 32, h: 32, z: this.nextZ(), rev: 0,
+      by: this.clientId, thread: [], resolved: false }], [], [id]);
+    return id;
+  }
+
   insertWidget(
     kind: string,
     config: Record<string, unknown>,
@@ -905,6 +923,10 @@ export class BoardEditor {
         this.gesture = { kind: 'laser' };
         this.live.laser.push({ x: p.x, y: p.y, t: performance.now() });
         this.notifyLive();
+        return;
+      case 'comment':
+        this.gesturePointer = null;
+        this.insertComment(p);
         return;
       case 'text': {
         const hit = this.shapeAtScreen(e.sx, e.sy);

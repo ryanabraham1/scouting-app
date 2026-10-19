@@ -14,16 +14,36 @@ phase you are resuming.
 | --- | --- | --- |
 | P0 | Plan, mockups, decisions | done (`d379820`) |
 | P1 | Own canvas engine: ink, text, image, select/move/resize, pan/zoom, undo, local save | done (`517ee74`) |
-| P2 | Cloud sync (migration + RPC + outbox) | done and deployed (`905ea3f`). Still open: image upload to the `board-assets` bucket (images currently sync inline as data URLs) |
-| P3 | Live multiplayer (realtime records, cursors, live ink, laser, drag previews, presence) | done (`905ea3f`). Still open: follow-a-person viewport, remote selection outlines |
-| P4 | Live data widgets | in progress |
-| P5 | Smart spotlight search (+ test corpus) | not started |
-| P6 | Comments, export, polish, e2e | not started |
+| P2 | Cloud sync (migration + RPC + outbox) | done and deployed (`905ea3f`); image assets now upload from the durable outbox |
+| P3 | Live multiplayer (realtime records, cursors, live ink, laser, drag previews, presence) | done, including follow-a-person viewport and remote selection outlines |
+| P4 | Live data widgets | done (`2005122` plus completion changes) |
+| P5 | Smart spotlight search (+ test corpus) | done; all 114 query tests pass |
+| P6 | Comments, export, polish, e2e | implemented and browser-checked; isolated and dedicated-remote e2e specs added (remote suite not run here) |
 
 **Verified in the browser (2026-10-19)**: pen, highlighter, text, select/move, eraser, wheel
 pan, reload persistence (shapes and camera); a stroke drawn in tab A appears in tab B within
 3s; tab B sees tab A's cursor and its in-progress stroke live; presence avatars. In dev the
 editor is exposed as `window.__ryansBoard` for debugging and e2e.
+
+**Completion verification (2026-10-19)**:
+- `npm test`: 185 files / 2,085 tests passed. Type checking and the production build passed.
+- Browser: live team/schedule search with preview; offline widget insertion, comment reply and
+  resolve/reopen, ink and reload (including an immediate reload after drawing); PNG download
+  inspected with ink, comment and widget included; presentation entry/exit; two real Supabase
+  tabs following a collaborator's zoom and stopping when navigating locally.
+- `board-assets`: anonymous upload and public readback verified against the deployed bucket;
+  the synthetic verification image was removed afterward. No backend migration was needed.
+- Regression coverage now includes comment serialization/undo, export selection bounds,
+  comparison drops, image upload failures and retries, remote ink and record delivery,
+  collaborator viewports, and deletion tombstones surviving reload/stale updates.
+- Browser fixtures use a synthetic event with networking disabled. Their records are marked
+  synced locally so they never enter the real app's global outbox. `npm run test:board` runs
+  the isolated desktop/iPad browser spec. `tests/e2e/ryans-board.spec.ts` is the remote two-tab
+  spec and retains the existing dedicated-project safety gate. Neither Playwright suite was
+  run here; the browser paths above were exercised with the current browser controller.
+- Physical Pencil input and the 300-shape frame-rate target have not been measured here.
+  The complete board chunk, including widgets/search/export, is about 46 KB gzipped.
+- Local changes are committed without pushing, per the hand-off rule below.
 
 **Implementation notes discovered while building**
 - Keyboard shortcuts are window-level (`BoardCanvas` attaches keydown/keyup on `window`,
@@ -75,9 +95,9 @@ editor is exposed as `window.__ryansBoard` for debugging and e2e.
 - `src/dash/DashboardScreen.tsx`: `board` tab ("Ryan's Board", lucide `Shapes` icon), lazy-loaded
   `RyansBoard` and the URL alias `?tab=ryan`. `src/dash/__tests__/DashboardScreen.test.tsx` expects
   the new tab order.
-- `src/dash/board/model.ts`: first draft of the pure model. **It still contains geo, arrow,
-  sticky and frame types, which must be removed** (see section 4).
-- `src/dash/board/RyansBoard.tsx`: still the tldraw version. **Replace it entirely** (section 6).
+- `src/dash/board/model.ts`: own-engine ink, text, image, widget and comment records.
+- `src/dash/board/RyansBoard.tsx`: own-engine host, widgets, spotlight, comments, PNG export
+  and presentation mode. No tldraw dependencies remain.
 
 ---
 
@@ -408,15 +428,11 @@ just created, the whole create collapses out of history).
 
 ## 7. Local persistence (`src/dash/board/persistence.ts`)
 
-- `loadBoard(boardKey)`: calls `getBoardRecords(boardKey)` (already in localStore), runs every
-  value through `parseRecord`, and returns live shapes. **Note**: the existing helper skips rows
-  with `deleted: true`. P2 also needs the tombstones' rev for merging, so add
-  `getBoardRecordRows(boardKey)` returning the raw rows.
-- `persistLocal(boardKey, changes)`: debounced 250ms and serialized through a promise chain
-  (the same pattern as the deleted tldraw `boardPersistence.ts`). Calls
-  `writeBoardRecords(boardKey, puts.map(s => ({ id: s.id, data: s })), removedIds)`. Tombstones must
-  carry rev and by, so change `writeBoardRecords` to accept tombstone `data:
-  { id, deleted: true, rev, by }` instead of `null`, and update its test.
+- `loadBoardRecords(boardKey)` reads and validates all records, including deletion tombstones.
+  `editor.load(records)` retains each revision so a stale cloud update cannot resurrect a delete.
+- `persistBoard(editor, boardKey)` serializes writes. Local gesture commits start saving
+  immediately; incoming remote changes batch for 250ms. Every tombstone includes `rev` and `by`.
+  Undo stamps a revision newer than the last known record, even if a peer's clock was ahead.
 - Flush on `pagehide` and on `visibilitychange` to hidden.
 - Camera is saved per device in `localStorage['ryans-board-camera:' + boardKey]`, throttled to
   1s, wrapped in try/catch. Tool and style are saved in `localStorage['ryans-board-prefs']`.

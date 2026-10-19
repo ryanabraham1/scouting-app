@@ -2,7 +2,7 @@
 // The board's header strip (mockup 01): title, event chip, a live "our next
 // match" chip, search, presence, sync state and the full-screen toggle.
 import { useEffect, useState, type ReactNode } from 'react';
-import { Clock, Maximize2, Minimize2, PenTool, Search } from 'lucide-react';
+import { Download, Presentation, Clock, Maximize2, Minimize2, PenTool, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MatchRow } from '@/dash/useEventData';
 
@@ -41,6 +41,9 @@ export interface BoardTopBarProps {
   eventKey: string;
   nextMatch: MatchRow | null;
   expanded: boolean;
+  onExport?: () => void;
+  onPresent?: () => void;
+  exporting?: boolean;
   onToggleExpanded: () => void;
   /** Omitted until spotlight search is mounted (no dead buttons). */
   onOpenSearch?: () => void;
@@ -54,6 +57,9 @@ export function BoardTopBar({
   eventKey,
   nextMatch,
   expanded,
+  onExport,
+  onPresent,
+  exporting,
   onToggleExpanded,
   onOpenSearch,
   status,
@@ -99,6 +105,8 @@ export function BoardTopBar({
           </button>
         </>
       )}
+      {onExport && <button type="button" aria-label="Export PNG" title="Export selection or whole board" disabled={exporting} onClick={onExport} className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent disabled:opacity-40"><Download className="size-4" /></button>}
+      {onPresent && <button type="button" aria-label="Present board" title="Present board" onClick={onPresent} className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"><Presentation className="size-4" /></button>}
       {presence}
       {status}
       <button

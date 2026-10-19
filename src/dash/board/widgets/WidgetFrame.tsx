@@ -2,13 +2,17 @@
 // The card every widget renders in (mockup 03): mono eyebrow header with the
 // kind icon, a status aside, and the live body. Purely presentational; the
 // whole card is the drag handle in select mode (input goes to the editor).
+import type { BoardEditor } from '@/dash/board/editor';
+import { useBoard } from '@/dash/board/useBoard';
+import { toggleWatch, watchedTeams } from '@/dash/board/widgets/actions';
+import { Star } from 'lucide-react';
 import { memo } from 'react';
 import { widgetDef } from '@/dash/board/widgets/registry';
 import { useBoardData } from '@/dash/board/widgets/data';
 import { useNow } from '@/dash/board/BoardTopBar';
 import type { WidgetShape } from '@/dash/board/model';
 
-export const WidgetFrame = memo(function WidgetFrame({ shape }: { shape: WidgetShape }): JSX.Element {
+export const WidgetFrame = memo(function WidgetFrame({ shape, editor }: { shape: WidgetShape; editor?: BoardEditor }): JSX.Element {
   const def = widgetDef(shape.kind);
   const data = useBoardData();
   const now = useNow();
@@ -28,9 +32,17 @@ export const WidgetFrame = memo(function WidgetFrame({ shape }: { shape: WidgetS
         <span className="eyebrow min-w-0 truncate !tracking-[0.12em]">{def.title(shape.config, data)}</span>
         <span className="ml-auto flex shrink-0 items-center">{def.aside?.(shape.config, data, now)}</span>
       </div>
+      {shape.kind === 'team' && editor && <TeamStar editor={editor} team={shape.config.team === 'base' ? data.baseTeam : Number(shape.config.team)} />}
       <div className="min-h-0 flex-1 overflow-hidden">
         <Body config={shape.config} />
       </div>
     </div>
   );
 });
+
+function TeamStar({ editor, team }: { editor: BoardEditor; team: number }): JSX.Element | null {
+  useBoard(editor, (e) => e.order);
+  if (!Number.isInteger(team) || team <= 0) return null;
+  const watched = watchedTeams(editor).includes(team);
+  return <button type="button" aria-label={watched ? `Unwatch ${team}` : `Watch ${team}`} aria-pressed={watched} title="Double-click the card to interact" onClick={() => toggleWatch(editor, team)} className="absolute right-2 top-9 z-10 rounded p-1 text-warning"><Star className="size-3.5" fill={watched ? 'currentColor' : 'none'} /></button>;
+}

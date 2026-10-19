@@ -13,6 +13,7 @@ import {
   ImagePlus,
   LayoutGrid,
   Minus,
+  MessageCircle,
   MousePointer2,
   Pen,
   Plus,
@@ -68,6 +69,7 @@ const TOOLS: { tool: Tool; label: string; key: string; icon: typeof Pen }[] = [
   { tool: 'highlighter', label: 'Highlighter', key: 'M', icon: Highlighter },
   { tool: 'eraser', label: 'Eraser', key: 'E', icon: Eraser },
   { tool: 'text', label: 'Text', key: 'T', icon: Type },
+  { tool: 'comment', label: 'Comment', key: 'C', icon: MessageCircle },
   { tool: 'laser', label: 'Laser pointer', key: 'K', icon: Pointer },
 ];
 

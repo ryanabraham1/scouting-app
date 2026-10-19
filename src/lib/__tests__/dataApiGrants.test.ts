@@ -162,6 +162,10 @@ function recordDataApiCall(call: ts.CallExpression, usage: DataApiUsage): void {
   if (!ts.isPropertyAccessExpression(call.expression)) return;
   const method = call.expression.name.text;
   if (method === 'from') {
+    // Storage buckets use .from() too; they are governed by storage.objects
+    // policies, not public table grants.
+    const receiver = call.expression.expression;
+    if (ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'storage') return;
     const table = literalArgument(call);
     if (!table) return;
     const ops = usage.tables[table] ?? new Set<TablePrivilege>();

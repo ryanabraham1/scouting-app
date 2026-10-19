@@ -160,6 +160,7 @@ function Inspector({ editor, shape }: { editor: BoardEditor; shape: WidgetShape 
         </>
       );
       break;
+    case 'nextMatch':
     case 'schedule':
       body = (
         <Row label="Team">

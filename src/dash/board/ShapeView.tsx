@@ -2,6 +2,7 @@
 // One absolutely positioned element per shape, in PAGE units inside the
 // camera-transformed world layer. Memoized per shape object (shapes are
 // immutable), so a drag re-renders only the shapes that moved.
+import { Check } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import {
   COLORS,
@@ -23,6 +24,7 @@ export interface ShapeViewProps {
   erasing: boolean;
   /** Hidden while its text is being edited in the overlay. */
   editing: boolean;
+  interactive?: boolean;
   renderWidget: (shape: WidgetShape) => ReactNode;
 }
 
@@ -79,11 +81,13 @@ export const ShapeView = memo(function ShapeView({
   shape,
   erasing,
   editing,
+  interactive,
   renderWidget,
 }: ShapeViewProps): JSX.Element {
   return (
     <div
       data-shape-id={shape.id}
+      data-board-interactive={interactive ? '' : undefined}
       style={{
         position: 'absolute',
         left: shape.x,
@@ -92,12 +96,13 @@ export const ShapeView = memo(function ShapeView({
         height: shape.type === 'text' ? undefined : shape.h,
         opacity: erasing ? 0.3 : 1,
         visibility: editing ? 'hidden' : undefined,
-        pointerEvents: 'none',
+        pointerEvents: interactive ? 'auto' : 'none',
       }}
     >
       {shape.type === 'ink' && <InkView shape={shape} />}
       {shape.type === 'text' && <TextView shape={shape} />}
       {shape.type === 'image' && <ImageView shape={shape} />}
+      {shape.type === 'comment' && <div className="flex size-8 items-center justify-center rounded-full border-2 border-brand bg-card text-sm font-bold text-brand" style={{ opacity: shape.resolved ? 0.5 : 1 }}>{shape.resolved ? <Check className="size-4" /> : shape.thread.length || '+'}</div>}
       {shape.type === 'widget' && renderWidget(shape)}
     </div>
   );

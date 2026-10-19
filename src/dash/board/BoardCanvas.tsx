@@ -18,6 +18,9 @@ import { SelectionOverlay } from '@/dash/board/SelectionOverlay';
 import { LiveCanvas, type LiveCanvasProps } from '@/dash/board/LiveCanvas';
 import { TextEditor } from '@/dash/board/TextEditor';
 import { imageFilesOf } from '@/dash/board/images';
+
+/** Must match Spotlight's WIDGET_DRAG_TYPE (kept here to avoid a module cycle). */
+const WIDGET_DRAG_TYPE = 'application/x-ryans-board-widget';
 import { rectsIntersect, type Point, type WidgetShape } from '@/dash/board/model';
 
 /** After Pencil input, finger/palm touches are ignored this long (FieldWhiteboard). */
@@ -34,6 +37,7 @@ const CURSOR: Record<Tool, string> = {
   eraser: 'cell',
   text: 'text',
   laser: 'crosshair',
+  comment: 'crosshair',
 };
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -49,7 +53,11 @@ export interface BoardCanvasProps {
   onPasteText?: (text: string, at: Point) => boolean;
   onPointerPage?: (p: Point | null) => void;
   onOpenSearch?: () => void;
+  /** A spotlight result dragged onto the canvas (JSON payload of WIDGET_DRAG_TYPE). */
+  onDropWidget?: (payload: string, at: Point) => void;
   remote?: LiveCanvasProps['remote'];
+  exportAll?: boolean;
+  onDropTeams?: (ids: string[], at: Point) => void;
   /** Floating chrome rendered above the canvas. */
   children?: ReactNode;
 }
@@ -68,7 +76,10 @@ export function BoardCanvas({
   onPasteText,
   onPointerPage,
   onOpenSearch,
+  onDropWidget,
   remote,
+  exportAll = false,
+  onDropTeams,
   children,
 }: BoardCanvasProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -79,6 +90,9 @@ export function BoardCanvas({
   const editingId = useBoard(editor, (e) => e.editingId);
   const tool = useBoard(editor, (e) => e.effectiveTool);
   const penMode = useBoard(editor, (e) => e.penMode);
+  const [interacting, setInteracting] = useState<string | null>(null);
+  const selection = useBoard(editor, (e) => e.selection);
+  useEffect(() => { if (interacting && (!selection.has(interacting) || tool !== 'select')) setInteracting(null); }, [selection, tool, interacting]);
   const [panning, setPanning] = useState(false);
 
   const touches = useRef(new Map<number, TouchTrack>());
@@ -137,6 +151,8 @@ export function BoardCanvas({
 
   // ---------------------------------------------------------------- pointers
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if ((e.target as HTMLElement).closest('[data-board-interactive]')) return;
+    setInteracting(null);
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-board-chrome]')) return;
     ref.current?.focus({ preventScroll: true });
     if (editingId) return; // the textarea's blur commits first
@@ -221,15 +237,21 @@ export function BoardCanvas({
     }
     if (panPointer.current === e.pointerId) panPointer.current = null;
     setPanning(false);
+    const drag = editor.live.drag;
     if (cancelled) editor.cancelGesture();
-    else editor.pointerUp(info(e));
+    else {
+      editor.pointerUp(info(e));
+      if (drag) { const p = local(e.clientX, e.clientY); onDropTeams?.(drag.ids, editor.screenToPage(p.x, p.y)); }
+    }
   };
 
   const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if ((e.target as HTMLElement).closest('[data-board-chrome]')) return;
     if (editor.tool !== 'select') return;
     const p = local(e.clientX, e.clientY);
     const hit = editor.shapeAtScreen(p.x, p.y);
-    if (hit?.type === 'text') editor.startEditing(hit.id);
+    if (hit?.type === 'widget') { editor.cancelGesture(); setInteracting(hit.id); }
+    else if (hit?.type === 'text') editor.startEditing(hit.id);
     else if (!hit) editor.beginTextAt(editor.screenToPage(p.x, p.y));
   };
 
@@ -280,6 +302,7 @@ export function BoardCanvas({
   // --------------------------------------------------------------- keyboard
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.defaultPrevented) return;
+    if (e.key === 'Escape' && interacting) { setInteracting(null); e.preventDefault(); return; }
     if (isTypingTarget(e.target) || editor.editingId) return;
     // Another dialog/menu owns the keyboard.
     if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"],[role="menu"]') && !ref.current?.contains(e.target)) return;
@@ -348,7 +371,8 @@ export function BoardCanvas({
       switch (e.key) {
         case 'Escape':
           if (editor.selection.size) editor.setSelection([]);
-          else editor.setTool('select');
+          else if (editor.tool !== 'select') editor.setTool('select');
+          else return false; // Let the board leave full screen when nothing needs cancelling.
           return true;
         case 'Delete':
         case 'Backspace':
@@ -392,6 +416,7 @@ export function BoardCanvas({
         e: 'eraser',
         t: 'text',
         k: 'laser',
+        c: 'comment',
       };
       if (tools[k] && !e.shiftKey && !e.altKey) {
         editor.setTool(tools[k]);
@@ -473,6 +498,13 @@ export function BoardCanvas({
   }, [editor, onImages, onPasteText]);
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+    const widget = e.dataTransfer?.getData(WIDGET_DRAG_TYPE);
+    if (widget && onDropWidget) {
+      e.preventDefault();
+      const p = local(e.clientX, e.clientY);
+      onDropWidget(widget, editor.screenToPage(p.x, p.y));
+      return;
+    }
     const files = imageFilesOf(e.dataTransfer?.files);
     if (!files.length) return;
     e.preventDefault();
@@ -483,12 +515,12 @@ export function BoardCanvas({
   // --------------------------------------------------------------- render
   const { x: cx, y: cy, z } = camera;
   const visible = useMemo(() => {
-    if (size.w === 0) return order;
+    if (exportAll || size.w === 0) return order;
     const mx = size.w / z / 2;
     const my = size.h / z / 2;
     const view = { x: -cx / z - mx, y: -cy / z - my, w: size.w / z + mx * 2, h: size.h / z + my * 2 };
     return order.filter((s) => rectsIntersect(view, s));
-  }, [order, cx, cy, z, size.w, size.h]);
+  }, [order, cx, cy, z, size.w, size.h, exportAll]);
 
   let step = GRID_STEP;
   while (step * z < 12) step *= 4;
@@ -522,10 +554,11 @@ export function BoardCanvas({
       onMouseDown={(e) => {
         // A text box opened by this press must keep focus (the default
         // mousedown would refocus the canvas and blur-commit it empty).
-        if (editor.editingId && !(e.target as HTMLElement).closest('textarea')) e.preventDefault();
+        if ((editor.editingId || document.activeElement?.tagName === 'TEXTAREA') && !(e.target as HTMLElement).closest('textarea')) e.preventDefault();
       }}
       onDragOver={(e) => {
-        if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+        const types = e.dataTransfer?.types ?? [];
+        if (types.includes('Files') || types.includes(WIDGET_DRAG_TYPE)) e.preventDefault();
       }}
       onDrop={onDrop}
       onContextMenu={(e) => e.preventDefault()}
@@ -545,6 +578,7 @@ export function BoardCanvas({
             shape={s}
             erasing={pendingErase.has(s.id)}
             editing={editingId === s.id}
+            interactive={interacting === s.id}
             renderWidget={renderWidget}
           />
         ))}

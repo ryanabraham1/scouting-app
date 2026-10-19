@@ -1,7 +1,7 @@
 // src/dash/board/widgets/actions.ts
 // Board-level widget commands shared by the inspector, spotlight and paste.
 import type { BoardEditor } from '@/dash/board/editor';
-import type { Point, WidgetShape } from '@/dash/board/model';
+import { pointInRect, type Point, type WidgetShape } from '@/dash/board/model';
 import { WIDGETS, type WidgetConfig, type WidgetKind } from '@/dash/board/widgets/registry';
 
 export function insertWidget(editor: BoardEditor, kind: WidgetKind, config?: WidgetConfig, at?: Point): string {
@@ -46,4 +46,20 @@ export function toggleWatch(editor: BoardEditor, team: number, on?: boolean): bo
     editor.insertWidget('watchlist', cfg, size, { x: view.x + 80 + size.w / 2, y: view.y + 24 + size.h / 2 });
   }
   return want;
+}
+
+/** Dropping team cards onto a comparison adds their resolved team bindings. */
+export function dropTeamsOnCompare(editor: BoardEditor, ids: string[], at: Point, baseTeam: number): void {
+  const moved = new Set(ids);
+  const target = [...editor.order].reverse().find((s) => !moved.has(s.id) && s.type === 'widget' && s.kind === 'compare' && !s.locked && pointInRect(at, s));
+  if (target?.type !== 'widget') return;
+  const teams = new Set(Array.isArray(target.config.teams) ? target.config.teams as number[] : []);
+  const before = teams.size;
+  for (const id of ids) {
+    const s = editor.shapes.get(id);
+    if (s?.type !== 'widget' || s.kind !== 'team') continue;
+    const t = s.config.team === 'base' ? baseTeam : Number(s.config.team);
+    if (Number.isInteger(t) && t > 0 && teams.size < 6) teams.add(t);
+  }
+  if (teams.size !== before) updateWidgetConfig(editor, target, { ...target.config, teams: [...teams] }, true);
 }

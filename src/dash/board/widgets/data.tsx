@@ -21,7 +21,7 @@ import {
 } from '@/dash/useEventData';
 import { aggregateEvent, type TeamAgg } from '@/dash/aggregate';
 import { predictMatch, type MatchPrediction } from '@/dash/predict';
-import { getPicklist, type PicklistEntry } from '@/dash/picklistClient';
+import { getCachedPicklist, getPicklist, type PicklistEntry } from '@/dash/picklistClient';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import { blueTeamsOf, redTeamsOf } from '@/dash/matchOrder';
 import { nextMatchForTeam } from '@/dash/nextMatch';
@@ -208,6 +208,7 @@ export function BoardDataProvider({ eventKey, children }: { eventKey: string; ch
     queryKey: ['picklist', eventKey],
     queryFn: () => getPicklist(eventKey),
     staleTime: 30_000,
+    initialData: () => getCachedPicklist(eventKey) ?? undefined,
   });
 
   const agg = useMemo(() => aggregateEvent(reportsQ.data ?? []), [reportsQ.data]);

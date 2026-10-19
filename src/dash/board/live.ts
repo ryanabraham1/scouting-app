@@ -58,6 +58,7 @@ export interface Peer {
   cursor: Point | null;
   cursorAt: number;
   selection: string[];
+  view?: { x: number; y: number; z: number; w: number; h: number };
 }
 
 interface LiveStrokeMsg {
@@ -75,6 +76,8 @@ interface LiveStrokeMsg {
 export class BoardLive {
   peers = new Map<string, Peer>();
   version = 0;
+  following: string | null = null;
+  private applyingView = false;
   private channel: RealtimeChannel | null = null;
   private listeners = new Set<() => void>();
   private strokes = new Map<string, { s: RemoteStroke; at: number; c: string; done: boolean }>();
@@ -141,6 +144,15 @@ export class BoardLive {
       peer.cursorAt = Date.now();
       if (p.sel) peer.selection = p.sel;
       this.emit();
+    });
+
+    ch.on('broadcast', { event: 'view' }, ({ payload }) => {
+      const m = payload as { c: string; x: number; y: number; z: number; w: number; h: number };
+      if (![m.x, m.y, m.z, m.w, m.h].every(Number.isFinite) || m.z <= 0 || m.w <= 0 || m.h <= 0) return;
+      const peer = this.peers.get(m.c);
+      if (!peer) return;
+      peer.view = m;
+      if (this.following === m.c) this.mirrorView(m);
     });
 
     ch.on('broadcast', { event: 'ink' }, ({ payload }) => {
@@ -210,9 +222,11 @@ export class BoardLive {
           cursor: prev?.cursor ?? null,
           cursorAt: prev?.cursorAt ?? 0,
           selection: prev?.selection ?? [],
+          view: prev?.view,
         });
       }
       this.peers = next;
+      if (this.following && !next.has(this.following)) this.following = null;
       this.emit();
     });
 
@@ -224,9 +238,47 @@ export class BoardLive {
 
     // Outgoing: ink, laser and drags ride the editor's live channel.
     this.disposers.push(this.editor.subscribeLive(() => this.scheduleSend()));
+    let camera = this.editor.camera;
+    let selection = this.editor.selection;
+    this.disposers.push(this.editor.subscribe(() => {
+      if (camera !== this.editor.camera) {
+        camera = this.editor.camera;
+        if (camera !== this.followCamera && !this.applyingView && this.following) { this.following = null; this.emit(); }
+      }
+      if (selection !== this.editor.selection) {
+        selection = this.editor.selection;
+        this.send('cursor', { c: me, x: null, y: null, sel: [...selection].slice(0, 100) });
+      }
+    }));
+    const viewTimer = setInterval(() => {
+      if (this.following) return; // Never create a follow-camera feedback loop.
+      const { x, y, z } = this.editor.camera;
+      const { w, h } = this.editor.viewport;
+      this.send('view', { c: me, x, y, z, w, h });
+    }, 250);
+    this.disposers.push(() => clearInterval(viewTimer));
     // Expire stale remote strokes/cursors.
     const sweep = setInterval(() => this.sweep(), 1000);
     this.disposers.push(() => clearInterval(sweep));
+  }
+
+
+  private mirrorView(v: { x: number; y: number; z: number; w: number; h: number }): void {
+    this.applyingView = true;
+    // setCamera notifies on the next frame; update the subscriber's remembered
+    // camera synchronously through the guarded callback below instead.
+    this.editor.setCamera({ x: this.editor.viewport.w / 2 - (v.w / 2 - v.x), y: this.editor.viewport.h / 2 - (v.h / 2 - v.y), z: v.z });
+    this.followCamera = this.editor.camera;
+    this.applyingView = false;
+  }
+
+  private followCamera: BoardEditor['camera'] | null = null;
+
+  follow(clientId: string | null): void {
+    this.following = clientId && this.peers.has(clientId) ? clientId : null;
+    const view = this.following ? this.peers.get(this.following)?.view : null;
+    if (view) this.mirrorView(view);
+    this.emit();
   }
 
   setName(name: string): void {
