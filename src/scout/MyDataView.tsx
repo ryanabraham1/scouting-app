@@ -3,8 +3,8 @@
 // reconciled scout-row id does not hide that scouter's earlier captures, after
 // pulling the scouter's reports saved from other devices into the local store.
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Pencil } from "lucide-react";
 import { useSession } from "@/auth/useSession";
 import { matchLabelFromKey } from "@/capture/UpcomingMatches";
 import { useActiveEvent } from "@/dash/useActiveEvent";
@@ -112,22 +112,8 @@ export default function MyDataView(): JSX.Element {
       data-testid="my-data"
       className="flex min-h-dvh flex-col bg-background pb-24 text-foreground"
     >
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
-        <Link
-          to="/scout"
-          data-testid="my-data-back"
-          aria-label="Back to scout"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-border hover:bg-accent"
-        >
-          <ArrowLeft className="size-5" />
-        </Link>
-        <h1 className="text-xl font-bold">My Data</h1>
-        <span className="ml-auto text-sm text-muted-foreground">
-          <span className="font-mono font-semibold tabular-nums text-foreground">
-            {reports.length}
-          </span>{" "}
-          {reports.length === 1 ? "match" : "matches"}
-        </span>
+      <header className="px-safe pt-safe pb-2">
+        <h1 className="text-xl font-medium">My data</h1>
       </header>
 
       <main className="flex flex-1 flex-col gap-3 px-safe pb-safe pt-4">
@@ -140,6 +126,32 @@ export default function MyDataView(): JSX.Element {
           </div>
         )}
 
+        <div
+          data-testid="my-data-totals"
+          className="grid grid-cols-3 gap-1 rounded-xl bg-secondary/60 p-3 text-center"
+        >
+          <div>
+            <p className="font-mono text-2xl font-medium tabular-nums">{reports.length}</p>
+            <p className="text-xs text-muted-foreground">Scouted</p>
+          </div>
+          <div>
+            <p className="font-mono text-2xl font-medium tabular-nums">
+              {reports.filter((r) => r.syncState === "dirty" || r.syncState === "pending").length}
+            </p>
+            <p className="text-xs text-muted-foreground">Waiting</p>
+          </div>
+          <div>
+            <p
+              className={`font-mono text-2xl font-medium tabular-nums ${
+                reports.some((r) => r.syncState === "error") ? "text-destructive" : ""
+              }`}
+            >
+              {reports.filter((r) => r.syncState === "error").length}
+            </p>
+            <p className="text-xs text-muted-foreground">Failed</p>
+          </div>
+        </div>
+
         {loaded && reports.length === 0 && (
           <p data-testid="my-data-empty" className="text-muted-foreground">
             {!activeEvent
@@ -150,12 +162,12 @@ export default function MyDataView(): JSX.Element {
           </p>
         )}
 
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col">
           {reports.map((r) => (
             <li
               key={r.id}
               data-testid="my-data-row"
-              className="rounded-xl border border-border border-l-4 border-l-brand/50 bg-card p-3"
+              className="border-t border-border py-3 first:border-t-0"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="flex items-baseline gap-2">
