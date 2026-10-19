@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -18,6 +18,7 @@ import { NEXUS_POLL_MS, RESULTS_RECONCILE_MS } from '@/dash/constants';
 import {
   CACHED_MATCH_COLUMNS,
   getCachedMatches,
+  getCachedTeams,
   replaceCachedMatchesForEvent,
 } from '@/db/preloadClient';
 import type { CachedMatch } from '@/db/types';
@@ -105,6 +106,30 @@ function matchBadgeFromKey(key: string): string {
   return `${parts.comp === 'qm' ? 'Q' : parts.comp.toUpperCase()}${parts.num}`;
 }
 
+/** Field-display station code — red 2 → "R2". */
+function stationCode(a: Pick<ScoutAssignment, 'alliance_color' | 'station'>): string {
+  return `${a.alliance_color === 'red' ? 'R' : 'B'}${a.station}`;
+}
+
+function HeroFigure({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <span className="flex flex-col gap-1">
+      <span className="text-[13px] text-muted-foreground">{label}</span>
+      <span className={cn('font-mono text-[44px] font-medium leading-none tracking-tight tabular-nums', className)}>
+        {children}
+      </span>
+    </span>
+  );
+}
+
 function timingShort(t: ReturnType<typeof matchTimeDisplay>): string {
   return t ? `${t.source === 'estimated' ? 'Est.' : 'Sched.'} ${t.clock}` : 'Time TBD';
 }
@@ -183,6 +208,12 @@ export interface UpcomingMatchesProps {
    * share this component's cached-schedule + Nexus + on-deck data layer.
    */
   variant?: 'schedule' | 'home';
+  /**
+   * Home variant only: content laid out beside the hero from `md` up (and,
+   * on phones, stacked after the up-next list). Rendered inside a
+   * `contents` wrapper on phones, so it joins the column's spacing as-is.
+   */
+  aside?: ReactNode;
 }
 
 /** Stable completion key for an assignment / report: match + target team. */
@@ -214,6 +245,7 @@ export function UpcomingMatches({
   completed,
   onEdit,
   variant = 'schedule',
+  aside,
 }: UpcomingMatchesProps) {
   const [matches, setMatches] = useState<UpcomingMatchRow[] | null>(null);
   // The displayed countdown advances locally; it does not create extra network
@@ -225,6 +257,31 @@ export function UpcomingMatches({
   // Which tab is shown: matches still TO scout (upcoming), ones already DONE, or
   // NOT FINISHED (already played but never scouted). Defaults to the to-do feed.
   const [view, setView] = useState<'todo' | 'done' | 'missed'>('todo');
+  // Desktop home table: played rows (done + missed) only on request.
+  const [showPlayed, setShowPlayed] = useState(false);
+  // Team nicknames for the desktop hero/table, from the offline preload cache.
+  const [nicknames, setNicknames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    setNicknames(new Map());
+    if (variant !== 'home' || !eventKey) return;
+    let cancelled = false;
+    void getCachedTeams(eventKey)
+      .then((teams) => {
+        if (cancelled) return;
+        setNicknames(
+          new Map(
+            teams
+              .filter((t) => t.nickname)
+              .map((t) => [t.team_number, t.nickname as string]),
+          ),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [eventKey, variant]);
 
   useEffect(() => {
     if (!eventKey) {
@@ -392,31 +449,39 @@ export function UpcomingMatches({
         ? `in ${nextTiming.minutesAway} min`
         : nextTiming.relative
       : null;
+    // Desktop table: the whole to-scout feed, plus played rows when asked.
+    const tableRows = (showPlayed ? [...todoList, ...missedList, ...doneList].sort(sortEnriched) : todoList);
     return (
-      <section data-testid="scout-upcoming-matches" className="flex flex-col gap-5">
+      <section data-testid="scout-upcoming-matches" className="flex flex-col gap-5 md:gap-4">
+        <div className="flex flex-col gap-5 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-stretch md:gap-4">
         {onDeck ? (
           <OnDeckAlert result={onDeck} timing={onDeckTiming} onStart={onStart} />
         ) : matches == null ? (
           <p className="text-sm text-muted-foreground">Loading matches…</p>
         ) : next ? (
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-border bg-card p-4 md:flex md:flex-col md:gap-6 md:p-7">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">Your next match</p>
+              <p className="text-xs text-muted-foreground md:text-sm md:font-medium">
+                <span className="md:hidden">Your next match</span>
+                <span className="hidden md:inline">Up next</span>
+              </p>
               {nextTimingLabel ? (
                 <span
                   className={cn(
-                    'text-xs',
-                    nextTiming?.state === 'late' ? 'text-warning' : 'text-muted-foreground',
+                    'text-xs md:rounded-md md:px-2 md:py-1',
+                    nextTiming?.state === 'late'
+                      ? 'text-warning md:bg-warning/15'
+                      : 'text-muted-foreground md:bg-secondary',
                   )}
                 >
                   {nextTimingLabel}
                 </span>
               ) : null}
             </div>
-            <h2 className="mt-1.5 text-3xl font-medium leading-tight">
+            <h2 className="mt-1.5 text-3xl font-medium leading-tight md:hidden">
               {shortMatchLabelFromKey(next.assignment.match_key)}
             </h2>
-            <p className="mt-2 flex items-center gap-2 text-[15px]">
+            <p className="mt-2 flex items-center gap-2 text-[15px] md:hidden">
               <span
                 aria-hidden="true"
                 className={cn(
@@ -430,21 +495,53 @@ export function UpcomingMatches({
               <span className="text-muted-foreground">·</span>
               <span className="font-mono tabular-nums">Team {next.assignment.target_team_number}</span>
             </p>
-            <p data-testid="scout-next-match-time" className="mt-1 text-xs text-muted-foreground">
+            {/* Desktop hero: match, station (alliance-colored) and team as big
+                tabular figures, the way the field display reads them. */}
+            <div
+              data-testid="scout-next-hero-desktop"
+              className="hidden flex-wrap items-end gap-x-10 gap-y-3 md:flex"
+            >
+              <HeroFigure label="Match">{matchBadgeFromKey(next.assignment.match_key)}</HeroFigure>
+              <HeroFigure
+                label="Station"
+                className={
+                  next.assignment.alliance_color === 'red'
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-blue-600 dark:text-blue-400'
+                }
+              >
+                {stationCode(next.assignment)}
+              </HeroFigure>
+              <HeroFigure label="Team">{next.assignment.target_team_number}</HeroFigure>
+              {nicknames.get(next.assignment.target_team_number) ? (
+                <span className="pb-1 text-[15px] text-muted-foreground">
+                  {nicknames.get(next.assignment.target_team_number)}
+                </span>
+              ) : null}
+            </div>
+            <p data-testid="scout-next-match-time" className="mt-1 text-xs text-muted-foreground md:mt-0 md:text-sm">
               {nextTiming
                 ? `${matchTimeSourceLabel(nextTiming.source)} start ${nextTiming.clock}${
                     nextTiming.state === 'future' ? ` · ${nextTiming.minutesAway} min away` : ''
                   }`
                 : 'Start time TBD'}
             </p>
-            <Button
-              data-testid="scout-assignment"
-              className="mt-4 h-12 w-full gap-2 rounded-xl bg-foreground text-base font-medium text-background hover:bg-foreground/90"
-              onClick={() => onStart(next.assignment)}
-            >
-              Start scouting
-              <ArrowRight className="size-[18px]" />
-            </Button>
+            <div className="mt-4 flex gap-2 md:mt-auto">
+              <Button
+                data-testid="scout-assignment"
+                className="h-12 w-full flex-1 gap-2 rounded-xl bg-foreground text-base font-medium text-background hover:bg-foreground/90 md:bg-brand md:text-brand-foreground md:hover:bg-brand/90"
+                onClick={() => onStart(next.assignment)}
+              >
+                Start scouting
+                <ArrowRight className="size-[18px]" />
+              </Button>
+              <Link
+                to="/scout?tab=matches"
+                className="hidden h-12 items-center rounded-xl border border-border px-5 text-[15px] font-medium hover:bg-accent md:inline-flex"
+              >
+                Pick another match
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="rounded-2xl border border-border bg-card p-4">
@@ -462,7 +559,7 @@ export function UpcomingMatches({
         )}
 
         {upNext.length > 0 ? (
-          <div>
+          <div className="md:hidden">
             <div className="mb-1 flex items-center justify-between">
               <h3 className="text-xs font-normal text-muted-foreground">Up next</h3>
               <Link
@@ -499,6 +596,133 @@ export function UpcomingMatches({
                 </li>
               ))}
             </ul>
+          </div>
+        ) : null}
+
+        {aside != null ? (
+          <div className="contents md:flex md:min-w-0 md:flex-col md:gap-4">{aside}</div>
+        ) : null}
+        </div>
+
+        {hasAny ? (
+          <div
+            data-testid="scout-matches-table"
+            className="hidden overflow-hidden rounded-2xl border border-border bg-card md:block"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+              <h2 className="text-base font-semibold">Your matches</h2>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={showPlayed}
+                  onChange={(e) => setShowPlayed(e.target.checked)}
+                  className="size-4 accent-[hsl(var(--brand))]"
+                />
+                Show played
+              </label>
+            </div>
+            {tableRows.length === 0 ? (
+              <p className="flex items-center gap-2 px-6 py-5 text-sm text-muted-foreground">
+                <PartyPopper className="size-4 shrink-0 text-success" />
+                All caught up — no upcoming assigned matches left.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground">
+                      <th className="px-6 py-3 font-medium">Match</th>
+                      <th className="px-3 py-3 font-medium">Station</th>
+                      <th className="px-3 py-3 font-medium">Team</th>
+                      <th className="px-3 py-3 font-medium">Time</th>
+                      <th className="px-3 py-3 text-right font-medium">Status</th>
+                      <th className="px-6 py-3">
+                        <span className="sr-only">Action</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((e) => {
+                      const { assignment: a, match, report } = e;
+                      const isDone = Boolean(report);
+                      const isMissed = !isDone && match != null && !isUpcoming(match);
+                      const isNext = !isDone && !isMissed && e === next;
+                      const liveStatus = !isDone && !isMissed ? liveStatusForKey(nexus, a.match_key) : null;
+                      const timing = match ? matchTimeDisplay(match, { now }) : null;
+                      const status = isDone
+                        ? { label: 'Done', tone: 'text-success' }
+                        : isMissed
+                          ? { label: 'Missed', tone: 'text-warning' }
+                          : liveStatus
+                            ? { label: liveStatus, tone: 'text-success capitalize' }
+                            : timing?.state === 'late'
+                              ? { label: 'Running late', tone: 'text-warning' }
+                              : isNext
+                                ? { label: 'Next', tone: 'text-foreground font-medium' }
+                                : { label: 'Upcoming', tone: 'text-muted-foreground' };
+                      const act = (): void => {
+                        if (isDone && report && onEdit) onEdit(report);
+                        else onStart(a);
+                      };
+                      return (
+                        <tr
+                          key={assignmentKey(a)}
+                          data-testid="scout-match-row"
+                          className="cursor-pointer border-t border-border/60 hover:bg-accent/50"
+                          onClick={act}
+                        >
+                          <td className="px-6 py-3.5 font-mono font-medium tabular-nums">
+                            {matchBadgeFromKey(a.match_key)}
+                          </td>
+                          <td className="px-3 py-3.5">
+                            <span
+                              className={cn(
+                                'inline-flex h-[22px] items-center rounded-md px-1.5 font-mono text-xs tabular-nums',
+                                a.alliance_color === 'red'
+                                  ? 'bg-red-500/15 text-red-700 dark:text-red-300'
+                                  : 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+                              )}
+                            >
+                              {stationCode(a)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3.5">
+                            <span className="font-mono tabular-nums">{a.target_team_number}</span>{' '}
+                            <span className="text-muted-foreground">
+                              {nicknames.get(a.target_team_number) ?? ''}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3.5 font-mono tabular-nums text-muted-foreground">
+                            {timing?.clock ?? 'TBD'}
+                          </td>
+                          <td className={cn('px-3 py-3.5 text-right', status.tone)}>{status.label}</td>
+                          <td className="px-6 py-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                act();
+                              }}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-brand hover:bg-brand/10"
+                            >
+                              {isDone ? (
+                                <>
+                                  <Pencil className="size-3.5" /> Edit
+                                </>
+                              ) : (
+                                <>
+                                  Scout <ChevronRight className="size-3.5" />
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         ) : null}
       </section>

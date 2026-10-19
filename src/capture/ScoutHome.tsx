@@ -62,6 +62,7 @@ import { useOnline } from '@/sync/useOnline';
 import { StationMenu } from '@/components/StationMenu';
 import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
 import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
+import { ScoutDeviceCard } from '@/scout/ScoutDeviceCard';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -916,6 +917,9 @@ export default function ScoutHome() {
   const requestedTab = searchParams.get('tab');
   const view: 'home' | 'matches' | 'pit' =
     mode === 'pit' ? 'pit' : requestedTab === 'matches' ? 'matches' : 'home';
+  // Home and pit get the wide two-column desktop layout; the Matches tab keeps
+  // its single reading column. Phones are max-w-2xl either way.
+  const pageWidth = view === 'matches' ? 'max-w-2xl' : 'max-w-2xl md:max-w-6xl';
   const displayName = effective.display_name || 'Scout';
   const firstName = displayName.trim().split(/\s+/)[0] || displayName;
   const initials =
@@ -1112,7 +1116,7 @@ export default function ScoutHome() {
       {/* Sticky header: tap the name for the scouter menu; the pill is a live
           connection status that links to the full sync screen. */}
       <header className="sticky top-0 z-20 bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2">
+        <div className={cn('mx-auto flex w-full items-center justify-between gap-2', pageWidth)}>
           <StationMenu
             current="scout"
             title={`Hi, ${firstName}`}
@@ -1148,10 +1152,15 @@ export default function ScoutHome() {
             {online ? 'Online' : 'Offline'}
           </Link>
         </div>
-        <ScoutTopNav active={view} className="mx-auto mt-3 max-w-2xl" />
+        <ScoutTopNav active={view} className={cn('mx-auto mt-3', pageWidth)} />
       </header>
 
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 px-safe pb-28 pt-2 md:pb-10">
+      <main
+        className={cn(
+          'mx-auto flex w-full flex-1 flex-col gap-5 px-safe pb-28 pt-2 md:pb-10',
+          pageWidth,
+        )}
+      >
         {savedNotice && (
           <p role="status" className="rounded-xl bg-success/10 p-3 text-sm text-success">
             {savedNotice === 'updated'
@@ -1166,11 +1175,13 @@ export default function ScoutHome() {
               <Link
                 to="/scout"
                 aria-label="Back to home"
-                className="inline-flex size-11 items-center justify-center rounded-xl border border-border hover:bg-accent"
+                className="inline-flex size-11 items-center justify-center rounded-xl border border-border hover:bg-accent md:hidden"
               >
                 <ArrowLeft className="size-5" />
               </Link>
-              <h1 className="text-xl font-medium">Pit scouting</h1>
+              <h1 className="text-xl font-medium md:text-[28px] md:font-semibold md:tracking-tight">
+                Pit scouting
+              </h1>
             </div>
             <PitScoutFlow
               eventKey={eventKey}
@@ -1220,16 +1231,25 @@ export default function ScoutHome() {
                 const r = reports.find((x) => x.id === c.id);
                 if (r) openReportForEdit(r, 'home');
               }}
+              aside={
+                <>
+                  <ScoutDeviceCard
+                    eventKey={eventKey}
+                    reportsSaved={reports.length}
+                    className="hidden md:flex"
+                  />
+                  {draftsSection}
+                  <ScoutStatusCard eventKey={eventKey} scoutId={scoutId} />
+                  <div className="flex justify-center">
+                    <OfflineReadyBadge
+                      eventKey={activeEvent ?? eventKey ?? null}
+                      scoutId={scoutId || undefined}
+                      compact
+                    />
+                  </div>
+                </>
+              }
             />
-            {draftsSection}
-            <ScoutStatusCard eventKey={eventKey} scoutId={scoutId} />
-            <div className="flex justify-center">
-              <OfflineReadyBadge
-                eventKey={activeEvent ?? eventKey ?? null}
-                scoutId={scoutId || undefined}
-                compact
-              />
-            </div>
           </>
         )}
       </main>
