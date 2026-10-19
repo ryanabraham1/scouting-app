@@ -7,7 +7,9 @@ import { getCachedDisplayNameForScoutId } from '@/roster/scoutIdentityCache';
 import { FountainEncoder, frameToString, reportsToBytes } from '@/qr/envelope';
 import { compressForQr } from '@/qr/compress';
 import { QR_FRAME_MS } from '@/sync/constants';
-import { BackLink } from '@/components/ui/BackLink';
+import { QrModeTabs } from '@/qr/QrModeTabs';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { CheckCircle2 } from 'lucide-react';
 
 // Animated QR sender (contracts §6/§7). Loads the unsynced backlog, gzip-
@@ -109,13 +111,11 @@ export default function QrSendScreen() {
   return (
     <div
       data-testid="qr-send"
-      className="flex min-h-screen flex-col items-center gap-6 bg-background px-safe py-safe text-foreground"
+      className={`flex min-h-screen flex-col items-center gap-5 bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
     >
-      <header className="w-full">
-        <div className="flex items-center gap-3">
-          <BackLink to="/scout" label="Back" icon="back" />
-          <h1 className="text-2xl font-bold">Send over QR</h1>
-        </div>
+      <header className="flex w-full max-w-md flex-col gap-3">
+        <h1 className="text-xl font-medium">Transfer by QR</h1>
+        <QrModeTabs active="send" />
         <p className="text-sm text-muted-foreground">
           Point the receiving device&apos;s camera at the code. It flips through symbols on its
           own — leave this screen up until the receiver&apos;s bar is full.
@@ -165,6 +165,7 @@ export default function QrSendScreen() {
           </Button>
         </>
       )}
+      <ScoutBottomNav active="home" />
     </div>
   );
 }
