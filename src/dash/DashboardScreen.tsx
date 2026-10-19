@@ -10,9 +10,10 @@ import {
   Gavel,
   Lock,
   ShieldCheck,
+  LayoutDashboard,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { IconTabs } from '@/components/ui/IconTabs';
+import { BottomTabBar, BOTTOM_BAR_CLEARANCE, type BottomTab } from '@/components/BottomTabBar';
+import { StationMenu } from '@/components/StationMenu';
 import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
@@ -40,12 +41,12 @@ type Tab = 'strategy' | 'scouters' | 'picklist' | 'draft' | 'settings';
 const LEAD_UNLOCK_KEY = 'frc-lead-dashboard-unlocked';
 const LEAD_CODE = '12345';
 
-const TABS: { key: Tab; label: string; icon: LucideIcon; needsEvent: boolean }[] = [
-  { key: 'strategy', label: 'Strategy', icon: Presentation, needsEvent: true },
-  { key: 'scouters', label: 'Scouters', icon: UserCheck, needsEvent: false },
-  { key: 'picklist', label: 'Picklist', icon: ClipboardList, needsEvent: true },
-  { key: 'draft', label: 'Draft', icon: Gavel, needsEvent: true },
-  { key: 'settings', label: 'Settings', icon: Settings, needsEvent: false },
+const TABS: readonly (BottomTab<Tab> & { needsEvent: boolean })[] = [
+  { id: 'strategy', label: 'Strategy', icon: Presentation, needsEvent: true },
+  { id: 'scouters', label: 'Scouters', icon: UserCheck, needsEvent: false },
+  { id: 'picklist', label: 'Picklist', icon: ClipboardList, needsEvent: true },
+  { id: 'draft', label: 'Draft', icon: Gavel, needsEvent: true },
+  { id: 'settings', label: 'Settings', icon: Settings, needsEvent: false },
 ];
 
 const TAB_ALIASES: Record<string, Tab> = {
@@ -57,7 +58,7 @@ const TAB_ALIASES: Record<string, Tab> = {
 function initialTab(): Tab {
   try {
     const query = new URLSearchParams(window.location.search).get('tab');
-    if (query && TABS.some((tab) => tab.key === query)) return query as Tab;
+    if (query && TABS.some((tab) => tab.id === query)) return query as Tab;
     if (query && query in TAB_ALIASES) return TAB_ALIASES[query];
   } catch {
     // Browser history is unavailable during non-browser rendering.
@@ -187,45 +188,32 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const current = TABS.find((item) => item.key === tab);
+  const current = TABS.find((item) => item.id === tab);
   const dataGated = current?.needsEvent ?? true;
 
   return (
     <div
       data-testid="dashboard"
-      className="flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4"
+      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4 ${BOTTOM_BAR_CLEARANCE}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <BackLink to="/" label="Home" icon="home" iconOnly className="sm:hidden" />
-          <BackLink to="/" label="Home" icon="home" className="hidden sm:inline-flex" />
-          <h1 className="truncate text-xl font-bold sm:text-2xl">Lead Dashboard</h1>
-        </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="hidden max-w-[5rem] truncate font-mono text-xs text-muted-foreground sm:block sm:max-w-none sm:text-sm">
-            {eventKey ?? '—'}
-          </span>
+        <StationMenu
+          current="lead"
+          title="Lead dashboard"
+          subtitle={eventKey ?? undefined}
+          avatar={<LayoutDashboard aria-hidden="true" />}
+        >
           <button
             type="button"
             aria-label="Lock dashboard"
             onClick={lockDashboard}
-            className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm font-medium hover:bg-accent"
           >
             <Lock className="size-4" aria-hidden />
-            <span className="hidden sm:inline">Lock</span>
+            Lock dashboard
           </button>
-        </div>
+        </StationMenu>
       </header>
-
-      <IconTabs<Tab>
-        ariaLabel="Lead Dashboard sections"
-        value={tab}
-        onChange={selectTab}
-        tabs={TABS.map((item) => {
-          const Icon = item.icon;
-          return { value: item.key, label: item.label, icon: <Icon /> };
-        })}
-      />
 
       {!authoritative && eventKey ? (
         <div
@@ -270,6 +258,14 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
             </Suspense>
           </section>
         ))}
+      <BottomTabBar
+        tabs={TABS}
+        active={tab}
+        onSelect={selectTab}
+        ariaLabel="Lead dashboard sections"
+        testId="dashboard-bottom-nav"
+        tabTestIdPrefix="dashboard-tab"
+      />
     </div>
   );
 }

@@ -62,7 +62,7 @@ describe('DashboardScreen', () => {
   it('shows only the five requested lead sections', () => {
     renderDashboard();
     unlock();
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())).toEqual([
+    expect(Array.from(screen.getByTestId('dashboard-bottom-nav').querySelectorAll('button')).map((tab) => tab.textContent?.trim())).toEqual([
       'Strategy',
       'Scouters',
       'Picklist',
@@ -78,10 +78,11 @@ describe('DashboardScreen', () => {
     expect(await screen.findByTestId('settings-tab')).toBeInTheDocument();
   });
 
-  it('locks again from the dashboard header', () => {
+  it('locks again from the station menu', async () => {
     renderDashboard();
     unlock();
-    fireEvent.click(screen.getByRole('button', { name: 'Lock dashboard' }));
+    fireEvent.click(screen.getByLabelText('Open menu'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Lock dashboard' }));
     expect(screen.getByTestId('lead-dashboard-lock')).toBeInTheDocument();
     expect(window.sessionStorage.getItem('frc-lead-dashboard-unlocked')).toBeNull();
   });
@@ -101,7 +102,7 @@ describe('DashboardScreen', () => {
       </MemoryRouter>,
     );
     unlock();
-    fireEvent.click(screen.getByRole('tab', { name: 'Picklist' }));
+    fireEvent.click(screen.getByTestId('dashboard-tab-picklist'));
     fireEvent.click(await screen.findByRole('link', { name: '254' }));
     expect(screen.getByTestId('location')).toHaveTextContent('/analysis?tab=team&team=254');
   });
