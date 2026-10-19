@@ -67,26 +67,48 @@ export async function tbaGetOptional<T>(path: string): Promise<T | ProxyUnavaila
   }
 }
 
+/** How long to stop calling Statbotics after it reports an outage. */
+export const STATBOTICS_BACKOFF_MS = 60_000;
+let statboticsDownUntil = 0;
+
+/** Test hook: forget a remembered Statbotics outage. */
+export function resetStatboticsBackoff(): void {
+  statboticsDownUntil = 0;
+}
+
 /**
  * Read through the Statbotics Edge proxy. Never throws: degrades to
  * `{ available: false }` on the sentinel body OR on any fetch/non-2xx error,
  * so the dashboard keeps working through a Statbotics outage.
+ *
+ * Statbotics is only an EPA fallback, yet the EPA load awaits it for every
+ * team with no local match results — so once it reports an outage, answer
+ * `{ available: false }` locally for STATBOTICS_BACKOFF_MS instead of making
+ * each team in the fan-out wait on a dead upstream.
  */
 export async function statboticsGet<T>(path: string): Promise<T | ProxyUnavailable> {
+  if (Date.now() < statboticsDownUntil) {
+    return { available: false };
+  }
+  const down = (): ProxyUnavailable => {
+    statboticsDownUntil = Date.now() + STATBOTICS_BACKOFF_MS;
+    return { available: false };
+  };
   try {
     const res = await timeoutFetch(proxyUrl('statbotics-proxy', path), {
       headers: await authHeaders(),
     });
     if (!res.ok) {
-      return { available: false };
+      return down();
     }
     const body = (await res.json()) as unknown;
     if (isUnavailable(body)) {
-      return { available: false };
+      // `notFound`: Statbotics answered, it just has no row for this path.
+      return (body as { notFound?: unknown }).notFound === true ? { available: false } : down();
     }
     return body as T;
   } catch {
-    return { available: false };
+    return down();
   }
 }
 

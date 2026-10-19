@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { tbaGet, statboticsGet, nexusGet, syncEventResults, youtubeStreamStart, isUnavailable } from '@/dash/proxies';
+import { tbaGet, nexusGet, syncEventResults, youtubeStreamStart, isUnavailable } from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
 import { computeLocalEpaComponents } from '@/dash/localEpa';
 import { bayesTeamSeason, type BayesCal } from '@/dash/bayesEpaRows';
@@ -19,7 +19,6 @@ import {
   type NexusEventStatus,
 } from '@/dash/nexusClient';
 import {
-  parseStatboticsTeamYear,
   seasonRecordFromTbaMatches,
   type EpaSource,
 } from '@/dash/SeasonStats';
@@ -652,17 +651,6 @@ export interface TeamSeasonEpa {
   source: 'statbotics' | 'inhouse' | 'none';
 }
 
-type StatboticsSeasonEpa = ReturnType<typeof parseStatboticsTeamYear>;
-
-function statboticsSeasonResult(sb: StatboticsSeasonEpa): TeamSeasonEpa {
-  return {
-    epa: sb.totalEpa,
-    worldRank: sb.worldRank,
-    record: sb.record,
-    source: sb.totalEpa != null ? 'statbotics' : 'none',
-  };
-}
-
 function localSeasonResult(
   team: number,
   localRows: MatchRow[],
@@ -692,70 +680,27 @@ function localSeasonResult(
   };
 }
 
-function sameSeasonResult(a: TeamSeasonEpa, b: TeamSeasonEpa): boolean {
-  return a.epa === b.epa &&
-    a.variance === b.variance &&
-    a.components?.auto === b.components?.auto &&
-    a.components?.teleop === b.components?.teleop &&
-    a.components?.endgame === b.components?.endgame &&
-    a.worldRank === b.worldRank &&
-    a.record === b.record &&
-    a.source === b.source;
-}
-
 function normalizedSeasonTeams(teamNumbers: number[]): number[] {
   return [...new Set(teamNumbers)]
     .filter((team) => Number.isSafeInteger(team) && team > 0)
     .sort((a, b) => a - b);
 }
 
-async function statboticsSeasonEpa(
-  team: number,
-  year: string,
-): Promise<ReturnType<typeof parseStatboticsTeamYear>> {
-  const queryKey = ['epa', 'season-statbotics', team, year] as const;
-  try {
-    return await queryClient.fetchQuery({
-      queryKey,
-      staleTime: EPA_STALE_TIME,
-      retry: false,
-      queryFn: async () => {
-        const json = await statboticsGet<unknown>(`/team_year/${team}/${year}`);
-        const unavailable =
-          typeof json === 'object' &&
-          json !== null &&
-          (json as { available?: unknown }).available === false;
-        if (unavailable) throw new Error('Statbotics is unavailable');
-        return parseStatboticsTeamYear(json);
-      },
-    });
-  } catch {
-    // A rejected refresh leaves React Query's last successful data intact. Read
-    // that persisted value explicitly instead of converting the outage into a
-    // successful null response that would overwrite the last-good snapshot.
-    return queryClient.getQueryData<ReturnType<typeof parseStatboticsTeamYear>>(
-      queryKey,
-    ) ?? { worldRank: null, totalEpa: null, record: null };
-  }
-}
-
 /**
- * Our recency-weighted in-house model over every complete event attended by
- * this team; Statbotics season EPA (`team_year`) is only the fallback when TBA
- * has no usable match-result EPA. The result is cached per active event/team
- * and is independent of which other teams happen to be displayed alongside it.
+ * A team's season BSR: our Bayesian in-house model over every complete event
+ * this team attended. Statbotics is no longer consulted — it only ever filled
+ * teams with no match results, and awaiting it stalled the whole EPA load
+ * whenever Statbotics was slow or down. The result is cached per active
+ * event/team and is independent of which other teams are displayed with it.
  *
- * Both the Total-EPA tile (useTeamSeasonStats) and the match prediction
- * (useEventEpa) read THIS, so a team shows the SAME EPA everywhere — and both use
- * the same local metric, fixing the old `team_event` vs `team_year` and
- * "6-team combined run vs single-team run" discrepancies. Cached + persisted
- * (queryPersist) so it computes once per team and serves offline.
+ * Both the Total-BSR tile (useTeamSeasonStats) and the match prediction
+ * (useEventEpa) read THIS, so a team shows the SAME value everywhere. Cached +
+ * persisted (queryPersist) so it computes once per team and serves offline.
  */
 export async function seasonEpaForTeam(
   team: number,
   eventKey: string,
   year: string,
-  onPromotion?: () => void,
 ): Promise<TeamSeasonEpa> {
   const queryKey = [
     'epa',
@@ -766,64 +711,19 @@ export async function seasonEpaForTeam(
     year,
     EPA_RECENCY_BOOST,
   ] as const;
-  const backgroundState: { statbotics: Promise<StatboticsSeasonEpa> | null } = {
-    statbotics: null,
-  };
   try {
-    const initial = await queryClient.fetchQuery({
+    return await queryClient.fetchQuery({
       queryKey,
       staleTime: EPA_STALE_TIME,
       retry: false,
       queryFn: async (): Promise<TeamSeasonEpa> => {
-        const statboticsPromise = statboticsSeasonEpa(team, year);
-        const localPromise = Promise.all([
+        const [rows, priors] = await Promise.all([
           fetchSeasonMatchRows([team], eventKey, year),
           loadEpaPriors(year),
-        ]).then(([rows, priors]) => localSeasonResult(team, rows, priors));
-        const local = await localPromise;
-        if (local.epa != null) {
-          // EPA stays local. Statbotics may still enrich rank/record metadata in
-          // the background, but it must never overwrite the live local value.
-          backgroundState.statbotics = statboticsPromise;
-          return local;
-        }
-
-        const statbotics = await statboticsPromise;
-        if (statbotics.totalEpa != null) {
-          return {
-            ...statboticsSeasonResult(statbotics),
-          };
-        }
-        return {
-          ...local,
-          worldRank: statbotics.worldRank,
-          record: statbotics.record,
-        };
+        ]);
+        return localSeasonResult(team, rows, priors);
       },
     });
-
-    const delayedStatbotics = backgroundState.statbotics;
-    if (delayedStatbotics !== null) {
-      void delayedStatbotics.then((sb: StatboticsSeasonEpa) => {
-        const current = queryClient.getQueryData<TeamSeasonEpa>(queryKey);
-        if (!current) return;
-        const next = {
-          ...current,
-          worldRank: sb.worldRank ?? current.worldRank,
-          record: sb.record ?? current.record,
-        };
-        if (sameSeasonResult(current, next)) return;
-        queryClient.setQueryData(queryKey, next);
-        void queryClient.invalidateQueries({ queryKey: ['epa', 'event'] });
-        void queryClient.invalidateQueries({ queryKey: ['epa', 'team-season-stats'] });
-        onPromotion?.();
-      }).catch(() => {
-        // The Statbotics helper normally converts outages to a null result. This
-        // final guard ensures an unexpected rejection never disturbs TBA data.
-      });
-    }
-
-    return initial;
   } catch {
     return queryClient.getQueryData<TeamSeasonEpa>(queryKey) ?? {
       epa: null,
@@ -847,7 +747,6 @@ export function useEventEpa(
   eventKey: string | null,
   _matches: MatchRow[] = [],
 ): UseQueryResult<EventEpa> {
-  const displayQueryClient = useQueryClient();
   const sortedTeams = normalizedSeasonTeams(teamNumbers);
   const year = eventKey ? eventKey.slice(0, 4) : '';
   const displayQueryKey = [
@@ -864,17 +763,7 @@ export function useEventEpa(
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<EventEpa> => {
       const results = await Promise.allSettled(
-        sortedTeams.map((team) => seasonEpaForTeam(
-          team,
-          eventKey as string,
-          year,
-          () => {
-            void displayQueryClient.invalidateQueries({
-              queryKey: displayQueryKey,
-              exact: true,
-            });
-          },
-        )),
+        sortedTeams.map((team) => seasonEpaForTeam(team, eventKey as string, year)),
       );
       const epaByTeam = new Map<number, number | null>();
       const componentsByTeam = new Map<number, LocalEpaComponents | null>();
@@ -1649,7 +1538,6 @@ export function useTeamSeasonStats(
   eventKey: string | null,
   _matches: MatchRow[] = [],
 ): UseQueryResult<TeamSeasonStats> {
-  const displayQueryClient = useQueryClient();
   const year = eventKey ? eventKey.slice(0, 4) : '';
   const displayQueryKey = [
     'epa',
@@ -1665,24 +1553,16 @@ export function useTeamSeasonStats(
     enabled: !!eventKey && team > 0,
     staleTime: EPA_STALE_TIME,
     queryFn: async (): Promise<TeamSeasonStats> => {
-      // Start the strict TBA record request alongside EPA. This deliberately
-      // spends an extra cached request when Statbotics already has a record so
-      // the fallback is ready immediately when it does not.
+      // Season W-L-T comes from the team's full-season TBA matches; start it
+      // alongside the BSR load.
       const tbaRecordPromise = fetchTeamSeasonMatchesCached(team, year)
         .then((matches) => seasonRecordFromTbaMatches(matches, team))
         .catch(() => null);
 
       // Same single source of truth as the match prediction -> identical EPA.
-      const r = await seasonEpaForTeam(team, eventKey as string, year, () => {
-        void displayQueryClient.invalidateQueries({
-          queryKey: displayQueryKey,
-          exact: true,
-        });
-      });
+      const r = await seasonEpaForTeam(team, eventKey as string, year);
 
-      // Season record: prefer the one Statbotics returned; else derive a W-L-T
-      // from the team's FULL-season TBA matches. tbaGet throws on non-2xx, so
-      // guard it — a TBA outage just leaves the record null.
+      // tbaGet throws on non-2xx, so a TBA outage just leaves the record null.
       const seasonRecord = r.record ?? await tbaRecordPromise;
 
       const epaSource: EpaSource = r.source;

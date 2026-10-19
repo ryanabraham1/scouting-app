@@ -523,30 +523,12 @@ describe('useEventData', () => {
     expect(tbaGetMock).not.toHaveBeenCalled();
   });
 
-  it('useEventEpa builds an epaByTeam map and is available when EPA is present', async () => {
-    statboticsGetMock.mockImplementation(async (path: string) =>
-      path.includes('/254/') ? { epa: { total_points: { mean: 50 } } } : { available: false },
-    );
-    epaFromTeamEventMock.mockImplementation((json: unknown) =>
-      json && (json as { epa?: unknown }).epa ? 50 : null,
-    );
-
-    const { result } = renderHook(() => useEventEpa([254, 1678], '2026casnv'), {
-      wrapper: wrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.available).toBe(true);
-    expect(result.current.data?.source).toBe('statbotics');
-    expect(result.current.data?.epaByTeam.get(254)).toBe(50);
-    // 1678 came back unavailable → null in the map.
-    expect(result.current.data?.epaByTeam.get(1678)).toBeNull();
-  });
-
-  it('isolates one team EPA failure without discarding successful teammates', async () => {
-    statboticsGetMock.mockImplementation(async (path: string) => {
-      if (path.includes('/254/')) return { epa: { total_points: { mean: 50 } } };
-      throw new Error('team-specific proxy failure');
+  it('never waits on Statbotics: BSR comes only from the in-house model', async () => {
+    statboticsGetMock.mockImplementation(() => new Promise(() => {}));
+    tbaGetMock.mockImplementation((path: string) => {
+      if (path === '/team/frc254/events/2026') return Promise.resolve(['2026casnv']);
+      if (path === '/event/2026casnv/matches') return Promise.resolve([localEpaMatch()]);
+      return Promise.resolve([]);
     });
 
     const { result } = renderHook(() => useEventEpa([254, 1678], '2026casnv'), {
@@ -554,27 +536,10 @@ describe('useEventData', () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.epaByTeam.get(254)).toBe(50);
+    expect(result.current.data?.source).toBe('local');
+    expect(result.current.data?.epaByTeam.get(254)).toBeTypeOf('number');
     expect(result.current.data?.epaByTeam.get(1678)).toBeNull();
-    expect(result.current.data?.available).toBe(true);
-  });
-
-  it('preserves stale last-good Statbotics EPA when an offline refresh fails', async () => {
-    const statboticsKey = ['epa', 'season-statbotics', 254, '2026'] as const;
-    const lastGood = { worldRank: 7, totalEpa: 48.5, record: '10-2-0' };
-    sharedQueryClient.setQueryData(statboticsKey, lastGood, { updatedAt: 1 });
-    statboticsGetMock.mockRejectedValue(new Error('venue offline'));
-    tbaGetMock.mockRejectedValue(new Error('venue offline'));
-
-    const { result } = renderHook(() => useEventEpa([254], '2026casnv'), {
-      wrapper: wrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(statboticsGetMock).toHaveBeenCalledWith('/team_year/254/2026');
-    expect(result.current.data?.epaByTeam.get(254)).toBe(48.5);
-    expect(result.current.data?.sourceByTeam?.get(254)).toBe('statbotics');
-    expect(sharedQueryClient.getQueryData(statboticsKey)).toEqual(lastGood);
+    expect(statboticsGetMock).not.toHaveBeenCalled();
   });
 
   it('preserves stale last-good local EPA when the team-season refresh fails', async () => {
@@ -820,66 +785,6 @@ describe('useEventData', () => {
     const a = result.current.data?.epaByTeam.get(254) as number;
     const b = result.current.data?.epaByTeam.get(1678) as number;
     expect(a).toBeGreaterThan(b);
-  });
-
-  it('keeps TBA EPA when Statbotics finishes and does not overwrite the live model', async () => {
-    let resolveStatbotics: ((value: unknown) => void) | undefined;
-    statboticsGetMock.mockImplementation(
-      () => new Promise((resolve) => {
-        resolveStatbotics = resolve;
-      }),
-    );
-    tbaGetMock.mockImplementation((path: string) => {
-      if (path === '/team/frc254/events/2026') return Promise.resolve(['2026casnv']);
-      if (path === '/event/2026casnv/matches') return Promise.resolve([localEpaMatch()]);
-      return Promise.resolve([]);
-    });
-
-    const { result } = renderHook(() => useEventEpa([254], '2026casnv'), {
-      wrapper: wrapper(),
-    });
-
-    await waitFor(() => expect(result.current.data?.source).toBe('local'));
-    const tbaEpa = result.current.data?.epaByTeam.get(254);
-    expect(tbaEpa).toBeTypeOf('number');
-
-    await act(async () => {
-      resolveStatbotics?.({
-        epa: { total_points: { mean: 55 }, ranks: { total: { rank: 7 } } },
-        record: { wins: 8, losses: 2, ties: 0 },
-      });
-    });
-
-    await waitFor(() => expect(statboticsGetMock).toHaveBeenCalled());
-    expect(result.current.data?.source).toBe('local');
-    expect(result.current.data?.epaByTeam.get(254)).toBe(tbaEpa);
-    expect(result.current.data?.epaByTeam.get(254)).not.toBe(55);
-  });
-
-  it('waits for the local replay, then uses Statbotics only when TBA has no EPA', async () => {
-    let resolveTba: ((value: unknown[]) => void) | undefined;
-    const pendingTba = new Promise<unknown[]>((resolve) => {
-      resolveTba = resolve;
-    });
-    tbaGetMock.mockReturnValue(pendingTba);
-    statboticsGetMock.mockResolvedValue({
-      epa: { total_points: { mean: 61 }, ranks: { total: { rank: 3 } } },
-      record: { wins: 10, losses: 1, ties: 0 },
-    });
-
-    const { result } = renderHook(() => useEventEpa([254], '2026casnv'), {
-      wrapper: wrapper(),
-    });
-
-    await waitFor(() => expect(statboticsGetMock).toHaveBeenCalled());
-    expect(result.current.isPending).toBe(true);
-    expect(result.current.data).toBeUndefined();
-
-    await act(async () => {
-      resolveTba?.([]);
-    });
-    await waitFor(() => expect(result.current.data?.source).toBe('statbotics'));
-    expect(result.current.data?.epaByTeam.get(254)).toBe(61);
   });
 
   it('useEventEpa carries EPA forward from a prior event (season-wide)', async () => {
@@ -1229,21 +1134,6 @@ describe('useEventData', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.available).toBe(false);
     expect(result.current.data?.status).toBeNull();
-  });
-
-  it('uses the Statbotics record while eagerly warming the TBA fallback', async () => {
-    statboticsGetMock.mockResolvedValue({
-      epa: { total_points: { mean: 42 }, ranks: { total: { rank: 7 } } },
-      record: { wins: 12, losses: 3, ties: 1 },
-    });
-
-    const { result } = renderHook(() => useTeamSeasonStats(3256, '2026casnv'), {
-      wrapper: wrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.seasonRecord).toBe('12-3-1');
-    expect(tbaGetMock).toHaveBeenCalledWith('/team/frc3256/matches/2026');
   });
 
   it('starts the season record request before season EPA finishes', async () => {

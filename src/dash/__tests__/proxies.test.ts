@@ -17,7 +17,7 @@ vi.mock('@/lib/supabase', () => ({
   },
 }));
 
-import { tbaGet, statboticsGet, epaFromTeamEvent } from '../proxies';
+import { tbaGet, statboticsGet, epaFromTeamEvent, resetStatboticsBackoff } from '../proxies';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -32,6 +32,7 @@ describe('proxies', () => {
     getSessionMock.mockReset();
     getSessionMock.mockResolvedValue({ data: { session: { access_token: 'tok-abc' } } });
     vi.stubGlobal('fetch', vi.fn());
+    resetStatboticsBackoff();
   });
 
   describe('tbaGet', () => {
@@ -94,6 +95,23 @@ describe('proxies', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'oops' }, 503)));
       const result = await statboticsGet('/team_event/254/2026casnv');
       expect(result).toEqual({ available: false });
+    });
+
+    it('stops calling the proxy for a while after an outage', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ available: false }));
+      vi.stubGlobal('fetch', fetchMock);
+      await statboticsGet('/team_year/254/2026');
+      const result = await statboticsGet('/team_year/1678/2026');
+      expect(result).toEqual({ available: false });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps calling the proxy after a not-found answer', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ available: false, notFound: true }));
+      vi.stubGlobal('fetch', fetchMock);
+      await statboticsGet('/team_year/99999/2026');
+      await statboticsGet('/team_year/254/2026');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 
