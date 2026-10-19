@@ -118,7 +118,7 @@ test('multi-scout conflict surfaces in MatchView, ReportDetail, and TeamView', a
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 
-  await page.getByTestId(`match-item-${MATCH}`).click();
+  await page.getByTestId(`match-chip-${MATCH}`).click();
 
   const chip = page.getByTestId(`match-conflict-${TEAM}-${STATION}`);
   await expect(chip).toBeVisible({ timeout: 15_000 });

@@ -47,8 +47,9 @@ test('MatchView search filters the match list and shows an empty state', async (
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 
-  // The search box is always present once the shell renders.
-  const search = page.getByTestId('match-search');
+  // Desktop (Desktop Chrome width): the chip picker's search box is present once
+  // the shell renders; phones use the stacked list instead.
+  const search = page.getByTestId('match-picker-search');
   // Empty live event: no schedule → no search box (the "none" state shows instead).
   test.skip(!(await search.isVisible().catch(() => false)) || !probe, 'Live event has no schedule yet.');
 
@@ -56,14 +57,14 @@ test('MatchView search filters the match list and shows an empty state', async (
 
   // Filter by the match's red-1 team number — the match for that team survives.
   await search.fill(String(probe!.red1));
-  await expect(page.getByTestId(`match-item-${matchKey}`)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId(`match-chip-${matchKey}`)).toBeVisible({ timeout: 10_000 });
 
   // A nonsense query yields the empty-search state, not a crash.
   await search.fill('zzz-no-such-match');
-  await expect(page.getByTestId('match-search-empty')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('match-picker-empty')).toBeVisible({ timeout: 10_000 });
 
-  // Clearing the search restores the list.
+  // Clearing the search restores the chip strip.
   await search.fill('');
-  await expect(page.getByTestId('match-list')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('match-strip')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId('route-error')).toHaveCount(0);
 });

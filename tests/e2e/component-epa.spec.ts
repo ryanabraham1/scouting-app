@@ -60,7 +60,7 @@ test('Match tab shows a labeled Scoring estimate card (tolerant of an empty even
   test.skip(!probe, 'No match on the live event yet.');
   const matchKey = probe!.match_key as string;
 
-  const item = page.getByTestId(`match-item-${matchKey}`);
+  const item = page.getByTestId(`match-chip-${matchKey}`);
   test.skip(!(await item.isVisible().catch(() => false)), 'Selectable match not rendered yet.');
   await item.click();
 

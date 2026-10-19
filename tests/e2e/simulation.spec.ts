@@ -323,7 +323,8 @@ test('lead dashboard navigates all tabs without crashing', async ({ browser }) =
     await expect(page.getByTestId('setup-active-event')).toHaveText(EVENT, { timeout: 15_000 });
 
     await page.goto('/analysis');
-    const ANALYSIS_TABS = ['Pit Display', 'Team', 'Match', 'Ranking', 'Alliance'];
+    // Alliance is hidden for now (HIDDEN_TABS in AnalysisScreen.tsx).
+    const ANALYSIS_TABS = ['Pit Display', 'Team', 'Match', 'Ranking'];
     for (const label of ANALYSIS_TABS) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       await expect(page.getByTestId('route-error')).toHaveCount(0);

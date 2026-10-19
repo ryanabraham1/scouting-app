@@ -32,8 +32,12 @@ test('/admin redirects into Lead Dashboard Settings', async ({ page }) => {
   await expect(page.getByTestId('setup-tab')).toBeVisible({ timeout: 10_000 });
 });
 
-test('Analysis is open and includes Alliance', async ({ page }) => {
+test('Analysis is open with its desktop tabs (Alliance hidden for now)', async ({ page }) => {
   await page.goto('/analysis');
   await expect(page.getByTestId('analysis')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('tab', { name: 'Alliance' })).toBeVisible();
+  for (const label of ['Pit Display', 'Team', 'Match', 'Ranking']) {
+    await expect(page.getByRole('tab', { name: label, exact: true })).toBeVisible();
+  }
+  // Hidden via HIDDEN_TABS in AnalysisScreen.tsx.
+  await expect(page.getByRole('tab', { name: 'Alliance' })).toHaveCount(0);
 });

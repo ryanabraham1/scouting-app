@@ -131,7 +131,7 @@ test('Scenario B — MatchView scouting-status drill-down', async ({ page }) => 
   await page.getByRole('tab', { name: 'Match' }).click();
   await expect(page.getByTestId('dash-match')).toBeVisible({ timeout: 15_000 });
 
-  await page.getByTestId(`match-item-${matchKey}`).click();
+  await page.getByTestId(`match-chip-${matchKey}`).click();
   await expect(page.getByTestId('match-scout-status')).toBeVisible({ timeout: 10_000 });
   // The scout's report row appears on the match (index 0: the only report).
   await expect(page.getByTestId(`match-report-${targetTeam}-1-0`)).toBeVisible({

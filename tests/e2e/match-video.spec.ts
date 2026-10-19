@@ -39,7 +39,7 @@ test.describe('match video', () => {
     await setActiveEvent(admin, eventKey);
     await page.goto('/analysis');
     await page.getByRole('tab', { name: 'Match', exact: true }).click();
-    await page.locator('[data-testid^="match-item-"]').first().click();
+    await page.locator('[data-testid^="match-chip-"]').first().click();
     await expect(page.getByText('Match video & activity', { exact: true })).toBeVisible();
     // One of the terminal states must appear (frame, none, unavailable, or error).
     await expect(
@@ -60,7 +60,7 @@ test.describe('match video', () => {
     await setActiveEvent(admin, eventKey);
     await page.goto('/analysis');
     await page.getByRole('tab', { name: 'Match', exact: true }).click();
-    await page.locator('[data-testid^="match-item-"]').first().click();
+    await page.locator('[data-testid^="match-chip-"]').first().click();
     const frame = page.getByTestId('match-video-frame');
     if (await frame.count()) {
       const link = page.getByTestId('match-video-yt-link');
