@@ -29,6 +29,7 @@ db.boardRecords.hook('creating', (_key, row) => { if (row.boardKey === eventKey)
 db.boardRecords.hook('updating', (_changes, _key, row) => row.boardKey === eventKey ? { syncState: 'synced' as const } : undefined);
 await db.boardRecords.where('boardKey').equals(eventKey).modify({ syncState: 'synced' });
 const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+(window as unknown as { __boardQueryClient?: typeof client }).__boardQueryClient = client;
 client.setQueryData(['teams', eventKey], [{ team_number: 254, nickname: 'The Cheesy Poofs' }, { team_number: 3256, nickname: 'WarriorBorgs' }]);
 const matches: MatchRow[] = [1, 2].map((n) => ({
   match_key: `${eventKey}_qm${n}`, event_key: eventKey, comp_level: 'qm', match_number: n,

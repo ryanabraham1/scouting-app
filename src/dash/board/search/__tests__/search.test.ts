@@ -82,6 +82,12 @@ const CORPUS: [string[], string][] = [
   [['who defends', 'best defense', 'defence'], 'rankings:defense:desc:5'],
   [['worst reliability', 'least reliable'], 'rankings:reliability:asc:5'],
   [['1678 auto', 'citrus autonomous', '1678 auto points'], 'teamMetric:1678:auto'],
+  // While typing: the last word prefix-matches stats.
+  [['254 reli', '254 relia', '254 reliab', '254 reliabilit', 'cheesy reli'], 'teamMetric:254:reliability'],
+  [['254 defe', '254 defen'], 'teamMetric:254:defense'],
+  [['254 tele', '254 telep'], 'teamMetric:254:teleop'],
+  [['254 endg', '254 clim'], 'teamMetric:254:endgame'],
+  [['254 scou'], 'teamMetric:254:scouted'],
   [['1678 epa', '1678 bsr', '1678 history', '1678 trend', 'citrus over time'], 'epaHistory:1678'],
   [['our next', 'our next match', 'next match', 'us next', 'next'], 'match:our-next'],
   [['our matches', 'our schedule', 'us schedule'], 'schedule:3256'],
@@ -134,6 +140,11 @@ describe('spotlight details', () => {
     const learned = recordPick(recordPick(recordPick({}, 'cheesy', 'schedule:254'), 'cheesy', 'schedule:254'), 'cheesy', 'schedule:254');
     const res = search('cheesy', { ...ctx, learned }).results;
     expect(res[0].key).toBe('schedule:254');
+  });
+
+  it('a partial stat word offers the other completions as alternates', () => {
+    const keys = search('254 re', ctx).results.map((r) => r.key);
+    expect(keys).toEqual(expect.arrayContaining(['teamMetric:254:reliability', 'teamMetric:254:winrate']));
   });
 
   it('gibberish returns nothing instead of a wrong guess', () => {

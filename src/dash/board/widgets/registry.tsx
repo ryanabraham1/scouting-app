@@ -5,6 +5,7 @@
 // Plan: docs/plans/ryans-board/README.md §10.
 import { AutoPathBody, DataBody, NotesBody, PhotoBody, PitBody, ReportsBody, StatsBody, VideoBody, TeamLinks, MatchLinks } from './Explorers';
 import { WidgetLink } from './interaction';
+import { BsrChart } from './BsrChart';
 import { DATA_SOURCES, fieldLabel } from './sources';
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { useQueries } from '@tanstack/react-query';
@@ -136,20 +137,6 @@ export function useTeamsEpaHistory(teams: number[], eventKey: string) {
   });
 }
 
-function Sparkline({ values, color, height = 30, dashed }: { values: number[]; color: string; height?: number; dashed?: boolean }): JSX.Element | null {
-  if (values.length < 2) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const w = 100;
-  const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${height - 2 - ((v - min) / span) * (height - 4)}`).join(' ');
-  return (
-    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" width="100%" height={height} aria-hidden>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeDasharray={dashed ? '4 4' : undefined} />
-    </svg>
-  );
-}
-
 function TeamBody({ config }: { config: WidgetConfig }): JSX.Element {
   const data = useBoardData();
   const now = useNow();
@@ -173,36 +160,58 @@ function TeamBody({ config }: { config: WidgetConfig }): JSX.Element {
   }
   const next = nextMatchOf(data.matches, team);
   const t = next ? matchTimeMs(next) : null;
-  const points = history[0]?.data?.map((p) => p.value) ?? [];
+  const points = history[0]?.data ?? [];
+  const first = points[0]?.value;
+  const delta = first != null && bsr != null && points.length > 1 ? bsr - first : null;
   const agg = data.agg.get(team);
   return (
-    <div className="flex h-full flex-col gap-2 px-3 pb-2.5 pt-2">
+    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3 pb-2 pt-2.5">
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="tnum text-xl font-bold">{team}</span>
+        <span className="tnum text-xl font-bold leading-none">{team}</span>
         <span className="min-w-0 truncate text-muted-foreground">{nick}</span>
+        {st && (
+          <span className="tnum ml-auto shrink-0 text-xs text-muted-foreground">
+            #{st.rank} · {st.wins}-{st.losses}-{st.ties}
+          </span>
+        )}
       </div>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid shrink-0 grid-cols-3 gap-1.5">
         <Stat label="BSR" value={fmt('bsr', bsr)} sub={variance != null ? `±${Math.sqrt(variance).toFixed(1)}` : undefined} />
-        <Stat label="Rank" value={st ? String(st.rank) : '—'} sub={st ? `${st.wins}-${st.losses}-${st.ties}` : undefined} />
-        <Stat label="Scouted" value={fmt('scouted', data.metric(team, 'scouted'))} sub={agg?.matchesScouted ? `${agg.matchesScouted} reports` : undefined} />
-      </div>
-      <div className="grid grid-cols-3 gap-1.5">
+        <Stat label="Scouted" value={fmt('scouted', data.metric(team, 'scouted'))} sub={agg?.matchesScouted ? `${agg.matchesScouted} reports` : 'no reports'} />
+        <Stat label="Win rate" value={fmt('winrate', data.metric(team, 'winrate'))} />
         <Stat label="Auto" value={fmt('auto', data.metric(team, 'auto'))} />
         <Stat label="Teleop" value={fmt('teleop', data.metric(team, 'teleop'))} />
         <Stat label="Endgame" value={fmt('endgame', data.metric(team, 'endgame'))} />
       </div>
-      <div className="min-h-0 flex-1">
-        <Sparkline values={points} color="hsl(199 89% 48%)" />
-      </div>
-      <TeamLinks team={team} />
-      {next && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span>Next</span>
-          <WidgetLink kind="match" config={{ match: next.match_key, focus: team }} label={`Pin ${matchLabel(next.match_key)} details`} className="tnum font-semibold text-foreground">{matchLabel(next.match_key)}</WidgetLink>
-          <AllianceChip side={allianceOf(next, team)} />
-          {t != null && <span className="ml-auto">{countdown(t, now)}</span>}
+      <div className="flex min-h-[96px] flex-1 flex-col">
+        <div className="mb-1 flex items-baseline gap-2">
+          <span className="eyebrow !text-[10px] !tracking-[0.14em]">BSR this season</span>
+          {delta != null && (
+            <span className={cn('tnum ml-auto text-[11px]', delta >= 0 ? 'text-success' : 'text-destructive')}>
+              {delta >= 0 ? '+' : '−'}
+              {Math.abs(delta).toFixed(1)} since first match
+            </span>
+          )}
         </div>
-      )}
+        <div className="min-h-0 flex-1">
+          <BsrChart series={[{ team, points }]} loading={history[0]?.isLoading} />
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 border-t border-[hsl(0_0%_14%)] pt-1.5 text-xs text-muted-foreground">
+        {next ? (
+          <>
+            <span>Next</span>
+            <WidgetLink kind="match" config={{ match: next.match_key, focus: team }} label={`Pin ${matchLabel(next.match_key)} details`} className="tnum !min-h-0 font-semibold text-foreground">
+              {matchLabel(next.match_key)}
+            </WidgetLink>
+            <AllianceChip side={allianceOf(next, team)} />
+            {t != null && <span className="tnum">{countdown(t, now)}</span>}
+          </>
+        ) : (
+          <span>No upcoming match</span>
+        )}
+        <TeamLinks team={team} className="-my-1 ml-auto" />
+      </div>
     </div>
   );
 }
@@ -231,7 +240,7 @@ function MatchCard({ m, focus }: { m: MatchRow; focus?: number | null }): JSX.El
     ts.map((t, i) => (
       <span key={t}>
         {i > 0 && ' · '}
-        <WidgetLink kind="team" config={{ team: t }} label={`Pin team ${t}`} className={cn(t === focus && 'underline decoration-2 underline-offset-2', t === data.baseTeam && 'font-bold')}>{t}</WidgetLink>
+        <WidgetLink kind="team" config={{ team: t }} label={`Pin team ${t}`} className={cn('!min-h-0 px-0.5', t === focus && 'underline decoration-2 underline-offset-2', t === data.baseTeam && 'font-bold')}>{t}</WidgetLink>
       </span>
     ));
   return (
@@ -457,47 +466,15 @@ function CompareBody({ config }: { config: WidgetConfig }): JSX.Element {
 }
 
 // -------------------------------------------------------------- epa history
-const SERIES = ['hsl(199 89% 48%)', '#a1a1a1', '#c084fc', '#fb923c'];
-
 function EpaHistoryBody({ config }: { config: WidgetConfig }): JSX.Element {
   const data = useBoardData();
   const teams = teamList(config.teams).slice(0, 4);
   const qs = useTeamsEpaHistory(teams, data.eventKey);
-  const series = qs.map((q) => q.data?.map((p) => p.value) ?? []);
   if (!teams.length) return <Empty>Add teams in the widget settings.</Empty>;
-  const all = series.flat();
-  if (all.length < 2) return <Empty>{qs.some((q) => q.isLoading) ? 'Loading history…' : 'No match history yet.'}</Empty>;
-  const min = Math.min(...all);
-  const max = Math.max(...all);
-  const span = max - min || 1;
-  const W = 300;
-  const H = 100;
+  const series = teams.map((team, i) => ({ team, points: qs[i]?.data ?? [] }));
   return (
-    <div className="flex h-full flex-col px-3 pb-2 pt-1">
-      <div className="flex gap-3 text-[11px]">
-        {teams.map((t, i) => (
-          <span key={t} style={{ color: SERIES[i] }}><WidgetLink kind="team" config={{ team: t }} label={`Pin team ${t}`}>— {t}</WidgetLink></span>
-        ))}
-        <span className="tnum ml-auto text-muted-foreground">{min.toFixed(0)}–{max.toFixed(0)}</span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="min-h-0 w-full flex-1" aria-hidden>
-        {[0.25, 0.5, 0.75].map((f) => (
-          <line key={f} x1={0} x2={W} y1={H * f} y2={H * f} stroke="hsl(0 0% 16%)" vectorEffect="non-scaling-stroke" />
-        ))}
-        {series.map((vals, i) =>
-          vals.length > 1 ? (
-            <polyline
-              key={teams[i]}
-              fill="none"
-              stroke={SERIES[i]}
-              strokeWidth={2.2}
-              vectorEffect="non-scaling-stroke"
-              strokeDasharray={i === 0 ? undefined : '5 4'}
-              points={vals.map((v, j) => `${(j / (vals.length - 1)) * W},${H - 4 - ((v - min) / span) * (H - 8)}`).join(' ')}
-            />
-          ) : null,
-        )}
-      </svg>
+    <div className="flex h-full min-h-0 flex-col px-3 pb-2 pt-2">
+      <BsrChart series={series} loading={qs.some((q) => q.isLoading)} showLegend emptyText="No match history yet." />
     </div>
   );
 }
@@ -587,8 +564,8 @@ export const WIDGETS: Record<WidgetKind, WidgetDef> = {
     label: 'Team',
     icon: Bot,
     defaultConfig: () => ({ team: 'base', variant: 'detailed' }),
-    size: (c) => (c.variant === 'compact' ? { w: 300, h: 46 } : { w: 320, h: 290 }),
-    minSize: { w: 200, h: 40 },
+    size: (c) => (c.variant === 'compact' ? { w: 300, h: 46 } : { w: 340, h: 400 }),
+    minSize: { w: 220, h: 40 },
     title: teamTitle,
     Body: TeamBody,
   },
@@ -660,8 +637,8 @@ export const WIDGETS: Record<WidgetKind, WidgetDef> = {
     label: 'BSR history',
     icon: TrendingUp,
     defaultConfig: () => ({ teams: [] }),
-    size: () => ({ w: 380, h: 200 }),
-    minSize: { w: 240, h: 120 },
+    size: () => ({ w: 420, h: 250 }),
+    minSize: { w: 260, h: 150 },
     title: (c) => `BSR history${teamList(c.teams).length ? ` · ${teamList(c.teams).join(' vs ')}` : ''}`,
     Body: EpaHistoryBody,
   },

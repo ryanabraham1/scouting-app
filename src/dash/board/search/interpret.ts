@@ -71,6 +71,8 @@ export interface Interpretation {
   count: number | null;
   /** Mentioned "match"/"matches" without a number. */
   matchWord: boolean;
+  /** Other stats the word being typed could complete to ("re" -> reliability, rank...). */
+  completions: MetricKey[];
   /** The only team came from "our/us" (keeps dynamic 'our-next' bindings). */
   selfOnly: boolean;
   /** 0..1: how much of the query was understood. */
@@ -178,6 +180,7 @@ export function interpret(query: string, ctx: SearchContext): Interpretation {
   let matchWord = false;
   const qualities: number[] = [];
   const leftovers: { t: string; last: boolean }[] = [];
+  const completions: MetricKey[] = [];
   const addTeam = (n: number): void => {
     if (!teams.includes(n)) teams.push(n);
   };
@@ -260,7 +263,18 @@ export function interpret(query: string, ctx: SearchContext): Interpretation {
         bestTeams = [...new Set([...bestTeams, ...owners])];
       }
     }
-    const vocab = t.length >= 4 ? bestTerm(t, [...Object.keys(METRIC_WORDS), ...Object.keys(INTENT_WORDS)]) : null;
+    // The word still being typed prefix-matches the vocabulary too, so
+    // "2045 reli" already means reliability (not just the team card).
+    const vocabTerms = [...Object.keys(METRIC_WORDS), ...Object.keys(INTENT_WORDS)];
+    const vocab = last && t.length >= 2 ? bestTerm(t, vocabTerms, true) : t.length >= 4 ? bestTerm(t, vocabTerms) : null;
+    if (last && t.length >= 2) {
+      // Other meanings the partial word could finish as (shown as alternates).
+      for (const term of vocabTerms) {
+        if (!term.startsWith(t) || term === vocab?.term) continue;
+        const m = METRIC_WORDS[term];
+        if (m && m !== METRIC_WORDS[vocab?.term ?? ''] && !completions.includes(m)) completions.push(m);
+      }
+    }
     if (vocab && vocab.score >= 0.7 && vocab.score > bestTeamScore) {
       if (METRIC_WORDS[vocab.term]) metric = METRIC_WORDS[vocab.term];
       else intents.add(INTENT_WORDS[vocab.term]);
@@ -286,6 +300,7 @@ export function interpret(query: string, ctx: SearchContext): Interpretation {
     count,
     matchWord,
     selfOnly,
+    completions: completions.slice(0, 4),
     quality,
     complete: qualities.every((q) => q >= 0.55),
   };
@@ -465,6 +480,18 @@ export function search(query: string, ctx: SearchContext): { interpretation: Int
       });
     } else add(teamResult(t, base + 0.3, 'best'));
     teamSection(t, base);
+    for (const [i, m] of it.completions.entries()) {
+      const label = METRICS[m].label;
+      add({
+        key: `teamMetric:${t}:${m}`,
+        kind: 'teamMetric',
+        title: `${t} · ${label}`,
+        subtitle: 'Live stat tile',
+        score: base + 0.1 - i * 0.02,
+        group: 'team',
+        widget: { kind: 'stat', config: { expr: `${t}.${m}`, label: `${t} · ${label}` } },
+      });
+    }
   } else if (it.matches.length) {
     it.matches.forEach((m, i) => add(matchResult(m, base + 0.3 - i * 0.05)));
   } else if (I.has('next') || I.has('last')) {

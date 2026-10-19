@@ -7,7 +7,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useSyncExternalStore,
+  startTransition,
   useMemo,
   useRef,
   useState,
@@ -42,6 +42,17 @@ const CURSOR: Record<Tool, string> = {
   laser: 'crosshair',
   comment: 'crosshair',
 };
+
+/** Elements inside a card that keep their own clicks and drags. */
+const CONTROL_SELECTOR =
+  'button,a,input,select,textarea,label,summary,iframe,video,audio,[role="button"],[role="link"],[role="slider"],[draggable="true"],[contenteditable="true"]';
+
+/** Can this element (or a scrollable ancestor inside it) scroll further by (dx, dy)? */
+function canScroll(el: HTMLElement, dx: number, dy: number): boolean {
+  const y = dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : dy < 0 ? el.scrollTop > 0 : false;
+  const x = dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : dx < 0 ? el.scrollLeft > 0 : false;
+  return Math.abs(dy) >= Math.abs(dx) ? y : x;
+}
 
 function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -90,7 +101,26 @@ export function BoardCanvas({
   const worldRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const snapshot = useMemo(() => visibleShapesSnapshot(editor, exportAll), [editor, exportAll]);
-  const visible = useSyncExternalStore(editor.subscribe, snapshot);
+  // Edits re-render immediately; camera-driven changes to the visible set
+  // (new cards scrolling or zooming into range) mount in a background
+  // transition, so a batch of widgets never blocks a frame of the pan.
+  const [visible, setVisible] = useState(snapshot);
+  useEffect(() => {
+    let last = snapshot();
+    let order = editor.order;
+    setVisible(last);
+    return editor.subscribe(() => {
+      const next = snapshot();
+      if (next === last) return;
+      last = next;
+      if (editor.order !== order || exportAll) {
+        order = editor.order;
+        setVisible(next);
+      } else {
+        startTransition(() => setVisible(next));
+      }
+    });
+  }, [editor, snapshot, exportAll]);
   const pendingErase = useBoard(editor, (e) => e.pendingErase);
   const editingId = useBoard(editor, (e) => e.editingId);
   const tool = useBoard(editor, (e) => e.effectiveTool);
@@ -153,7 +183,17 @@ export function BoardCanvas({
 
   // ---------------------------------------------------------------- pointers
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
-    if ((e.target as HTMLElement).closest('[data-board-interactive]')) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-board-interactive]')) {
+      // A card's body belongs to the card only for real controls, or once the
+      // card is selected (scroll it, select its text). Otherwise a press grabs
+      // and moves the card like its header, and pan gestures always pan.
+      const pan = e.button === 1 || editor.spaceHeld || editor.tool === 'hand';
+      const control = target.closest(CONTROL_SELECTOR);
+      const id = target.closest('[data-shape-id]')?.getAttribute('data-shape-id');
+      const owned = id != null && editor.selection.size === 1 && editor.selection.has(id);
+      if (!pan && (control || owned)) return;
+    }
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-board-chrome]')) return;
     ref.current?.focus({ preventScroll: true });
     if (editingId) return; // the textarea's blur commits first
@@ -261,14 +301,24 @@ export function BoardCanvas({
     const el = ref.current;
     if (!el) return;
     const onWheel = (e: WheelEvent): void => {
-      if ((e.target as HTMLElement).closest?.('[data-board-scroll]')) return;
-      e.preventDefault();
       const r = el.getBoundingClientRect();
-      const sx = e.clientX - r.left;
-      const sy = e.clientY - r.top;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
       const dx = e.deltaX * unit;
       const dy = e.deltaY * unit;
+      const scroller = (e.target as HTMLElement).closest?.('[data-board-scroll]') as HTMLElement | null;
+      if (scroller && !e.ctrlKey && !e.metaKey) {
+        const card = scroller.closest('[data-shape-id]');
+        // Chrome overlays (spotlight, tray, inspector) scroll natively.
+        if (!card) return;
+        // The wheel pans the board, never a card in passing: only a SELECTED
+        // card with room to scroll that way keeps it. Panning across a wall of
+        // widgets would otherwise stall every time the cursor crossed one.
+        const id = card.getAttribute('data-shape-id');
+        if (id && editor.selection.size === 1 && editor.selection.has(id) && canScroll(scroller, dx, dy)) return;
+      }
+      e.preventDefault();
+      const sx = e.clientX - r.left;
+      const sy = e.clientY - r.top;
       if (e.ctrlKey || e.metaKey) {
         // Trackpad pinch (ctrl+wheel) or Cmd+wheel: zoom about the cursor.
         editor.zoomAt(sx, sy, editor.camera.z * Math.exp(-dy * 0.01));
@@ -520,9 +570,28 @@ export function BoardCanvas({
   useLayoutEffect(() => {
     let zoom = -1;
     let grid = GRID_STEP;
+    let lastCam = editor.camera;
+    let settle: ReturnType<typeof setTimeout> | null = null;
     const paint = (): void => {
-      const { x, y, z } = editor.camera;
-      if (worldRef.current) worldRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${z})`;
+      const cam = editor.camera;
+      const { x, y, z } = cam;
+      const world = worldRef.current;
+      if (world) {
+        world.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${z})`;
+        // will-change only WHILE the camera moves: it keeps panning on the
+        // compositor, but a permanent hint freezes text at its old raster
+        // scale (blurry after zooming). Dropping it once the camera settles
+        // re-rasterizes everything crisp at the new zoom.
+        if (cam !== lastCam) {
+          lastCam = cam;
+          world.style.willChange = 'transform';
+          if (settle) clearTimeout(settle);
+          settle = setTimeout(() => {
+            settle = null;
+            world.style.willChange = 'auto';
+          }, 180);
+        }
+      }
       const layer = gridRef.current;
       if (!layer) return;
       if (zoom !== z) {
@@ -538,7 +607,11 @@ export function BoardCanvas({
       layer.style.transform = `translate3d(${phase(x)}px, ${phase(y)}px, 0)`;
     };
     paint();
-    return editor.subscribe(paint);
+    const unsub = editor.subscribe(paint);
+    return () => {
+      unsub();
+      if (settle) clearTimeout(settle);
+    };
   }, [editor]);
 
   // --------------------------------------------------------------- render
@@ -584,7 +657,6 @@ export function BoardCanvas({
           position: 'absolute',
           left: 0,
           top: 0,
-          willChange: 'transform',
           transformOrigin: '0 0',
         }}
       >

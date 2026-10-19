@@ -34,7 +34,9 @@ export function WidgetLink({ kind, config, children, label, className = '' }: {
       e.stopPropagation();
       if (!editor) return;
       const size = WIDGETS[kind].size(config);
-      const at = source ? { x: source.x + source.w + 24 + size.w / 2, y: source.y + size.h / 2 } : undefined;
+      // The card memoizes on content, so read its LIVE position from the editor.
+      const from = source ? editor.shapes.get(source.id) ?? source : null;
+      const at = from ? { x: from.x + from.w + 24 + size.w / 2, y: from.y + size.h / 2 } : undefined;
       insertWidget(editor, kind, config, at);
       const selected = editor.shapes.get([...editor.selection][0]);
       if (selected) editor.zoomToRect(selected, Math.min(1, editor.camera.z));

@@ -89,6 +89,31 @@ throwaway config instead of downloading them:
 The desktop failures that run found were the wide top-bar search pill lacking the
 accessible name "Search" (fixed with `aria-label`).
 
+**Smoothness and widget polish pass (2026-10-19, after user reports of a jittery, clunky board)**
+- Root cause of the jitter: the wheel handler bailed out whenever the cursor was over a widget
+  body (`data-board-scroll`), so a trackpad pan stalled or scrolled the card each time it crossed
+  one (measured: 240 wheel events moved the board 126 px instead of 4,320 px). Now the wheel
+  always pans/zooms; only a SELECTED card that can still scroll that way keeps it
+  (`canScroll` in BoardCanvas). Regression: `src/dash/board/__tests__/canvasInput.test.tsx`.
+- Presses: an unselected card's body grabs and moves the card (like its header) unless the press
+  lands on a real control (`CONTROL_SELECTOR`); a selected card's body is interactive. Space,
+  middle-drag and the hand tool always pan, even over cards.
+- `WidgetFrame` memoizes on content (kind + config + locked), not geometry, so drags/resizes never
+  re-render card bodies. `WidgetLink` reads the card's live position from the editor for that reason.
+- Below `LITE_ZOOM` (0.42) cards render an icon + title summary; the swap back is `useDeferredValue`.
+- Camera-driven visible-set changes mount in `startTransition`; edits stay synchronous.
+- `will-change: transform` is set on the world layer only while the camera moves (dropped 180 ms
+  after it settles) so text re-rasterizes crisp after zooming.
+- Measured in headless Chrome with 4x CPU throttling, 300 shapes / 80 widgets, real input:
+  wheel pan, card drag and resize hold 60 fps with no frame over 33 ms; zoom worst frame went
+  from 117 ms to 33 ms. Not measured on Ryan's own machine.
+- New shared pieces: `widgets/BsrChart.tsx` (labelled points axis, first/last match, current value,
+  legend) used by the team card and BSR history widget; `widgets/ui.tsx` (Section, Tag, KeyValues,
+  IconLinks, EmptyState) used by every detail widget in `Explorers.tsx`. Team card default size is
+  now 340x400 with the chart filling the middle and a footer for next match + icon links.
+- Search: the word still being typed prefix-matches stat/intent words ("2045 reli" -> reliability
+  tile) and other completions show as alternates. Corpus now 144 tests.
+
 **Implementation notes discovered while building**
 - Keyboard shortcuts are window-level (`BoardCanvas` attaches keydown/keyup on `window`,
   skipping inputs/textareas/dialogs), because on first load focus sits on `<body>`.
