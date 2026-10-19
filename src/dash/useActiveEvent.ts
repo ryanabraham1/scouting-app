@@ -26,7 +26,10 @@ const ACTIVE_EVENT_POLL_MS = 30_000;
 
 export interface ActiveEvent {
   eventKey: string | null;
+  /** True only while the first online check runs with no stored event to show. */
   loading: boolean;
+  /** True while the first online authority check is in flight (with or without a stored event). */
+  verifying: boolean;
   /**
    * True once this browser has resolved the server, when it is offline, or when
    * the server check FAILED. A browser that reports `navigator.onLine` but cannot
@@ -136,16 +139,20 @@ export function useActiveEvent(): ActiveEvent {
 
   const resolved = !query.isPlaceholderData && query.dataUpdatedAt > 0;
   const serverUnreachable = online && !resolved && query.isError;
+  const eventKey = query.data !== undefined ? query.data : getStoredActiveEvent();
+  const verifying =
+    online && query.isFetching && query.dataUpdatedAt === 0 && query.failureCount === 0;
 
   return {
-    eventKey: query.data !== undefined ? query.data : getStoredActiveEvent(),
-    // Gate only the first online authority check. Background poll/focus refreshes
-    // keep the current event visible and swap atomically when the answer arrives.
-    loading:
-      online &&
-      query.isFetching &&
-      query.dataUpdatedAt === 0 &&
-      query.failureCount === 0,
+    eventKey,
+    // Only a device with NO known event waits on the first authority check.
+    // One that already has a stored event renders it instantly (stale-while-
+    // revalidate) — `authoritative` stays false until the server answers, so
+    // destructive edits stay paused, and a different server answer swaps in
+    // atomically. Blocking every screen behind a venue-wifi round-trip on every
+    // launch bought nothing: the event changes a handful of times per season.
+    loading: verifying && !eventKey,
+    verifying,
     authoritative: !online || resolved || serverUnreachable,
     serverUnreachable,
   };

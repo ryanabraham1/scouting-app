@@ -54,8 +54,20 @@ describe('useActiveEvent', () => {
     stored = '2026casnv';
     const { result } = renderHook(() => useActiveEvent(), { wrapper });
     expect(result.current.eventKey).toBe('2026casnv');
-    expect(result.current.loading).toBe(true);
+    // Renders instantly from the stored event; verification runs in the background.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.verifying).toBe(true);
     expect(result.current.authoritative).toBe(false);
+  });
+
+  it('only blocks on the first check when no event is stored', async () => {
+    eventRows = [{ event_key: '2026demo', is_active: true }];
+    const { result } = renderHook(() => useActiveEvent(), { wrapper });
+    expect(result.current.eventKey).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(result.current.eventKey).toBe('2026demo'));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.verifying).toBe(false);
   });
 
   it('overrides a stale local event with the server event online', async () => {
@@ -132,7 +144,7 @@ describe('useActiveEvent', () => {
     stored = '2026casnv';
     eventRows = [];
     const { result } = renderHook(() => useActiveEvent(), { wrapper });
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.authoritative).toBe(true));
     expect(result.current.eventKey).toBeNull();
     expect(stored).toBeNull();
   });

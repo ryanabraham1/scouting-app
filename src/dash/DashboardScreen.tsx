@@ -166,9 +166,23 @@ function LeadGate({ children }: { children: (lockDashboard: () => void) => React
   );
 }
 
+const VERIFY_BANNER_DELAY_MS = 1_500;
+
 function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.Element {
-  const { eventKey, loading, authoritative, serverUnreachable } = useActiveEvent();
+  const { eventKey, loading, verifying, authoritative, serverUnreachable } = useActiveEvent();
   useEventLiveSync(eventKey);
+  // The cached event renders instantly while the server confirms it. A normal
+  // check lands in a few hundred ms, so only explain the paused edits if it is
+  // still running after a beat — otherwise the banner flashes on every launch.
+  const [slowVerify, setSlowVerify] = useState(false);
+  useEffect(() => {
+    if (!verifying) {
+      setSlowVerify(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlowVerify(true), VERIFY_BANNER_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [verifying]);
   const [tab, setTab] = useState<Tab>(initialTab);
 
   function selectTab(next: Tab): void {
@@ -215,7 +229,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
         </StationMenu>
       </header>
 
-      {!authoritative && eventKey ? (
+      {!authoritative && eventKey && (!verifying || slowVerify) ? (
         <div
           role="status"
           data-testid="dashboard-event-unverified"

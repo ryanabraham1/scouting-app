@@ -194,27 +194,48 @@ function NamePicker(props: { eventKey: string; onPicked: (s: ScoutRow) => void }
   // carries `hidden`) and the offline cache (CachedRosterScouter) satisfy this.
   // listRoster() already excludes hidden scouters, so the picker never offers one.
   const [roster, setRoster] = useState<{ id: string; name: string }[]>([]);
+  // False until either source has answered, so an empty first frame never reads
+  // as "No scouters on the roster yet".
+  const [rosterLoaded, setRosterLoaded] = useState(false);
   const [filter, setFilter] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    // The live answer, once it lands, always wins over the cached paint.
+    let liveLoaded = false;
+    // Paint the preloaded roster (local IndexedDB, ~ms) immediately instead of
+    // waiting on the network round-trip; the live list replaces it when it lands.
+    void getCachedRoster()
+      .then((cached) => {
+        if (cancelled || liveLoaded || !cached.length) return;
+        setRoster(cached);
+        setRosterLoaded(true);
+      })
+      .catch(() => {});
     void (async () => {
       try {
         const rows = await listRoster();
         if (cancelled) return;
         if (rows.length) {
+          liveLoaded = true;
           setRoster(rows);
+          setRosterLoaded(true);
           return;
         }
         // Network returned an empty roster — try the offline cache before giving up.
         const cached = await getCachedRoster();
-        if (!cancelled) setRoster(cached);
+        if (cancelled) return;
+        liveLoaded = true;
+        setRoster(cached);
+        setRosterLoaded(true);
       } catch (err) {
         // Network failed (likely offline): fall back to whatever was downloaded.
         const cached = await getCachedRoster();
         if (cancelled) return;
+        liveLoaded = true;
+        setRosterLoaded(true);
         if (cached.length) {
           setRoster(cached);
         } else {
@@ -277,7 +298,7 @@ function NamePicker(props: { eventKey: string; onPicked: (s: ScoutRow) => void }
             </Button>
           </li>
         ))}
-        {roster.length === 0 && !error && (
+        {rosterLoaded && roster.length === 0 && !error && (
           <li className="col-span-full text-sm text-muted-foreground">
             No scouters on the roster yet — ask your lead to add names.
           </li>
@@ -309,7 +330,10 @@ export default function ScoutHome() {
   const [savedNotice, setSavedNotice] = useState<'saved' | 'updated' | null>(null);
   // The server-owned global selection always wins online; local storage is used
   // by the shared resolver only as an offline fallback.
-  const { eventKey: activeEvent, loading: activeEventLoading } = useActiveEvent();
+  // Gate on the full first server check (`verifying`), not just `loading`: the
+  // scouter identity binds to the event and its reconciliation runs the mutating
+  // select_scouter RPC, so it must never run against a stale cached event.
+  const { eventKey: activeEvent, verifying: activeEventLoading } = useActiveEvent();
 
   // A fresh pick on THIS device wins over the session-resolved row: re-picking
   // after logout updates the same auth_uid's scout row, but useSession may still
