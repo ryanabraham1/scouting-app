@@ -444,9 +444,13 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   }
 
   return (
-    <div data-testid="dash-draft" className="space-y-4 text-foreground">
+    <div
+      data-testid="dash-draft"
+      // Extra-wide screens: picks + pool on the left, our alliance pinned right.
+      className="space-y-4 text-foreground xl:grid xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start xl:gap-4 xl:space-y-0"
+    >
       {/* Best remaining pick — the headline of the board. */}
-      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-brand/40">
+      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-brand/40 xl:col-start-1 xl:row-start-1">
         <CardHeader className="gap-1 space-y-0 px-0 pt-0 sm:p-6">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
             <CardTitle className="flex items-center gap-2 text-xl font-medium">
@@ -639,7 +643,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       {/* Our alliance: captain + our picks, with combined stats. Always shown so
           the "we got picked by another team" control is reachable even before any
           picks. */}
-      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-success/40" data-testid="draft-alliance">
+      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-success/40 xl:sticky xl:top-4 xl:col-start-2 xl:row-span-2 xl:row-start-1" data-testid="draft-alliance">
         <CardHeader className="gap-1 space-y-0 px-0 pt-0 sm:p-6">
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -693,7 +697,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
           {alliance.length > 0 ? (
             <>
               {/* Combined stat tiles. */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2 xl:grid-cols-1">
                 <div className="flex flex-col rounded-lg border border-border bg-muted/30 px-3 py-2">
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                     Alliance BSR
@@ -802,7 +806,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       </Card>
 
       {/* The pool — every team, ranked, with one-tap cross-off. */}
-      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border">
+      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border xl:col-start-1 xl:row-start-2">
         <CardHeader className="gap-3 px-0 pt-0 sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-xl font-medium">Team pool</CardTitle>

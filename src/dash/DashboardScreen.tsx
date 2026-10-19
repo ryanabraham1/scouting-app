@@ -209,7 +209,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
   return (
     <div
       data-testid="dashboard"
-      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-hidden bg-background px-safe py-safe text-foreground sm:gap-4 ${BOTTOM_BAR_CLEARANCE}`}
+      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-clip bg-background px-safe py-safe text-foreground sm:gap-4 ${BOTTOM_BAR_CLEARANCE}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-3">
         <StationMenu
