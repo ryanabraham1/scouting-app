@@ -446,10 +446,10 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   return (
     <div data-testid="dash-draft" className="space-y-4 text-foreground">
       {/* Best remaining pick — the headline of the board. */}
-      <Card className="border-brand/40 bg-card">
-        <CardHeader className="gap-1 space-y-0">
+      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-brand/40">
+        <CardHeader className="gap-1 space-y-0 px-0 pt-0 sm:p-6">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-xl font-medium">
               <Gavel className="size-5 shrink-0 text-brand" /> Best remaining
             </CardTitle>
             <span className="text-xs tabular-nums text-muted-foreground sm:text-right">
@@ -466,7 +466,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
             {/* Active-list switcher: auto-flips to 2nd pick when our first pick
                 lands (we picked / got picked); always manually switchable. */}
             <div
-              className="inline-flex rounded-md border border-border p-0.5"
+              className="grid w-full grid-cols-2 gap-1 rounded-xl bg-secondary p-1 sm:inline-flex sm:w-auto sm:rounded-md sm:border sm:border-border sm:bg-transparent sm:p-0.5"
               role="tablist"
               aria-label="Active picklist"
             >
@@ -484,9 +484,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   data-testid={`draft-list-${id}`}
                   onClick={() => setActiveList(id)}
                   className={cn(
-                    'rounded px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    'rounded-lg px-2 py-2 text-center text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:rounded sm:py-1',
                     activeList === id
-                      ? 'bg-brand/20 text-brand'
+                      ? 'bg-background text-foreground shadow-sm sm:bg-brand/20 sm:text-brand sm:shadow-none'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -496,7 +496,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0 sm:px-6">
           {best.length === 0 ? (
             <div data-testid="draft-best-empty" className="text-sm text-muted-foreground">
               No teams left to pick.
@@ -639,8 +639,8 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       {/* Our alliance: captain + our picks, with combined stats. Always shown so
           the "we got picked by another team" control is reachable even before any
           picks. */}
-      <Card className="border-success/40 bg-card" data-testid="draft-alliance">
-        <CardHeader className="gap-1 space-y-0">
+      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-success/40" data-testid="draft-alliance">
+        <CardHeader className="gap-1 space-y-0 px-0 pt-0 sm:p-6">
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Trophy className="size-5 text-success" />
@@ -659,7 +659,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
             ) : null}
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        <CardContent className="flex flex-col gap-3 px-0 sm:px-6">
           {/* "We got picked by another team" — flips us from captain to a member. */}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">We got picked by</span>
@@ -802,10 +802,10 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       </Card>
 
       {/* The pool — every team, ranked, with one-tap cross-off. */}
-      <Card className="bg-card">
-        <CardHeader className="gap-3">
+      <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border">
+        <CardHeader className="gap-3 px-0 pt-0 sm:p-6">
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>Team pool</CardTitle>
+            <CardTitle className="text-xl font-medium">Team pool</CardTitle>
             <Button
               type="button"
               size="sm"
@@ -830,7 +830,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
             />
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0 sm:px-6">
           {visibleRows.length === 0 ? (
             <div data-testid="draft-pool-empty" className="text-sm text-muted-foreground">
               No teams match your search.
