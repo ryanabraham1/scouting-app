@@ -2,6 +2,11 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
+/** Card chrome only from `sm` up; on phones the content sits flat on the page. */
+export const CARD_FLAT_PHONE = 'border-0 bg-transparent shadow-none sm:border sm:bg-card sm:shadow';
+/** Matching horizontal padding reset for CardHeader/CardContent on phones. */
+export const CARD_PAD_PHONE = 'px-0 sm:px-6';
+
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div

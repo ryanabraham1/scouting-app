@@ -39,7 +39,14 @@ import {
 } from '@/roster/rosterClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CARD_FLAT_PHONE,
+  CARD_PAD_PHONE,
+} from '@/components/ui/card';
 import { StatTile } from '@/components/ui/StatTile';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
@@ -124,12 +131,12 @@ function pct(rate: number | null): string {
 function ScouterLoadCard(props: { stats: EventScouterStats }): JSX.Element {
   const { stats } = props;
   return (
-    <Card data-testid="scouter-load-card" className="border-border bg-card">
-      <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+    <Card data-testid="scouter-load-card" className={cn(CARD_FLAT_PHONE, "border-border ")}>
+      <CardHeader className={cn(CARD_PAD_PHONE, "flex flex-row items-center gap-2 space-y-0")}>
         <Gauge className="size-5 text-brand" />
         <CardTitle className="text-foreground">Load</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className={CARD_PAD_PHONE}>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <span data-testid="scouter-load-total" className="contents">
             <StatTile label="Total reports" value={stats.totalReports} icon={<ClipboardList />} tone="brand" />
@@ -235,8 +242,8 @@ function MissedAssignmentsCard(props: {
   if (rows.length === 0) return null;
   const total = rows.reduce((n, u) => n + (u.assignments?.missed.length ?? 0), 0);
   return (
-    <Card data-testid="scouter-missed-card" className="border-destructive/40 bg-card">
-      <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+    <Card data-testid="scouter-missed-card" className={cn(CARD_FLAT_PHONE, "border-destructive/40 ")}>
+      <CardHeader className={cn(CARD_PAD_PHONE, "flex flex-row items-center gap-2 space-y-0")}>
         <CalendarX className="size-5 text-destructive" />
         <CardTitle className="text-foreground">
           Missed assignments{' '}
@@ -245,7 +252,7 @@ function MissedAssignmentsCard(props: {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className={CARD_PAD_PHONE}>
         <ul className="flex flex-col gap-2">
           {rows.map((u) => {
             const missed = u.assignments?.missed ?? [];
@@ -423,11 +430,11 @@ function ScouterProfile(props: {
 
       <ScouterAccuracy agg={accuracy} />
 
-      <Card className="border-border bg-card">
-        <CardHeader className="space-y-0">
+      <Card className={cn(CARD_FLAT_PHONE, "border-border ")}>
+        <CardHeader className={cn(CARD_PAD_PHONE, "space-y-0")}>
           <CardTitle className="text-foreground">Reports ({n})</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className={CARD_PAD_PHONE}>
           {n === 0 ? (
             <div data-testid="scouter-empty" className="text-sm text-muted-foreground">
               This scouter has no reports at this event yet.
@@ -720,12 +727,12 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
         />
       ) : null}
       {eventKey ? <MissedAssignmentsCard scouters={unified} onOpen={setSelected} /> : null}
-      <Card data-testid="roster-tab" className="border-border bg-card">
-        <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+      <Card data-testid="roster-tab" className={cn(CARD_FLAT_PHONE, "border-border ")}>
+        <CardHeader className={cn(CARD_PAD_PHONE, "flex flex-row items-center gap-2 space-y-0")}>
           <Users className="size-5 text-brand" />
           <CardTitle className="text-foreground">Scouters ({unified.length})</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className={cn(CARD_PAD_PHONE, "flex flex-col gap-4")}>
           <form className="flex flex-wrap items-center gap-3" onSubmit={(e) => void onAdd(e)}>
             <Input
               data-testid="roster-name-input"

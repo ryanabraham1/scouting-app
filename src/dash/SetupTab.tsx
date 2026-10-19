@@ -306,9 +306,9 @@ export default function SetupTab(): JSX.Element {
             /* no storage */
           }
         }}
-        className="group rounded-lg border border-border"
+        className="group border-y border-border sm:rounded-lg sm:border"
       >
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 [&::-webkit-details-marker]:hidden">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 py-3 sm:p-3 [&::-webkit-details-marker]:hidden">
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-muted-foreground">Active event</span>
             <span data-testid="setup-active-event" className="font-mono text-lg font-semibold">
@@ -322,13 +322,13 @@ export default function SetupTab(): JSX.Element {
           </span>
         </summary>
 
-        <div className="flex flex-col gap-4 border-t border-border p-3">
+        <div className="flex flex-col gap-4 border-t border-border py-3 sm:p-3">
       {/* Events — switch the active event among already-imported ones (no
           re-import), delete one you no longer need, or import a new one. Combines
           the old "Switch event" + "Event Setup" blocks into a single section. */}
       <div
         data-testid="setup-events"
-        className="flex flex-col gap-3 rounded-lg border border-border p-3"
+        className="flex flex-col gap-3 border-b border-border pb-4 sm:rounded-lg sm:border sm:p-3"
       >
         <div className="flex items-center gap-2">
           <ArrowLeftRight className="size-4 text-brand" />
@@ -430,7 +430,7 @@ export default function SetupTab(): JSX.Element {
       {/* Base team — pivots the whole dashboard (Next Match, live data, rankings). */}
       <div
         data-testid="setup-base-team"
-        className="flex flex-col gap-2 rounded-lg border border-border p-3"
+        className="flex flex-col gap-2 border-b border-border pb-4 sm:rounded-lg sm:border sm:p-3"
       >
         <div className="flex items-center gap-2">
           <Users className="size-4 text-brand" />
@@ -472,7 +472,7 @@ export default function SetupTab(): JSX.Element {
           but secondary to configuring the real event and base team above. */}
       <div
         data-testid="setup-demo"
-        className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/10 p-3 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-3 sm:rounded-lg sm:border sm:border-border/70 sm:bg-muted/10 sm:p-3 sm:flex-row sm:items-center sm:justify-between"
       >
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
