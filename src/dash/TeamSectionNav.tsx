@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useIsPhoneWidth } from '@/components/useIsPortrait';
 
 export interface TeamSection {
   /** DOM id of the section element to scroll to. */
@@ -21,6 +22,7 @@ export default function TeamSectionNav(props: { sections: TeamSection[] }): JSX.
   const [activeId, setActiveId] = useState<string | null>(sections[0]?.id ?? null);
   // Tap-to-open for touch; hover handles pointer devices purely in CSS.
   const [pinnedOpen, setPinnedOpen] = useState(false);
+  const phone = useIsPhoneWidth();
   const navRef = useRef<HTMLElement>(null);
   const sectionKey = sections.map((s) => s.id).join('|');
 
@@ -66,6 +68,43 @@ export default function TeamSectionNav(props: { sections: TeamSection[] }): JSX.
     setActiveId(id);
     setPinnedOpen(false);
   };
+
+  // Phones have no hover and the edge rail is fiddly under a thumb: use a sticky
+  // strip of section chips instead (same links and test ids).
+  if (phone) {
+    return (
+      <nav
+        aria-label="Team page sections"
+        data-testid="team-section-nav"
+        className="sticky top-0 z-30 -mx-4 flex gap-1.5 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur"
+      >
+        {sections.map((s) => {
+          const active = s.id === activeId;
+          return (
+            <a
+              key={s.id}
+              href={`#${s.id}`}
+              data-testid={`team-section-link-${s.id}`}
+              aria-current={active ? 'true' : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                jump(s.id);
+              }}
+              className={cn(
+                'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs',
+                active ? 'bg-foreground text-background' : 'bg-secondary text-muted-foreground',
+              )}
+            >
+              {s.label}
+              {s.count != null ? (
+                <span className="font-mono tabular-nums opacity-70">{s.count}</span>
+              ) : null}
+            </a>
+          );
+        })}
+      </nav>
+    );
+  }
 
   return (
     <nav

@@ -285,8 +285,8 @@ function TeamTbaPanel(props: {
   const worldRank = season?.worldRank != null ? `#${season.worldRank}` : '—';
 
   return (
-    <Card className="border-zinc-800 bg-zinc-950" data-testid="team-tba">
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+    <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-tba">
+      <CardHeader className="px-0 sm:px-6 flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-zinc-100">
           <Trophy className="size-5 text-brand" />
           The Blue Alliance
@@ -301,7 +301,7 @@ function TeamTbaPanel(props: {
           View on TBA <ExternalLink className="size-3.5" />
         </a>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="px-0 sm:px-6 flex flex-col gap-3">
         {info?.nickname ? (
           <div data-testid="team-tba-name" className="flex flex-col gap-0.5">
             <span className="text-base font-semibold text-zinc-100">{info.nickname}</span>
@@ -393,8 +393,8 @@ function LastMatchCard(props: {
   }, [report.defended_intervals, report.fuel_bursts]);
 
   return (
-    <Card className="border-zinc-800 bg-zinc-950" data-testid="team-last-match">
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+    <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-last-match">
+      <CardHeader className="px-0 sm:px-6 flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-zinc-100">
           <Video className="size-5 text-brand" />
           Last match — {formatMatchKeyRaw(report.match_key)}
@@ -410,7 +410,7 @@ function LastMatchCard(props: {
           </button>
         ) : null}
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="px-0 sm:px-6 flex flex-col gap-3">
         {/* Video beside a compact match-details panel (alliances + score). */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_minmax(0,16rem)]">
           <div className="w-full">
@@ -514,11 +514,11 @@ function PitPanel(props: {
   const { pit, isLoading, scoutName } = props;
   return (
     <Card className="border-border bg-card" data-testid="team-pit">
-      <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+      <CardHeader className="px-0 sm:px-6 flex flex-row items-center gap-2 space-y-0">
         <Wrench className="size-5 text-brand" />
         <CardTitle className="text-foreground">Pit Report</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 sm:px-6">
         {isLoading ? (
           <div data-testid="team-pit-loading" className="text-sm text-muted-foreground">
             Loading pit report…
@@ -798,14 +798,14 @@ function TeamTrends(props: { matches: MsrRow[] }): JSX.Element {
   const defenseData = ordered.map((m, i) => ({ label: labels[i], value: m.defense_rating }));
 
   return (
-    <Card className="border-zinc-800 bg-zinc-950" data-testid="team-trends">
-      <CardHeader className="space-y-0">
+    <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-trends">
+      <CardHeader className="px-0 sm:px-6 space-y-0">
         <CardTitle className="flex items-center gap-2 text-zinc-100">
           <TrendingUp className="size-5 text-brand" />
           Trends
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <CardContent className="px-0 sm:px-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <StackedBar
           data={shiftData}
           seriesNames={shiftNames}
@@ -881,8 +881,8 @@ function TempoCard(props: { matches: MsrRow[] }): JSX.Element | null {
   const tempo = useMemo(() => computeTeamTempo(props.matches), [props.matches]);
   if (tempo.reportsWithBursts === 0) return null;
   return (
-    <Card className="border-zinc-800 bg-zinc-950" data-testid="team-tempo">
-      <CardHeader className="space-y-0">
+    <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-tempo">
+      <CardHeader className="px-0 sm:px-6 space-y-0">
         <CardTitle className="flex items-center gap-2 text-zinc-100">
           <Timer className="size-5 text-brand" />
           Tempo
@@ -936,14 +936,14 @@ function TeamNotes(props: {
   );
   if (noted.length === 0) return null;
   return (
-    <Card className="border-zinc-800 bg-zinc-950" data-testid="team-notes">
-      <CardHeader className="space-y-0">
+    <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-notes">
+      <CardHeader className="px-0 sm:px-6 space-y-0">
         <CardTitle className="flex items-center gap-2 text-zinc-100">
           <MessageSquareText className="size-5 text-brand" />
           Scout notes ({noted.length})
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 sm:px-6">
         <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {noted.map((m, i) => (
             <li
@@ -1110,8 +1110,8 @@ function TeamDetail(props: {
       <section id="team-sec-scoring" className={cn(SECTION, 'flex flex-col gap-4')}>
         <div className="grid grid-cols-1 gap-4 xl:auto-cols-fr xl:grid-flow-col">
           {/* Fuel */}
-          <Card className="border-zinc-800 bg-zinc-950">
-            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+          <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950">
+            <CardHeader className="px-0 sm:px-6 flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
               <CardTitle className="flex items-center gap-2 text-zinc-100">
                 <Flame className="size-5 text-energy" />
                 Fuel
@@ -1182,8 +1182,8 @@ function TeamDetail(props: {
 
       <section id="team-sec-defense" className={SECTION}>
         {/* Defense / reliability */}
-        <Card className="border-zinc-800 bg-zinc-950">
-          <CardHeader className="space-y-0">
+        <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950">
+          <CardHeader className="px-0 sm:px-6 space-y-0">
             <CardTitle className="flex items-center gap-2 text-zinc-100">
               <Shield className="size-5 text-brand" />
               Defense · Reliability
@@ -1277,14 +1277,14 @@ function TeamDetail(props: {
       <section id="team-sec-auto" className={SECTION}>
         {/* Auto options — this team's distinct auto routines, grouped by path shape
             (the options they tend to run), with a step-through of every auto. */}
-        <Card className="border-zinc-800 bg-zinc-950" data-testid="team-auto-options-card">
-          <CardHeader className="space-y-0">
+        <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-auto-options-card">
+          <CardHeader className="px-0 sm:px-6 space-y-0">
             <CardTitle className="flex items-center gap-2 text-zinc-100">
               <Route className="size-5 text-brand" />
               Auto options
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0 sm:px-6">
             <AutoOptions
               teamNumber={props.teamNumber}
               reports={props.matches}
@@ -1312,8 +1312,8 @@ function TeamDetail(props: {
         ) : null}
         <section id="team-sec-matches" className={SECTION}>
             {/* Scouted matches */}
-            <Card className="border-zinc-800 bg-zinc-950">
-              <CardHeader className="space-y-0">
+            <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950">
+              <CardHeader className="px-0 sm:px-6 space-y-0">
                 <CardTitle className="flex flex-wrap items-center gap-2 text-zinc-100">
                   <ListChecks className="size-5 text-brand" />
                   Scouted matches ({matches.length})
@@ -1342,7 +1342,7 @@ function TeamDetail(props: {
                   </label>
                 ) : null}
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-0 sm:px-6">
                 {conflictsOnly && visibleMatches.length === 0 ? (
                   <div data-testid="team-conflicts-empty" className="text-sm text-zinc-400">
                     No multi-scout conflicts for this team.
@@ -1568,16 +1568,16 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
   );
   const epaHistoryNode = selected != null ? (
     epaHistoryQuery.isLoading ? (
-      <Card className="border-zinc-800 bg-zinc-950" data-testid="team-epa-history-loading">
-        <CardContent className="pt-6">
+      <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-epa-history-loading">
+        <CardContent className="px-0 sm:px-6 pt-6">
           <div className="h-64 rounded-lg bg-zinc-900/70 motion-safe:animate-pulse" />
         </CardContent>
       </Card>
     ) : (epaHistoryQuery.data?.length ?? 0) > 0 ? (
       <Suspense
         fallback={
-          <Card className="border-zinc-800 bg-zinc-950" data-testid="team-epa-history-loading">
-            <CardContent className="pt-6">
+          <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950" data-testid="team-epa-history-loading">
+            <CardContent className="px-0 sm:px-6 pt-6">
               <div className="h-64 rounded-lg bg-zinc-900/70 motion-safe:animate-pulse" />
             </CardContent>
           </Card>
@@ -1590,14 +1590,14 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
       </Suspense>
     ) : (
       // No match history (Statbotics fallback or unavailable): the plain value.
-      <Card className="border-zinc-800 bg-zinc-950">
-        <CardHeader className="space-y-0 pb-3">
+      <Card className="border-0 bg-transparent shadow-none sm:border sm:border-zinc-800 sm:bg-zinc-950">
+        <CardHeader className="px-0 sm:px-6 space-y-0 pb-3">
           <CardTitle className="flex items-center gap-2 text-zinc-100">
             <Gauge className="size-5 text-energy" />
             BSR
           </CardTitle>
         </CardHeader>
-        <CardContent>{epaNode}</CardContent>
+        <CardContent className="px-0 sm:px-6">{epaNode}</CardContent>
       </Card>
     )
   ) : null;
@@ -1675,7 +1675,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     selected == null ? null : teams.find((team) => team.team_number === selected) ?? null;
 
   return (
-    <div data-testid="dash-team" className="flex flex-col gap-4 pl-4 text-zinc-100">
+    <div data-testid="dash-team" className="flex flex-col gap-4 text-zinc-100 sm:pl-4">
       <Card
         data-testid="team-picker"
         className="border-zinc-800 bg-zinc-950/80 shadow-sm"
