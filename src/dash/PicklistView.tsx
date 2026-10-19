@@ -137,7 +137,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
       style={style}
       data-testid={`pick-row-${e.teamNumber}`}
       className={cn(
-        'grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-border/60 bg-background/40 p-2 sm:flex sm:flex-nowrap',
+        'grid grid-cols-[auto_1fr_auto] items-center gap-2 border-t border-border py-3 first:border-t-0 sm:flex sm:flex-nowrap sm:rounded-lg sm:border sm:border-border/60 sm:bg-background/40 sm:p-2 sm:first:border-t',
         isDragging && 'relative z-10 opacity-90 shadow-lg ring-1 ring-brand/50',
       )}
     >
@@ -744,9 +744,9 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
 
   return (
     <div data-testid="dash-picklist" className="space-y-4 text-foreground">
-      <Card className="bg-card">
-        <CardHeader className="flex flex-col items-stretch gap-3 space-y-0 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 sm:p-6">
-          <CardTitle>Picklist</CardTitle>
+      <Card className="border-0 bg-transparent shadow-none sm:border sm:bg-card sm:shadow">
+        <CardHeader className="flex flex-col items-stretch gap-3 space-y-0 px-0 pb-3 pt-0 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 sm:p-6">
+          <CardTitle className="text-xl font-medium">Picklist</CardTitle>
           <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
             {/* Autosave status — the list persists itself; no Save button. */}
             {saveStatus === 'saving' ? (
@@ -883,7 +883,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
         </CardHeader>
         <div
           data-testid="pick-export-epa-banner"
-          className="px-6 pb-2 text-xs text-warning"
+          className="pb-2 text-xs text-warning sm:px-6"
         >
           {epaSource === 'local'
             ? 'Exported EPA uses our live in-house calculator over TBA match results.'
@@ -895,7 +895,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
           <div
             data-testid="pick-readonly-warning"
             role="alert"
-            className="mx-6 mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
+            className="mb-3 rounded-md border border-warning/40 sm:mx-6 bg-warning/10 px-3 py-2 text-sm text-warning"
           >
             {readOnly
               ? 'Picklist editing is paused until the active event is verified with the server.'
@@ -904,14 +904,14 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                 : `The picklist for ${eventKey} could not be loaded. Editing is disabled to prevent overwriting server data.`}
           </div>
         ) : null}
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 px-0 sm:px-6">
           {/* One wrapping row: the 1st-pick / 2nd-pick list switcher sits beside
               the add-team input on desktop and wraps above it on phones. The two
               lists are independent ordered views; add/seed/reorder all target
               the selected one. */}
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex shrink-0 rounded-lg border border-border p-1"
+              className="grid w-full shrink-0 grid-cols-2 gap-1 rounded-xl bg-secondary p-1 sm:inline-flex sm:w-auto sm:rounded-lg sm:border sm:border-border sm:bg-transparent"
               role="tablist"
               aria-label="Picklist selection"
             >
@@ -930,9 +930,9 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                   data-testid={`pick-list-${id}`}
                   onClick={() => setActiveList(id)}
                   className={cn(
-                    'inline-flex min-h-[36px] items-center gap-1.5 rounded-md px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    'inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                     activeList === id
-                      ? 'bg-brand/20 text-brand'
+                      ? 'bg-background text-foreground shadow-sm sm:bg-brand/20 sm:text-brand sm:shadow-none'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -1000,7 +1000,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                 items={activePicks.map((e) => e.teamNumber)}
                 strategy={verticalListSortingStrategy}
               >
-                <ul className="space-y-2">
+                <ul className="sm:space-y-2">
                   {activePicks.map((e, i) => (
                     <SortablePickRow
                       key={e.teamNumber}
