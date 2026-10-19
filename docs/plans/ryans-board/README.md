@@ -12,13 +12,35 @@ phase you are resuming.
 
 | Phase | What | Status |
 | --- | --- | --- |
-| P0 | Plan, mockups, decisions | done (this file) |
-| P1 | Own canvas engine: ink, text, image, select/move/resize, pan/zoom, undo, local save | in progress |
-| P2 | Cloud sync (migration + RPC + outbox) | not started |
-| P3 | Live multiplayer (realtime records, cursors, live ink, presence) | not started |
-| P4 | Live data widgets | not started |
+| P0 | Plan, mockups, decisions | done (`d379820`) |
+| P1 | Own canvas engine: ink, text, image, select/move/resize, pan/zoom, undo, local save | done (`517ee74`) |
+| P2 | Cloud sync (migration + RPC + outbox) | done and deployed (`905ea3f`). Still open: image upload to the `board-assets` bucket (images currently sync inline as data URLs) |
+| P3 | Live multiplayer (realtime records, cursors, live ink, laser, drag previews, presence) | done (`905ea3f`). Still open: follow-a-person viewport, remote selection outlines |
+| P4 | Live data widgets | in progress |
 | P5 | Smart spotlight search (+ test corpus) | not started |
 | P6 | Comments, export, polish, e2e | not started |
+
+**Verified in the browser (2026-10-19)**: pen, highlighter, text, select/move, eraser, wheel
+pan, reload persistence (shapes and camera); a stroke drawn in tab A appears in tab B within
+3s; tab B sees tab A's cursor and its in-progress stroke live; presence avatars. In dev the
+editor is exposed as `window.__ryansBoard` for debugging and e2e.
+
+**Implementation notes discovered while building**
+- Keyboard shortcuts are window-level (`BoardCanvas` attaches keydown/keyup on `window`,
+  skipping inputs/textareas/dialogs), because on first load focus sits on `<body>`.
+- A text box opened by a click must keep focus: `BoardCanvas` prevents the default
+  mousedown while `editingId` is set, otherwise the canvas steals focus and the textarea
+  blur-commits empty (and the typed letters fire tool shortcuts).
+- `editor.pointerUp` applies the release position before finishing (synthetic drags and fast
+  flicks deliver the final point only with pointerup).
+- Client id is **per tab** (`device id` + per-load suffix, `persistence.ts boardClientId`), so
+  two tabs on one device are distinct collaborators.
+- The project does not auto-grant new tables: `20261019121000_board_record_grants.sql`
+  grants select. Without it, reads fail with "permission denied for table".
+- Local rows that no longer parse (e.g. from the tldraw prototype) are hard-deleted on load
+  (`loadBoardRecords`), so they never reach the outbox.
+- The in-progress stroke carries the id its ink shape will get (`live.stroke.id`), so remote
+  previews disappear exactly when the record lands.
 
 **History of decisions that changed course**
 - 2026-10-18: P1 was first built on tldraw 5.5.2. The user rejected it (watermark plus a
