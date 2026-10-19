@@ -60,7 +60,7 @@ import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
 import { pullScoutReports } from '@/sync/pullReports';
 import { useOnline } from '@/sync/useOnline';
 import { StationMenu } from '@/components/StationMenu';
-import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
 import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
 
 interface AssignmentRow {
@@ -1148,9 +1148,10 @@ export default function ScoutHome() {
             {online ? 'Online' : 'Offline'}
           </Link>
         </div>
+        <ScoutTopNav active={view} className="mx-auto mt-3 max-w-2xl" />
       </header>
 
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 px-safe pb-28 pt-2">
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-5 px-safe pb-28 pt-2 md:pb-10">
         {savedNotice && (
           <p role="status" className="rounded-xl bg-success/10 p-3 text-sm text-success">
             {savedNotice === 'updated'

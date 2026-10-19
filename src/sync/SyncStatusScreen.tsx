@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
 import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -568,6 +568,7 @@ export default function SyncStatusScreen(): JSX.Element {
       data-testid="sync-status"
       className={`mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6 ${BOTTOM_BAR_CLEARANCE}`}
     >
+      <ScoutTopNav active="sync" />
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-medium">Sync status</h1>
         <span

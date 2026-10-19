@@ -7,7 +7,7 @@ import { decompressForQr, DecompressionUnsupportedError } from '@/qr/compress';
 import { postIngest } from '@/qr/ingestClient';
 import { QR_SCAN_DELAY_MS } from '@/sync/constants';
 import { QrModeTabs } from '@/qr/QrModeTabs';
-import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
+import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
 import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { useSession } from '@/auth/useSession';
 import { isScouterLoggedOut } from '@/roster/selectScouter';
@@ -82,6 +82,7 @@ export default function QrReceiveScreen() {
         data-testid="qr-receive"
         className={`flex min-h-screen flex-col bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
       >
+        <ScoutTopNav active="sync" className="mb-4" />
         <header className="mb-4 flex flex-col gap-3">
           <h1 className="text-xl font-medium">Transfer by QR</h1>
           <QrModeTabs active="receive" />
@@ -482,6 +483,7 @@ function QrReceiveScanner() {
       data-testid="qr-receive"
       className={`flex min-h-screen flex-col bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
     >
+      <ScoutTopNav active="sync" className="mb-4" />
       <header className="mb-4 flex flex-col gap-3">
         <h1 className="text-xl font-medium">Transfer by QR</h1>
         <QrModeTabs active="receive" />

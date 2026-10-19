@@ -17,7 +17,7 @@ export interface IconTabsProps<T extends string> {
 }
 
 /**
- * Icon-over-label navigation bar. Every tab receives an equal share of the
+ * Icon-and-label navigation row. Every tab receives an equal share of the
  * available width so the navigation reads as one complete control on phones,
  * tablets, and desktop.
  */
@@ -75,18 +75,18 @@ export function IconTabs<T extends string>({
               else buttonRefs.current.delete(tab.value);
             }}
             className={cn(
-              'relative flex min-h-16 min-w-0 w-full flex-col items-center justify-center gap-0.5 rounded-lg border px-0.5 py-1.5 text-[10px] font-semibold transition-colors min-[360px]:text-[11px] sm:min-h-[56px] sm:gap-1 sm:rounded-xl sm:px-2 sm:text-xs [&_svg]:size-5',
+              'relative flex min-h-11 min-w-0 w-full items-center justify-center gap-2 rounded-[10px] border px-2 text-sm font-medium transition-colors [&_svg]:size-[17px] [&_svg]:shrink-0',
               // Active tab wears the brand accent (E3) — a cyan-tinted surface,
               // brand text, and a top hairline that reads like a lit indicator —
               // so navigation state matches the rest of the color language.
               selected
                 ? 'border-brand/50 bg-brand/10 text-brand shadow-[inset_0_2px_0_hsl(var(--brand))]'
-                : 'border-border bg-card/50 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground',
               tab.disabled ? 'pointer-events-none opacity-40' : '',
             )}
           >
             {tab.icon}
-            <span className="text-center leading-tight">{tab.label}</span>
+            <span className="truncate leading-tight">{tab.label}</span>
           </button>
         );
       })}

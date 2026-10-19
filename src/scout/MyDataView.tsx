@@ -11,7 +11,7 @@ import { useActiveEvent } from "@/dash/useActiveEvent";
 import { listReports } from "@/db/localStore";
 import { pullScoutReports } from "@/sync/pullReports";
 import type { LocalMatchReport } from "@/db/types";
-import { ScoutBottomNav } from "@/scout/ScoutBottomNav";
+import { ScoutBottomNav, ScoutTopNav } from "@/scout/ScoutBottomNav";
 import {
   normalizeScouterName,
   reportMatchesScoutScope,
@@ -113,6 +113,7 @@ export default function MyDataView(): JSX.Element {
       className="flex min-h-dvh flex-col bg-background pb-24 text-foreground md:pb-6"
     >
       <header className="px-safe pt-safe pb-2">
+        <ScoutTopNav active="my-data" className="mb-4" />
         <h1 className="text-xl font-medium">My data</h1>
       </header>
 

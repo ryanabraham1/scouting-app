@@ -34,6 +34,8 @@ import {
 import { useMatchStream } from '@/dash/matchStream';
 import { useEventScoutCoverage } from '@/dash/useMatchScoutCoverage';
 import { COVERAGE_STATION_CAP } from '@/dash/aggregate';
+import MatchPicker from '@/dash/MatchPicker';
+import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import { relativeTime } from '@/dash/relativeTime';
 import { msrReportIdentity, type MatchScoutCoverage } from '@/dash/types';
 import ReportDetail from '@/dash/ReportDetail';
@@ -734,6 +736,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
   // left-list markers + the ScoutingStatusCard. Reuses the cached queries.
   const scoutCoverage = useEventScoutCoverage(eventKey);
   const now = useNow();
+  const ourTeam = useMemo(() => getStoredBaseTeam(), []);
 
   const loading = matchesQuery.isLoading || reportsQuery.isLoading;
   const matches = matchesQuery.data ?? [];
@@ -856,14 +859,22 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
           Loading event data…
         </div>
       ) : (
-        <div
-          className={cn(
-            'grid grid-cols-1 items-start gap-4',
-            sidebarOpen
-              ? 'lg:grid-cols-[15rem_minmax(0,1fr)]'
-              : 'lg:grid-cols-[2.75rem_minmax(0,1fr)]',
-          )}
-        >
+        <div className="flex flex-col gap-4">
+          {/* Desktop: one row of match chips above the full-width detail. */}
+          {matches.length > 0 ? (
+            <MatchPicker
+              className="hidden md:flex"
+              matches={visibleMatches}
+              selected={selected}
+              onSelect={selectMatch}
+              search={search}
+              onSearch={setSearch}
+              ourTeam={ourTeam}
+              stationsCovered={(key) => scoutCoverage.coverageByMatch.get(key)?.stationsCovered ?? 0}
+            />
+          ) : null}
+          {/* Phones keep the stacked, collapsible list. */}
+          <div className="md:hidden">
           {!sidebarOpen ? (
             // Collapsed: a thin sticky rail on desktop (the match gets the
             // width); a plain button row on phones.
@@ -991,6 +1002,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
               </CardContent>
             </Card>
           )}
+          </div>
 
           <div ref={detailRef} className="flex scroll-mt-4 flex-col gap-4">
             {selected != null ? (

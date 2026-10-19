@@ -1,6 +1,8 @@
 // src/components/StationMenu.tsx — the header "who/where am I" control. Tapping it
 // opens a bottom sheet to jump between stations (Scout / Analysis / Lead
 // dashboard) plus any station-specific account actions passed as children.
+// From `md` up a segmented station switch sits beside it so desktop can jump
+// stations in one click.
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Check, ClipboardList, ChartNoAxesColumn, LayoutDashboard } from 'lucide-react';
@@ -11,6 +13,13 @@ import { cn } from '@/lib/utils';
 export type Station = 'scout' | 'analysis' | 'lead';
 
 const LAST_STATION_KEY = 'last-station';
+
+// Station identity colors, shared with the launcher: capture, insight, lead.
+const STATION_DOT: Record<Station, string> = {
+  scout: 'bg-brand',
+  analysis: 'bg-success',
+  lead: 'bg-energy',
+};
 
 export const STATIONS: { id: Station; label: string; blurb: string; href: string; icon: LucideIcon }[] = [
   { id: 'scout', label: 'Scout', blurb: 'Capture matches and pits', href: '/scout', icon: ClipboardList },
@@ -52,7 +61,7 @@ export function StationMenu({
   }, [current]);
 
   return (
-    <>
+    <div className="flex min-w-0 items-center gap-4">
       <button
         type="button"
         aria-label="Open menu"
@@ -74,6 +83,32 @@ export function StationMenu({
           ) : null}
         </span>
       </button>
+
+      <nav
+        aria-label="Stations"
+        data-testid="station-switch"
+        className="hidden shrink-0 items-center gap-0.5 rounded-[10px] bg-muted p-[3px] md:inline-flex"
+      >
+        {STATIONS.map((s) => {
+          const here = s.id === current;
+          return (
+            <Link
+              key={s.id}
+              to={s.href}
+              aria-current={here ? 'page' : undefined}
+              className={cn(
+                'inline-flex h-8 items-center gap-2 rounded-[7px] px-3 text-[13px] font-medium transition-colors',
+                here
+                  ? 'bg-card text-foreground shadow-[0_0_0_1px_hsl(var(--border))]'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <span aria-hidden="true" className={cn('size-[7px] rounded-full', STATION_DOT[s.id])} />
+              {s.id === 'lead' ? 'Lead' : s.label}
+            </Link>
+          );
+        })}
+      </nav>
 
       <Sheet
         open={open}
@@ -120,7 +155,7 @@ export function StationMenu({
           <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">{children}</div>
         ) : null}
       </Sheet>
-    </>
+    </div>
   );
 }
 
