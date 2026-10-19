@@ -87,6 +87,8 @@ export function BoardTopBar({
           <button
             type="button"
             onClick={onOpenSearch}
+            aria-label="Search"
+            aria-keyshortcuts="Meta+K Control+K"
             className="hidden h-[30px] w-[260px] min-w-0 items-center gap-2 rounded-lg border border-[hsl(0_0%_22%)] px-2.5 text-xs text-muted-foreground hover:border-[hsl(0_0%_30%)] hover:text-foreground lg:inline-flex"
           >
             <Search className="size-4" aria-hidden />

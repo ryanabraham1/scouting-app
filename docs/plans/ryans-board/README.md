@@ -81,6 +81,14 @@ editor is exposed as `window.__ryansBoard` for debugging and e2e.
   and type checking pass there. Other agents were changing Lead Dashboard files in the same
   checkout during verification; those edits are excluded from the board snapshot/commit.
 
+**Isolated browser suite run (2026-10-19, after the follow-up commit `bc1978f`)**: all 4
+`tests/board/ryans-board.spec.ts` tests pass (desktop Chrome and iPad Pro 11). Playwright's
+own browsers are not installed on this Mac; run the suite on the installed Chrome with a
+throwaway config instead of downloading them:
+`import base from './playwright.board.config'; export default { ...base, projects: base.projects!.map((p) => ({ ...p, use: { ...p.use, channel: 'chrome' } })) };`
+The desktop failures that run found were the wide top-bar search pill lacking the
+accessible name "Search" (fixed with `aria-label`).
+
 **Implementation notes discovered while building**
 - Keyboard shortcuts are window-level (`BoardCanvas` attaches keydown/keyup on `window`,
   skipping inputs/textareas/dialogs), because on first load focus sits on `<body>`.
