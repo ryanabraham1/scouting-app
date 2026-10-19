@@ -823,7 +823,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
       {/* Match command bar: the identity absorbs spare desktop width while the
           native selector stays deliberately compact. Phones stack every region
           and give the selector the full available width. */}
-      <div className="flex flex-col gap-2 rounded-lg bg-black/30 px-3 py-2.5 sm:px-4 sm:py-3">
+      <div className="flex flex-col gap-2 rounded-lg px-0 py-1 sm:bg-black/30 sm:px-4 sm:py-3">
         <div
           className={cn(
             'grid grid-cols-1 gap-3 lg:items-end',
@@ -836,7 +836,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               Strategy plan
             </p>
-            <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+            <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-medium tracking-tight text-foreground sm:text-2xl sm:font-bold">
               <span data-testid="dash-strategy-title">
                 {match ? formatMatchKeyRaw(match.match_key) : 'Manual matchup'}
               </span>
@@ -1004,8 +1004,8 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
       />
 
       {subView === 'board' ? (
-        <Card className="border-border">
-          <CardHeader className="flex flex-col gap-2 space-y-0 p-3 pb-2 sm:p-4 sm:pb-2">
+        <Card className="border-0 bg-transparent shadow-none sm:border sm:border-border sm:bg-card">
+          <CardHeader className="flex flex-col gap-2 space-y-0 px-0 pb-2 pt-0 sm:p-4 sm:pb-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {/* One board per game phase. Compact labels on phones so all five
                   phases fit one line at 390px. */}
@@ -1042,7 +1042,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
             </div>
           </CardHeader>
           {/* Tight phone padding — every horizontal pixel goes to the canvas. */}
-          <CardContent className="p-2 sm:p-4 sm:pt-2">
+          <CardContent className="p-0 sm:p-4 sm:pt-2">
             <FieldWhiteboard
               key={`${eventKey}:${boardMatchKey}:${phase}`}
               eventKey={eventKey}

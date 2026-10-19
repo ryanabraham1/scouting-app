@@ -375,14 +375,14 @@ function PointsByRobot({
   ourSide: 'red' | 'blue' | null;
 }): JSX.Element {
   return (
-    <Card data-testid="matchup-points-by-robot" className="border-border">
-      <CardHeader className="p-4 pb-2">
+    <Card data-testid="matchup-points-by-robot" className="border-0 bg-transparent shadow-none sm:border sm:border-border sm:bg-card">
+      <CardHeader className="px-0 pb-2 pt-0 sm:p-4 sm:pb-2">
         <CardTitle className="flex items-center gap-2 text-base text-foreground">
           <Crosshair className="size-4 text-brand" />
           {ourSide ? 'Their points by robot' : 'Points by robot'}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3 p-4 pt-1">
+      <CardContent className="flex flex-col gap-3 px-0 pt-1 sm:p-4 sm:pt-1">
         {sides.map((side) => {
           const teams = pred[side].teams
             .filter((t) => t.source !== 'none' && Number.isFinite(t.expected) && t.expected > 0)
@@ -528,14 +528,14 @@ export default function MatchupDashboard({
     <div data-testid="matchup-dashboard" className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <PointsByRobot sides={threatSides} pred={pred} ourSide={ourSide} />
-        <Card className="border-border">
-          <CardHeader className="p-4 pb-2">
+        <Card className="border-0 bg-transparent shadow-none sm:border sm:border-border sm:bg-card">
+          <CardHeader className="px-0 pb-2 pt-0 sm:p-4 sm:pb-2">
             <CardTitle className="flex items-center gap-2 text-base text-foreground">
               <Scale className="size-4 text-brand" />
               Tale of the tape
             </CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2 p-4 pt-1">
+          <CardContent className="flex flex-col gap-2 px-0 pt-1 sm:p-4 sm:pt-1">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px] font-bold uppercase tracking-wider">
               <span className="text-right text-red-400">Red{sideTag('red')}</span>
               <span />
@@ -550,14 +550,14 @@ export default function MatchupDashboard({
         </Card>
       </div>
 
-      <Card className="border-border">
-        <CardHeader className="p-4 pb-2">
+      <Card className="border-0 bg-transparent shadow-none sm:border sm:border-border sm:bg-card">
+        <CardHeader className="px-0 pb-2 pt-0 sm:p-4 sm:pb-2">
           <CardTitle className="flex items-center gap-2 text-base text-foreground">
             <Users className="size-4 text-brand" />
             Teams
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-1 p-4 pt-1">
+        <CardContent className="flex flex-col gap-1 px-0 pt-1 sm:p-4 sm:pt-1">
           <div
             className={cn(
               'hidden md:grid',
