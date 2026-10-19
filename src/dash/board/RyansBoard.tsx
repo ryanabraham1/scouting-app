@@ -31,24 +31,23 @@ import { useEventMatches } from '@/dash/useEventData';
 import { nextMatchForTeam } from '@/dash/nextMatch';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import type { Point, WidgetShape } from '@/dash/board/model';
+import { BoardDataProvider } from '@/dash/board/widgets/data';
+import { WidgetFrame } from '@/dash/board/widgets/WidgetFrame';
+import { WidgetInspector } from '@/dash/board/widgets/WidgetInspector';
+import { WidgetTray } from '@/dash/board/widgets/WidgetTray';
+import { widgetMinSize } from '@/dash/board/widgets/registry';
 import { cn } from '@/lib/utils';
-
-function WidgetPlaceholder({ shape }: { shape: WidgetShape }): JSX.Element {
-  return (
-    <div className="flex h-full w-full items-center justify-center rounded-xl border border-border bg-card text-xs text-muted-foreground">
-      {shape.kind}
-    </div>
-  );
-}
 
 export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Element {
   const editor = useMemo(
-    () => new BoardEditor({ clientId: boardClientId(), measureText: measureTextHeight }),
+    () =>
+      new BoardEditor({ clientId: boardClientId(), measureText: measureTextHeight, widgetMinSize }),
     // One editor per event board.
     [eventKey],
   );
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [expanded, setExpanded] = useState(false);
+  const [trayOpen, setTrayOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const penMode = useBoard(editor, (e) => e.penMode);
   const live = useMemo(() => new BoardLive(editor, eventKey), [editor, eventKey]);
@@ -124,7 +123,10 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
           try {
             const img = await prepareImage(f);
             const base = at ?? editor.viewCenter();
-            editor.insertImage(img.src, img.width, img.height, { x: base.x + i * 24, y: base.y + i * 24 });
+            editor.insertImage(img.src, img.width, img.height, {
+              x: base.x + i * 24,
+              y: base.y + i * 24,
+            });
             i += 1;
           } catch (err) {
             console.error("Ryan's Board: image import failed", err);
@@ -141,14 +143,19 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
     [matchesQ.data],
   );
 
-  const renderWidget = useCallback((shape: WidgetShape): ReactNode => <WidgetPlaceholder shape={shape} />, []);
+  const renderWidget = useCallback(
+    (shape: WidgetShape): ReactNode => <WidgetFrame shape={shape} />,
+    [],
+  );
 
   return (
     <div
       data-testid="ryans-board"
       className={cn(
         'flex flex-col overflow-hidden bg-card',
-        expanded ? 'fixed inset-0 z-50' : 'h-[calc(100dvh-11rem)] min-h-[420px] rounded-xl border border-border',
+        expanded
+          ? 'fixed inset-0 z-50'
+          : 'h-[calc(100dvh-11rem)] min-h-[420px] rounded-xl border border-border',
       )}
     >
       <BoardTopBar
@@ -171,32 +178,57 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
           </p>
         )}
         {status === 'ready' && (
-          <BoardCanvas
-            editor={editor}
-            renderWidget={renderWidget}
-            onImages={onImages}
-            onPointerPage={(p) => live.setCursor(p)}
-            remote={live.remote}
-          >
-            <RemoteCursors editor={editor} live={live} />
-            <div data-board-chrome className="absolute left-3 top-3">
-              <Toolbar editor={editor} large={penMode} onPickImage={() => fileInput.current?.click()} />
-            </div>
-            <div data-board-chrome className="absolute right-3 top-3">
-              <StylePanel editor={editor} />
-            </div>
-            <div data-board-chrome className="absolute bottom-3 left-3">
-              <ZoomControls editor={editor} large={penMode} />
-            </div>
-            <div data-board-chrome className="absolute bottom-3 right-3 hidden sm:block">
-              <Minimap editor={editor} />
-            </div>
-            {penMode && (
-              <div data-board-chrome className={cn(PANEL, 'absolute bottom-3 left-1/2 hidden -translate-x-1/2 px-3 py-1.5 text-[11px] md:block')}>
-                Pencil draws, finger pans. Two-finger tap undoes.
+          <BoardDataProvider eventKey={eventKey}>
+            <BoardCanvas
+              editor={editor}
+              renderWidget={renderWidget}
+              onImages={onImages}
+              onPointerPage={(p) => live.setCursor(p)}
+              remote={live.remote}
+            >
+              <RemoteCursors editor={editor} live={live} />
+              <div data-board-chrome className="absolute left-3 top-3">
+                <Toolbar
+                  editor={editor}
+                  large={penMode}
+                  onPickImage={() => fileInput.current?.click()}
+                  onOpenWidgets={() => setTrayOpen((v) => !v)}
+                />
               </div>
-            )}
-          </BoardCanvas>
+              {trayOpen && (
+                <div
+                  data-board-chrome
+                  className={cn('absolute top-3', penMode ? 'left-[76px]' : 'left-[62px]')}
+                >
+                  <WidgetTray editor={editor} onClose={() => setTrayOpen(false)} />
+                </div>
+              )}
+              <div
+                data-board-chrome
+                className="absolute right-3 top-3 flex flex-col items-end gap-2"
+              >
+                <WidgetInspector editor={editor} />
+                <StylePanel editor={editor} />
+              </div>
+              <div data-board-chrome className="absolute bottom-3 left-3">
+                <ZoomControls editor={editor} large={penMode} />
+              </div>
+              <div data-board-chrome className="absolute bottom-3 right-3 hidden sm:block">
+                <Minimap editor={editor} />
+              </div>
+              {penMode && (
+                <div
+                  data-board-chrome
+                  className={cn(
+                    PANEL,
+                    'absolute bottom-3 left-1/2 hidden -translate-x-1/2 px-3 py-1.5 text-[11px] md:block',
+                  )}
+                >
+                  Pencil draws, finger pans. Two-finger tap undoes.
+                </div>
+              )}
+            </BoardCanvas>
+          </BoardDataProvider>
         )}
         <input
           ref={fileInput}
