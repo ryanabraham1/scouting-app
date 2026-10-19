@@ -12,6 +12,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TeamLink } from '@/components/ui/TeamLink';
@@ -346,8 +347,11 @@ export default function SetupTab(): JSX.Element {
                 <li key={ev.event_key} className="flex items-stretch gap-2">
                   <Button
                     data-testid={`setup-switch-${ev.event_key}`}
-                    variant={isActive ? 'default' : 'outline'}
-                    className="h-auto min-w-0 flex-1 justify-between py-2"
+                    variant="outline"
+                    className={cn(
+                      'h-auto min-w-0 flex-1 justify-between py-2',
+                      isActive && 'border-success/50 bg-success/10 text-foreground disabled:opacity-100 [&_svg]:text-success',
+                    )}
                     disabled={isActive || isDeleting}
                     onClick={() => void makeActive(ev.event_key)}
                   >

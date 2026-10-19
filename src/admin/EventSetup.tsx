@@ -40,8 +40,8 @@ export function EventSetup({ onImported, embedded = false }: EventSetupProps): J
 
   const body = (
     <>
-        <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)}>
-          <div className="flex flex-col gap-1.5">
+        <form className="flex flex-col gap-4 md:flex-row md:items-end md:gap-2" onSubmit={(e) => void onSubmit(e)}>
+          <div className="flex flex-col gap-1.5 md:w-64">
             <Label htmlFor="event-key-input-field">TBA event key</Label>
             <Input
               id="event-key-input-field"
@@ -58,7 +58,7 @@ export function EventSetup({ onImported, embedded = false }: EventSetupProps): J
             type="submit"
             data-testid="event-import-submit"
             disabled={busy || key.trim().length === 0}
-            className="h-11"
+            className="h-11 md:px-5"
           >
             {busy ? 'Importing…' : 'Import event'}
           </Button>
