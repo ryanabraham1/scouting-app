@@ -7,7 +7,6 @@
 //
 // Lazy-loaded by DashboardScreen, so none of this reaches the scout bundle.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { HardDrive } from 'lucide-react';
 import { BoardEditor } from '@/dash/board/editor';
 import { BoardCanvas } from '@/dash/board/BoardCanvas';
 import { Toolbar, StylePanel, ZoomControls, PANEL } from '@/dash/board/BoardChrome';
@@ -24,6 +23,10 @@ import {
   persistBoard,
 } from '@/dash/board/persistence';
 import { useBoard } from '@/dash/board/useBoard';
+import { fetchBoardRecords, useBoardSyncState } from '@/dash/board/cloud';
+import { BoardLive } from '@/dash/board/live';
+import { PresenceStack, RemoteCursors, SyncChip } from '@/dash/board/Presence';
+import { useSync } from '@/sync/useSync';
 import { useEventMatches } from '@/dash/useEventData';
 import { nextMatchForTeam } from '@/dash/nextMatch';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
@@ -48,6 +51,10 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
   const [expanded, setExpanded] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const penMode = useBoard(editor, (e) => e.penMode);
+  const live = useMemo(() => new BoardLive(editor, eventKey), [editor, eventKey]);
+  const syncState = useBoardSyncState(eventKey);
+  // Keep the shared sync controller mounted so board edits drain.
+  useSync();
 
   // Dev/e2e handle for inspecting the live editor (never shipped in prod builds).
   useEffect(() => {
@@ -65,12 +72,25 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
     if (prefs.tool && prefs.tool !== 'laser') editor.tool = prefs.tool;
     const cam = loadCamera(eventKey);
     editor.setCamera(cam ?? { x: 120, y: 80, z: 1 });
+    // Pull the cloud copy and merge it (newer rev wins per record). Runs on
+    // open and on every offline->online edge; realtime covers the rest.
+    const pull = (): void => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      fetchBoardRecords(eventKey)
+        .then((records) => {
+          if (!cancelled) editor.applyRemote(records);
+        })
+        .catch((err: unknown) => console.warn("Ryan's Board: cloud pull failed", err));
+    };
     loadBoardRecords(eventKey)
       .then((records) => {
         if (cancelled) return;
         editor.load(liveShapes(records));
         dispose = persistBoard(editor, eventKey);
         setStatus('ready');
+        live.start();
+        pull();
+        window.addEventListener('online', pull);
       })
       .catch((err: unknown) => {
         console.error("Ryan's Board: local load failed", err);
@@ -78,9 +98,11 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
       });
     return () => {
       cancelled = true;
+      window.removeEventListener('online', pull);
+      live.dispose();
       dispose?.();
     };
-  }, [editor, eventKey]);
+  }, [editor, eventKey, live]);
 
   // Esc leaves full screen once the canvas has nothing left to cancel.
   useEffect(() => {
@@ -121,16 +143,6 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
 
   const renderWidget = useCallback((shape: WidgetShape): ReactNode => <WidgetPlaceholder shape={shape} />, []);
 
-  const statusChip = (
-    <span
-      className="hidden shrink-0 items-center gap-1 rounded-md bg-success/10 px-1.5 py-0.5 text-[11px] text-success sm:inline-flex"
-      title="Cloud sync arrives in the next phase"
-    >
-      <HardDrive className="size-3" aria-hidden />
-      Saved on this device
-    </span>
-  );
-
   return (
     <div
       data-testid="ryans-board"
@@ -144,7 +156,8 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
         nextMatch={nextMatch}
         expanded={expanded}
         onToggleExpanded={() => setExpanded((v) => !v)}
-        status={statusChip}
+        status={<SyncChip state={syncState} />}
+        presence={<PresenceStack live={live} />}
       />
       <div className="relative min-h-0 flex-1">
         {status === 'loading' && (
@@ -158,7 +171,14 @@ export default function RyansBoard({ eventKey }: { eventKey: string }): JSX.Elem
           </p>
         )}
         {status === 'ready' && (
-          <BoardCanvas editor={editor} renderWidget={renderWidget} onImages={onImages}>
+          <BoardCanvas
+            editor={editor}
+            renderWidget={renderWidget}
+            onImages={onImages}
+            onPointerPage={(p) => live.setCursor(p)}
+            remote={live.remote}
+          >
+            <RemoteCursors editor={editor} live={live} />
             <div data-board-chrome className="absolute left-3 top-3">
               <Toolbar editor={editor} large={penMode} onPickImage={() => fileInput.current?.click()} />
             </div>

@@ -740,6 +740,15 @@ export async function requeueAuthClassMatchupDeadLetters(): Promise<number> {
 // Deletes are tombstones, never hard deletes, for the same reason.
 // ---------------------------------------------------------------------------
 
+let lastBoardWriteMs = 0;
+
+/** Strictly increasing write stamp: the outbox's "unchanged since sent" guard
+ *  compares it, so two writes in the same millisecond must still differ. */
+function nextBoardWriteStamp(): string {
+  lastBoardWriteMs = Math.max(Date.now(), lastBoardWriteMs + 1);
+  return new Date(lastBoardWriteMs).toISOString();
+}
+
 export function boardRecordKey(boardKey: string, recordId: string): string {
   return `${boardKey}:${recordId}`;
 }
@@ -773,7 +782,7 @@ export async function writeBoardRecords(
   syncState: LocalBoardRecord['syncState'] = 'dirty',
 ): Promise<void> {
   if (rows.length === 0) return;
-  const updatedAt = new Date().toISOString();
+  const updatedAt = nextBoardWriteStamp();
   await db.boardRecords.bulkPut(
     rows.map(({ id, data, deleted }) => ({
       key: boardRecordKey(boardKey, id),
@@ -785,4 +794,86 @@ export async function writeBoardRecords(
       syncState,
     })),
   );
+}
+
+/** Board rows the outbox should send now ('pending' covers a drain cut off mid-flight). */
+export async function getDueBoardSyncQueue(now = Date.now()): Promise<LocalBoardRecord[]> {
+  const rows = await db.boardRecords.where('syncState').anyOf('dirty', 'pending').toArray();
+  return rows.filter((r) => isRetryDue(r.nextSyncAt ?? null, now));
+}
+
+export async function markBoardRecordsPending(keys: readonly string[]): Promise<void> {
+  if (!keys.length) return;
+  await db.transaction('rw', db.boardRecords, async () => {
+    for (const key of keys) await db.boardRecords.update(key, { syncState: 'pending' });
+  });
+}
+
+/**
+ * Mark sent rows synced, but ONLY when the row is still the version that was
+ * sent: an edit that landed mid-flight stays dirty for the next drain.
+ */
+export async function markBoardRecordsSynced(
+  sent: readonly { key: string; updatedAt: string }[],
+): Promise<void> {
+  if (!sent.length) return;
+  await db.transaction('rw', db.boardRecords, async () => {
+    for (const { key, updatedAt } of sent) {
+      const cur = await db.boardRecords.get(key);
+      if (!cur || cur.updatedAt !== updatedAt) {
+        if (cur?.syncState === 'pending') await db.boardRecords.update(key, { syncState: 'dirty' });
+        continue;
+      }
+      await db.boardRecords.update(key, {
+        syncState: 'synced',
+        nextSyncAt: null,
+        syncAttempts: 0,
+        lastSyncError: null,
+      });
+    }
+  });
+}
+
+export async function markBoardRecordsRetry(
+  keys: readonly string[],
+  message: string,
+  nextSyncAt: number,
+  countAttempt: boolean,
+): Promise<void> {
+  if (!keys.length) return;
+  await db.transaction('rw', db.boardRecords, async () => {
+    for (const key of keys) {
+      const cur = await db.boardRecords.get(key);
+      if (!cur) continue;
+      await db.boardRecords.update(key, {
+        syncState: 'dirty',
+        nextSyncAt,
+        lastSyncError: message,
+        syncAttempts: (cur.syncAttempts ?? 0) + (countAttempt ? 1 : 0),
+      });
+    }
+  });
+}
+
+export async function markBoardRecordsError(keys: readonly string[], message: string): Promise<void> {
+  if (!keys.length) return;
+  await db.transaction('rw', db.boardRecords, async () => {
+    for (const key of keys) {
+      await db.boardRecords.update(key, { syncState: 'error', lastSyncError: message, nextSyncAt: null });
+    }
+  });
+}
+
+/** Unsynced row counts for one board (sync status chip). */
+export async function countBoardUnsynced(
+  boardKey: string,
+): Promise<{ unsynced: number; errors: number }> {
+  const rows = await db.boardRecords.where('boardKey').equals(boardKey).toArray();
+  let unsynced = 0;
+  let errors = 0;
+  for (const r of rows) {
+    if (r.syncState === 'error') errors += 1;
+    else if (r.syncState !== 'synced') unsynced += 1;
+  }
+  return { unsynced, errors };
 }

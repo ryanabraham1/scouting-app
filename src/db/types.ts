@@ -281,4 +281,8 @@ export interface LocalBoardRecord {
   deleted: boolean;
   updatedAt: string; // ISO
   syncState: 'dirty' | 'pending' | 'synced' | 'error';
+  /** Backoff gate for the outbox (epoch ms); null/absent = due now. */
+  nextSyncAt?: number | null;
+  syncAttempts?: number;
+  lastSyncError?: string | null;
 }

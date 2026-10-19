@@ -128,9 +128,18 @@ export interface LaserPoint {
 
 /** Ephemeral, high-frequency state painted by the LiveCanvas (never React state). */
 export interface LiveState {
-  stroke: { points: [number, number, number][]; color: ColorName; size: SizeName; highlighter: boolean } | null;
+  /** In-progress stroke; `id` is the id the committed ink shape will get. */
+  stroke: {
+    id: string;
+    points: [number, number, number][];
+    color: ColorName;
+    size: SizeName;
+    highlighter: boolean;
+  } | null;
   laser: LaserPoint[];
   eraser: Point | null;
+  /** In-progress move (for live broadcast to collaborators). */
+  drag: { ids: string[]; dx: number; dy: number } | null;
 }
 
 export interface BoardEditorOptions {
@@ -184,7 +193,7 @@ export class BoardEditor {
   spaceHeld = false;
   /** Bumps on every notify; useBoard uses it to tear-proof selectors. */
   version = 0;
-  readonly live: LiveState = { stroke: null, laser: [], eraser: null };
+  readonly live: LiveState = { stroke: null, laser: [], eraser: null, drag: null };
 
   private gesture: Gesture | null = null;
   private gesturePointer: number | null = null;
@@ -248,6 +257,11 @@ export class BoardEditor {
 
   private notifyLive(): void {
     for (const fn of this.liveListeners) fn();
+  }
+
+  /** Ask the live canvases to repaint (remote strokes/laser changed). */
+  repaintLive(): void {
+    this.notifyLive();
   }
 
   // -------------------------------------------------------------------------
@@ -870,6 +884,7 @@ export class BoardEditor {
       case 'highlighter': {
         const highlighter = tool === 'highlighter';
         this.live.stroke = {
+          id: newShapeId(),
           points: [[p.x, p.y, e.pressure]],
           color: highlighter ? this.style.highlighterColor : this.style.color,
           size: this.style.size,
@@ -980,6 +995,11 @@ export class BoardEditor {
         const next = new Map(this.shapes);
         for (const [id, orig] of g.originals) next.set(id, translateShape(orig, dx, dy));
         this.setShapesLive(next, [...g.originals.keys()]);
+        // Alt-duplicates don't exist remotely yet; only broadcast real moves.
+        if (g.created.size === 0) {
+          this.live.drag = { ids: [...g.originals.keys()], dx, dy };
+          this.notifyLive();
+        }
         return;
       }
       case 'resize':
@@ -1078,7 +1098,7 @@ export class BoardEditor {
     const diameter = INK_SIZE[stroke.size] * (stroke.highlighter ? HIGHLIGHTER_SCALE : 1);
     const geo = inkGeometry(stroke.points, diameter);
     const ink: InkShape = {
-      id: newShapeId(),
+      id: stroke.id,
       type: 'ink',
       ...geo,
       z: this.nextZ(),
@@ -1192,8 +1212,30 @@ export class BoardEditor {
     this.notifySoon();
   }
 
+  /**
+   * Show a collaborator's in-progress move: positions only, no rev, no change
+   * event, no history. The real record (newer rev) replaces it when it lands.
+   */
+  applyPreview(shapes: readonly Shape[]): void {
+    if (!shapes.length) return;
+    const next = new Map(this.shapes);
+    let changed = false;
+    for (const s of shapes) {
+      if (!next.has(s.id) || this.isGesturing) continue;
+      next.set(s.id, s);
+      changed = true;
+    }
+    if (!changed) return;
+    this.setShapes(next);
+    this.notifySoon();
+  }
+
   /** End a translate/resize: emit the final records and push ONE undo step. */
   private finishLiveGesture(originals: Map<string, Shape>, created: Set<string>): void {
+    if (this.live.drag) {
+      this.live.drag = null;
+      this.notifyLive();
+    }
     const finals: Shape[] = [];
     for (const id of originals.keys()) {
       const s = this.shapes.get(id);

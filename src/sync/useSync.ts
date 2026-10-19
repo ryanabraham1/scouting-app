@@ -23,6 +23,7 @@ import { syncOnce } from '@/sync/outbox';
 import { syncPitOnce } from '@/sync/pitOutbox';
 import { syncMatchupNotesOnce } from '@/sync/matchupNotesSync';
 import { syncStrategyCanvasOnce } from '@/sync/strategyCanvasSync';
+import { syncBoardOnce } from '@/sync/boardSync';
 import { clearSyncCircuit } from '@/sync/retrySchedule';
 import { SYNC_QUEUE_CHANGED_EVENT } from '@/sync/queueEvents';
 import { queryClient } from '@/lib/queryPersist';
@@ -150,7 +151,7 @@ async function runSharedSync(): Promise<void> {
   publishShared({ syncing: true });
   let ok = false;
   let retriedIncompleteDrain = false;
-  const landed = { reports: 0, pits: 0, notes: 0, canvases: 0 };
+  const landed = { reports: 0, pits: 0, notes: 0, canvases: 0, board: 0 };
   // Each outbox drains in its own guard: a storage/DB failure in one (say a
   // blocked Dexie upgrade in scouting-db) must not silently starve the others
   // for the life of the tab. The first failure is rethrown after all four ran.
@@ -178,6 +179,8 @@ async function runSharedSync(): Promise<void> {
         await guarded(syncMatchupNotesOnce, 'notes');
         if (!(await stillOwner())) return 'incomplete';
         await guarded(syncStrategyCanvasOnce, 'canvases');
+        if (!(await stillOwner())) return 'incomplete';
+        await guarded(syncBoardOnce, 'board');
         if (outboxFailure) throw outboxFailure;
         return 'completed';
       });

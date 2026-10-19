@@ -4,6 +4,7 @@
 // the camera and tool prefs are per-device conveniences in localStorage.
 // Plan: docs/plans/ryans-board/README.md §7.
 import { deleteBoardRecordRows, getBoardRecordRows, writeBoardRecords } from '@/db/localStore';
+import { notifySyncQueueChanged } from '@/sync/queueEvents';
 import { isTombstone, parseRecord, type BoardRecord, type Shape } from '@/dash/board/model';
 import type { BoardChange, BoardEditor, BoardStyle, Camera, Tool } from '@/dash/board/editor';
 
@@ -32,16 +33,28 @@ function safeSet(key: string, value: string): void {
   }
 }
 
-/** Stable per-device id (merge tie-break and presence key). */
+function randomId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+let tabClientId: string | null = null;
+
+/**
+ * Per-tab client id: the stable device id plus a per-page-load suffix, so two
+ * tabs or windows on one device are distinct collaborators (presence, cursors,
+ * broadcast echo filtering) while revs still tie-break deterministically.
+ */
 export function boardClientId(): string {
-  const existing = safeGet(CLIENT_ID_KEY);
-  if (existing) return existing;
-  const id =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  safeSet(CLIENT_ID_KEY, id);
-  return id;
+  if (tabClientId) return tabClientId;
+  let device = safeGet(CLIENT_ID_KEY);
+  if (!device) {
+    device = randomId();
+    safeSet(CLIENT_ID_KEY, device);
+  }
+  tabClientId = `${device.slice(0, 18)}.${Math.random().toString(36).slice(2, 7)}`;
+  return tabClientId;
 }
 
 /** Every stored record for a board (live shapes and tombstones), validated. */
@@ -113,6 +126,9 @@ export function persistBoard(editor: BoardEditor, boardKey: string): () => void 
       .then(async () => {
         await writeBoardRecords(boardKey, remote, 'synced');
         await writeBoardRecords(boardKey, local, 'dirty');
+        // Wake the sync controller now instead of at the next poll tick, so
+        // other devices see this edit within about a second.
+        if (local.length) notifySyncQueueChanged();
       })
       .catch((err: unknown) => console.error("Ryan's Board: local save failed", err));
   };
