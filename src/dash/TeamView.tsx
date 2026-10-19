@@ -178,7 +178,7 @@ function Stat(props: {
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-2">
       <span className="truncate text-[11px] uppercase tracking-wide text-zinc-400">{props.label}</span>
       <span
-        className={cn('text-lg font-semibold', STAT_TONE_TEXT[props.tone ?? 'default'])}
+        className={cn('tnum text-lg font-semibold', STAT_TONE_TEXT[props.tone ?? 'default'])}
         data-testid={props.testid}
       >
         {props.value}
@@ -308,11 +308,12 @@ function TeamTbaPanel(props: {
           </div>
         ) : null}
         <div className={STAT_GRID}>
-          <Stat label="Event rank" value={eventRank} testid="team-tba-event-rank" tone="brand" />
+          <Stat label="Event rank" value={eventRank} testid="team-tba-event-rank" tone="energy" />
           <Stat
             label="Event record"
             value={recordStr(status?.wins ?? null, status?.losses ?? null, status?.ties ?? null)}
             testid="team-tba-event-record"
+            tone="success"
           />
           <Stat
             label="World rank"
@@ -324,6 +325,7 @@ function TeamTbaPanel(props: {
             label="Season record"
             value={season?.seasonRecord ?? '—'}
             testid="team-tba-season-record"
+            tone="success"
           />
         </div>
         <div
