@@ -15,15 +15,15 @@ import { useBoard } from '@/dash/board/useBoard';
 import { toggleWatch, watchedTeams } from '@/dash/board/widgets/actions';
 import { WidgetInstanceProvider } from './interaction';
 import { Settings2, Star } from 'lucide-react';
-import { memo, useDeferredValue } from 'react';
+import { memo } from 'react';
+import { useWidgetDetail } from './useWidgetDetail';
 import { widgetDef } from '@/dash/board/widgets/registry';
 import { useBoardData } from '@/dash/board/widgets/data';
 import { useNow } from '@/dash/board/BoardTopBar';
 import type { WidgetShape } from '@/dash/board/model';
 
 /** Below this zoom, cards render their lightweight summary. */
-export const LITE_ZOOM = 0.42;
-const NEVER = (): boolean => false;
+export { LITE_ZOOM } from './useWidgetDetail';
 
 function sameContent(a: { shape: WidgetShape; editor?: BoardEditor }, b: { shape: WidgetShape; editor?: BoardEditor }): boolean {
   return (
@@ -39,9 +39,7 @@ export const WidgetFrame = memo(function WidgetFrame({ shape, editor }: { shape:
   const def = widgetDef(shape.kind);
   const data = useBoardData();
   const now = useNow();
-  // Deferred: zooming back in swaps every card from its summary to its full
-  // body; React does that in a background render instead of one long frame.
-  const lite = useDeferredValue(useBoard(editor ?? FALLBACK_EDITOR, editor ? (e) => e.camera.z < LITE_ZOOM : NEVER));
+  const lite = useWidgetDetail(editor);
   if (!def) {
     return (
       <div className="flex h-full w-full items-center justify-center rounded-xl border border-border bg-card text-xs text-muted-foreground">
@@ -89,10 +87,6 @@ export const WidgetFrame = memo(function WidgetFrame({ shape, editor }: { shape:
     </div>
   );
 }, sameContent);
-
-// useBoard needs an editor even when the card renders outside a board
-// (spotlight preview, tests); this one never changes.
-const FALLBACK_EDITOR = { subscribe: () => () => {} } as unknown as BoardEditor;
 
 function TeamStar({ editor, team }: { editor: BoardEditor; team: number }): JSX.Element {
   const watched = useBoard(editor, () => watchedTeams(editor).includes(team));

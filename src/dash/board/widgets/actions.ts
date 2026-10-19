@@ -1,7 +1,7 @@
 // src/dash/board/widgets/actions.ts
 // Board-level widget commands shared by the inspector, spotlight and paste.
 import type { BoardEditor } from '@/dash/board/editor';
-import { pointInRect, type Point, type WidgetShape } from '@/dash/board/model';
+import { pointInRect, type Point, type Shape, type WidgetShape } from '@/dash/board/model';
 import { WIDGETS, type WidgetConfig, type WidgetKind } from '@/dash/board/widgets/registry';
 
 export function insertWidget(editor: BoardEditor, kind: WidgetKind, config?: WidgetConfig, at?: Point): string {
@@ -17,10 +17,15 @@ export function updateWidgetConfig(editor: BoardEditor, shape: WidgetShape, conf
   editor.updateShape(shape.id, { config, ...(size ? { w: Math.max(shape.w, size.w), h: size.h } : {}) });
 }
 
+const watchlistCache = new WeakMap<readonly Shape[], WidgetShape | null>();
+
 /** The canonical watchlist: the first watchlist widget on the board. */
 export function findWatchlist(editor: BoardEditor): WidgetShape | null {
-  for (const s of editor.order) if (s.type === 'widget' && s.kind === 'watchlist') return s;
-  return null;
+  const order = editor.order;
+  if (watchlistCache.has(order)) return watchlistCache.get(order)!;
+  const found = order.find((s): s is WidgetShape => s.type === 'widget' && s.kind === 'watchlist') ?? null;
+  watchlistCache.set(order, found);
+  return found;
 }
 
 export function watchedTeams(editor: BoardEditor): number[] {

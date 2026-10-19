@@ -153,8 +153,8 @@ export function BoardCanvas({
   }, []);
 
   const info = useCallback(
-    (e: React.PointerEvent): PointerInfo => {
-      const p = local(e.clientX, e.clientY);
+    (e: React.PointerEvent, bounds = ref.current!.getBoundingClientRect()): PointerInfo => {
+      const p = { x: e.clientX - bounds.left, y: e.clientY - bounds.top };
       const native = e.nativeEvent;
       const coalesced = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : [];
       const pressureOf = (ev: { pointerType: string; pressure: number }): number =>
@@ -172,13 +172,13 @@ export function BoardCanvas({
         samples:
           coalesced.length > 0
             ? coalesced.map((c) => {
-                const q = local(c.clientX, c.clientY);
+                const q = { x: c.clientX - bounds.left, y: c.clientY - bounds.top };
                 return { sx: q.x, sy: q.y, pressure: pressureOf(c) };
               })
             : undefined,
       };
     },
-    [local],
+    [],
   );
 
   // ---------------------------------------------------------------- pointers
@@ -236,7 +236,8 @@ export function BoardCanvas({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
-    const p = local(e.clientX, e.clientY);
+    const bounds = ref.current!.getBoundingClientRect();
+    const p = { x: e.clientX - bounds.left, y: e.clientY - bounds.top };
     lastPointer.current = p;
     onPointerPage?.(editor.screenToPage(p.x, p.y));
     if (e.pointerType === 'touch') {
@@ -258,7 +259,7 @@ export function BoardCanvas({
         return;
       }
     }
-    editor.pointerMove(info(e));
+    editor.pointerMove(info(e, bounds));
   };
 
   const endPointer = (e: React.PointerEvent<HTMLDivElement>, cancelled: boolean): void => {
@@ -570,10 +571,11 @@ export function BoardCanvas({
   useLayoutEffect(() => {
     let zoom = -1;
     let grid = GRID_STEP;
-    let lastCam = editor.camera;
+    let lastCam: typeof editor.camera | null = null;
     let settle: ReturnType<typeof setTimeout> | null = null;
     const paint = (): void => {
       const cam = editor.camera;
+      if (cam === lastCam) return;
       const { x, y, z } = cam;
       const world = worldRef.current;
       if (world) {

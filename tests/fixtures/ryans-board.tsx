@@ -86,6 +86,36 @@ function Fixture(): JSX.Element {
     };
     requestAnimationFrame(frame);
   };
-  return <><Profiler id="board" onRender={(_id, _phase, duration) => { if (measurement.current.running) { measurement.current.commits += 1; measurement.current.total += duration; } }}><RyansBoard eventKey={eventKey} /></Profiler>{performanceMode && <div className="fixed bottom-1 left-1 z-[100] rounded border bg-card p-2 text-xs"><button onClick={measure}>Measure navigation</button><output className="ml-3">{result}</output></div>}</>;
+  const measureDrawing = (): void => {
+    const e = (window as unknown as { __ryansBoard: BoardEditor }).__ryansBoard;
+    e.setTool('pen');
+    e.setSelection([]);
+    const frames: number[] = [];
+    let previous = 0;
+    let n = 0;
+    const pointer = (i: number) => ({ sx: 120 + i * 2, sy: 220 + Math.sin(i / 8) * 60, pointerId: 1, pointerType: 'pen', pressure: 0.5, button: 0, shift: false, alt: false, meta: false });
+    measurement.current = { running: true, commits: 0, total: 0 };
+    setResult('Measuring drawing…');
+    e.pointerDown(pointer(0));
+    const frame = (at: number): void => {
+      if (previous) frames.push(at - previous);
+      previous = at;
+      // Eight coalesced samples per frame, like a high-rate stylus.
+      e.pointerMove({ ...pointer(n), samples: Array.from({ length: 8 }, (_, j) => {
+        const p = pointer(n + j / 8);
+        return { sx: p.sx, sy: p.sy, pressure: p.pressure };
+      }) });
+      n += 1;
+      if (n < 180) requestAnimationFrame(frame);
+      else {
+        measurement.current.running = false;
+        e.pointerUp(pointer(n));
+        const sorted = [...frames].sort((a, b) => a - b);
+        setResult(`Drawing ${(1000 / (frames.reduce((a, b) => a + b, 0) / frames.length)).toFixed(1)} FPS; p95 ${sorted[Math.floor(sorted.length * 0.95)].toFixed(1)} ms; React ${measurement.current.commits} commits / ${measurement.current.total.toFixed(1)} ms`);
+      }
+    };
+    requestAnimationFrame(frame);
+  };
+  return <><Profiler id="board" onRender={(_id, _phase, duration) => { if (measurement.current.running) { measurement.current.commits += 1; measurement.current.total += duration; } }}><RyansBoard eventKey={eventKey} /></Profiler>{performanceMode && <div className="fixed bottom-1 left-1 z-[100] rounded border bg-card p-2 text-xs"><button onClick={measure}>Measure navigation</button><button className="ml-3" onClick={measureDrawing}>Measure drawing</button><output className="ml-3">{result}</output></div>}</>;
 }
 createRoot(document.getElementById('root')!).render(<React.StrictMode><QueryClientProvider client={client}><BrowserRouter><Fixture /></BrowserRouter></QueryClientProvider></React.StrictMode>);

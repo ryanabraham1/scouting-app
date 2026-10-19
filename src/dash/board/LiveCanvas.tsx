@@ -29,7 +29,7 @@ function setupCanvas(c: HTMLCanvasElement, w: number, h: number): CanvasRenderin
     c.width = Math.round(w * dpr);
     c.height = Math.round(h * dpr);
   }
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d', { desynchronized: true });
   if (!ctx) return null;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return ctx;
@@ -99,12 +99,32 @@ export function LiveCanvas({ editor, width, height, remote }: LiveCanvasProps): 
     const drawFx = (now: number): boolean => {
       const remoteLasers = remote ? [...remote.laser()] : [];
       const remoteStrokes = remote ? [...remote.strokes()] : [];
-      const active = editor.live.laser.length > 0 || !!editor.live.eraser || remoteLasers.some((l) => l.pts.length > 0) || remoteStrokes.length > 0;
+      const active = !!editor.live.stroke || editor.live.laser.length > 0 || !!editor.live.eraser || remoteLasers.some((l) => l.pts.length > 0) || remoteStrokes.length > 0;
       if (!active && !fxPainted) return false;
       fx.clearRect(0, 0, width, height);
       fxPainted = active;
       const { x: cx, y: cy, z } = editor.camera;
       let animating = false;
+      // The permanent incremental ink ends at the final midpoint. Paint its
+      // short, replaceable tail separately so it reaches the latest input,
+      // without clearing/replaying the whole stroke on every frame.
+      const stroke = editor.live.stroke;
+      if (stroke && stroke.points.length > 1) {
+        const pts = stroke.points;
+        const a = pts[pts.length - 2];
+        const b = pts[pts.length - 1];
+        const base = INK_SIZE[stroke.size] * (stroke.highlighter ? HIGHLIGHTER_SCALE : 1) * z;
+        fx.strokeStyle = COLORS[stroke.color];
+        fx.globalAlpha = stroke.highlighter ? HIGHLIGHTER_OPACITY : 1;
+        fx.lineCap = 'round';
+        fx.lineWidth = stroke.highlighter ? base : base * (0.6 + 0.8 * b[2]);
+        fx.beginPath();
+        fx.moveTo((a[0] + b[0]) / 2 * z + cx, (a[1] + b[1]) / 2 * z + cy);
+        fx.lineTo(b[0] * z + cx, b[1] * z + cy);
+        fx.stroke();
+        fx.globalAlpha = 1;
+      }
+
       const drawTrail = (trail: { x: number; y: number; t: number }[], color: string): void => {
         if (trail.length < 2) return;
         fx.lineCap = 'round';
@@ -179,7 +199,10 @@ export function LiveCanvas({ editor, width, height, remote }: LiveCanvasProps): 
     const unsub = editor.subscribe(() => {
       if (camera === editor.camera) return;
       camera = editor.camera;
-      if (editor.live.stroke || editor.live.eraser || editor.live.laser.length || fxPainted) schedule();
+      if (editor.live.stroke || editor.live.eraser || editor.live.laser.length || fxPainted) {
+        drawInk();
+        if (drawFx(performance.now())) schedule();
+      }
     });
     schedule();
     return () => {

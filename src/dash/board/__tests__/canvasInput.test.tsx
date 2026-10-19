@@ -1,6 +1,6 @@
 // Wheel and press routing over cards: panning must never stall on a widget
 // (the "jittery board" bug), while a selected card keeps its own scrolling.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { BoardEditor } from '../editor';
 import { BoardCanvas } from '../BoardCanvas';
@@ -75,5 +75,23 @@ describe('BoardCanvas wheel routing over cards', () => {
       body.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, ctrlKey: true, bubbles: true, cancelable: true }));
     });
     expect(editor.camera.z).toBeLessThan(z0);
+  });
+});
+
+
+describe('BoardCanvas high-rate pointer input', () => {
+  it('maps every coalesced pen sample using one viewport layout read', () => {
+    const { editor, body } = setup();
+    const canvas = body.closest('[data-testid="board-canvas"]') as HTMLElement;
+    const bounds = vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 30, top: 40 } as DOMRect);
+    const move = vi.spyOn(editor, 'pointerMove');
+    const event = new MouseEvent('pointermove', { clientX: 130, clientY: 140, bubbles: true });
+    Object.assign(event, {
+      pointerId: 7, pointerType: 'pen', pressure: 0.7,
+      getCoalescedEvents: () => Array.from({ length: 32 }, (_, i) => ({ clientX: 100 + i, clientY: 110 + i, pointerType: 'pen', pressure: 0.7 })),
+    });
+    act(() => canvas.dispatchEvent(event));
+    expect(bounds).toHaveBeenCalledTimes(1);
+    expect(move).toHaveBeenCalledWith(expect.objectContaining({ sx: 100, sy: 100, samples: expect.arrayContaining([{ sx: 70, sy: 70, pressure: 0.7 }, { sx: 101, sy: 101, pressure: 0.7 }]) }));
   });
 });
