@@ -6,7 +6,7 @@
 // Ink therefore sits above cards, images and text (annotation layer) rather
 // than interleaved by z. Export still renders ink as SVG through ShapeView.
 import { useEffect, useRef } from 'react';
-import { COLORS, HIGHLIGHTER_OPACITY, rectsIntersect, type InkShape } from '@/dash/board/model';
+import { COLORS, HIGHLIGHTER_OPACITY, rectsIntersect, type InkShape, type Shape } from '@/dash/board/model';
 import type { BoardEditor } from '@/dash/board/editor';
 import { inkToPathD } from '@/dash/board/inkPath';
 
@@ -28,39 +28,63 @@ export function InkLayer({ editor, width, height }: { editor: BoardEditor; width
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || width <= 0 || height <= 0 || typeof Path2D !== 'function') return;
-    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    let painted: { camera: unknown; order: unknown; erase: unknown } | null = null;
+    let painted: { camera: BoardEditor['camera']; order: BoardEditor['order']; erase: BoardEditor['pendingErase'] } | null = null;
     let raf: number | null = null;
+    let deferred = false;
+
+    const draw = (s: Shape, view: ReturnType<BoardEditor['viewPageRect']>): void => {
+      if (s.type !== 'ink' || !rectsIntersect(view, s)) return;
+      const { x: cx, y: cy, z } = editor.camera;
+      ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * (cx + s.x * z), dpr * (cy + s.y * z));
+      ctx.globalAlpha = (s.highlighter ? HIGHLIGHTER_OPACITY : 1) * (editor.pendingErase.has(s.id) ? 0.3 : 1);
+      ctx.fillStyle = COLORS[s.color];
+      ctx.fill(inkPath(s));
+    };
+    /** The common commit: same camera, one shape appended on top. */
+    const appendedOne = (prev: BoardEditor['order'], next: BoardEditor['order']): boolean => {
+      if (next.length !== prev.length + 1) return false;
+      for (let i = 0; i < prev.length; i += 1) if (prev[i] !== next[i]) return false;
+      return true;
+    };
 
     const paint = (): void => {
       raf = null;
+      // Never repaint the whole layer under a live stroke: it would compete
+      // with the Pencil for the frame. Catch up once the stroke ends.
+      if (painted && editor.live.stroke) {
+        deferred = true;
+        return;
+      }
+      deferred = false;
       const { camera, order, pendingErase } = editor;
       if (painted && painted.camera === camera && painted.order === order && painted.erase === pendingErase) return;
-      painted = { camera, order, erase: pendingErase };
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
       const view = editor.viewPageRect();
-      const { x: cx, y: cy, z } = camera;
-      for (const s of order) {
-        if (s.type !== 'ink' || !rectsIntersect(view, s)) continue;
-        ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * (cx + s.x * z), dpr * (cy + s.y * z));
-        ctx.globalAlpha = (s.highlighter ? HIGHLIGHTER_OPACITY : 1) * (pendingErase.has(s.id) ? 0.3 : 1);
-        ctx.fillStyle = COLORS[s.color];
-        ctx.fill(inkPath(s));
+      if (painted && painted.camera === camera && painted.erase === pendingErase && appendedOne(painted.order, order)) {
+        draw(order[order.length - 1], view);
+      } else {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const s of order) draw(s, view);
       }
       ctx.globalAlpha = 1;
+      painted = { camera, order, erase: pendingErase };
     };
     const schedule = (): void => {
       if (raf == null) raf = requestAnimationFrame(paint);
     };
     paint();
     const unsub = editor.subscribe(schedule);
+    const unsubLive = editor.subscribeLive(() => {
+      if (deferred && !editor.live.stroke) schedule();
+    });
     return () => {
       unsub();
+      unsubLive();
       if (raf != null) cancelAnimationFrame(raf);
     };
   }, [editor, width, height]);

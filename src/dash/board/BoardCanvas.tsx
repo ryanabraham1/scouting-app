@@ -575,8 +575,8 @@ export function BoardCanvas({
     let grid = GRID_STEP;
     let lastCam: typeof editor.camera | null = null;
     let settle: ReturnType<typeof setTimeout> | null = null;
-    /** Zoom the world layer was last rasterized crisp at. */
-    let rasterZ = editor.camera.z;
+    /** Zoom when the current camera motion began. */
+    let motionZ: number | null = null;
     const paint = (): void => {
       const cam = editor.camera;
       if (cam === lastCam) return;
@@ -587,23 +587,22 @@ export function BoardCanvas({
       if (world) {
         world.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${z})`;
         if (!first) {
-          // will-change keeps motion on the compositor, but a lasting hint
-          // freezes text at its old raster scale (blurry after zooming). Drop
-          // it on settle only when the zoom changed, so a plain pan never
-          // pays a full re-raster.
+          // will-change only WHILE the camera moves: it keeps panning on the
+          // compositor, but a permanent hint freezes text at its old raster
+          // scale (blurry after zooming). Dropping it once the camera settles
+          // re-rasterizes everything crisp at the new zoom.
           world.style.willChange = 'transform';
+          motionZ ??= z;
           // Card bodies swap for their lite face (CSS on data-camera-moving)
-          // during any zoom, and during every move on a tablet, so each
-          // re-rasterized frame is a few boxes instead of live charts.
-          if (touch || z !== rasterZ) world.dataset.cameraMoving = '';
+          // only while the zoom changes, so each re-rasterized pinch frame is
+          // a few boxes instead of live charts; plain pans keep full cards.
+          if (z !== motionZ) world.dataset.cameraMoving = '';
           if (settle) clearTimeout(settle);
           settle = setTimeout(() => {
             settle = null;
+            motionZ = null;
             delete world.dataset.cameraMoving;
-            if (editor.camera.z !== rasterZ) {
-              rasterZ = editor.camera.z;
-              world.style.willChange = 'auto';
-            }
+            world.style.willChange = 'auto';
           }, 180);
         }
       }
@@ -627,7 +626,7 @@ export function BoardCanvas({
       unsub();
       if (settle) clearTimeout(settle);
     };
-  }, [editor, touch]);
+  }, [editor]);
 
   // --------------------------------------------------------------- render
   return (
