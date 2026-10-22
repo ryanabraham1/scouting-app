@@ -34,6 +34,7 @@ import {
 } from '@/dash/useEventData';
 import { resolveRowEpa } from '@/dash/sorting';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
+import { allianceGrid, setAllianceSeat, DRAFT_ORDER } from './allianceDraft';
 import { predictMatch } from '@/dash/predict';
 import { useQuery } from '@tanstack/react-query';
 import { getPicklist, entryList, type PicklistEntry, type PicklistId } from '@/dash/picklistClient';
@@ -202,6 +203,23 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   // Which picklist drives the ranking: the 1st-pick list until our alliance's
   // first pick lands (auto-switch below), manually switchable any time.
   const activeList = draftActiveList(state);
+  const grid = allianceGrid(state, tbaRankByTeam, baseTeam);
+  const ourAlliance = grid.findIndex(row => row.includes(baseTeam));
+  const turn = state.draftTurn ?? 0;
+  const [history, setHistory] = useState<DraftState[]>([]);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const updateDraft = (next: DraftState): void => {
+    setHistory(prev => [...prev.slice(-49), state]);
+    setState(withAutoListSwitch(state, next));
+    setDraftError(null);
+  };
+  const undoDraft = (): void => {
+    const previous = history[history.length - 1];
+    if (!previous) return;
+    setState(previous);
+    setHistory(items => items.slice(0, -1));
+  };
+
 
   // teamNumber → its picklist entry. A team may have one entry PER list; the
   // ACTIVE list's entry wins for per-team annotations (note/tier) so the board
@@ -406,11 +424,26 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
 
   // Marking our FIRST pick auto-switches the board to the 2nd-pick list (and
   // undoing it switches back); manual switching below always remains available.
-  const toggle = (teamNumber: number, target: 'ours' | 'taken'): void =>
-    setState((s) => withAutoListSwitch(s, toggleStatus(teamNumber, target, s)));
+  const toggle = (teamNumber: number, target: 'ours' | 'taken'): void => {
+    if (statusOf(teamNumber, state) === target) {
+      const next = toggleStatus(teamNumber, target, state);
+      next.alliances = grid.map(row => row.map(n => n === teamNumber ? null : n));
+      updateDraft(next);
+      return;
+    }
+    const row = target === 'ours' ? ourAlliance : DRAFT_ORDER[turn];
+    if (row == null || row < 0 || (target === 'taken' && row === ourAlliance)) {
+      // A crossed-off team can be recorded before its receiving alliance is known.
+      updateDraft(toggleStatus(teamNumber, target, state));
+      return;
+    }
+    const seat = grid[row][1] == null ? 1 : grid[row][2] == null ? 2 : -1;
+    if (seat < 0) { setDraftError(`Alliance ${row + 1} is full. Select another alliance or edit a seat.`); return; }
+    updateDraft({ ...setAllianceSeat(state, grid, row, seat, teamNumber, baseTeam), draftTurn: Math.min(16, turn + 1) });
+  };
   const setActiveList = (list: PicklistId): void =>
     setState((s) => ({ ...s, activeList: list }));
-  const resetAll = (): void => setState({ ours: [], taken: [] });
+  const resetAll = (): void => updateDraft({ ours: [], taken: [] });
 
   const loading =
     (reportsQuery.isLoading && !reports) || (teamsQuery.isLoading && !teamsQuery.data);
@@ -449,6 +482,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       // Extra-wide screens: picks + pool on the left, our alliance pinned right.
       className="space-y-4 text-foreground xl:grid xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start xl:gap-4 xl:space-y-0"
     >
+      <div className="lead-page-heading lead-draft-heading"><div><h1>Draft</h1><p>{turn >= 16 ? 'Selection complete' : `Round ${turn < 8 ? 1 : 2} · Alliance ${DRAFT_ORDER[turn] + 1} is picking`}{ourAlliance >= 0 ? ` · we are Alliance ${ourAlliance + 1}` : ''}</p>{draftError ? <p role="alert" className="lead-draft-error text-sm text-warning">{draftError}</p> : null}</div><Button variant="outline" onClick={undoDraft} disabled={!history.length}>Undo</Button></div>
       {/* Best remaining pick — the headline of the board. */}
       <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-brand/40 xl:col-start-1 xl:row-start-1">
         <CardHeader className="gap-1 space-y-0 px-0 pt-0 sm:p-6">
@@ -514,7 +548,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   <li
                     key={r.teamNumber}
                     data-testid={`draft-best-${r.teamNumber}`}
-                    className="flex flex-col gap-2 rounded-xl border-2 border-brand bg-brand/15 px-4 py-3"
+                    className="lead-next-pick flex flex-col gap-2 rounded-xl border-2 border-brand bg-brand/15 px-4 py-3"
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex min-w-0 flex-col gap-1">
@@ -547,7 +581,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                           data-testid={`draft-pick-ours-${r.teamNumber}`}
                           onClick={() => toggle(r.teamNumber, 'ours')}
                         >
-                          <Star /> Pick
+                          <Star /> Mark as ours
                         </Button>
                         <Button
                           type="button"
@@ -608,7 +642,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                             data-testid={`draft-pick-ours-${r.teamNumber}`}
                             onClick={() => toggle(r.teamNumber, 'ours')}
                           >
-                            <Star /> Pick
+                            <Star /> Mark as ours
                           </Button>
                           <Button
                             type="button"
@@ -643,6 +677,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
       {/* Our alliance: captain + our picks, with combined stats. Always shown so
           the "we got picked by another team" control is reachable even before any
           picks. */}
+      <aside className="lead-alliance-sidebar"><section className="lead-alliance-table" aria-label="Alliances"><h2>Alliances</h2><div className="sr-only" id="alliance-seat-help">Choose captains and picks. A team can occupy only one seat. Changes are saved on this device.</div>{grid.map((row, i) => <div key={i} className={cn('lead-alliance-row', i === ourAlliance && 'is-ours')}><button type="button" aria-label={`Alliance ${i + 1} picking next`} aria-pressed={turn < 16 && DRAFT_ORDER[turn] === i} onClick={() => updateDraft({ ...state, draftTurn: turn < 8 ? i : 15 - i })}>{i + 1}</button>{row.map((team, seat) => <select key={seat} aria-label={`Alliance ${i + 1} ${seat === 0 ? 'captain' : `pick ${seat}`}`} aria-describedby="alliance-seat-help" value={team ?? ''} onChange={e => updateDraft(setAllianceSeat(state, grid, i, seat, e.target.value ? Number(e.target.value) : null, baseTeam))}><option value="">{turn < 16 && DRAFT_ORDER[turn] === i && seat === (turn < 8 ? 1 : 2) ? '…' : '—'}</option>{teamNumbers.map(n => <option key={n} value={n}>{n}</option>)}</select>)}</div>)}</section>
       <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border sm:border-success/40 xl:sticky xl:top-4 xl:col-start-2 xl:row-span-2 xl:row-start-1" data-testid="draft-alliance">
         <CardHeader className="gap-1 space-y-0 px-0 pt-0 sm:p-6">
           <div className="flex items-center justify-between gap-2">
@@ -805,6 +840,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
         </CardContent>
       </Card>
 
+      </aside>
       {/* The pool — every team, ranked, with one-tap cross-off. */}
       <Card className="border-0 bg-transparent shadow-none sm:bg-card sm:shadow sm:border xl:col-start-1 xl:row-start-2">
         <CardHeader className="gap-3 px-0 pt-0 sm:p-6">

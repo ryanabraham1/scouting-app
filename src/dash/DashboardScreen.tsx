@@ -19,6 +19,8 @@ import { StationMenu } from '@/components/StationMenu';
 import { BackLink } from '@/components/ui/BackLink';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { useEventLiveSync } from '@/dash/useEventData';
+import './leadDashboard.css';
+import { useLocation } from 'react-router-dom';
 import StrategyView from '@/dash/strategy/StrategyView';
 
 // Strategy is the default tab and ships in this chunk; the other tabs are
@@ -190,6 +192,8 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
     return () => clearTimeout(timer);
   }, [verifying]);
   const [tab, setTab] = useState<Tab>(initialTab);
+  const location = useLocation();
+  useEffect(() => { setTab(initialTab()); }, [location.search]);
 
   function selectTab(next: Tab): void {
     setTab(next);
@@ -214,7 +218,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
   return (
     <div
       data-testid="dashboard"
-      className={`flex min-h-screen min-w-0 flex-col gap-3 overflow-x-clip bg-background px-safe py-safe text-foreground sm:gap-4 ${BOTTOM_BAR_CLEARANCE}`}
+      className={`lead-dashboard lead-tab-${tab} flex min-h-screen min-w-0 flex-col gap-3 overflow-x-clip bg-background px-safe py-safe text-foreground sm:gap-4 ${BOTTOM_BAR_CLEARANCE}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-3">
         <StationMenu
@@ -265,7 +269,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
 
       <Suspense fallback={<TabLoading />}>
         {tab === 'scouters' && <ScoutersTab eventKey={eventKey} />}
-        {tab === 'settings' && <SetupTab />}
+        {tab === 'settings' && <SetupTab onLock={lockDashboard} />}
       </Suspense>
 
       {dataGated &&

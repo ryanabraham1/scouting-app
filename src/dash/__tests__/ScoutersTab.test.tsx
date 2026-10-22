@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import type { MsrRow } from '@/dash/types';
 import type { ScoutRow } from '@/dash/useEventData';
 
@@ -85,9 +86,11 @@ function querySuccess<T>(data: T) {
 function renderTab(eventKey: string | null = '2026demo') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}>
-      <ScoutersTab eventKey={eventKey} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <ScoutersTab eventKey={eventKey} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

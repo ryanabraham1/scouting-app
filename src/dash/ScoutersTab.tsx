@@ -14,6 +14,7 @@
 //   • Delete — permanently remove the name and ALL their reports, everywhere.
 // Roster management works with no active event; report counts/profiles appear
 // once an event is set.
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -128,7 +129,7 @@ function pct(rate: number | null): string {
  * Event-wide load summary card. Rendered above the scouter list when an event
  * is set. Pure presentation of the precomputed `EventScouterStats`.
  */
-function ScouterLoadCard(props: { stats: EventScouterStats }): JSX.Element {
+function ScouterLoadCard(props: { stats: EventScouterStats; pits: number }): JSX.Element {
   const { stats } = props;
   return (
     <Card data-testid="scouter-load-card" className={cn(CARD_FLAT_PHONE, "border-border ")}>
@@ -150,6 +151,7 @@ function ScouterLoadCard(props: { stats: EventScouterStats }): JSX.Element {
           <span data-testid="scouter-load-max" className="contents">
             <StatTile label="Max / scout" value={stats.maxLoad} icon={<Target />} tone="energy" />
           </span>
+          <span className="contents"><StatTile label="Pit reports" value={props.pits} icon={<ClipboardList />} tone="default" /></span>
         </div>
       </CardContent>
     </Card>
@@ -710,8 +712,15 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
 
   return (
     <div data-testid="dash-scouters" className="flex flex-col gap-4 text-foreground">
+      <div className="lead-page-heading"><div><h1>Scouters</h1><p>Roster, coverage and assignments{eventKey ? ` for ${eventKey}` : ''}</p></div><div className="flex items-center gap-2"><Button variant="outline" onClick={() => document.querySelector<HTMLInputElement>('[data-testid="roster-name-input"]')?.focus()}>Add scouter</Button><Link className="lead-primary-action" to="/dashboard?tab=settings#assignments">Manage assignments</Link></div></div>
+      {eventKey && !eventLoading && scouterStats ? <div className="lead-scouter-summary"><ScouterLoadCard stats={scouterStats} pits={pitsQuery.data?.size ?? 0} /></div> : null}
+      {eventKey ? <section className="lead-coverage"><div className="flex items-center justify-between gap-3"><h2>Coverage · next 6 matches</h2><span className="text-xs text-muted-foreground"><span className="text-success">■</span> Assigned　<span className="text-warning">□</span> Open</span></div><div className="lead-coverage-grid">{matches.filter(isUnplayed).slice(0, 6).map((match) => {
+        const seats = ['red', 'blue'].flatMap(color => [1, 2, 3].map(station => assignmentRows.some(a => a.match_key === match.match_key && a.alliance_color === color && a.station === station && a.scout_id != null)));
+        const filled = seats.filter(Boolean).length;
+        return <Link key={match.match_key} to="/dashboard?tab=settings#assignments" className="lead-coverage-match"><div className="flex justify-between font-mono text-sm"><strong>{formatMatchKeyRaw(match.match_key)}</strong><span className={filled < 6 ? 'text-warning' : 'text-muted-foreground'}>{filled}/6</span></div><div className="lead-coverage-seats">{seats.map((filled, i) => <span key={i} className={filled ? 'assigned' : 'open'} aria-label={`${i < 3 ? 'Red' : 'Blue'} ${i % 3 + 1}: ${filled ? 'assigned' : 'open'}`} />)}</div></Link>;
+      })}</div>{!matches.some(isUnplayed) ? <p className="mt-4 text-sm text-muted-foreground">No upcoming matches in the saved schedule.</p> : null}</section> : null}
       {eventKey ? (
-        <ScoutHeartbeat
+        <div className="lead-heartbeat"><ScoutHeartbeat
           coverage={
             heartbeatAnchor ?? {
               ...emptyMatchCoverage('', undefined),
@@ -724,7 +733,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
           nowMs={nowMs}
           unit="scouts"
           heroLabel={heartbeatAnchor ? formatMatchKeyRaw(heartbeatAnchor.matchKey) : undefined}
-        />
+        /></div>
       ) : null}
       {/* Extra-wide screens: roster on the left, missed assignments pinned right. */}
       <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_26rem] xl:items-start">
@@ -770,16 +779,13 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
             </p>
           ) : null}
 
-          {eventKey && !eventLoading && scouterStats ? (
-            <ScouterLoadCard stats={scouterStats} />
-          ) : null}
 
           {eventLoading ? (
             <div data-testid="scouter-loading" className="text-sm text-muted-foreground">
               Loading event data…
             </div>
           ) : (
-            <ul data-testid="roster-list" className="flex flex-col gap-2">
+            <><div className="lead-roster-columns" aria-hidden="true"><span>Scouter</span><span>Matches</span><span>Pit</span><span>Next</span><span>Last report</span><span /></div><ul data-testid="roster-list" className="flex flex-col gap-2">
               {unified.length === 0 ? (
                 <li data-testid="scouters-empty" className="text-sm text-muted-foreground">
                   No scouters yet. Add the names your team picks from on each device.
@@ -814,7 +820,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                             className="flex flex-1 items-center justify-between gap-2 rounded-lg px-2 py-1 text-left text-base hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent"
                           >
                             <span className="flex min-w-0 items-center gap-2">
-                              <span className="min-w-0 truncate font-semibold text-foreground">
+                              <span className="lead-scouter-avatar" aria-hidden="true">{u.name.split(/\s+/).map(n => n[0]).slice(0, 2).join('')}</span><span className="min-w-0 truncate font-semibold text-foreground">
                                 {u.name}
                               </span>
                               {u.hidden ? (
@@ -853,6 +859,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                             ) : null}
                           </button>
 
+                          <div className="lead-scouter-cells"><span>{u.reportCount}</span><span>{u.pitCount}</span><span>{(() => { const next = matches.find(m => isUnplayed(m) && assignmentRows.some(a => a.match_key === m.match_key && a.scout_id != null && u.scoutIds.includes(a.scout_id))); return next ? formatMatchKeyRaw(next.match_key) : '—'; })()}</span><span>{(() => { const latest = reports.filter(r => r.scout_id != null && u.scoutIds.includes(r.scout_id)).reduce((at, r) => Math.max(at, Date.parse(r.server_received_at) || 0), 0); const mins = Math.max(0, Math.floor((nowMs - latest) / 60000)); return latest ? <><i className={mins < 30 ? 'bg-success' : 'bg-warning'} />{mins < 1 ? 'now' : mins < 60 ? `${mins} min` : mins < 48 * 60 ? `${Math.floor(mins / 60)} h` : `${Math.floor(mins / 1440)} d`}</> : '—'; })()}</span></div>
                           <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
@@ -868,7 +875,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                               style={{ minHeight: CONTROL_MIN_HEIGHT }}
                               className="flex min-w-[3rem] items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:bg-muted/60 disabled:opacity-50"
                             >
-                              {u.hidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                              {u.hidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}<span className="lead-action-label">{u.hidden ? 'Unhide' : 'Hide'}</span>
                             </button>
 
                             {isConfirming ? (
@@ -906,7 +913,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                                 style={{ minHeight: CONTROL_MIN_HEIGHT }}
                                 className="flex min-w-[3rem] items-center justify-center rounded-xl border border-border bg-muted/30 px-3 text-muted-foreground hover:border-destructive hover:bg-destructive/15 hover:text-destructive"
                               >
-                                <Trash2 className="size-4" />
+                                <Trash2 className="size-4" /><span className="lead-action-label">Delete</span>
                               </button>
                             )}
                           </div>
@@ -966,7 +973,7 @@ export default function ScoutersTab(props: ScoutersTabProps): JSX.Element {
                   );
                 })
               )}
-            </ul>
+            </ul></>
           )}
 
           <p className="text-xs text-muted-foreground">

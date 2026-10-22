@@ -108,6 +108,7 @@ interface PickRowProps {
   editable: boolean;
   /** Desktop stat strip: live BSR plus scouted fuel / defense / reliability. */
   stats?: PickRowStats;
+  nickname?: string | null;
 }
 
 export interface PickRowStats {
@@ -140,6 +141,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
     onSendToOtherList,
     editable,
     stats,
+    nickname,
   } = props;
   // The list this row would MOVE TO (it renders only inside its current list).
   const moveTarget = entryList(e) === 'first' ? '2nd' : '1st';
@@ -181,11 +183,13 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           {i + 1}
         </span>
       </span>
-      <TeamLink
+      <div className="lead-pick-identity"><TeamLink
         team={e.teamNumber}
         data-testid={`pick-team-${e.teamNumber}`}
         className="inline-flex min-h-[44px] min-w-0 shrink-0 items-center font-medium sm:w-16"
       />
+
+      <span className="lead-pick-nickname">{nickname}</span></div>
 
       {/* Desktop stat strip — color carries the meaning: BSR cyan, fuel orange,
           defense blue, reliability green (amber when shaky). */}
@@ -213,6 +217,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         </span>
       ) : null}
 
+      <details className="lead-pick-row-menu"><summary aria-label={`Actions for team ${e.teamNumber}`}>•••</summary>
       {/* Move / remove controls: a contained group so on mobile they sit together
           on their own grid row instead of wrapping the destructive ✕ off alone. */}
       <div className="col-start-3 row-span-2 flex shrink-0 items-center gap-1 sm:row-span-1 sm:contents">
@@ -256,17 +261,6 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         </Button>
       </div>
 
-      <Input
-        type="text"
-        data-testid={`pick-note-${e.teamNumber}`}
-        value={e.note ?? ''}
-        onChange={(ev) => onUpdateField(e.teamNumber, 'note', ev.target.value)}
-        disabled={!editable}
-        placeholder="Note"
-        aria-label={`Note for team ${e.teamNumber}`}
-        className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
-      />
-
       {/* Send the team to the OTHER picklist (1st ↔ 2nd). Already on both →
           the move merges (drops this row, keeps the other list's entry). */}
       <div className="col-span-2 flex shrink-0 items-center gap-1.5 sm:col-span-1">
@@ -300,6 +294,19 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           → {moveTarget}
         </button>
       </div>
+      </details>
+      <Input
+        type="text"
+        data-testid={`pick-note-${e.teamNumber}`}
+        value={e.note ?? ''}
+        onChange={(ev) => onUpdateField(e.teamNumber, 'note', ev.target.value)}
+        disabled={!editable}
+        placeholder="Note"
+        aria-label={`Note for team ${e.teamNumber}`}
+        className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
+      />
+
+
     </li>
   );
 }
@@ -313,6 +320,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [usingCachedFallback, setUsingCachedFallback] = useState(false);
   // Which of the two picklists (1st pick / 2nd pick) is being viewed/edited.
+  const [showDnp, setShowDnp] = useState(false);
   const [activeList, setActiveList] = useState<PicklistId>('first');
   const [addValue, setAddValue] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
@@ -844,7 +852,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               disabled={!editable}
               className={TOUCH}
             >
-              Seed
+              Seed from BSR
             </Button>
             <Button
               type="button"
@@ -855,7 +863,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
               className={`${TOUCH} col-span-2 row-start-2 w-full sm:col-span-1 sm:row-auto sm:w-auto`}
             >
               <Printer aria-hidden="true" />
-              {exporting ? 'Preparing…' : 'Print alliance sheet'}
+              {exporting ? 'Preparing…' : 'Print sheet'}
             </Button>
             <div
               ref={exportMenuRef}
@@ -982,13 +990,13 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                   key={id}
                   type="button"
                   role="tab"
-                  aria-selected={activeList === id}
+                  aria-selected={!showDnp && activeList === id}
                   tabIndex={activeList === id ? 0 : -1}
                   data-testid={`pick-list-${id}`}
-                  onClick={() => setActiveList(id)}
+                  onClick={() => { setShowDnp(false); setActiveList(id); }}
                   className={cn(
                     'inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                    activeList === id
+                    !showDnp && activeList === id
                       ? 'bg-background text-foreground shadow-sm sm:bg-brand/20 sm:text-brand sm:shadow-none'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
@@ -997,6 +1005,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                   <span className="text-xs tabular-nums opacity-70">{count}</span>
                 </button>
               ))}
+              <button type="button" role="tab" data-testid="pick-list-dnp" aria-selected={showDnp} onClick={() => setShowDnp(true)} className={cn('min-h-9 rounded-lg px-3 text-sm font-medium', showDnp ? 'bg-accent text-foreground' : 'text-muted-foreground')}>Do not pick <span className="ml-1 text-xs opacity-70">{dnpEntries.length}</span></button>
             </div>
 
             {/* Add a team (to the active list). */}
@@ -1042,7 +1051,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
             ) : null}
           </div>
 
-          {activePicks.length === 0 ? (
+          {showDnp ? <div className="lead-dnp-list"><div className="mb-3 text-sm text-muted-foreground">Excluded from draft recommendations. Allow a team to make it available again.</div>{dnpEntries.length ? dnpEntries.map(e => <div key={e.teamNumber} className="flex min-h-14 items-center gap-3 border-t border-border px-4"><TeamLink team={e.teamNumber} /><span className="flex-1 text-sm text-muted-foreground">{nameByTeam.get(e.teamNumber)}</span><Button variant="outline" disabled={!editable} onClick={() => toggleDnp(e.teamNumber)}>Allow picking</Button></div>) : <p className="py-6 text-sm text-muted-foreground">No teams marked do not pick.</p>}</div> : activePicks.length === 0 ? (
             <div data-testid="pick-empty" className="py-6 text-sm text-muted-foreground">
               No teams in the {activeList === 'first' ? '1st' : '2nd'}-pick list yet. Add one
               above.
@@ -1057,7 +1066,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                 items={activePicks.map((e) => e.teamNumber)}
                 strategy={verticalListSortingStrategy}
               >
-                <ul className="sm:space-y-2">
+                <div className="lead-pick-columns" aria-hidden="true"><span>#</span><span>Team</span><span>BSR</span><span>Fuel</span><span>Def</span><span>Reliab</span><span>Note</span></div><ul className="sm:space-y-2">
                   {activePicks.map((e, i) => (
                     <SortablePickRow
                       key={e.teamNumber}
@@ -1071,6 +1080,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                       onSendToOtherList={sendToOtherList}
                       editable={editable}
                       stats={statsFor(e.teamNumber)}
+                      nickname={nameByTeam.get(e.teamNumber)}
                     />
                   ))}
                 </ul>
@@ -1083,6 +1093,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
       {/* The board's add + added-check reflect the ACTIVE list (a team on the
           other list can still be one-tap added to this one). */}
       <PicklistEpaBoard
+        compact
         teams={allTeams}
         epa={epaQuery.data}
         inListTeams={activeListTeams}

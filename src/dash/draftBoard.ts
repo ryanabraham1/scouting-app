@@ -22,6 +22,9 @@ export type DraftStatus = 'available' | 'ours' | 'taken';
 /** Persisted scratch state: the team numbers in each non-default bucket. */
 export interface DraftState {
   ours: number[];
+  /** Eight alliance rows: captain, first pick, second pick. */
+  alliances?: (number | null)[][];
+  draftTurn?: number;
   taken: number[];
   /**
    * Set to the CAPTAIN team that picked US — when present, we joined another
@@ -125,6 +128,11 @@ export function loadDraftState(eventKey: string): DraftState {
     if (parsed.activeList === 'first' || parsed.activeList === 'second') {
       out.activeList = parsed.activeList;
     }
+    if (Array.isArray(parsed.alliances) && parsed.alliances.length === 8 && parsed.alliances.every(row => Array.isArray(row) && row.length === 3 && row.every(n => n === null || (Number.isInteger(n) && n > 0)))) {
+      const teams = parsed.alliances.flat().filter(n => n != null);
+      if (new Set(teams).size === teams.length) out.alliances = parsed.alliances;
+    }
+    if (Number.isInteger(parsed.draftTurn) && parsed.draftTurn! >= 0 && parsed.draftTurn! <= 16) out.draftTurn = parsed.draftTurn;
     return out;
   } catch {
     return { ...EMPTY_DRAFT_STATE };

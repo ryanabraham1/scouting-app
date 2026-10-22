@@ -10,7 +10,7 @@
 // width = epa / maxEpa across the field, tinted by rank tier. Respects reduced
 // motion (no animation). Dark theme, shadcn Card primitives, tabular-nums.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Check, Ban } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,7 @@ const EM_DASH = '—';
 export interface PicklistEpaBoardProps {
   /** Every team participating in the event (identity + nickname). */
   teams: TeamRow[];
+  compact?: boolean;
   /** Season-wide EPA per team + per-team source, from useEventEpa. */
   epa: EventEpa | undefined;
   /** Team numbers already in the picklist (drives the added/disabled state). */
@@ -55,6 +56,7 @@ function fmtEpa(n: number): string {
 export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Element {
   const {
     teams,
+    compact = false,
     epa,
     inListTeams,
     onAdd,
@@ -63,6 +65,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
     readOnly = false,
   } = props;
 
+  const [search, setSearch] = useState('');
   const epaByTeam = epa?.epaByTeam;
   const epaAvailable = epa?.available === true;
   const epaSource = epa?.source ?? 'none';
@@ -105,10 +108,10 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
         : 'No BSR yet (no match results posted) and match13 unavailable.';
 
   return (
-    <Card data-testid="picklist-epa-board" className="bg-card">
+    <Card data-testid="picklist-epa-board" className={compact ? 'lead-pick-candidates bg-card' : 'bg-card'}>
       <CardHeader className="space-y-1">
         <CardTitle className="flex items-baseline justify-between gap-2">
-          <span>Team BSR Board</span>
+          <span>{compact ? 'Not on this list' : 'Team BSR Board'}</span>
           <span
             data-testid="epa-board-count"
             className="text-xs font-normal tabular-nums text-muted-foreground"
@@ -123,6 +126,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
         ) : (
           <div className="text-xs text-muted-foreground">Season-wide BSR, ranked.</div>
         )}
+        {compact ? <input aria-label="Search teams to add" placeholder="Team number or name" value={search} onChange={e => setSearch(e.target.value)} className="lead-candidate-search" /> : null}
       </CardHeader>
       <CardContent className="p-0">
         {rows.length === 0 ? (
@@ -135,7 +139,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
             className="max-h-[24rem] overflow-y-auto"
             role="list"
           >
-            {rows.map((r, i) => {
+            {rows.filter(r => !compact || (!inListTeams.has(r.teamNumber) && `${r.teamNumber} ${r.nickname ?? ''}`.toLowerCase().includes(search.toLowerCase()))).map((r, i) => {
               const rank = i + 1;
               // Tier-tinted strength bar: top 3 brand, next 5 energy, rest muted.
               const tier = rank <= 3 ? 'top' : rank <= 8 ? 'mid' : 'low';

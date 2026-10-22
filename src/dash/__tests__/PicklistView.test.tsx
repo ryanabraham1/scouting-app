@@ -277,7 +277,7 @@ describe('PicklistView', () => {
 
   it('keeps print primary and groups file formats in a labeled export menu', async () => {
     const { getByTestId, queryByTestId, getByRole } = await renderLoaded();
-    expect(getByTestId('pick-export-alliance-print').textContent).toMatch(/print alliance sheet/i);
+    expect(getByTestId('pick-export-alliance-print').textContent).toMatch(/print sheet/i);
     expect(queryByTestId('pick-export-menu')).toBeNull();
 
     openExportMenu(getByTestId);
