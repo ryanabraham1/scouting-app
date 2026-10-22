@@ -51,16 +51,23 @@ export const WidgetFrame = memo(function WidgetFrame({ shape, editor }: { shape:
   const Body = def.Body;
   const title = def.title(shape.config, data);
   const team = shape.kind === 'team' ? (shape.config.team === 'base' ? data.baseTeam : Number(shape.config.team)) : null;
-  if (lite) {
-    return (
-      <div data-widget-kind={shape.kind} className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-[hsl(0_0%_22%)] bg-[hsl(0_0%_8%)] p-4 text-center text-foreground">
-        <Icon className="size-10 text-muted-foreground" aria-hidden />
-        <span className="line-clamp-2 text-[28px] font-semibold leading-tight">{title}</span>
-      </div>
-    );
-  }
+  const face = (moving: boolean): JSX.Element => (
+    <div
+      data-widget-kind={moving ? undefined : shape.kind}
+      data-widget-moving-face={moving ? '' : undefined}
+      aria-hidden={moving || undefined}
+      className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-[hsl(0_0%_22%)] bg-[hsl(0_0%_8%)] p-4 text-center text-foreground"
+    >
+      <Icon className="size-10 text-muted-foreground" aria-hidden />
+      <span className="line-clamp-2 text-[28px] font-semibold leading-tight">{title}</span>
+    </div>
+  );
+  if (lite) return face(false);
   return (
-    <div data-widget-kind={shape.kind} className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-[hsl(0_0%_22%)] bg-[hsl(0_0%_8%)] text-[13px] leading-snug text-foreground">
+    <>
+    {/* Shown instead of the live body while the camera moves (index.css). */}
+    {face(true)}
+    <div data-widget-kind={shape.kind} data-widget-full className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-[hsl(0_0%_22%)] bg-[hsl(0_0%_8%)] text-[13px] leading-snug text-foreground">
       <div data-board-handle title="Drag to move" className="flex min-h-[32px] shrink-0 cursor-grab items-center gap-1.5 border-b border-[hsl(0_0%_15%)] pl-2.5 pr-1 text-muted-foreground active:cursor-grabbing">
         <Icon className="size-3.5 shrink-0" aria-hidden />
         <span className="eyebrow min-w-0 truncate !tracking-[0.12em]">{title}</span>
@@ -85,6 +92,7 @@ export const WidgetFrame = memo(function WidgetFrame({ shape, editor }: { shape:
         </WidgetInstanceProvider>
       </div>
     </div>
+    </>
   );
 }, sameContent);
 

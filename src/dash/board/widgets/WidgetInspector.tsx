@@ -1,7 +1,7 @@
 // src/dash/board/widgets/WidgetInspector.tsx
 // Settings for the single selected widget (top-right panel slot): which team,
 // which match, metric, count, expression. Every change is one undo step.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Star, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,7 +11,8 @@ import type { WidgetShape } from '@/dash/board/model';
 import { PANEL } from '@/dash/board/BoardChrome';
 import { DATA_SOURCES } from './sources';
 import { WIDGETS, type WidgetConfig, type WidgetKind } from '@/dash/board/widgets/registry';
-import { METRICS, METRIC_KEYS, type MetricKey } from '@/dash/board/widgets/data';
+import { METRICS, METRIC_KEYS, byPlayOrder, isPlayed, resolveTeam, teamMatches, teamsOf, useBoardData, type MetricKey } from '@/dash/board/widgets/data';
+import { matchLabel } from '@/dash/board/BoardTopBar';
 import { toggleWatch, updateWidgetConfig, watchedTeams } from '@/dash/board/widgets/actions';
 
 const FIELD =
@@ -116,6 +117,116 @@ function TeamsField({ value, onChange, max = 8 }: { value: unknown; onChange: (t
   );
 }
 
+/** First number in a short match label: qm32 -> 32, sf2m1 -> 2. */
+function labelNumber(label: string): string {
+  return label.match(/\d+/)?.[0] ?? '';
+}
+
+/** Tap a match instead of typing its key. Starts on `team`'s matches (the
+ * ones anyone actually wants), with an All toggle and a number filter. */
+function MatchPicker({ value, team, onChange, extra }: { value: unknown; team: number | null; onChange: (matchKey: string) => void; extra?: ReactNode }): JSX.Element {
+  const data = useBoardData();
+  const [scope, setScope] = useState<'team' | 'all'>(team ? 'team' : 'all');
+  const [query, setQuery] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+  const selected = typeof value === 'string' && value !== 'our-next' ? matchLabel(value) : null;
+  const matches = useMemo(() => {
+    const base = scope === 'team' && team ? teamMatches(data.matches, team) : [...data.matches].sort(byPlayOrder);
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((m) => {
+      const label = matchLabel(m.match_key);
+      return /^\d+$/.test(q) ? labelNumber(label) === q : label.startsWith(q);
+    });
+  }, [data.matches, scope, team, query]);
+  const nextKey = useMemo(() => matches.find((m) => !isPlayed(m))?.match_key, [matches]);
+
+  // Open on the chosen match, else the next unplayed one.
+  useEffect(() => {
+    const list = listRef.current;
+    const el = list?.querySelector<HTMLElement>('[aria-pressed="true"]') ?? list?.querySelector<HTMLElement>('[data-next]');
+    if (list && el) list.scrollTop = el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2;
+  }, [scope]);
+
+  // No schedule (offline before preload, or a fresh event): typing still works.
+  if (!data.matches.length) {
+    return (
+      <input
+        className={FIELD}
+        aria-label="Widget match"
+        placeholder="qm32, sf2m1"
+        defaultValue={selected ?? ''}
+        onBlur={(e) => {
+          const v = e.target.value.trim().toLowerCase().replace(/\s+/g, '');
+          if (v) onChange(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-1.5 flex gap-1.5">
+        {team != null && (
+          <div className="grid shrink-0 grid-cols-2 gap-1 text-xs font-semibold">
+            {(['team', 'all'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setScope(s)}
+                className={cn('rounded-md px-2 py-1.5', scope === s ? 'bg-white/10 text-foreground' : 'hover:bg-white/5')}
+              >
+                {s === 'team' ? (team === data.baseTeam ? 'Ours' : team) : 'All'}
+              </button>
+            ))}
+          </div>
+        )}
+        <input
+          className={FIELD}
+          aria-label="Find match"
+          inputMode="numeric"
+          placeholder="Match #"
+          value={query}
+          onChange={(e) => setQuery(e.target.value.replace(/\s+/g, '').slice(0, 8))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && matches.length === 1) onChange(matches[0].match_key);
+          }}
+        />
+      </div>
+      {extra}
+      <div ref={listRef} role="group" aria-label="Matches" className="relative grid max-h-52 grid-cols-4 gap-1 overflow-auto overscroll-contain pr-0.5">
+        {matches.map((m) => {
+          const label = matchLabel(m.match_key);
+          const on = label === selected;
+          const ours = data.baseTeam > 0 && teamsOf(m).includes(data.baseTeam);
+          return (
+            <button
+              key={m.match_key}
+              type="button"
+              aria-pressed={on}
+              data-next={m.match_key === nextKey ? '' : undefined}
+              onClick={() => onChange(m.match_key)}
+              className={cn(
+                'tnum min-h-9 rounded-md text-xs font-semibold',
+                on ? 'bg-brand/20 text-brand' : 'bg-white/5 hover:bg-white/10',
+                !on && isPlayed(m) && 'text-muted-foreground',
+                !on && m.match_key === nextKey && 'ring-1 ring-inset ring-brand/60',
+                scope === 'all' && ours && !on && 'text-foreground underline decoration-brand underline-offset-2',
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+        {!matches.length && <p className="col-span-4 py-2 text-center text-xs text-muted-foreground">No matching matches</p>}
+      </div>
+    </div>
+  );
+}
+
 export function WidgetInspector({ editor }: { editor: BoardEditor }): JSX.Element | null {
   const selection = useBoard(editor, (e) => e.selection);
   const shapes = useBoard(editor, (e) => e.shapes);
@@ -134,6 +245,7 @@ function Inspector({ editor, shape }: { editor: BoardEditor; shape: WidgetShape 
   const set = (patch: WidgetConfig, resize = false): void => updateWidgetConfig(editor, shape, { ...c, ...patch }, resize);
   const Icon = def.icon;
   const watched = watchedTeams(editor);
+  const data = useBoardData();
   const team = typeof c.team === 'number' ? c.team : null;
 
   let body: ReactNode = null;
@@ -181,36 +293,39 @@ function Inspector({ editor, shape }: { editor: BoardEditor; shape: WidgetShape 
         {kind === 'data' && <Row label="Data source"><select aria-label="Data source" className={FIELD} value={String(c.source ?? 'reports')} onChange={(e) => set({ source: e.target.value, record: undefined, field: undefined, match: undefined })}>{Object.entries(DATA_SOURCES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Row>}
         <Row label="Team"><TeamField value={c.team} onChange={(team) => set({ team, record: undefined })} /></Row>
         {(kind === 'reports' || kind === 'data') && <button type="button" onClick={() => set({ team: 'all', record: undefined })} className="text-xs text-brand">All teams</button>}
-        <Row label="Match (optional)"><input className={FIELD} aria-label="Widget match" placeholder="qm32" value={String(c.match ?? '')} onChange={(e) => set({ match: e.target.value })} /></Row>
-        {kind === 'matchVideo' && <button type="button" className="text-xs text-brand" onClick={() => set({ match: undefined })}>Follow this team's latest match</button>}
+        <div>
+          <span className="eyebrow mb-1 block">Match (optional)</span>
+          <MatchPicker
+            key={String(c.team)}
+            value={c.match}
+            team={resolveTeam(c.team, data)}
+            onChange={(match) => set({ match, record: undefined })}
+            extra={c.match ? <button type="button" className="mb-1.5 text-xs text-brand" onClick={() => set({ match: undefined })}>Any match</button> : null}
+          />
+        </div>
+        {kind === 'matchVideo' && c.match && <button type="button" className="text-xs text-brand" onClick={() => set({ match: undefined })}>Follow this team's latest match</button>}
         {kind === 'data' && (c.record || c.field) && <button type="button" className="text-xs text-brand" onClick={() => set({ record: undefined, field: undefined })}>Show all matching records</button>}
       </>;
       break;
     case 'match':
       body = (
-        <Row label="Match">
-          <div className="flex gap-1.5">
-            <input
-              className={FIELD}
-              placeholder={c.match === 'our-next' ? 'Our next match' : 'qm32, sf2m1'}
-              defaultValue={c.match === 'our-next' ? '' : String(c.match ?? '').replace(/^.*_/, '')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              }}
-              onBlur={(e) => {
-                const v = e.target.value.trim().toLowerCase().replace(/\s+/g, '');
-                if (v) set({ match: v });
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => set({ match: 'our-next' })}
-              className={cn('shrink-0 rounded-lg px-2 text-xs font-semibold', c.match === 'our-next' ? 'bg-brand/15 text-brand' : 'bg-white/5 hover:bg-white/10')}
-            >
-              Our next
-            </button>
-          </div>
-        </Row>
+        <div>
+          <span className="eyebrow mb-1 block">Match</span>
+          <MatchPicker
+            value={c.match}
+            team={data.baseTeam > 0 ? data.baseTeam : null}
+            onChange={(match) => set({ match })}
+            extra={
+              <button
+                type="button"
+                onClick={() => set({ match: 'our-next' })}
+                className={cn('mb-1.5 w-full rounded-lg py-1.5 text-xs font-semibold', c.match === 'our-next' ? 'bg-brand/15 text-brand' : 'bg-white/5 hover:bg-white/10')}
+              >
+                Always our next match
+              </button>
+            }
+          />
+        </div>
       );
       break;
     case 'watchlist':

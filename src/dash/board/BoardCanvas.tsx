@@ -15,7 +15,8 @@ import {
 } from 'react';
 import { useBoard } from '@/dash/board/useBoard';
 import type { BoardEditor, PointerInfo, Tool } from '@/dash/board/editor';
-import { visibleShapesSnapshot } from '@/dash/board/viewport';
+import { prefersTouchRendering, visibleShapesSnapshot } from '@/dash/board/viewport';
+import { InkLayer } from '@/dash/board/InkLayer';
 import { ShapeView } from '@/dash/board/ShapeView';
 import { SelectionOverlay } from '@/dash/board/SelectionOverlay';
 import { LiveCanvas, type LiveCanvasProps } from '@/dash/board/LiveCanvas';
@@ -100,7 +101,8 @@ export function BoardCanvas({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const worldRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const snapshot = useMemo(() => visibleShapesSnapshot(editor, exportAll), [editor, exportAll]);
+  const touch = useMemo(prefersTouchRendering, []);
+  const snapshot = useMemo(() => visibleShapesSnapshot(editor, exportAll, touch), [editor, exportAll, touch]);
   // Edits re-render immediately; camera-driven changes to the visible set
   // (new cards scrolling or zooming into range) mount in a background
   // transition, so a batch of widgets never blocks a frame of the pan.
@@ -573,24 +575,35 @@ export function BoardCanvas({
     let grid = GRID_STEP;
     let lastCam: typeof editor.camera | null = null;
     let settle: ReturnType<typeof setTimeout> | null = null;
+    /** Zoom the world layer was last rasterized crisp at. */
+    let rasterZ = editor.camera.z;
     const paint = (): void => {
       const cam = editor.camera;
       if (cam === lastCam) return;
+      const first = lastCam === null;
+      lastCam = cam;
       const { x, y, z } = cam;
       const world = worldRef.current;
       if (world) {
         world.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${z})`;
-        // will-change only WHILE the camera moves: it keeps panning on the
-        // compositor, but a permanent hint freezes text at its old raster
-        // scale (blurry after zooming). Dropping it once the camera settles
-        // re-rasterizes everything crisp at the new zoom.
-        if (cam !== lastCam) {
-          lastCam = cam;
+        if (!first) {
+          // will-change keeps motion on the compositor, but a lasting hint
+          // freezes text at its old raster scale (blurry after zooming). Drop
+          // it on settle only when the zoom changed, so a plain pan never
+          // pays a full re-raster.
           world.style.willChange = 'transform';
+          // Card bodies swap for their lite face (CSS on data-camera-moving)
+          // during any zoom, and during every move on a tablet, so each
+          // re-rasterized frame is a few boxes instead of live charts.
+          if (touch || z !== rasterZ) world.dataset.cameraMoving = '';
           if (settle) clearTimeout(settle);
           settle = setTimeout(() => {
             settle = null;
-            world.style.willChange = 'auto';
+            delete world.dataset.cameraMoving;
+            if (editor.camera.z !== rasterZ) {
+              rasterZ = editor.camera.z;
+              world.style.willChange = 'auto';
+            }
           }, 180);
         }
       }
@@ -614,7 +627,7 @@ export function BoardCanvas({
       unsub();
       if (settle) clearTimeout(settle);
     };
-  }, [editor]);
+  }, [editor, touch]);
 
   // --------------------------------------------------------------- render
   return (
@@ -673,6 +686,7 @@ export function BoardCanvas({
           />
         ))}
       </div>
+      {!exportAll && <InkLayer editor={editor} width={size.w} height={size.h} />}
       <SelectionOverlay editor={editor} width={size.w} height={size.h} handleSize={penMode ? 13 : 9} />
       <LiveCanvas editor={editor} width={size.w} height={size.h} remote={remote} />
       <TextEditor editor={editor} />

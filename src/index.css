@@ -122,3 +122,11 @@
     }
   }
 }
+
+/* Ryan's Board: while the camera moves (BoardCanvas sets data-camera-moving),
+   live card bodies stop painting and a plain lite face stands in, so a tablet
+   re-rasterizing the scaled world layer each pinch frame draws boxes, not charts.
+   visibility keeps the body mounted (no React work, state kept). */
+[data-board-world] [data-widget-moving-face] { display: none; }
+[data-board-world][data-camera-moving] [data-widget-moving-face] { display: flex; position: absolute; inset: 0; }
+[data-board-world][data-camera-moving] [data-widget-full] { visibility: hidden; }

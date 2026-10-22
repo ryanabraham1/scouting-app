@@ -35,4 +35,24 @@ describe('buffered viewport rendering', () => {
     const editor = setup();
     expect(visibleShapesSnapshot(editor, true)()).toBe(editor.order);
   });
+  it('leaves ink to the canvas layer, except for export', () => {
+    const editor = setup();
+    editor.setTool('pen');
+    const p = (sx: number, sy: number) => ({ sx, sy, pointerId: 1, pointerType: 'mouse', pressure: 0.5, button: 0, shift: false, alt: false, meta: false });
+    editor.pointerDown(p(100, 100));
+    editor.pointerMove(p(160, 140));
+    editor.pointerUp(p(160, 140));
+    expect(editor.order.some((s) => s.type === 'ink')).toBe(true);
+    expect(visibleShapesSnapshot(editor)().some((s) => s.type === 'ink')).toBe(false);
+    expect(visibleShapesSnapshot(editor, true)().some((s) => s.type === 'ink')).toBe(true);
+  });
+  it('mounts a smaller buffer on touch devices', () => {
+    const editor = new BoardEditor({ clientId: 'viewport' });
+    editor.setViewport(1000, 800);
+    // 1.35 view widths right of the origin: inside the desktop buffer (1.5), outside touch (1.25).
+    editor.insertWidget('team', { team: 254 }, { w: 100, h: 100 }, { x: 1000 * 1.35 + 50, y: 400 });
+    editor.setCamera({ x: 0, y: 0, z: 1 });
+    expect(visibleShapesSnapshot(editor)()).toHaveLength(1);
+    expect(visibleShapesSnapshot(editor, false, true)()).toHaveLength(0);
+  });
 });
