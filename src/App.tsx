@@ -2,6 +2,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { AppRouter } from './routes/router';
 import { queryClient, persistOptions } from './lib/queryPersist';
 import { SyncController } from './sync/useSync';
+import { GlobalSearch } from './search/GlobalSearch';
 
 export default function App(): JSX.Element {
   return (
@@ -9,6 +10,7 @@ export default function App(): JSX.Element {
       {/* Outbox drains run on every route, not just screens with a sync badge. */}
       <SyncController />
       <AppRouter />
+      <GlobalSearch />
     </PersistQueryClientProvider>
   );
 }

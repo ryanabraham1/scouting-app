@@ -3,7 +3,6 @@
 // built around, and assign scouters. Folds the old /admin page in.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
 import {
   CheckCircle2,
   Trash2,
@@ -85,7 +84,7 @@ function ValidationTool({ eventKey }: { eventKey: string | null }): JSX.Element 
     finally { setBusy(false); }
   }
   const current = result?.event === eventKey ? result : null;
-  return <><div className="lead-setting-row"><div><h3>Validate scouting vs TBA</h3><p>{error ?? (current ? `${current.checked} matches checked · ${current.flagged.length} need review` : 'Compare scouted fuel with official alliance scores')}</p></div><Button variant="outline" disabled={!eventKey || busy} onClick={() => void run()}>{busy ? 'Checking…' : 'Run now'}</Button></div>{current && current.flagged.length > 0 ? <div className="flex flex-wrap gap-3 px-6 pb-5">{current.flagged.map(key => <a className="text-sm text-brand underline" href={`/analysis?tab=match&match=${encodeURIComponent(key)}`} key={key}>{formatMatchKeyRaw(key)}</a>)}</div> : null}</>;
+  return <><div id="validate-scouting" className="lead-setting-row"><div><h3>Validate scouting vs TBA</h3><p>{error ?? (current ? `${current.checked} matches checked · ${current.flagged.length} need review` : 'Compare scouted fuel with official alliance scores')}</p></div><Button variant="outline" disabled={!eventKey || busy} onClick={() => void run()}>{busy ? 'Checking…' : 'Run now'}</Button></div>{current && current.flagged.length > 0 ? <div className="flex flex-wrap gap-3 px-6 pb-5">{current.flagged.map(key => <a className="text-sm text-brand underline" href={`/analysis?tab=match&match=${encodeURIComponent(key)}`} key={key}>{formatMatchKeyRaw(key)}</a>)}</div> : null}</>;
 }
 
 export default function SetupTab({ onLock }: { onLock?: () => void } = {}): JSX.Element {
@@ -110,7 +109,8 @@ export default function SetupTab({ onLock }: { onLock?: () => void } = {}): JSX.
   const [demoBusy, setDemoBusy] = useState(false);
   const [confirmingDemoRemove, setConfirmingDemoRemove] = useState(false);
   // The match assignments disclosure. Open by default; remembers an explicit
-  // collapse across visits. A #assignments link (Scouters tab) always opens it.
+  // collapse across visits. A #assignments link always opens it (the app
+  // search's scrollToHash opens and scrolls to it after navigation).
   const [configOpen, setConfigOpen] = useState(() => {
     if (window.location.hash === '#assignments') return true;
     try {
@@ -121,13 +121,6 @@ export default function SetupTab({ onLock }: { onLock?: () => void } = {}): JSX.
     }
     return true;
   });
-  const location = useLocation();
-  // Re-run as the events and planner load, since each pushes the section down.
-  useEffect(() => {
-    if (location.hash !== '#assignments') return;
-    setConfigOpen(true);
-    document.getElementById('assignments')?.scrollIntoView({ block: 'start' });
-  }, [location.hash, location.key, events.length, eventDataLoading]);
 
   // Base team: the team the whole dashboard pivots on (next match, live data,
   // rankings). Defaults to 3256; configurable here so a lead can point the app at
@@ -322,7 +315,7 @@ export default function SetupTab({ onLock }: { onLock?: () => void } = {}): JSX.
     <div data-testid="setup-tab" className="lead-settings flex flex-col gap-4">
       <h1 className="lead-settings-title">Settings</h1>
       <section><h2 className="lead-section-label">Event</h2><div className="lead-settings-panel">
-        <div className="lead-setting-row"><div><h3>Active event</h3><p>Every device follows this event</p></div><select aria-label="Active event" value={activeEvent ?? ''} onChange={e => void makeActive(e.target.value)}><option value="" disabled>Select an event</option>{events.map(ev => <option key={ev.event_key} value={ev.event_key}>{ev.event_key}{ev.name ? ` · ${ev.name}` : ''}</option>)}</select><span data-testid="setup-active-event" className="sr-only">{activeEvent ?? '— none —'}</span></div>
+        <div id="active-event" className="lead-setting-row"><div><h3>Active event</h3><p>Every device follows this event</p></div><select aria-label="Active event" value={activeEvent ?? ''} onChange={e => void makeActive(e.target.value)}><option value="" disabled>Select an event</option>{events.map(ev => <option key={ev.event_key} value={ev.event_key}>{ev.event_key}{ev.name ? ` · ${ev.name}` : ''}</option>)}</select><span data-testid="setup-active-event" className="sr-only">{activeEvent ?? '— none —'}</span></div>
         <div data-testid="setup-base-team" className="lead-setting-row"><div><h3>Base team</h3><p>Whose matches “ours” means</p></div><div>        <div className="flex flex-wrap items-center gap-2">
           <Input
             data-testid="setup-base-team-input"
@@ -353,7 +346,7 @@ export default function SetupTab({ onLock }: { onLock?: () => void } = {}): JSX.
           Currently:{' '}
           <TeamLink team={baseTeam} data-testid="setup-base-team-current" className="font-mono" />
         </div></div></div>
-        <div className="lead-setting-row"><div><h3>Import a new event</h3><p>Pulls teams and schedule from The Blue Alliance</p></div><div className="lead-settings-import">          <EventSetup
+        <div id="import-event" className="lead-setting-row"><div><h3>Import a new event</h3><p>Pulls teams and schedule from The Blue Alliance</p></div><div className="lead-settings-import">          <EventSetup
             embedded
             onImported={(key) => {
               void makeActive(key);
@@ -522,7 +515,7 @@ export default function SetupTab({ onLock }: { onLock?: () => void } = {}): JSX.
           </Button>
         )}
       </div>
-        {onLock ? <div className="lead-setting-row"><div><h3>Lock lead dashboard</h3><p>Ask for the lead PIN again on this device</p></div><Button variant="outline" onClick={onLock}>Lock dashboard</Button></div> : null}
+        {onLock ? <div id="lock-dashboard" className="lead-setting-row"><div><h3>Lock lead dashboard</h3><p>Ask for the lead PIN again on this device</p></div><Button variant="outline" onClick={onLock}>Lock dashboard</Button></div> : null}
         <ValidationTool eventKey={activeEvent} />
       </div></section>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

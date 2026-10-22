@@ -320,7 +320,8 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [usingCachedFallback, setUsingCachedFallback] = useState(false);
   // Which of the two picklists (1st pick / 2nd pick) is being viewed/edited.
-  const [showDnp, setShowDnp] = useState(false);
+  // App search links #do-not-pick straight to this tab.
+  const [showDnp, setShowDnp] = useState(() => window.location.hash === '#do-not-pick');
   const [activeList, setActiveList] = useState<PicklistId>('first');
   const [addValue, setAddValue] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
@@ -1005,7 +1006,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                   <span className="text-xs tabular-nums opacity-70">{count}</span>
                 </button>
               ))}
-              <button type="button" role="tab" data-testid="pick-list-dnp" aria-selected={showDnp} onClick={() => setShowDnp(true)} className={cn('min-h-9 rounded-lg px-3 text-sm font-medium', showDnp ? 'bg-accent text-foreground' : 'text-muted-foreground')}>Do not pick <span className="ml-1 text-xs opacity-70">{dnpEntries.length}</span></button>
+              <button id="do-not-pick" type="button" role="tab" data-testid="pick-list-dnp" aria-selected={showDnp} onClick={() => setShowDnp(true)} className={cn('min-h-9 rounded-lg px-3 text-sm font-medium', showDnp ? 'bg-accent text-foreground' : 'text-muted-foreground')}>Do not pick <span className="ml-1 text-xs opacity-70">{dnpEntries.length}</span></button>
             </div>
 
             {/* Add a team (to the active list). */}

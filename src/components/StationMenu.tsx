@@ -5,7 +5,8 @@
 // stations in one click.
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Check, ClipboardList, ChartNoAxesColumn, LayoutDashboard } from 'lucide-react';
+import { ChevronDown, ChevronRight, Check, ClipboardList, ChartNoAxesColumn, LayoutDashboard, Search } from 'lucide-react';
+import { openAppSearch } from '@/search/openAppSearch';
 import type { LucideIcon } from 'lucide-react';
 import { Sheet } from '@/components/ui/Sheet';
 import { cn } from '@/lib/utils';
@@ -13,6 +14,7 @@ import { cn } from '@/lib/utils';
 export type Station = 'scout' | 'analysis' | 'lead';
 
 const LAST_STATION_KEY = 'last-station';
+const SEARCH_SHORTCUT = typeof navigator !== 'undefined' && /Mac|iP(ad|hone)/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
 
 // Station identity colors, shared with the launcher: capture, insight, lead.
 const STATION_DOT: Record<Station, string> = {
@@ -109,6 +111,19 @@ export function StationMenu({
           );
         })}
       </nav>
+
+      <button
+        type="button"
+        aria-label="Search"
+        aria-keyshortcuts="Meta+K Control+K"
+        data-testid="app-search-trigger"
+        onClick={openAppSearch}
+        className="inline-flex size-11 shrink-0 items-center justify-center gap-2 rounded-[10px] text-muted-foreground hover:bg-muted hover:text-foreground md:h-[38px] md:w-auto md:bg-muted md:px-3 md:text-[13px]"
+      >
+        <Search aria-hidden="true" className="size-[18px] md:size-4" />
+        <span className="hidden md:inline">Search</span>
+        <kbd className="hidden rounded border border-border px-1 text-[11px] lg:inline">{SEARCH_SHORTCUT}</kbd>
+      </button>
 
       <Sheet
         open={open}

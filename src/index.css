@@ -130,3 +130,10 @@
 [data-board-world] [data-widget-moving-face] { display: none; }
 [data-board-world][data-camera-moving] [data-widget-moving-face] { display: flex; position: absolute; inset: 0; }
 [data-board-world][data-camera-moving] [data-widget-full] { visibility: hidden; }
+
+/* App search: the section a result jumped to pulses once. */
+@keyframes search-flash {
+  0%, 30% { box-shadow: 0 0 0 2px hsl(var(--brand)); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+.search-flash { animation: search-flash 1.8s ease-out; scroll-margin-top: 16px; }
