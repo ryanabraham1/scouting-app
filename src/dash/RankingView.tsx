@@ -22,6 +22,8 @@ import {
   useEventTeams,
   useTbaRankings,
 } from '@/dash/useEventData';
+import { useAutoScoutResults } from '@/dash/autoScoutClient';
+import { autoFuelByTeam } from '@/dash/autoScoutStats';
 import { rankSortValue, resolveRowEpa } from '@/dash/sorting';
 import {
   TeamCompare,
@@ -98,13 +100,14 @@ type SortKey =
   | 'fuelSuppression'
   | 'defenderEffectiveness'
   | 'epa'
+  | 'autoFuel'
   | 'tbaRank';
 
 type SortDir = 'asc' | 'desc';
 
 function loadSort(): { key: SortKey; dir: SortDir } | null {
   const stored = readPreference('analysis-ranking-sort-v1') as { key?: unknown; dir?: unknown } | null;
-  const keys: SortKey[] = ['teamNumber', 'matchesScouted', 'scoutingExpectedPoints', 'avgDefenseRating', 'reliability', 'fuelSuppression', 'defenderEffectiveness', 'epa', 'tbaRank'];
+  const keys: SortKey[] = ['teamNumber', 'matchesScouted', 'scoutingExpectedPoints', 'avgDefenseRating', 'reliability', 'fuelSuppression', 'defenderEffectiveness', 'epa', 'autoFuel', 'tbaRank'];
   return stored && keys.includes(stored.key as SortKey) && (stored.dir === 'asc' || stored.dir === 'desc')
     ? { key: stored.key as SortKey, dir: stored.dir } : null;
 }
@@ -116,6 +119,8 @@ interface Row {
   epa: number | null;
   /** TBA rank, or null when unavailable. */
   tbaRank: number | null;
+  /** Mean fuel from Auto-Scout video estimates; never mixed into the scouted numbers. */
+  autoFuel: number | null;
 }
 
 function fmt(n: number, digits = 1): string {
@@ -187,6 +192,8 @@ function sortValue(row: Row, key: SortKey): number {
     case 'defenderEffectiveness':
       // Higher is better; null sorts to the bottom.
       return row.agg.defenderEffectiveness ?? Number.NEGATIVE_INFINITY;
+    case 'autoFuel':
+      return row.autoFuel ?? Number.NEGATIVE_INFINITY;
     case 'tbaRank':
       // Lower rank is better; unknown ranks sort to the bottom.
       return row.tbaRank ?? Number.POSITIVE_INFINITY;
@@ -210,6 +217,8 @@ function sortValueMissing(row: Row, key: SortKey): boolean {
       return row.agg.fuelSuppressionWhileDefended == null;
     case 'defenderEffectiveness':
       return row.agg.defenderEffectiveness == null;
+    case 'autoFuel':
+      return row.autoFuel == null;
     case 'tbaRank':
       return row.tbaRank == null;
     case 'epa':
@@ -322,6 +331,12 @@ const COMPARE_ROWS: CompareRow[] = [
     better: 'higher',
   },
   {
+    label: 'Auto-Scout Fuel',
+    get: (r) => (r.autoFuel === null ? EM_DASH : fmt(r.autoFuel)),
+    value: (r) => r.autoFuel,
+    better: 'higher',
+  },
+  {
     label: 'TBA Rank',
     get: (r) => (r.tbaRank === null ? EM_DASH : String(r.tbaRank)),
     value: (r) => r.tbaRank,
@@ -359,6 +374,8 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
   const epaAvailable = epaQuery.data?.available === true;
   const epaSource = epaQuery.data?.source ?? 'none';
   const tbaRankByTeam = useMemo(() => buildTbaRankMap(tbaQuery.data), [tbaQuery.data]);
+  const autoScoutQuery = useAutoScoutResults(eventKey);
+  const autoFuel = useMemo(() => autoFuelByTeam(autoScoutQuery.data), [autoScoutQuery.data]);
 
   const rows = useMemo<Row[]>(
     () =>
@@ -368,8 +385,9 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
         // use byte-identical EPA resolution (match results only, never scouting).
         epa: resolveRowEpa({ agg, epaByTeam, epaAvailable }),
         tbaRank: tbaRankByTeam.get(agg.teamNumber) ?? null,
+        autoFuel: autoFuel.get(agg.teamNumber) ?? null,
       })),
-    [aggs, epaAvailable, epaByTeam, tbaRankByTeam],
+    [aggs, autoFuel, epaAvailable, epaByTeam, tbaRankByTeam],
   );
 
   // Default ranking is the official TBA rank (ascending). Falls back below when
@@ -502,6 +520,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
     { key: 'fuelSuppression', label: 'Def ↓' },
     { key: 'defenderEffectiveness', label: 'Defender' },
     { key: 'epa', label: 'BSR' },
+    { key: 'autoFuel', label: 'Auto-Scout Fuel' },
     { key: 'tbaRank', label: 'TBA Rank' },
   ];
 
@@ -865,6 +884,11 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                           className="px-2 py-2 font-mono tabular-nums"
                         >
                           {r.epa === null ? EM_DASH : fmt(r.epa, 0)}
+                        </td>
+                      )}
+                      {isVisible('autoFuel') && (
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
+                          {r.autoFuel === null ? EM_DASH : fmt(r.autoFuel)}
                         </td>
                       )}
                       {isVisible('tbaRank') && (

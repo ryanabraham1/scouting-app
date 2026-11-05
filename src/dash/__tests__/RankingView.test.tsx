@@ -10,6 +10,7 @@ let epaReturn: { data: EventEpa | undefined };
 let tbaReturn: { data: unknown };
 let teamsReturn: { data: { team_number: number; nickname: string | null }[]; isLoading: boolean };
 
+vi.mock('@/dash/autoScoutClient', () => ({ useAutoScoutResults: () => ({ data: [] }) }));
 vi.mock('@/dash/useEventData', () => ({
   useEventReports: () => reportsReturn,
   useEventEpa: () => epaReturn,

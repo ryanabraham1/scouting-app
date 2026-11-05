@@ -13,6 +13,7 @@ const MIGRATION_PATHS = [
   'supabase/migrations/20260920200000_match_actual_time_and_webcast_sync.sql',
   'supabase/migrations/20261019120000_board_records.sql',
   'supabase/migrations/20261019121000_board_record_grants.sql',
+  'supabase/migrations/20261104120000_autoscout_jobs.sql',
 ].map((p) => join(ROOT, p));
 
 type TablePrivilege = 'select' | 'insert' | 'update' | 'delete';
@@ -24,6 +25,9 @@ type EdgeClientRole = 'caller' | 'service';
 
 const EXPECTED_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
   assignment: ['select'],
+  autoscout_job: ['select'],
+  autoscout_result: ['select'],
+  autoscout_worker: ['select'],
   board_record: ['select'],
   event: ['select'],
   event_team: ['select'],
@@ -42,6 +46,9 @@ const EXPECTED_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
 };
 
 const EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
+  autoscout_job: ['select', 'update'],
+  autoscout_worker: ['insert', 'update'],
+  autoscout_worker_secret: ['select'],
   event: ['select'],
   event_secret: ['select'],
   match: ['insert', 'select', 'update'],
@@ -51,10 +58,14 @@ const EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> =
 // migrations) rather than Edge Function access, so they are not in the
 // Edge-usage manifest above.
 const SERVICE_ROLE_MAINTENANCE_TABLE_GRANTS: Record<string, TablePrivilege[]> = {
+  autoscout_job: ['delete', 'insert', 'select', 'update'],
+  autoscout_result: ['delete', 'insert', 'select', 'update'],
+  autoscout_worker: ['delete', 'insert', 'select', 'update'],
   board_record: ['delete', 'insert', 'select', 'update'],
 };
 
 const PRIVATE_TABLES = [
+  'autoscout_worker_secret',
   'assignment_batch_revision',
   'event_secret',
   'matchup_note_history',
@@ -63,6 +74,8 @@ const PRIVATE_TABLES = [
 ];
 
 const EXPECTED_BROWSER_RPCS = [
+  'autoscout_cancel(uuid)',
+  'autoscout_enqueue(text,text,text[],text,jsonb,boolean,boolean)',
   'delete_event(text)',
   'delete_roster_scouter(text)',
   'get_assignment_batch_state(text,text)',
@@ -82,6 +95,7 @@ const EXPECTED_BROWSER_RPCS = [
 const EXPECTED_CALLER_EDGE_RPCS = ['get_my_event_keys()'];
 
 const EXPECTED_SERVICE_ROLE_EDGE_RPCS = [
+  'autoscout_store_result',
   'ensure_event_teams',
   'nexus_upsert_status',
   'promote_event_import',

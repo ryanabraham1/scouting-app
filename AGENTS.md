@@ -21,6 +21,11 @@ implement from the change catalog → verify/deploy. Start at `docs/game-migrati
 `supabase/functions/_shared/demoScoring.ts`), and they must stay byte-equivalent
 (see `docs/game-migration/04-scoring-sync-contract.md`).
 
+## Auto-Scout
+
+The lead dashboard's Auto-Scout tab drives a video-processing computer that calls in to the
+`autoscout-worker` Edge Function with its own token (hash in `autoscout_worker_secret`); see `docs/autoscout.md`.
+
 ## Commands
 
 ```bash

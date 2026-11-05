@@ -76,6 +76,9 @@ deployed functions' `SUPABASE_SERVICE_ROLE_KEY` bypass RLS (Edge Functions and m
 `SUPABASE_DB_PASSWORD` authenticate the Supabase CLI. See `.env.example`; copy to `.env.local`
 (gitignored — never commit real keys).
 
+The Auto-Scout computer's token lives only on that computer; the database keeps its SHA-256 in
+`autoscout_worker_secret` for `autoscout-worker` to check. See `docs/autoscout.md`.
+
 ## Authorization model (intentional)
 
 This is deliberately a login-less, shared-trust team app. Anonymous users are intended to be

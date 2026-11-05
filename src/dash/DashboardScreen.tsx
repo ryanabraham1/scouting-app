@@ -4,6 +4,7 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Presentation,
+  Bot,
   ClipboardList,
   Settings,
   UserCheck,
@@ -31,6 +32,7 @@ const PicklistView = lazy(() => import('@/dash/PicklistView'));
 const ScoutersTab = lazy(() => import('@/dash/ScoutersTab'));
 const SetupTab = lazy(() => import('@/dash/SetupTab'));
 const DraftBoardView = lazy(() => import('@/dash/DraftBoardView'));
+const AutoScoutTab = lazy(() => import('@/dash/AutoScoutTab'));
 // Ryan's Board (infinite canvas) loads only when its tab is opened.
 const RyansBoard = lazy(() => import('@/dash/board/RyansBoard'));
 
@@ -42,7 +44,7 @@ function TabLoading(): JSX.Element {
   );
 }
 
-type Tab = 'strategy' | 'board' | 'scouters' | 'picklist' | 'draft' | 'settings';
+type Tab = 'strategy' | 'board' | 'scouters' | 'picklist' | 'draft' | 'autoscout' | 'settings';
 
 const LEAD_UNLOCK_KEY = 'frc-lead-dashboard-unlocked';
 const LEAD_CODE = '12345';
@@ -53,6 +55,7 @@ const TABS: readonly (BottomTab<Tab> & { needsEvent: boolean })[] = [
   { id: 'scouters', label: 'Scouters', icon: UserCheck, needsEvent: false },
   { id: 'picklist', label: 'Picklist', icon: ClipboardList, needsEvent: true },
   { id: 'draft', label: 'Draft', icon: Gavel, needsEvent: true },
+  { id: 'autoscout', label: 'Auto-Scout', icon: Bot, needsEvent: true },
   { id: 'settings', label: 'Settings', icon: Settings, needsEvent: false },
 ];
 
@@ -288,6 +291,7 @@ function LeadDashboard({ lockDashboard }: { lockDashboard: () => void }): JSX.El
               )}
               {tab === 'draft' && <DraftBoardView eventKey={eventKey} />}
               {tab === 'board' && <RyansBoard eventKey={eventKey} />}
+              {tab === 'autoscout' && <AutoScoutTab eventKey={eventKey} />}
             </Suspense>
           </section>
         ))}
