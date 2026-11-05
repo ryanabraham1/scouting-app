@@ -7,6 +7,7 @@ import type { PicklistEntry } from '@/dash/picklistClient';
 const getPicklistMock = vi.fn();
 const savePicklistMock = vi.fn();
 const getCachedPicklistMock = vi.fn();
+vi.mock('@/dash/autoScoutClient', () => ({ useAutoScoutResults: () => ({ data: [] }) }));
 vi.mock('@/dash/picklistClient', () => ({
   getPicklist: (eventKey: string) => getPicklistMock(eventKey),
   getCachedPicklist: (eventKey: string) => getCachedPicklistMock(eventKey),

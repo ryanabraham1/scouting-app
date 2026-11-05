@@ -16,6 +16,11 @@ verify_jwt = false
 [functions.nexus-webhook]
 verify_jwt = false
 
+# The Auto-Scout computer has no Supabase session: it authenticates with its own
+# AUTOSCOUT_WORKER_TOKEN, checked inside the function.
+[functions.autoscout-worker]
+verify_jwt = false
+
 # Pulls public TBA data + writes authentic results keyed by the unique TBA
 # match_key (event_key is format-validated). Public so a cold-load reconcile
 # works before the anon session settles; matches the open import-event posture.

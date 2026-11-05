@@ -42,6 +42,8 @@ import ReportDetail from '@/dash/ReportDetail';
 import TeamTimeline, { TimelineAxis, TimelineLegend } from '@/dash/TeamTimeline';
 import MatchVideo, { type MatchVideoStreamProps } from '@/dash/MatchVideo';
 import { winnerText } from '@/dash/MatchScorePanel';
+import { AutoScoutMatchCard } from '@/dash/AutoScoutCards';
+import { useAutoScoutResults } from '@/dash/autoScoutClient';
 import { MATCH_MS } from '@/dash/matchTimeline';
 import ConflictMarker from '@/components/ConflictMarker';
 import { useMultiScoutConflicts } from '@/dash/useMultiScoutConflicts';
@@ -730,6 +732,11 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
   }, [videoSeconds, offsetSeconds]);
 
   const matchesQuery = useEventMatches(eventKey);
+  const autoScoutQuery = useAutoScoutResults(eventKey);
+  const autoScouted = useMemo(
+    () => new Set((autoScoutQuery.data ?? []).map((row) => row.match_key)),
+    [autoScoutQuery.data],
+  );
   const reportsQuery = useEventReports(eventKey);
   const scoutsQuery = useEventScouts(eventKey);
   // Scout-coverage (dashboard-heartbeat): per-match scout coverage map for the
@@ -871,6 +878,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
               onSearch={setSearch}
               ourTeam={ourTeam}
               stationsCovered={(key) => scoutCoverage.coverageByMatch.get(key)?.stationsCovered ?? 0}
+              autoScouted={autoScouted}
             />
           ) : null}
           {/* Phones keep the stacked, collapsible list. */}
@@ -1035,6 +1043,13 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
                   />
                   {selectedReports.length > 0 ? (
                     <MatchTimelines reports={selectedReports} currentTimeMs={currentTimeMs} />
+                  ) : null}
+                  {selectedMatch ? (
+                    <AutoScoutMatchCard
+                      eventKey={eventKey}
+                      matchKey={selectedMatch.match_key}
+                      played={hasPlayedResult(selectedMatch)}
+                    />
                   ) : null}
                   {selectedCoverage ? (
                     <MatchDetail

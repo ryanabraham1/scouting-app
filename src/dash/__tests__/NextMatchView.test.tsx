@@ -9,6 +9,7 @@ import { OUR_TEAM } from '@/dash/constants';
 const useEventMatchesMock = vi.fn();
 const useNexusEventStatusMock = vi.fn();
 
+vi.mock('@/dash/autoScoutClient', () => ({ useAutoScoutResults: () => ({ data: [] }) }));
 vi.mock('@/dash/useEventData', () => ({
   useEventMatches: (eventKey: string | null) => useEventMatchesMock(eventKey),
   useNexusEventStatus: (eventKey: string | null) => useNexusEventStatusMock(eventKey),

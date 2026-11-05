@@ -20,6 +20,7 @@ const useEventScoutsMock = vi.fn();
 const useTeamPitMock = vi.fn();
 const useEventMatchesMock = vi.fn();
 
+vi.mock('@/dash/autoScoutClient', () => ({ useAutoScoutResults: () => ({ data: [] }) }));
 vi.mock('@/dash/useEventData', () => ({
   useEventTeams: (eventKey: string | null) => useEventTeamsMock(eventKey),
   useEventReports: (eventKey: string | null) => useEventReportsMock(eventKey),

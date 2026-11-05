@@ -10,6 +10,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAutoScoutResults } from '@/dash/autoScoutClient';
+import { autoFuelByTeam } from '@/dash/autoScoutStats';
 import { TeamLink } from '@/components/ui/TeamLink';
 import { useFullscreen } from '@/dash/useFullscreen';
 import {
@@ -121,20 +123,26 @@ function TeamCell({
   team,
   color,
   mine,
+  autoFuel,
 }: {
   team: number | null;
   color: 'red' | 'blue';
   mine: boolean;
+  /** Mean Auto-Scout fuel, when this team has any. */
+  autoFuel?: number;
 }) {
   const cell = cn(
     'px-2 py-1.5 text-center font-mono text-sm font-semibold tabular-nums',
     color === 'red' ? 'bg-red-950/80 text-red-100' : 'bg-blue-950/80 text-blue-100',
     mine && 'bg-amber-400 text-neutral-900',
   );
-  return team != null ? (
-    <TeamLink team={team} className={cn(cell, 'block hover:opacity-80')} />
-  ) : (
-    <span className={cell} />
+  if (team == null) return <span className={cell} />;
+  if (autoFuel == null) return <TeamLink team={team} className={cn(cell, 'block hover:opacity-80')} />;
+  return (
+    <span className={cn(cell, 'flex flex-col leading-tight')}>
+      <TeamLink team={team} className="block hover:opacity-80" />
+      <span title="Auto-Scout fuel per match" className="text-[10px] font-normal opacity-70">{Math.round(autoFuel)} fuel</span>
+    </span>
   );
 }
 
@@ -184,7 +192,7 @@ interface UpcomingItem {
   time: string | null;
   isOurs: boolean;
 }
-function UpcomingCard({ u, baseTeam }: { u: UpcomingItem; baseTeam: number }) {
+function UpcomingCard({ u, baseTeam, autoFuel }: { u: UpcomingItem; baseTeam: number; autoFuel: Map<number, number> }) {
   const idx = [0, 1, 2];
   // Authoritative set-correct short label from the raw key when there's no Nexus
   // label; else compress the Nexus label string.
@@ -197,10 +205,10 @@ function UpcomingCard({ u, baseTeam }: { u: UpcomingItem; baseTeam: number }) {
       </div>
       <div className="grid grid-cols-3 gap-px bg-border/30 p-px">
         {idx.map((i) => (
-          <TeamCell key={`r${i}`} team={u.red[i] ?? null} color="red" mine={u.red[i] === baseTeam} />
+          <TeamCell key={`r${i}`} team={u.red[i] ?? null} color="red" mine={u.red[i] === baseTeam} autoFuel={autoFuel.get(u.red[i] ?? 0)} />
         ))}
         {idx.map((i) => (
-          <TeamCell key={`b${i}`} team={u.blue[i] ?? null} color="blue" mine={u.blue[i] === baseTeam} />
+          <TeamCell key={`b${i}`} team={u.blue[i] ?? null} color="blue" mine={u.blue[i] === baseTeam} autoFuel={autoFuel.get(u.blue[i] ?? 0)} />
         ))}
       </div>
     </li>
@@ -208,6 +216,8 @@ function UpcomingCard({ u, baseTeam }: { u: UpcomingItem; baseTeam: number }) {
 }
 
 export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Element {
+  const autoScoutQuery = useAutoScoutResults(eventKey);
+  const autoFuel = useMemo(() => autoFuelByTeam(autoScoutQuery.data), [autoScoutQuery.data]);
   // The base/"our" team — configurable in Setup so the whole view can pivot onto
   // another team for testing events 3256 isn't registered at. Defaults to 3256.
   const baseTeam = getStoredBaseTeam();
@@ -562,7 +572,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
               ) : (
                 <ul data-testid="dash-next-upcoming" className="flex flex-col gap-2">
                   {upcoming.map((u) => (
-                    <UpcomingCard key={u.key} u={u} baseTeam={baseTeam} />
+                    <UpcomingCard key={u.key} u={u} baseTeam={baseTeam} autoFuel={autoFuel} />
                   ))}
                 </ul>
               )}

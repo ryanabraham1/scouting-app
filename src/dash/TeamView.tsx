@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import TeamQuickAccess from '@/dash/TeamQuickAccess';
 import TeamSectionNav, { type TeamSection } from '@/dash/TeamSectionNav';
+import { AutoScoutTeamCard } from '@/dash/AutoScoutCards';
 import { readPreference, writePreference } from '@/dash/analysisPreferences';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import { MatchScorePanel } from '@/dash/MatchScorePanel';
@@ -1024,6 +1025,7 @@ function TeamDetail(props: {
   teamNumber: number;
   matches: MsrRow[];
   tbaNode: JSX.Element;
+  autoScoutNode: JSX.Element | null;
   /** Larger robot-photo panel rendered beside the TBA card; null when no image. */
   photoNode: JSX.Element | null;
   lastMatchNode: JSX.Element | null;
@@ -1181,6 +1183,8 @@ function TeamDetail(props: {
         ) : null}
 
       </section>
+
+      {props.autoScoutNode}
 
       <section id="team-sec-defense" className={SECTION}>
         {/* Defense / reliability */}
@@ -1640,6 +1644,9 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
     selected != null ? (
       <TeamTbaPanel team={selected} eventKey={eventKey} matches={matchesQuery.data ?? []} />
     ) : null;
+  // Beside the TBA card, not in its two-column row: the estimates table needs the full width.
+  const autoScoutNode =
+    selected != null ? <AutoScoutTeamCard eventKey={eventKey} teamNumber={selected} /> : null;
   // The MatchRow backing the last scouted match — feeds the alliances/score
   // panel beside the video. Null when the schedule isn't loaded for that key.
   const lastMatchRow = useMemo(
@@ -1893,6 +1900,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
             teamNumber={selected}
             matches={teamMatches}
             tbaNode={tbaNode ?? <></>}
+            autoScoutNode={autoScoutNode}
             photoNode={photoThumb}
             lastMatchNode={lastMatchNode}
             epaHistoryNode={epaHistoryNode}
@@ -1918,6 +1926,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
           ) : (
             tbaNode
           )}
+          {autoScoutNode}
           <div
             data-testid="team-no-data"
             className="rounded-md border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-400"

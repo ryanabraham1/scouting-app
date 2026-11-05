@@ -68,6 +68,7 @@ describe('DashboardScreen', () => {
       'Scouters',
       'Picklist',
       'Draft',
+      'Auto-Scout',
       'Settings',
     ]);
   });

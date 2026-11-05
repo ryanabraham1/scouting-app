@@ -3,7 +3,7 @@
 // match chips showing each match's red/blue score (or start time) at a glance.
 // Phones keep MatchView's stacked list instead.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MatchRow } from '@/dash/useEventData';
 import { isUnplayed, shortTime } from '@/dash/matchOrder';
@@ -42,6 +42,8 @@ export interface MatchPickerProps {
   ourTeam: number;
   /** Stations scouted per match, for the coverage tick. */
   stationsCovered: (matchKey: string) => number;
+  /** Matches with Auto-Scout results, marked on their chips. */
+  autoScouted?: Set<string>;
   className?: string;
 }
 
@@ -53,6 +55,7 @@ export default function MatchPicker({
   onSearch,
   ourTeam,
   stationsCovered,
+  autoScouted,
   className,
 }: MatchPickerProps): JSX.Element {
   const [filter, setFilter] = useState<Filter>('all');
@@ -201,6 +204,9 @@ export default function MatchPicker({
                       >
                         {covered}/{COVERAGE_STATION_CAP}
                       </span>
+                    ) : null}
+                    {autoScouted?.has(m.match_key) ? (
+                      <Bot aria-label="Auto-Scouted" className="size-3 text-brand" />
                     ) : null}
                     {ours ? <span aria-label="Our match" className="size-[7px] rounded-full bg-brand" /> : null}
                   </span>

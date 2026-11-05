@@ -31,6 +31,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { useAutoScoutResults } from '@/dash/autoScoutClient';
+import { autoFuelByTeam } from '@/dash/autoScoutStats';
 import { TeamLink } from '@/components/ui/TeamLink';
 import {
   getPicklist,
@@ -115,6 +117,8 @@ export interface PickRowStats {
   bsr: number | null;
   /** null when the team has no scouting reports yet. */
   fuel: number | null;
+  /** Mean Auto-Scout fuel: a video estimate, kept apart from scouted fuel points. */
+  autoFuel: number | null;
   defense: number | null;
   reliability: number | null;
 }
@@ -200,6 +204,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         >
           <span title="BSR" className="w-12 text-right font-semibold text-brand">{fmtStat(stats.bsr)}</span>
           <span title="Scouted fuel points" className="w-11 text-right text-orange-400">{fmtStat(stats.fuel, 0)}</span>
+          <span title="Auto-Scout fuel per match" className="w-11 text-right text-amber-200">{fmtStat(stats.autoFuel, 0)}</span>
           <span title="Defense rating" className="w-8 text-right text-blue-400">{fmtStat(stats.defense)}</span>
           <span
             title="Reliability"
@@ -382,6 +387,9 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const epaSource = epaQuery.data?.source ?? 'none';
   const epaByTeam = epaQuery.data?.epaByTeam;
 
+  const autoScoutQuery = useAutoScoutResults(eventKey);
+  const autoFuel = useMemo(() => autoFuelByTeam(autoScoutQuery.data), [autoScoutQuery.data]);
+
   // Per-row desktop stats: the shared match-results BSR resolver plus our
   // scouted aggregates (null until a team has reports).
   const statsFor = (team: number): PickRowStats => {
@@ -390,6 +398,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
     return {
       bsr: resolveRowEpa({ agg: agg ?? emptyTeamAgg(team), epaByTeam, epaAvailable }),
       fuel: scouted ? agg.meanFuelPoints : null,
+      autoFuel: autoFuel.get(team) ?? null,
       defense: scouted ? agg.avgDefenseRating : null,
       reliability: scouted ? agg.reliability : null,
     };
@@ -1067,7 +1076,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
                 items={activePicks.map((e) => e.teamNumber)}
                 strategy={verticalListSortingStrategy}
               >
-                <div className="lead-pick-columns" aria-hidden="true"><span>#</span><span>Team</span><span>BSR</span><span>Fuel</span><span>Def</span><span>Reliab</span><span>Note</span></div><ul className="sm:space-y-2">
+                <div className="lead-pick-columns" aria-hidden="true"><span>#</span><span>Team</span><span>BSR</span><span>Fuel</span><span>Video</span><span>Def</span><span>Reliab</span><span>Note</span></div><ul className="sm:space-y-2">
                   {activePicks.map((e, i) => (
                     <SortablePickRow
                       key={e.teamNumber}
