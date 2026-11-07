@@ -22,6 +22,8 @@ vi.mock('@/dash/useEventData', () => ({
   }),
   saveWebcastSync: vi.fn(async () => {}),
   useAutoWebcastCalibration: () => {},
+  useYoutubeStreamStatus: () => null,
+  useLiveWebcast: () => null,
 }));
 
 import NextMatchView from '@/dash/NextMatchView';

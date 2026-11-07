@@ -38,6 +38,8 @@ vi.mock('@/dash/useEventData', () => ({
   useEventInfo: () => ({ data: { name: null, webcast: null, webcasts: [] } }),
   useWebcastSync: () => ({ data: {} }),
   useAutoWebcastCalibration: () => {},
+  useYoutubeStreamStatus: () => null,
+  useLiveWebcast: () => null,
   saveWebcastSync: vi.fn(async () => {}),
 }));
 

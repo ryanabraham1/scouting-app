@@ -44,6 +44,15 @@ describe('pickWebcast', () => {
     );
   });
 
+  it("skips today's stream once it has ended, for the undated all-event stream", () => {
+    expect(pickWebcast(chezy, '2026-09-19', new Set(['satVid']))?.channel).toBe('robosportsnetwork');
+  });
+
+  it("keeps today's ended stream over other days' when nothing else is live", () => {
+    const onlyDated = { webcasts: chezy.webcasts.slice(0, 3) };
+    expect(pickWebcast(onlyDated, '2026-09-19', new Set(['satVid']))?.channel).toBe('satVid');
+  });
+
   it('returns null for missing/empty/malformed webcasts', () => {
     expect(pickWebcast(null)).toBeNull();
     expect(pickWebcast({})).toBeNull();

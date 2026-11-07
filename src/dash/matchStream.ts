@@ -16,6 +16,7 @@ import {
   useEventInfo,
   useWebcastSync,
   useAutoWebcastCalibration,
+  useYoutubeStreamStatus,
   saveWebcastSync,
   type MatchRow,
   type WebcastSyncMap,
@@ -80,6 +81,18 @@ export function resolveMatchStream(
   };
 }
 
+/**
+ * Drop a target for a match played after its stream ended: the broadcast moved
+ * (or died) and that VOD can't contain the match, so there's nothing to seek to.
+ */
+export function targetIfStreamCovers(
+  target: MatchStreamTarget | null,
+  actualEndTime: string | null | undefined,
+): MatchStreamTarget | null {
+  const endMs = parseMs(actualEndTime);
+  return target && endMs != null && target.matchStartMs > endMs ? null : target;
+}
+
 // ---------------------------------------------------------------------------
 // Shared hook for any card that embeds <MatchVideo> for a match row: resolves
 // the stream target, keeps it auto-calibrated, tracks whether the fallback is
@@ -110,12 +123,14 @@ export function useMatchStream(
 ): MatchStreamState {
   const eventInfoQ = useEventInfo(eventKey);
   const webcastSyncQ = useWebcastSync(eventKey);
-  const target = useMemo(
+  const resolved = useMemo(
     () => resolveMatchStream(match, eventInfoQ.data?.webcasts, webcastSyncQ.data),
     [match, eventInfoQ.data?.webcasts, webcastSyncQ.data],
   );
   // Zero-touch calibration: ask YouTube when this match's stream began.
-  useAutoWebcastCalibration(eventKey, target?.videoId ?? null);
+  useAutoWebcastCalibration(eventKey, resolved?.videoId ?? null);
+  const streamEnd = useYoutubeStreamStatus(resolved?.videoId ?? null)?.actualEndTime;
+  const target = useMemo(() => targetIfStreamCovers(resolved, streamEnd), [resolved, streamEnd]);
 
   const [active, setActive] = useState(false);
   const seekedRef = useRef(onSeekedToMatch);

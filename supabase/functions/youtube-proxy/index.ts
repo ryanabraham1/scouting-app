@@ -13,16 +13,17 @@
 //      is set (1 quota unit per call; free tier is 10k/day).
 //   2. Fallback: the watch page's embedded player JSON carries the same
 //      `startTimestamp`. Brittle (markup/consent walls) but needs no key.
-// Results are cached in-instance; a stream that hasn't started yet is cached
-// briefly so a dashboard polling before the day begins doesn't burn quota.
+// Results are cached in-instance. Only an ended stream is final: one that hasn't
+// started or is still live is cached briefly, so dashboards can poll without
+// burning quota and still see a broadcast end within about a minute.
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { readTextResponse } from "../_shared/readJsonBody.ts";
 
 const API_KEY = Deno.env.get("YOUTUBE_API_KEY") ?? "";
 const DATA_API = "https://www.googleapis.com/youtube/v3/videos";
-const CACHE_TTL_MS = 6 * 60 * 60_000; // a started stream's start never changes
-const PENDING_TTL_MS = 60_000; // not started yet: re-check soon
+const CACHE_TTL_MS = 6 * 60 * 60_000; // an ended stream's times never change
+const PENDING_TTL_MS = 60_000; // not started or still live: re-check soon
 const MAX_CACHE_ENTRIES = 256;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024; // watch pages are big
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{6,20}$/;
@@ -48,7 +49,7 @@ function remember(videoId: string, body: StreamStart): void {
     if (oldest === undefined) break;
     cache.delete(oldest);
   }
-  const ttl = body.actualStartTime ? CACHE_TTL_MS : PENDING_TTL_MS;
+  const ttl = body.actualEndTime ? CACHE_TTL_MS : PENDING_TTL_MS;
   cache.set(videoId, { expires: Date.now() + ttl, body });
 }
 

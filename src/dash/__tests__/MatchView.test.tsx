@@ -23,6 +23,8 @@ vi.mock('@/dash/useEventData', () => ({
   useWebcastSync: () => ({ data: {} }),
   saveWebcastSync: vi.fn(async () => {}),
   useAutoWebcastCalibration: () => {},
+  useYoutubeStreamStatus: () => null,
+  useLiveWebcast: () => null,
 }));
 
 // MatchVideo AND the new MatchResultsCard fetch the TBA match through

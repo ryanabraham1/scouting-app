@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import {
@@ -8,6 +8,7 @@ import {
   syncEventResults,
   youtubeStreamStart,
   isUnavailable,
+  type YoutubeStreamStart,
   type Match13Team,
 } from '@/dash/proxies';
 import { queryClient } from '@/lib/queryPersist';
@@ -1384,11 +1385,16 @@ export function localDateStr(now: Date = new Date()): string {
  * undated all-event streams (typically twitch). Rank, best first:
  *   1. embeddable (youtube/twitch) and dated *today*
  *   2. embeddable and undated (covers the whole event)
- *   3. embeddable and dated another day (better than nothing; still the event)
- *   4. anything else
+ *   3. today's stream, but listed in `endedVideoIds` (a VOD now, not the show)
+ *   4. embeddable and dated another day (better than nothing; still the event)
+ *   5. anything else
  * Within a rank, TBA's order is kept. Exported for tests.
  */
-export function pickWebcast(data: unknown, today: string = localDateStr()): EventWebcast | null {
+export function pickWebcast(
+  data: unknown,
+  today: string = localDateStr(),
+  endedVideoIds?: ReadonlySet<string>,
+): EventWebcast | null {
   if (typeof data !== 'object' || data === null) return null;
   const raw = (data as { webcasts?: unknown }).webcasts;
   if (!Array.isArray(raw)) return null;
@@ -1402,11 +1408,14 @@ export function pickWebcast(data: unknown, today: string = localDateStr()): Even
     const date = (w as { date?: unknown }).date;
     const embeddable = type === 'youtube' || type === 'twitch';
     const dated = typeof date === 'string' && date.length > 0;
+    const videoId = type === 'youtube' ? (file || channel) : null;
+    const ended = typeof videoId === 'string' && !!endedVideoIds?.has(videoId);
     let rank: number;
-    if (!embeddable) rank = 3;
+    if (!embeddable) rank = 4;
+    else if (ended) rank = date === today ? 2 : 3;
     else if (!dated) rank = 1;
     else if (date === today) rank = 0;
-    else rank = 2;
+    else rank = 3;
     if (best === null || rank < best.rank) {
       best = {
         rank,
@@ -1531,8 +1540,46 @@ export async function saveWebcastSync(
 // Ask YouTube (via youtube-proxy) when a stream began and persist it as an
 // `auto` calibration — the zero-touch path, for live streams and VODs alike. A
 // stream that hasn't started yet answers null and is re-polled.
-const YT_STREAM_START_STALE_MS = 6 * 60 * 60_000;
-const YT_STREAM_PENDING_POLL_MS = 60_000;
+const YT_STREAM_POLL_MS = 60_000;
+
+/**
+ * YouTube's start/end for a stream, or null when unknown. Polls until the stream
+ * has ended (an end time is final), so a broadcast that dies mid-day is noticed
+ * within about a minute. Pass null to do nothing.
+ */
+export function useYoutubeStreamStatus(videoId: string | null): YoutubeStreamStart | null {
+  const q = useQuery({
+    queryKey: ['youtube', 'stream-start', videoId],
+    enabled: !!videoId,
+    staleTime: YT_STREAM_POLL_MS,
+    queryFn: () => youtubeStreamStart(videoId as string),
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      return d && !isUnavailable(d) && d.actualEndTime ? false : YT_STREAM_POLL_MS;
+    },
+  });
+  return q.data && !isUnavailable(q.data) ? q.data : null;
+}
+
+/**
+ * The webcast to show live. Normally today's stream (`info.webcast`), but TBA's
+ * entry goes stale when a broadcast dies or moves: the video stays listed as a
+ * short VOD while the show carries on elsewhere (2026mttd: YouTube stopped after
+ * 7 minutes and continued on Twitch). Once YouTube reports it ended, re-pick
+ * without it.
+ */
+export function useLiveWebcast(
+  info: Pick<EventInfo, 'webcast' | 'webcasts'> | undefined,
+): EventWebcast | null {
+  const primary = info?.webcast ?? null;
+  const webcasts = info?.webcasts;
+  const videoId = primary?.type === 'youtube' ? primary.file || primary.channel || null : null;
+  const ended = !!useYoutubeStreamStatus(videoId)?.actualEndTime;
+  return useMemo(() => {
+    if (!ended || !videoId) return primary;
+    return pickWebcast({ webcasts }, localDateStr(), new Set([videoId])) ?? primary;
+  }, [ended, videoId, primary, webcasts]);
+}
 
 /**
  * Auto-calibrate `videoId` for `eventKey` from YouTube's own start time. Runs
@@ -1544,24 +1591,13 @@ export function useAutoWebcastCalibration(eventKey: string | null, videoId: stri
   const syncQ = useWebcastSync(eventKey);
   const existing = videoId ? syncQ.data?.[videoId] : undefined;
   const enabled = !!eventKey && !!videoId && syncQ.isSuccess && existing?.source !== 'manual';
-  const q = useQuery({
-    queryKey: ['youtube', 'stream-start', videoId],
-    enabled,
-    staleTime: YT_STREAM_START_STALE_MS,
-    queryFn: () => youtubeStreamStart(videoId as string),
-    refetchInterval: (query) => {
-      const d = query.state.data;
-      // Not started yet (or upstream down): keep checking every minute.
-      return !d || isUnavailable(d) || !d.actualStartTime ? YT_STREAM_PENDING_POLL_MS : false;
-    },
-  });
-  const data = q.data;
+  const startTime = useYoutubeStreamStatus(videoId)?.actualStartTime ?? null;
   useEffect(() => {
-    if (!enabled || !data || isUnavailable(data) || !data.actualStartTime) return;
-    const ms = Date.parse(data.actualStartTime);
+    if (!enabled || !startTime) return;
+    const ms = Date.parse(startTime);
     if (!Number.isFinite(ms)) return;
     void saveWebcastSync(eventKey as string, videoId as string, ms, 'auto');
-  }, [enabled, data, eventKey, videoId]);
+  }, [enabled, startTime, eventKey, videoId]);
 }
 
 /** Season-level stats for OUR team: in-house BSR, match13 world rank/fallback. */

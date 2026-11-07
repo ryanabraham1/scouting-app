@@ -23,6 +23,7 @@ import {
   useTbaEventAlliances,
   saveWebcastSync,
   useAutoWebcastCalibration,
+  useLiveWebcast,
   type MatchRow,
 } from '@/dash/useEventData';
 import type { NexusEventStatus, NexusMatch } from '@/dash/nexusClient';
@@ -243,6 +244,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
   // Calibrate today's stream as soon as the dashboard is open so the Match tab
   // can seek it to any match without anyone touching the sync button.
   useAutoWebcastCalibration?.(eventKey, webcastYoutubeId(eventInfo.webcast));
+  const liveWebcast = useLiveWebcast?.(eventInfo) ?? eventInfo.webcast;
   const rankingsQ = useTbaRankings?.(eventKey);
   const rankRows = useMemo(() => parseTbaRankings(rankingsQ?.data), [rankingsQ?.data]);
   const ourRankRow = rankRows.find((r) => r.teamNumber === baseTeam) ?? null;
@@ -498,7 +500,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
           {/* Cap stream height to the viewport so a wide monitor never pushes it off-screen. */}
           <div className="mx-auto w-full lg:max-w-[max(24rem,calc((100vh-14rem)*16/9))]">
           <EventStream
-            webcast={eventInfo.webcast}
+            webcast={liveWebcast}
             // While the stream plays live here, record when it began so the
             // Match tab can seek the stream/VOD to any match (matchStream.ts).
             onLiveStreamStart={(videoId, epochMs) =>

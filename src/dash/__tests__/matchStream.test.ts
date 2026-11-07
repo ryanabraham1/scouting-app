@@ -4,7 +4,7 @@
 // and whether the start is FMS-actual or only estimated.
 
 import { describe, it, expect } from 'vitest';
-import { resolveMatchStream, matchStartMs } from '@/dash/matchStream';
+import { resolveMatchStream, matchStartMs, targetIfStreamCovers } from '@/dash/matchStream';
 
 const webcasts = [
   { type: 'youtube', channel: 'friVid', date: '2026-09-18' },
@@ -82,5 +82,25 @@ describe('resolveMatchStream', () => {
     expect(resolveMatchStream(withTime, [], sync)).toBeNull();
     expect(resolveMatchStream(withTime, undefined, sync)).toBeNull();
     expect(resolveMatchStream(withTime, [{ type: 'twitch', channel: 'x' }], sync)).toBeNull();
+  });
+});
+
+describe('targetIfStreamCovers', () => {
+  const target = {
+    videoId: 'vid',
+    matchStartMs: Date.parse('2026-11-07T17:00:00Z'),
+    approximate: false,
+    streamStartMs: null,
+    t0Seconds: null,
+  };
+
+  it('drops a match played after the stream ended', () => {
+    expect(targetIfStreamCovers(target, '2026-11-07T15:56:58Z')).toBeNull();
+  });
+
+  it('keeps a match inside the stream, or a stream with no end yet', () => {
+    expect(targetIfStreamCovers(target, '2026-11-07T23:00:00Z')).toBe(target);
+    expect(targetIfStreamCovers(target, null)).toBe(target);
+    expect(targetIfStreamCovers(null, null)).toBeNull();
   });
 });
