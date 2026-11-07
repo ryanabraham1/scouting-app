@@ -4,9 +4,13 @@
 // except what the two actions below allow. Only its hash is stored (autoscout_worker_secret).
 //
 // POST { action: 'sync', worker, jobs: JobReport[] }
-//   -> { jobs: Job[], cancel: string[] }    heartbeat + status in, new work and stops out
+//   -> { jobs, cancel, commands }           heartbeat + status in, new work and stops out
 // POST { action: 'result', job_id, match_key, envelope }
 //   -> { stored: boolean }                  false = a newer run of this match already landed
+// POST { action: 'refresh', match_key, envelope }
+//   -> { stored: boolean }                  a recomputed result replaces the match's current one
+// POST { action: 'calibration', event_key, frame_jpeg?, frame_size?, view?, points?, error_m? }
+//   -> { stored: boolean }                  latest frame and landmarks for calibrating in the app
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -17,6 +21,8 @@ import {
   hashMatches,
   isValidEnvelope,
   MAX_REQUEST_BYTES,
+  parseCalibration,
+  parseCommandReport,
   parseJobReport,
   parseWorkerInfo,
   tokenHash,
@@ -60,6 +66,14 @@ async function sync(body: Record<string, unknown>): Promise<Response> {
     if (done.error) throw done.error;
   }
 
+  const commandReports = (Array.isArray(body.commands) ? body.commands : []).slice(0, 50).map(parseCommandReport);
+  for (const report of commandReports) {
+    if (!report) continue;
+    const { id, ...fields } = report;
+    const done = await db.from("autoscout_command").update({ ...fields, updated_at: now }).eq("id", id);
+    if (done.error) throw done.error;
+  }
+
   const open = await db
     .from("autoscout_job")
     .select("id,event_key,kind,match_keys,source_url,stream_starts,force,scout,created_at,status,cancel_requested")
@@ -78,7 +92,17 @@ async function sync(body: Record<string, unknown>): Promise<Response> {
       .is("claimed_at", null);
     if (claim.error) throw claim.error;
   }
-  return json({ jobs, cancel: rows.filter((j) => j.cancel_requested).map((j) => j.id) });
+  const handed = await db
+    .from("autoscout_command")
+    .update({ status: "running", updated_at: now })
+    .eq("status", "queued")
+    .select("id,event_key,kind,payload");
+  if (handed.error) throw handed.error;
+  return json({
+    jobs,
+    cancel: rows.filter((j) => j.cancel_requested).map((j) => j.id),
+    commands: handed.data ?? [],
+  });
 }
 
 async function result(body: Record<string, unknown>): Promise<Response> {
@@ -95,6 +119,25 @@ async function result(body: Record<string, unknown>): Promise<Response> {
   return json({ stored: stored.data === true });
 }
 
+async function refresh(body: Record<string, unknown>): Promise<Response> {
+  const { match_key: matchKey, envelope } = body;
+  if (!isMatchKey(matchKey) || !isValidEnvelope(envelope, matchKey)) {
+    return json({ error: "invalid result" }, 422);
+  }
+  const stored = await db.from("autoscout_result").update({ envelope, imported_at: new Date().toISOString() })
+    .eq("match_key", matchKey).select("match_key");
+  if (stored.error) throw stored.error;
+  return json({ stored: (stored.data ?? []).length > 0 });
+}
+
+async function calibration(body: Record<string, unknown>): Promise<Response> {
+  const row = parseCalibration(body, new Date().toISOString());
+  if (!row) return json({ error: "invalid calibration" }, 422);
+  const stored = await db.from("autoscout_calibration").upsert(row);
+  if (stored.error) throw stored.error;
+  return json({ stored: true });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -103,6 +146,8 @@ Deno.serve(async (req) => {
     const body = await readJsonBody(req, MAX_REQUEST_BYTES) as Record<string, unknown>;
     if (body?.action === "sync") return await sync(body);
     if (body?.action === "result") return await result(body);
+    if (body?.action === "refresh") return await refresh(body);
+    if (body?.action === "calibration") return await calibration(body);
     return json({ error: "unknown action" }, 400);
   } catch (error) {
     if (error instanceof BodyTooLargeError) return json({ error: "too large" }, 413);

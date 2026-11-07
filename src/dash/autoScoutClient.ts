@@ -181,6 +181,81 @@ export function matchProgress(
   });
 }
 
+export type AutoScoutCommandKind = 'capture_frame' | 'save_calibration' | 'reanalyze' | 'rescore' | 'identify';
+
+export interface AutoScoutCommand {
+  id: string;
+  kind: AutoScoutCommandKind;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  result: { error_m?: number; done?: string[]; failed?: string[] };
+  error: string | null;
+  created_at: string;
+}
+
+export interface AutoScoutCalibration {
+  frame_jpeg: string | null;
+  frame_size: number[] | null;
+  frame_at: string | null;
+  view: number[] | null;
+  points: Record<string, [number, number]> | null;
+  error_m: number | null;
+  saved_at: string | null;
+}
+
+export const commandsKey = (eventKey: string) => ['autoscout', 'commands', eventKey] as const;
+export const calibrationKey = (eventKey: string) => ['autoscout', 'calibration', eventKey] as const;
+
+const isCommandOpen = (c: AutoScoutCommand) => c.status === 'queued' || c.status === 'running';
+
+export function useAutoScoutCommands(eventKey: string): UseQueryResult<AutoScoutCommand[]> {
+  return useQuery({
+    queryKey: commandsKey(eventKey),
+    refetchInterval: (query) => (query.state.data?.some(isCommandOpen) ? 2_000 : 15_000),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('autoscout_command')
+        .select('id, kind, status, result, error, created_at')
+        .eq('event_key', eventKey)
+        .order('created_at', { ascending: false })
+        .limit(15);
+      if (error) throw error;
+      return (data ?? []) as AutoScoutCommand[];
+    },
+  });
+}
+
+export function useAutoScoutCalibration(eventKey: string, enabled: boolean): UseQueryResult<AutoScoutCalibration | null> {
+  return useQuery({
+    queryKey: calibrationKey(eventKey),
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('autoscout_calibration')
+        .select('frame_jpeg, frame_size, frame_at, view, points, error_m, saved_at')
+        .eq('event_key', eventKey)
+        .maybeSingle();
+      if (error) throw error;
+      return data as AutoScoutCalibration | null;
+    },
+  });
+}
+
+export function useSendAutoScoutCommand(eventKey: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ kind, payload = {} }: { kind: AutoScoutCommandKind; payload?: Record<string, unknown> }) => {
+      const { data, error } = await supabase.rpc('autoscout_send_command', {
+        p_event_key: eventKey,
+        p_kind: kind,
+        p_payload: payload,
+      });
+      if (error) throw new Error(error.message);
+      return data as AutoScoutCommand;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: commandsKey(eventKey) }),
+  });
+}
+
 export const workerKey = ['autoscout', 'worker'] as const;
 export const jobsKey = (eventKey: string) => ['autoscout', 'jobs', eventKey] as const;
 export const resultsKey = (eventKey: string) => ['autoscout', 'results', eventKey] as const;

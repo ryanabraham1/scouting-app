@@ -3,13 +3,14 @@
 // form. Following the live stream is the one primary action.
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Play, Radio, RotateCcw, Settings2, Square, X } from 'lucide-react';
+import { ChevronRight, Crosshair, Play, Radio, RotateCcw, Settings2, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle';
 import { StatTile } from '@/components/ui/StatTile';
 import { compareMatchKeys, formatMatchKeyRaw } from '@/lib/formatMatch';
 import { cn } from '@/lib/utils';
+import AutoScoutCalibrationPanel from '@/dash/AutoScoutCalibration';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import { useEventInfo, useEventMatches, useWebcastSync, type MatchRow } from '@/dash/useEventData';
 import {
@@ -20,13 +21,17 @@ import {
   unfinishedMatches,
   useAutoScoutJobs,
   useAutoScoutResults,
+  useAutoScoutCommands,
   useAutoScoutWorker,
   useCancelAutoScout,
   useEnqueueAutoScout,
+  useSendAutoScoutCommand,
   workerOnline,
   youtubeId,
   type AutoScoutJob,
   type AutoScoutKind,
+  type AutoScoutCommand,
+  type AutoScoutCommandKind,
   type AutoScoutResultRow,
   type AutoScoutWorker,
   type MatchPhase,
@@ -99,7 +104,15 @@ function ProgressBar({ pct, label }: { pct: number; label: string }) {
   );
 }
 
-function Banner({ worker, eventKey }: { worker: AutoScoutWorker | null | undefined; eventKey: string }) {
+function Banner({
+  worker,
+  eventKey,
+  onCalibrate,
+}: {
+  worker: AutoScoutWorker | null | undefined;
+  eventKey: string;
+  onCalibrate: () => void;
+}) {
   const online = workerOnline(worker);
   if (!online) {
     return (
@@ -113,9 +126,10 @@ function Banner({ worker, eventKey }: { worker: AutoScoutWorker | null | undefin
   }
   if (worker && !worker.calibrated_events.includes(eventKey)) {
     return (
-      <p role="alert" className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
-        {eventKey} isn’t calibrated on the computer yet, so its matches will fail. Calibrate it there first.
-      </p>
+      <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+        <span>{eventKey} isn’t calibrated yet, so its matches will fail.</span>
+        <Button type="button" size="sm" variant="outline" onClick={onCalibrate}>Calibrate now</Button>
+      </div>
     );
   }
   return null;
@@ -260,14 +274,43 @@ function Row({
   );
 }
 
-function Activity({ jobs, eventKey }: { jobs: AutoScoutJob[]; eventKey: string }) {
+const COMMAND_LABEL: Record<AutoScoutCommandKind, string> = {
+  capture_frame: 'Capture frame',
+  save_calibration: 'Save calibration',
+  reanalyze: 'Reanalyze',
+  rescore: 'Re-read scoreboard',
+  identify: 'Re-read bumpers',
+};
+
+function commandDetail(command: AutoScoutCommand): string {
+  if (command.error) return command.error;
+  const { done, failed, error_m: fit } = command.result;
+  if (done) return `${done.length} updated${failed?.length ? `, ${failed.length} failed` : ''}`;
+  return fit != null ? 'Saved' : '';
+}
+
+function Activity({ jobs, commands, eventKey }: { jobs: AutoScoutJob[]; commands: AutoScoutCommand[]; eventKey: string }) {
   const cancel = useCancelAutoScout(eventKey);
   const enqueue = useEnqueueAutoScout();
-  if (jobs.length === 0) return null;
+  if (jobs.length + commands.length === 0) return null;
   return (
     <details className="lead-assignments">
-      <summary>Activity ({jobs.length})</summary>
+      <summary>Activity ({jobs.length + commands.length})</summary>
       <ul className="lead-settings-panel">
+        {commands.map((command) => (
+          <li key={command.id} data-testid="autoscout-command" className="lead-setting-row">
+            <div className="min-w-0">
+              <h3>
+                {COMMAND_LABEL[command.kind]}
+                <span className="ml-2 font-normal capitalize text-muted-foreground">{command.status}</span>
+              </h3>
+              <p className={command.error ? 'text-destructive' : undefined}>
+                {new Date(command.created_at).toLocaleString()}
+                {commandDetail(command) ? ` · ${commandDetail(command)}` : ''}
+              </p>
+            </div>
+          </li>
+        ))}
         {jobs.map((job) => {
           const unfinished = unfinishedMatches(job);
           const skipped = Object.keys(job.match_errors).length;
@@ -334,7 +377,10 @@ export default function AutoScoutTab({ eventKey }: { eventKey: string }): JSX.El
   const syncQ = useWebcastSync(eventKey);
   const enqueue = useEnqueueAutoScout();
   const cancel = useCancelAutoScout(eventKey);
+  const commandsQ = useAutoScoutCommands(eventKey);
+  const send = useSendAutoScoutCommand(eventKey);
 
+  const [calibrating, setCalibrating] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showOptions, setShowOptions] = useState(false);
@@ -432,6 +478,10 @@ export default function AutoScoutTab({ eventKey }: { eventKey: string }): JSX.El
           <p data-testid="autoscout-stream">Video scouting for {eventKey} · {stream}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Button type="button" variant="outline" aria-label="Calibrate" aria-expanded={calibrating} onClick={() => setCalibrating((v) => !v)}>
+            <Crosshair className="size-4" />
+            <span className="hidden sm:inline">Calibrate</span>
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -456,7 +506,8 @@ export default function AutoScoutTab({ eventKey }: { eventKey: string }): JSX.El
         </div>
       </header>
 
-      <Banner worker={worker} eventKey={eventKey} />
+      <Banner worker={worker} eventKey={eventKey} onCalibrate={() => setCalibrating(true)} />
+      {calibrating && <AutoScoutCalibrationPanel eventKey={eventKey} onClose={() => setCalibrating(false)} />}
       {enqueue.error && <p role="alert" className="text-sm text-destructive">{enqueue.error.message}</p>}
 
       {showOptions && (
@@ -601,10 +652,24 @@ export default function AutoScoutTab({ eventKey }: { eventKey: string }): JSX.El
           className="sticky bottom-20 z-10 flex items-center justify-between gap-3 rounded-xl border border-brand/50 bg-card px-4 py-3 shadow-lg md:bottom-4"
         >
           <span className="text-sm font-medium">{selected.size} selected</span>
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
               Clear
             </Button>
+            {(['reanalyze', 'rescore', 'identify'] as const).map((kind) => (
+              <Button
+                key={kind}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={send.isPending}
+                onClick={() =>
+                  send.mutate({ kind, payload: { match_keys: [...selected] } }, { onSuccess: () => setSelected(new Set()) })
+                }
+              >
+                {COMMAND_LABEL[kind]}
+              </Button>
+            ))}
             <button
               type="button"
               className="lead-primary-action gap-2 disabled:opacity-50"
@@ -618,7 +683,7 @@ export default function AutoScoutTab({ eventKey }: { eventKey: string }): JSX.El
         </div>
       )}
 
-      <Activity jobs={jobs} eventKey={eventKey} />
+      <Activity jobs={jobs} commands={commandsQ.data ?? []} eventKey={eventKey} />
     </div>
   );
 }

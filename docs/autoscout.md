@@ -23,11 +23,17 @@ database keeps only the token's SHA-256 in `autoscout_worker_secret`.
 | Ended stream | Clips each match at `actual_time - stream start` | Twitch needs a pasted VOD link: a channel has no history |
 | Match videos | TBA's per-match videos | Those can land hours late |
 
-An event must be calibrated on the computer first (`autoscout serve`, Calibrate page, on the
-computer itself). The tab warns when it isn't, and the computer refuses the job with a reason.
+An event must be calibrated first. **Calibrate** on the tab grabs a frame from the stream, you tap
+the landmarks and check the field drawn over the picture, and the computer saves it. Jobs for an
+uncalibrated event are refused with a reason. Selected matches can also be reanalyzed, or have their
+scoreboard or bumpers re-read, without touching the video again.
 
-Stream jobs need no link: the computer finds the event's stream on TBA, the right day's for each
-match, and a live job picks up the new day's stream when it reconnects. A pasted link overrides that.
+Stream jobs need no link. A live job follows whichever of the event's TBA streams is actually on
+air, and an ended-stream job tries the right day's YouTube stream, then the Twitch archive, then
+TBA's match video. A pasted link overrides that.
+
+TBA's link can be dead: at 2026mttd the day's YouTube stream stopped after 6 minutes and the event
+carried on on Twitch.
 
 A manual "Sync to match start" calibration (`webcast_sync`, source `manual`) overrides the
 platform's stream start time for ended-stream jobs.

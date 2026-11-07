@@ -14,6 +14,7 @@ const MIGRATION_PATHS = [
   'supabase/migrations/20261019120000_board_records.sql',
   'supabase/migrations/20261019121000_board_record_grants.sql',
   'supabase/migrations/20261104120000_autoscout_jobs.sql',
+  'supabase/migrations/20261107120000_autoscout_commands.sql',
 ].map((p) => join(ROOT, p));
 
 type TablePrivilege = 'select' | 'insert' | 'update' | 'delete';
@@ -25,6 +26,8 @@ type EdgeClientRole = 'caller' | 'service';
 
 const EXPECTED_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
   assignment: ['select'],
+  autoscout_calibration: ['select'],
+  autoscout_command: ['select'],
   autoscout_job: ['select'],
   autoscout_result: ['select'],
   autoscout_worker: ['select'],
@@ -46,7 +49,10 @@ const EXPECTED_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
 };
 
 const EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> = {
+  autoscout_calibration: ['insert', 'update'],
+  autoscout_command: ['select', 'update'],
   autoscout_job: ['select', 'update'],
+  autoscout_result: ['select', 'update'],
   autoscout_worker: ['insert', 'update'],
   autoscout_worker_secret: ['select'],
   event: ['select'],
@@ -58,6 +64,8 @@ const EXPECTED_SERVICE_ROLE_TABLE_PRIVILEGES: Record<string, TablePrivilege[]> =
 // migrations) rather than Edge Function access, so they are not in the
 // Edge-usage manifest above.
 const SERVICE_ROLE_MAINTENANCE_TABLE_GRANTS: Record<string, TablePrivilege[]> = {
+  autoscout_calibration: ['delete', 'insert', 'select', 'update'],
+  autoscout_command: ['delete', 'insert', 'select', 'update'],
   autoscout_job: ['delete', 'insert', 'select', 'update'],
   autoscout_result: ['delete', 'insert', 'select', 'update'],
   autoscout_worker: ['delete', 'insert', 'select', 'update'],
@@ -74,6 +82,7 @@ const PRIVATE_TABLES = [
 ];
 
 const EXPECTED_BROWSER_RPCS = [
+  'autoscout_send_command(text,text,jsonb)',
   'autoscout_cancel(uuid)',
   'autoscout_enqueue(text,text,text[],text,jsonb,boolean,boolean)',
   'delete_event(text)',

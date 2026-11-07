@@ -4,6 +4,7 @@
 // writing anything the dashboard would then render as fact.
 
 export const MAX_ENVELOPE_BYTES = 4 * 1024 * 1024;
+export const MAX_FRAME_CHARS = 3 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = MAX_ENVELOPE_BYTES + 64 * 1024;
 const MAX_TEXT = 300;
 const MATCH_KEY_RE = /^[0-9]{4}[a-z0-9]+_(?:qm[1-9][0-9]*|(?:ef|qf|sf|f)[1-9][0-9]*m[1-9][0-9]*)$/;
@@ -102,6 +103,50 @@ export function parseJobReport(raw: unknown): JobReport | null {
     progress,
     error: text(r.error),
   };
+}
+
+export interface CommandReport {
+  id: string;
+  status: 'done' | 'failed';
+  result: Record<string, unknown>;
+  error: string | null;
+}
+
+export function parseCommandReport(raw: unknown): CommandReport | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (!isJobId(r.id) || (r.status !== 'done' && r.status !== 'failed')) return null;
+  const result = typeof r.result === 'object' && r.result !== null ? r.result as Record<string, unknown> : {};
+  return { id: r.id, status: r.status, result: JSON.stringify(result).length <= 8192 ? result : {}, error: text(r.error) };
+}
+
+export function isEventKey(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9]{4}[a-z0-9]+$/.test(value);
+}
+
+function intList(value: unknown, length: number): number[] | null {
+  return Array.isArray(value) && value.length === length && value.every(Number.isInteger) ? value : null;
+}
+
+/** Only the fields the computer actually sent, so a frame upload can't wipe saved landmarks. */
+export function parseCalibration(raw: Record<string, unknown>, now: string): Record<string, unknown> | null {
+  if (!isEventKey(raw.event_key)) return null;
+  const row: Record<string, unknown> = { event_key: raw.event_key };
+  if (typeof raw.frame_jpeg === 'string') {
+    if (raw.frame_jpeg.length > MAX_FRAME_CHARS || !/^[A-Za-z0-9+/=]+$/.test(raw.frame_jpeg)) return null;
+    const size = intList(raw.frame_size, 2);
+    if (!size) return null;
+    Object.assign(row, { frame_jpeg: raw.frame_jpeg, frame_size: size, frame_at: now });
+  }
+  const view = intList(raw.view, 4);
+  if (view) row.view = view;
+  if (typeof raw.points === 'object' && raw.points !== null && JSON.stringify(raw.points).length <= 4096) {
+    row.points = raw.points;
+  }
+  if (typeof raw.error_m === 'number' && Number.isFinite(raw.error_m)) {
+    Object.assign(row, { error_m: raw.error_m, saved_at: now });
+  }
+  return row;
 }
 
 /** A result is only stored as the match it says it is, in the envelope version we can read. */
