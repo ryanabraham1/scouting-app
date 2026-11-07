@@ -94,6 +94,8 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
   const [blockAssignments, setBlockAssignments] = useState(2);
   const [spacingMatches, setSpacingMatches] = useState(1);
   const [restLength, setRestLength] = useState(3);
+  // Short crew: keep the work/rest pattern exact and let seats go unfilled.
+  const [strictBreaks, setStrictBreaks] = useState(false);
   const [rotatePositions, setRotatePositions] = useState(true);
   const [avoidBackToBack, setAvoidBackToBack] = useState(true);
   // Share of qual matches the generator fills; the rest are left empty on
@@ -386,6 +388,7 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
       blockAssignments,
       spacingMatches,
       breakLength: restLength,
+      strictBreaks,
       rotatePositions,
       avoidBackToBack,
       coveragePercent,
@@ -415,6 +418,11 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
     if (skipped > 0) {
       noteParts.push(
         `${skipped === 1 ? 'That match is' : `Those ${skipped} matches are`} intentionally left open and will show as gaps in Coverage.`,
+      );
+    }
+    if (plan.openSeatCount > 0) {
+      noteParts.push(
+        `${plan.openSeatCount} ${plan.openSeatCount === 1 ? 'seat was' : 'seats were'} left open to protect breaks.`,
       );
     }
     setGenerationNote(noteParts.length > 0 ? noteParts.join(' ') : null);
@@ -843,6 +851,16 @@ export function AssignmentBoard({ eventKey, matches, scouts }: AssignmentBoardPr
                   Spacing 0 allows consecutive matches; 1 means every other match; 2 means every
                   third match.
                 </p>
+                <label className="mt-3 flex cursor-pointer items-center gap-2">
+                  <input
+                    data-testid="opt-strict-breaks"
+                    type="checkbox"
+                    checked={strictBreaks}
+                    onChange={(e) => setStrictBreaks(e.target.checked)}
+                    className="size-4 accent-brand"
+                  />
+                  <span>Always keep breaks, even if some seats stay open</span>
+                </label>
               </div>
             ) : null}
             <label className="flex cursor-pointer items-center gap-2">

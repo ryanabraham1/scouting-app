@@ -59,6 +59,18 @@ describe('slotsForMatch', () => {
 });
 
 // 12 matches, ownTeam 3256 placed in red station 1 of EVERY match (so exactly 5 slots/match = 60 slots).
+function workedMatchIndexes(
+  out: Assignment[],
+  matches: AssignMatch[],
+  scoutId: string,
+): number[] {
+  const idxOf = new Map(matches.map((m, i) => [m.matchKey, i]));
+  return out
+    .filter((a) => a.scoutId === scoutId)
+    .map((a) => idxOf.get(a.matchKey) as number)
+    .sort((a, b) => a - b);
+}
+
 function buildMatches(count = 12): AssignMatch[] {
   const matches: AssignMatch[] = [];
   for (let i = 1; i <= count; i++) {
@@ -158,17 +170,6 @@ describe('autoAssign quals-only', () => {
 });
 
 describe('autoAssign work/rest blocks', () => {
-  function workedMatchIndexes(
-    out: Assignment[],
-    matches: AssignMatch[],
-    scoutId: string,
-  ): number[] {
-    const idxOf = new Map(matches.map((m, i) => [m.matchKey, i]));
-    return out
-      .filter((a) => a.scoutId === scoutId)
-      .map((a) => idxOf.get(a.matchKey) as number)
-      .sort((a, b) => a - b);
-  }
 
   it('(f) accepts avoidBackToBack:false without degrading coverage or balance', () => {
     // The flag only relaxes a soft tiebreak; correctness (full coverage, ±1
@@ -250,6 +251,60 @@ describe('autoAssign work/rest blocks', () => {
     expect(plan.assignments).toHaveLength(60);
     expect(plan.relaxedMatchKeys.length).toBeGreaterThan(0);
     expect(plan.assignments.some((a) => a.targetTeamNumber === 3256)).toBe(false);
+  });
+});
+
+describe('autoAssign strict breaks', () => {
+  const THREE_ON_THREE_OFF = {
+    ownTeam: 3256,
+    rotatePositions: false,
+    scheduleMode: 'blocked',
+    blockAssignments: 3,
+    spacingMatches: 0,
+    breakLength: 3,
+    strictBreaks: true,
+  } as const;
+
+  function expectThreeOnThreeOff(worked: number[]): void {
+    for (let i = 1; i < worked.length; i++) {
+      const finishedBlock = i % 3 === 0;
+      if (finishedBlock) expect(worked[i] - worked[i - 1]).toBeGreaterThanOrEqual(4);
+    }
+  }
+
+  it('leaves seats open instead of cutting a break when the crew is short', () => {
+    const matches = buildMatches(24);
+    const scouts = buildScouts(8);
+    const plan = autoAssignPlan(matches, scouts, THREE_ON_THREE_OFF);
+
+    expect(plan.relaxedMatchKeys).toEqual([]);
+    expect(plan.openSeatCount).toBeGreaterThan(0);
+    const seats = matches.reduce((n, m) => n + slotsForMatch(m, 3256).length, 0);
+    expect(plan.assignments.length + plan.openSeatCount).toBe(seats);
+    for (const s of scouts) {
+      expectThreeOnThreeOff(workedMatchIndexes(plan.assignments, matches, s.id));
+    }
+  });
+
+  it('fills every seat when the crew can cover the pattern', () => {
+    const matches = buildMatches(24);
+    const plan = autoAssignPlan(matches, buildScouts(12), THREE_ON_THREE_OFF);
+    expect(plan.openSeatCount).toBe(0);
+    expect(plan.relaxedMatchKeys).toEqual([]);
+  });
+
+  it('counts no open seats for unavailable scouts or outside blocked mode', () => {
+    const matches = buildMatches(6);
+    const balanced = autoAssignPlan(matches, buildScouts(3), {
+      ...THREE_ON_THREE_OFF,
+      scheduleMode: 'balanced',
+    });
+    expect(balanced.openSeatCount).toBe(0);
+    const nobody = buildScouts(2).map((s) => ({
+      ...s,
+      unavailableMatchKeys: matches.map((m) => m.matchKey),
+    }));
+    expect(autoAssignPlan(matches, nobody, THREE_ON_THREE_OFF).openSeatCount).toBe(0);
   });
 });
 

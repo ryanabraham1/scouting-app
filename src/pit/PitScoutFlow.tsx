@@ -22,6 +22,7 @@ import {
   replaceCachedPitAssignmentsForEvent,
 } from '@/db/preloadClient';
 import { supabase } from '@/lib/supabase';
+import { createCoalescedRefresh } from '@/lib/coalescedRefresh';
 import {
   deletePitQuarantine,
   PIT_NUMERIC_LIMITS,
@@ -150,7 +151,9 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
       try {
         const { data, error } = await supabase
           .from('pit_assignment')
-          .select('team_number,scout_id,source,scout:scout(display_name)')
+          // pit_assignment has two FKs to scout; an unnamed embed is ambiguous and
+          // PostgREST rejects it with a 300, so this must name one.
+          .select('team_number,scout_id,source,scout:scout!pit_assignment_event_scout_fkey(display_name)')
           .eq('event_key', eventKey)
           .order('team_number', { ascending: true });
         if (error) throw error;
@@ -188,12 +191,16 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
       }
     };
     void refresh();
-    const refreshVisible = (): void => {
-      if (document.visibilityState !== 'hidden') void refresh();
-    };
+    // Realtime fires once per changed row; see coalescedRefresh.ts.
+    const coalesced = createCoalescedRefresh(
+      () => (document.visibilityState !== 'hidden' ? refresh() : undefined),
+      { delayMs: 1_500, jitterMs: 3_500 },
+    );
+    const refreshVisible = coalesced.flush;
+    const refreshSoon = coalesced.request;
     const interval = window.setInterval(refreshVisible, 30_000);
     window.addEventListener('focus', refreshVisible);
-    window.addEventListener('preload-cache-changed', refreshVisible);
+    window.addEventListener('preload-cache-changed', refreshSoon);
     const realtimeClient = supabase as typeof supabase & {
       channel?: (name: string) => {
         on: (...args: unknown[]) => { subscribe: () => unknown };
@@ -206,14 +213,15 @@ function useMyPitAssignments(eventKey: string, scoutId: string): MyPitAssignment
       ?.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pit_assignment', filter: `event_key=eq.${eventKey}` },
-        refreshVisible,
+        refreshSoon,
       )
       .subscribe();
     return () => {
       cancelled = true;
+      coalesced.cancel();
       window.clearInterval(interval);
       window.removeEventListener('focus', refreshVisible);
-      window.removeEventListener('preload-cache-changed', refreshVisible);
+      window.removeEventListener('preload-cache-changed', refreshSoon);
       if (realtime) void realtimeClient.removeChannel?.(realtime);
     };
   }, [eventKey, scoutId, channelId]);

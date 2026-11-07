@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useOnline } from '@/sync/useOnline';
 import { supabase } from '@/lib/supabase';
+import { createCoalescedRefresh } from '@/lib/coalescedRefresh';
 import {
   preloadEventData,
   getPreloadMeta,
@@ -153,6 +154,13 @@ export function useOfflinePreload(
     const refreshWhenVisible = (): void => {
       if (document.visibilityState !== 'hidden') void run();
     };
+    // A preload is ~6 event-wide reads and realtime fires per changed row, so a
+    // publish gets one background run per phone, spread well apart. ScoutHome
+    // already shows the new assignments within seconds.
+    const coalesced = createCoalescedRefresh(refreshWhenVisible, {
+      delayMs: 8_000,
+      jitterMs: 12_000,
+    });
     const interval = window.setInterval(refreshWhenVisible, 5 * 60 * 1000);
     window.addEventListener('focus', refreshWhenVisible);
     document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -172,16 +180,17 @@ export function useOfflinePreload(
       ?.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'assignment', filter: `event_key=eq.${eventKey}` },
-        refreshWhenVisible,
+        coalesced.request,
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pit_assignment', filter: `event_key=eq.${eventKey}` },
-        refreshWhenVisible,
+        coalesced.request,
       )
       .subscribe();
 
     return () => {
+      coalesced.cancel();
       window.clearInterval(interval);
       window.removeEventListener('focus', refreshWhenVisible);
       document.removeEventListener('visibilitychange', refreshWhenVisible);

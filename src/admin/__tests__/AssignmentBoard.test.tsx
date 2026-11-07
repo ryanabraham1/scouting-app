@@ -20,6 +20,7 @@ vi.mock('../autoAssign', async (importOriginal) => ({
   autoAssignPlan: (...a: unknown[]) => ({
     assignments: autoAssign(...a),
     relaxedMatchKeys,
+    openSeatCount: 0,
     skippedMatchKeys: [],
     ownMatchKeys: [],
   }),
@@ -480,6 +481,27 @@ describe('AssignmentBoard', () => {
     expect(await screen.findByTestId('assignments-generation-warning')).toHaveTextContent(
       /relaxing the blocked schedule in 1 match/i,
     );
+  });
+
+  it('passes strict breaks to the generator for a 3-on, 3-off pattern', async () => {
+    autoAssign.mockReturnValue([]);
+    render(<AssignmentBoard eventKey="2026casnv" matches={MATCHES} scouts={SCOUTS} />);
+    fireEvent.click(screen.getByTestId('auto-generate-options-toggle'));
+    expect(screen.queryByTestId('opt-strict-breaks')).toBeNull();
+    fireEvent.click(screen.getByTestId('opt-mode-blocked'));
+    fireEvent.change(screen.getByTestId('opt-block-assignments'), { target: { value: '3' } });
+    fireEvent.change(screen.getByTestId('opt-spacing-matches'), { target: { value: '0' } });
+    fireEvent.click(screen.getByTestId('opt-strict-breaks'));
+    await waitFor(() => expect(screen.getByTestId('auto-generate-btn')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('auto-generate-btn'));
+    await waitFor(() => expect(autoAssign).toHaveBeenCalled());
+    expect(autoAssign.mock.calls.at(-1)?.[2]).toMatchObject({
+      scheduleMode: 'blocked',
+      blockAssignments: 3,
+      spacingMatches: 0,
+      breakLength: 3,
+      strictBreaks: true,
+    });
   });
 
   it('shows a helpful message when the roster is empty', async () => {

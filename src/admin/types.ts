@@ -41,9 +41,14 @@ export interface AssignOptions {
   /**
    * In blocked mode, how many full event matches a scout rests after finishing
    * a work block. Scheduling constraints are preferences: coverage wins when
-   * the available scout pool cannot satisfy both.
+   * the available scout pool cannot satisfy both, unless `strictBreaks` is set.
    */
   breakLength?: number;
+  /**
+   * In blocked mode, leave a seat open rather than pull a scout off their
+   * spacing or break. For crews too small to cover every seat on the pattern.
+   */
+  strictBreaks?: boolean;
   /**
    * Share of qualification matches (0–100) the generator fills at all. The
    * covered subset is chosen so every team keeps the same share of its own
@@ -64,6 +69,8 @@ export interface AutoAssignmentPlan {
   assignments: Assignment[];
   /** Match keys where a spacing or break preference had to be relaxed. */
   relaxedMatchKeys: string[];
+  /** Seats left open because `strictBreaks` protected every available scout. */
+  openSeatCount: number;
   /**
    * Every qualification match intentionally left unassigned — by
    * `coveragePercent` or by `skipOwnMatches` (a superset of `ownMatchKeys`).

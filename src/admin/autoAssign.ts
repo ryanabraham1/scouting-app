@@ -145,6 +145,8 @@ export function autoAssignPlan(
   const blockAssignments = Math.max(1, opts.blockAssignments ?? 2);
   const spacingMatches = Math.max(0, opts.spacingMatches ?? 0);
   const breakLength = Math.max(0, opts.breakLength ?? 1);
+  const strictBreaks = blocked && (opts.strictBreaks ?? false);
+  let openSeatCount = 0;
 
   // Per-scout running state.
   const totalCount = new Map<string, number>(); // total assignments so far
@@ -193,12 +195,14 @@ export function autoAssignPlan(
 
       // Block spacing and breaks are SOFT preferences. If nobody eligible can
       // honor them, fill the seat anyway and record that the plan was relaxed.
+      // strictBreaks flips that trade: the seat stays open and the break holds.
       const onSchedule = blocked
         ? baseEligible.filter((s) => matchIndex >= (nextPreferredMatch.get(s.id) ?? 0))
         : baseEligible;
-      const eligible = onSchedule.length > 0 ? onSchedule : baseEligible;
+      const eligible = onSchedule.length > 0 || strictBreaks ? onSchedule : baseEligible;
       if (blocked && onSchedule.length === 0 && baseEligible.length > 0) {
-        relaxedMatchKeys.add(match.matchKey);
+        if (strictBreaks) openSeatCount += 1;
+        else relaxedMatchKeys.add(match.matchKey);
       }
 
       // When the pool is larger than slots, also avoid back-to-back same scout.
@@ -260,6 +264,7 @@ export function autoAssignPlan(
   return {
     assignments: result,
     relaxedMatchKeys: [...relaxedMatchKeys],
+    openSeatCount,
     skippedMatchKeys,
     ownMatchKeys,
   };

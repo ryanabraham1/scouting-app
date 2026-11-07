@@ -21,6 +21,7 @@ import PitScoutFlow from '@/pit/PitScoutFlow';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
+import { createCoalescedRefresh } from '@/lib/coalescedRefresh';
 import { useSession, clearCachedScout } from '@/auth/useSession';
 import type { ScoutRow } from '@/auth/scoutRow';
 import { listDrafts, listReports, getReport } from '@/db/localStore';
@@ -532,12 +533,17 @@ export default function ScoutHome() {
     };
     void refreshAssignments();
     void refreshLocal(ev);
-    const refreshVisible = (): void => {
-      if (document.visibilityState !== 'hidden') void refreshAssignments();
-    };
+    // Realtime fires once per changed ROW, so a publish must collapse into one
+    // jittered read per phone; see coalescedRefresh.ts.
+    const coalesced = createCoalescedRefresh(
+      () => (document.visibilityState !== 'hidden' ? refreshAssignments() : undefined),
+      { delayMs: 1_500, jitterMs: 3_500 },
+    );
+    const refreshVisible = coalesced.flush;
+    const refreshSoon = coalesced.request;
     const interval = window.setInterval(refreshVisible, 30_000);
     window.addEventListener('focus', refreshVisible);
-    window.addEventListener('preload-cache-changed', refreshVisible);
+    window.addEventListener('preload-cache-changed', refreshSoon);
     interface RealtimeChannelLike {
       on: (...args: unknown[]) => RealtimeChannelLike;
       subscribe: () => unknown;
@@ -554,7 +560,7 @@ export default function ScoutHome() {
       ?.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'assignment', filter: `event_key=eq.${ev}` },
-        refreshVisible,
+        refreshSoon,
       )
       .on(
         'postgres_changes',
@@ -564,14 +570,15 @@ export default function ScoutHome() {
           table: 'match_scouting_report',
           filter: `scout_id=eq.${scoutId}`,
         },
-        refreshVisible,
+        refreshSoon,
       )
       .subscribe();
     return () => {
       cancelled = true;
+      coalesced.cancel();
       window.clearInterval(interval);
       window.removeEventListener('focus', refreshVisible);
-      window.removeEventListener('preload-cache-changed', refreshVisible);
+      window.removeEventListener('preload-cache-changed', refreshSoon);
       if (realtime) void realtimeClient.removeChannel?.(realtime);
     };
   }, [scoutId, effective?.event_key, effective?.display_name, activeEvent, channelId]);
