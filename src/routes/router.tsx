@@ -17,12 +17,13 @@ import { applyRouteTheme } from './routeTheme';
  * A lazy route/tab chunk that failed to download. After a deploy, a tab still
  * running the previous build asks for chunk hashes that no longer exist (every
  * browser words this differently); offline, a chunk this device never cached
- * fails the same way. Exported for tests.
+ * fails the same way. Safari reports a chunk the host answered with HTML as
+ * "'text/html' is not a valid JavaScript MIME type". Exported for tests.
  */
 export function isChunkLoadError(error: unknown): boolean {
   const message =
     error instanceof Error ? `${error.name}: ${error.message}` : String(error ?? '');
-  return /dynamically imported module|importing a module script failed|ChunkLoadError|loading (css )?chunk \S+ failed|unable to preload css/i.test(
+  return /dynamically imported module|importing a module script failed|ChunkLoadError|loading (css )?chunk \S+ failed|unable to preload css|is not a valid JavaScript MIME type/i.test(
     message,
   );
 }
