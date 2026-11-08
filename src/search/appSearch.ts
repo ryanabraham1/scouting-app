@@ -48,6 +48,7 @@ export const PAGES: readonly Page[] = [
   { title: 'Missed assignments', subtitle: 'Scouters', to: '/dashboard?tab=scouters#scouter-missed-card', keywords: 'missed assignments skipped no show' },
   { title: 'Scouter roster', subtitle: 'Scouters', to: '/dashboard?tab=scouters#roster-list', keywords: 'roster add hide delete scouter name' },
   { title: 'Picklist', subtitle: 'Lead dashboard', to: '/dashboard?tab=picklist', keywords: 'picklist pick list first second order' },
+  { title: 'Picklist (view only)', subtitle: 'Scout', to: '/scout/picklist', keywords: 'picklist pick list scout view read only' },
   { title: 'Do not pick', subtitle: 'Picklist', to: '/dashboard?tab=picklist#do-not-pick', keywords: 'do not pick dnp excluded blacklist avoid' },
   { title: 'Add teams to picklist', subtitle: 'Picklist', to: '/dashboard?tab=picklist#picklist-epa-board', keywords: 'add teams candidates not on list' },
   { title: 'Draft', subtitle: 'Lead dashboard', to: '/dashboard?tab=draft', keywords: 'draft alliance selection best remaining pick next' },

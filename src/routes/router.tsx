@@ -145,6 +145,11 @@ const rawRoutes: RouteObject[] = [
     path: '/scout/tutorial',
     lazy: async () => ({ Component: (await import('../tutorial/ScoutTutorial')).default }),
   },
+  // Read-only view of the lead's picklist for scouts in the stands.
+  {
+    path: '/scout/picklist',
+    lazy: async () => ({ Component: (await import('../scout/ScoutPicklistView')).default }),
+  },
   {
     path: '/my-data',
     lazy: async () => ({ Component: (await import('../scout/MyDataView')).default }),

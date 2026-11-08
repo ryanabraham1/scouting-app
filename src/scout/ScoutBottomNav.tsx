@@ -3,17 +3,18 @@
 // top tab row (ScoutTopNav) and the bottom bar steps aside. Plain client-side
 // navigation so it works offline (no document reload).
 import { useNavigate } from 'react-router-dom';
-import { Home, CalendarDays, ChartNoAxesColumn, UserRound, Wrench, RefreshCw } from 'lucide-react';
+import { Home, CalendarDays, ChartNoAxesColumn, ListOrdered, UserRound, Wrench, RefreshCw } from 'lucide-react';
 import { BottomTabBar, type BottomTab } from '@/components/BottomTabBar';
 import { IconTabs } from '@/components/ui/IconTabs';
 
-export type ScoutTab = 'home' | 'matches' | 'analysis' | 'my-data';
-export type ScoutDesktopTab = 'home' | 'matches' | 'pit' | 'my-data' | 'sync';
+export type ScoutTab = 'home' | 'matches' | 'analysis' | 'picklist' | 'my-data';
+export type ScoutDesktopTab = 'home' | 'matches' | 'pit' | 'picklist' | 'my-data' | 'sync';
 
 const TABS: readonly BottomTab<ScoutTab>[] = [
   { id: 'home', label: 'Home', href: '/scout', icon: Home },
   { id: 'matches', label: 'Matches', href: '/scout?tab=matches', icon: CalendarDays },
   { id: 'analysis', label: 'Analysis', href: '/analysis', icon: ChartNoAxesColumn },
+  { id: 'picklist', label: 'Picklist', href: '/scout/picklist', icon: ListOrdered },
   { id: 'my-data', label: 'My data', href: '/my-data', icon: UserRound },
 ];
 
@@ -23,6 +24,7 @@ const DESKTOP_TABS: readonly { id: ScoutDesktopTab; label: string; href: string;
   { id: 'home', label: 'Home', href: '/scout', icon: Home },
   { id: 'matches', label: 'Matches', href: '/scout?tab=matches', icon: CalendarDays },
   { id: 'pit', label: 'Pit scouting', href: '/scout?mode=pit', icon: Wrench },
+  { id: 'picklist', label: 'Picklist', href: '/scout/picklist', icon: ListOrdered },
   { id: 'my-data', label: 'My data', href: '/my-data', icon: UserRound },
   { id: 'sync', label: 'Sync & transfer', href: '/sync', icon: RefreshCw },
 ];
