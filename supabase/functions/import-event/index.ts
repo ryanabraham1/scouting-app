@@ -27,6 +27,8 @@ interface TbaEvent {
   timezone: string | null;
   city: string | null;
   state_prov: string | null;
+  /** Offseason placeholder -> real key, e.g. { frc9971: "frc971B" }. */
+  remap_teams?: Record<string, string> | null;
 }
 interface TbaTeam {
   team_number: number;
@@ -124,12 +126,22 @@ Deno.serve(async (req) => {
 });
 
 /**
- * TBA's /event/{key}/teams lists only registered (plain) teams, but offseason
- * schedules also name lettered B/C robots (`frc254B`). Every match team must be
- * on the event roster (match -> event_team FK), so add each lettered robot as
- * its own team, named after its parent team.
+ * Offseason roster. Field software runs B/C robots under placeholder numbers
+ * (99xx, "Off-Season Demo Team"), which TBA lists in /event/{key}/teams while
+ * its matches use the real lettered keys (`frc971B`); `remap_teams` maps one to
+ * the other. Drop the placeholders and add each lettered robot (from the remap
+ * and from the schedule) as its own team, named after its parent team. Every
+ * match team must be on the roster (match -> event_team FK).
  */
-function withLetterTeams(teams: TbaTeam[], qmMatches: TbaMatch[]) {
+function withLetterTeams(
+  allTeams: TbaTeam[],
+  qmMatches: TbaMatch[],
+  remap: Record<string, string> | null | undefined,
+) {
+  const placeholders = new Set(
+    Object.keys(remap ?? {}).map((k) => parseTeamKey(k)).filter((n): n is number => n != null),
+  );
+  const teams = allTeams.filter((t) => !placeholders.has(t.team_number));
   const rows = teams.map((t) => ({
     team_number: t.team_number,
     nickname: t.nickname,
@@ -139,20 +151,22 @@ function withLetterTeams(teams: TbaTeam[], qmMatches: TbaMatch[]) {
   }));
   const byNumber = new Map(teams.map((t) => [t.team_number, t]));
   const seen = new Set(rows.map((r) => r.team_number));
-  for (const m of qmMatches) {
-    for (const key of [...(m.alliances?.red?.team_keys ?? []), ...(m.alliances?.blue?.team_keys ?? [])]) {
-      const n = parseTeamKey(key);
-      if (n == null || seen.has(n) || !isLetterTeam(n)) continue;
-      seen.add(n);
-      const parent = byNumber.get(baseTeamNumber(n));
-      rows.push({
-        team_number: n,
-        nickname: parent?.nickname ? `${parent.nickname} (${formatTeam(n)})` : `Team ${formatTeam(n)}`,
-        city: parent?.city ?? null,
-        state_prov: parent?.state_prov ?? null,
-        rookie_year: parent?.rookie_year ?? null,
-      });
-    }
+  const keys = [
+    ...Object.values(remap ?? {}),
+    ...qmMatches.flatMap((m) => [...(m.alliances?.red?.team_keys ?? []), ...(m.alliances?.blue?.team_keys ?? [])]),
+  ];
+  for (const key of keys) {
+    const n = parseTeamKey(key);
+    if (n == null || seen.has(n) || !isLetterTeam(n)) continue;
+    seen.add(n);
+    const parent = byNumber.get(baseTeamNumber(n));
+    rows.push({
+      team_number: n,
+      nickname: parent?.nickname ? `${parent.nickname} (${formatTeam(n)})` : `Team ${formatTeam(n)}`,
+      city: parent?.city ?? null,
+      state_prov: parent?.state_prov ?? null,
+      rookie_year: parent?.rookie_year ?? null,
+    });
   }
   return rows;
 }
@@ -203,7 +217,7 @@ async function runImport(eventKey: string): Promise<Response> {
       city: ev.city,
       state_prov: ev.state_prov,
     },
-    p_teams: withLetterTeams(teams, qmMatches),
+    p_teams: withLetterTeams(teams, qmMatches, ev.remap_teams),
     p_matches: qmMatches.map((m) => ({
       match_key: m.key,
       match_number: m.match_number,

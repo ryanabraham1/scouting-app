@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allianceGrid, setAllianceSeat } from '../allianceDraft';
+import { allianceGrid, firstOpenTurn, isSeated, setAllianceSeat } from '../allianceDraft';
 import { EMPTY_DRAFT_STATE } from '../draftBoard';
 
 // Ranks 1..10: team = 100 + rank (rank 1 = 101 ... rank 10 = 110).
@@ -38,5 +38,18 @@ describe('alliance draft captain promotion', () => {
     expect(plain.alliances?.map((r) => r[0])).toEqual([101, 102, 103, 104, 105, 106, 107, 108]);
     const noRanks = setAllianceSeat(EMPTY_DRAFT_STATE, grid, 0, 1, 102, BASE);
     expect(noRanks.alliances?.[1]?.[0]).toBeNull();
+  });
+});
+
+describe('draft turn helpers', () => {
+  it('finds the earliest open pick seat in snake order', () => {
+    const grid = allianceGrid(EMPTY_DRAFT_STATE, ranks, BASE);
+    expect(firstOpenTurn(grid)).toBe(0);
+    for (let i = 0; i < 8; i++) grid[i][1] = 200 + i;
+    expect(firstOpenTurn(grid)).toBe(8); // round 2 starts with alliance 8
+    grid[3][1] = null;
+    expect(firstOpenTurn(grid)).toBe(3);
+    expect(isSeated(grid, 205)).toBe(true);
+    expect(isSeated(grid, 203)).toBe(false);
   });
 });

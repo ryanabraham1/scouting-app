@@ -74,3 +74,22 @@ export function setAllianceSeat(
   for (const r of next) if (r !== ourRow) for (const n of r) if (n != null && n !== baseTeam) taken.add(n);
   return { ...state, alliances: next, ours, taken: [...taken], pickedBy: captain != null && captain !== baseTeam ? captain : null };
 }
+
+/** Pick slot `turn` fills: round 1 fills seat 1, round 2 (snake) fills seat 2. */
+export function turnSeat(turn: number): { row: number; seat: number } | null {
+  return turn >= 0 && turn < DRAFT_ORDER.length ? { row: DRAFT_ORDER[turn], seat: turn < 8 ? 1 : 2 } : null;
+}
+
+/** First pick slot in draft order whose seat is still empty (16 = selection complete). */
+export function firstOpenTurn(grid: AllianceGrid): number {
+  for (let t = 0; t < DRAFT_ORDER.length; t++) {
+    const slot = turnSeat(t)!;
+    if (grid[slot.row]?.[slot.seat] == null) return t;
+  }
+  return DRAFT_ORDER.length;
+}
+
+/** True when `team` sits in any alliance seat. */
+export function isSeated(grid: AllianceGrid, team: number): boolean {
+  return grid.some(row => row.includes(team));
+}

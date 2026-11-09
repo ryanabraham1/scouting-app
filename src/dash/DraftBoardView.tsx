@@ -34,7 +34,7 @@ import {
 } from '@/dash/useEventData';
 import { resolveRowEpa } from '@/dash/sorting';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
-import { allianceGrid, setAllianceSeat, DRAFT_ORDER } from './allianceDraft';
+import { allianceGrid, setAllianceSeat, DRAFT_ORDER, firstOpenTurn, isSeated } from './allianceDraft';
 import { predictMatch } from '@/dash/predict';
 import { useQuery } from '@tanstack/react-query';
 import { getPicklist, entryList, type PicklistEntry, type PicklistId } from '@/dash/picklistClient';
@@ -206,6 +206,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   const activeList = draftActiveList(state);
   const grid = allianceGrid(state, tbaRankByTeam, baseTeam);
   const ourAlliance = grid.findIndex(row => row.includes(baseTeam));
+  const captainSet = useMemo(() => new Set(grid.map(row => row[0]).filter((n): n is number => n != null)), [grid]);
   const turn = state.draftTurn ?? 0;
   const [history, setHistory] = useState<DraftState[]>([]);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -427,8 +428,23 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   // undoing it switches back); manual switching below always remains available.
   const toggle = (teamNumber: number, target: 'ours' | 'taken'): void => {
     if (statusOf(teamNumber, state) === target) {
+      // Captains count as "taken" for the pool, but un-taking one would delete
+      // the captain from its alliance. Captains change in the Alliances table.
+      if (captainSet.has(teamNumber)) {
+        setDraftError(`${formatTeam(teamNumber)} is an alliance captain. Change captains in the Alliances table.`);
+        return;
+      }
+      // Undoing the most recent pick restores the exact state before it, which
+      // also reverses any captain promotion and the "picking next" pointer.
+      const previous = history[history.length - 1];
+      if (previous && isSeated(grid, teamNumber) && !isSeated(allianceGrid(previous, tbaRankByTeam, baseTeam), teamNumber)) {
+        undoDraft();
+        return;
+      }
       const next = toggleStatus(teamNumber, target, state);
       next.alliances = grid.map(row => row.map(n => n === teamNumber ? null : n));
+      // Point "picking next" back at the earliest seat that is now open.
+      next.draftTurn = Math.min(turn, firstOpenTurn(next.alliances));
       updateDraft(next);
       return;
     }
@@ -1087,17 +1103,20 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       className="h-11 min-w-0 px-3 lg:h-8 lg:px-2.5"
                       data-testid={`draft-taken-${r.teamNumber}`}
                       // We can't be "taken" by another alliance — we're a captain.
-                      disabled={r.isUs}
+                      // Other captains are seated, not undoable picks.
+                      disabled={r.isUs || captainSet.has(r.teamNumber)}
                       onClick={() => toggle(r.teamNumber, 'taken')}
                       aria-pressed={r.status === 'taken'}
                       aria-label={
-                        r.status === 'taken'
+                        captainSet.has(r.teamNumber)
+                          ? `Team ${formatTeam(r.teamNumber)} is an alliance captain`
+                          : r.status === 'taken'
                           ? `Undo taken for team ${formatTeam(r.teamNumber)}`
                           : `Mark team ${formatTeam(r.teamNumber)} as taken`
                       }
                     >
-                      {r.status === 'taken' ? <RotateCcw /> : <X />}
-                      <span>{r.status === 'taken' ? 'Undo' : 'Taken'}</span>
+                      {captainSet.has(r.teamNumber) ? null : r.status === 'taken' ? <RotateCcw /> : <X />}
+                      <span>{captainSet.has(r.teamNumber) ? 'Captain' : r.status === 'taken' ? 'Undo' : 'Taken'}</span>
                     </Button>
                   </div>
                 </li>
