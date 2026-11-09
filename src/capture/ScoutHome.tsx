@@ -64,6 +64,7 @@ import { StationMenu } from '@/components/StationMenu';
 import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
 import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
 import { ScoutDeviceCard } from '@/scout/ScoutDeviceCard';
+import { formatTeam, parseTeamKey } from '@/lib/teamKey';
 
 interface AssignmentRow {
   scout_id?: string;
@@ -178,7 +179,7 @@ function draftTitle(d: CaptureDraft): string {
   const matchKey = target?.matchKey ?? d.draftKey.split(':')[0];
   const teamNum = target?.targetTeamNumber ?? Number(d.draftKey.split(':')[2]);
   const label = matchLabelFromKey(matchKey);
-  return Number.isFinite(teamNum) && teamNum ? `${label} · Team ${teamNum}` : label;
+  return Number.isFinite(teamNum) && teamNum ? `${label} · Team ${formatTeam(teamNum)}` : label;
 }
 
 function draftEventKey(d: CaptureDraft): string | null {
@@ -649,7 +650,7 @@ export default function ScoutHome() {
       setMatchKey(r.matchKey);
       setAlliance(r.allianceColor);
       setStation(r.station);
-      setTeam(String(r.targetTeamNumber));
+      setTeam(formatTeam(r.targetTeamNumber));
       setManualWarning('This report failed to sync — fix the match/team below, then Start to re-save.');
       // The manual-pick form lives on the Matches tab.
       setSearchParams(
@@ -835,7 +836,7 @@ export default function ScoutHome() {
   // filled but underivable (offline with no cache, unknown match, TBD lineup).
   const manualSlot = deriveSlotForTeam(
     knownMatches.get(normalizeManualMatchKey(matchKey, eventKey)),
-    Number(team),
+    parseTeamKey(team) ?? NaN,
   );
   const showSlotFields = !manualSlot && matchKey.trim() !== '' && team.trim() !== '';
 
@@ -843,13 +844,14 @@ export default function ScoutHome() {
     // Normalize the free-text match field into the canonical `<eventKey>_qm<n>`
     // key so the report never dead-letters on the match FK (BUG-1).
     const normalizedKey = normalizeManualMatchKey(matchKey, eventKey);
-    const targetTeam = Number(team);
+    // Accepts offseason lettered robots too ("254B").
+    const targetTeam = parseTeamKey(team) ?? NaN;
     if (!normalizedKey) {
       setManualWarning('Enter a match number (e.g. 10, qm10) — couldn’t read that.');
       return;
     }
     if (!Number.isSafeInteger(targetTeam) || targetTeam <= 0) {
-      setManualWarning('Enter a positive whole-number team number.');
+      setManualWarning('Enter a team number (e.g. 254 or 254B).');
       return;
     }
     // Validate against the loaded schedule/roster when we HAVE them. An empty cache
@@ -1004,11 +1006,12 @@ export default function ScoutHome() {
           <Label htmlFor="mp-team">Target team</Label>
           <Input
             id="mp-team"
-            type="number"
-            inputMode="numeric"
+            type="text"
+            autoCapitalize="characters"
+            autoComplete="off"
             value={team}
             onChange={(e) => setTeam(e.target.value)}
-            placeholder="e.g. 3256"
+            placeholder="e.g. 3256 or 254B"
             className="min-h-[44px] text-base"
           />
         </div>

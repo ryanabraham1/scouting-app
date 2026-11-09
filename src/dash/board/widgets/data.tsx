@@ -32,6 +32,7 @@ import { getCachedPicklist, getPicklist, type PicklistEntry } from '@/dash/pickl
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import { blueTeamsOf, redTeamsOf } from '@/dash/matchOrder';
 import { nextMatchForTeam } from '@/dash/nextMatch';
+import { parseTeamKey } from '@/lib/teamKey';
 
 export type MetricKey =
   | 'bsr'
@@ -181,9 +182,9 @@ function parseStandings(raw: unknown): Map<number, TeamStanding> {
     record?: { wins?: number; losses?: number; ties?: number };
   }[]) {
     if (!r || typeof r.team_key !== 'string' || typeof r.rank !== 'number') continue;
-    const m = /^frc(\d+)$/.exec(r.team_key);
-    if (!m) continue;
-    out.set(Number(m[1]), {
+    const team = parseTeamKey(r.team_key);
+    if (team == null) continue;
+    out.set(team, {
       rank: r.rank,
       wins: r.record?.wins ?? 0,
       losses: r.record?.losses ?? 0,

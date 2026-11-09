@@ -7,6 +7,7 @@
 // this screen carries no reports/EPA queries at all — it purely auto-tracks.
 // Pure/injectable: the active event is passed via props.
 
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -380,7 +381,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       if (set != null) bySet.set(set, m);
     }
     const oppTeams = resolveFeedTeams(projected.opponent, bySet);
-    const opp = oppTeams?.length ? oppTeams.join(' ') : feedLabel(projected.opponent);
+    const opp = oppTeams?.length ? oppTeams.map(formatTeam).join(' ') : feedLabel(projected.opponent);
     const round = projected.isFinal ? 'Finals' : projected.slot?.round ?? 'Playoffs';
     heroStatus = `Projected · ${round} · vs ${opp}${heroTime ? ` · ${heroTime}` : ''}`;
   } else if (heroOnField) {

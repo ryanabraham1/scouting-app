@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -555,7 +556,7 @@ export function PitAssignmentBoard({
                             {displayName}
                             <button
                               type="button"
-                              aria-label={`Remove ${displayName} from team ${team.teamNumber}`}
+                              aria-label={`Remove ${displayName} from team ${formatTeam(team.teamNumber)}`}
                               disabled={busy || !editorReady}
                               onClick={() => removeMember(team.teamNumber, scoutId)}
                               className="grid size-6 place-items-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -570,7 +571,7 @@ export function PitAssignmentBoard({
                       ) : null}
                     </div>
                     <select
-                      aria-label={`Add pit scout to team ${team.teamNumber}`}
+                      aria-label={`Add pit scout to team ${formatTeam(team.teamNumber)}`}
                       data-testid={`pit-add-member-${team.teamNumber}`}
                       value=""
                       disabled={busy || !editorReady || members.length >= pool.length}

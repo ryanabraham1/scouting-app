@@ -189,7 +189,8 @@ describe('upcomingMatchToRow', () => {
 describe('helpers', () => {
   it('teamNum parses frc keys and rejects junk', () => {
     expect(teamNum('frc3256')).toBe(3256);
-    expect(teamNum('frc254B')).toBe(254);
+    // Offseason B robot keeps its own identity (encoded), not folded into 254.
+    expect(teamNum('frc254B')).toBe(100254);
     expect(teamNum('frc0')).toBeNull();
     expect(teamNum(undefined)).toBeNull();
     expect(teamNum({})).toBeNull();

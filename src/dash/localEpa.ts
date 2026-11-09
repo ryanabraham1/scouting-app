@@ -34,6 +34,7 @@
 
 import type { MatchRow } from '@/dash/useEventData';
 import { EPA_GAIN } from '@/dash/constants';
+import { parseTeamKey } from '@/lib/teamKey';
 
 /**
  * TBA-backed rows retain the official score for display/result consumers while
@@ -93,11 +94,9 @@ function noFoulScore(
   return officialScore - foulPoints - adjustPoints;
 }
 
-/** "frc254" → 254; anything malformed → null. */
+/** "frc254" → 254, offseason "frc254B" → its encoded int; malformed → null. */
 function teamKeyToNum(key: unknown): number | null {
-  if (typeof key !== 'string') return null;
-  const n = Number(key.replace(/^frc/i, ''));
-  return Number.isFinite(n) ? n : null;
+  return typeof key === 'string' ? parseTeamKey(key) : null;
 }
 
 /** Chronological sort key for a TBA match: when it was (or will be) played. */

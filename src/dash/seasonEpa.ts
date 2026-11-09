@@ -23,6 +23,7 @@ import { tbaGet } from '@/dash/proxies';
 import { tbaMatchesToRows } from '@/dash/localEpa';
 import { queryClient } from '@/lib/queryPersist';
 import type { MatchRow } from '@/dash/useEventData';
+import { teamKeyOf } from '@/lib/teamKey';
 
 // EPA / cross-event data changes slowly (only when new matches finish), and the
 // season fan-out multiplies TBA calls, so it gets a longer stale window than the
@@ -155,7 +156,7 @@ export async function fetchTeamEventKeysCached(
       staleTime: EPA_STALE_TIME,
       retry: false,
       queryFn: async (): Promise<string[]> => {
-        const data = await tbaGet<unknown>(`/team/frc${team}/events/${year}`);
+        const data = await tbaGet<unknown>(`/team/${teamKeyOf(team)}/events/${year}`);
         if (!Array.isArray(data)) throw new Error('TBA team events unavailable');
         const keys: string[] = [];
         for (const event of data) {
@@ -188,7 +189,7 @@ export async function fetchTeamSeasonMatchesCached(
       staleTime: EPA_STALE_TIME,
       retry: false,
       queryFn: async (): Promise<unknown[]> => {
-        const data = await tbaGet<unknown>(`/team/frc${team}/matches/${year}`);
+        const data = await tbaGet<unknown>(`/team/${teamKeyOf(team)}/matches/${year}`);
         if (!Array.isArray(data)) throw new Error('TBA season matches unavailable');
         return data.map(compactTbaMatch);
       },

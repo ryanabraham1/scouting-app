@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -493,7 +494,7 @@ export function UpcomingMatches({
                 {next.assignment.alliance_color} {next.assignment.station}
               </span>
               <span className="text-muted-foreground">·</span>
-              <span className="font-mono tabular-nums">Team {next.assignment.target_team_number}</span>
+              <span className="font-mono tabular-nums">Team {formatTeam(next.assignment.target_team_number)}</span>
             </p>
             {/* Desktop hero: match, station (alliance-colored) and team as big
                 tabular figures, the way the field display reads them. */}
@@ -512,7 +513,7 @@ export function UpcomingMatches({
               >
                 {stationCode(next.assignment)}
               </HeroFigure>
-              <HeroFigure label="Team">{next.assignment.target_team_number}</HeroFigure>
+              <HeroFigure label="Team">{formatTeam(next.assignment.target_team_number)}</HeroFigure>
               {nicknames.get(next.assignment.target_team_number) ? (
                 <span className="pb-1 text-[15px] text-muted-foreground">
                   {nicknames.get(next.assignment.target_team_number)}
@@ -585,7 +586,7 @@ export function UpcomingMatches({
                         <span className="capitalize">
                           {a.alliance_color} {a.station}
                         </span>{' '}
-                        · <span className="font-mono tabular-nums">Team {a.target_team_number}</span>
+                        · <span className="font-mono tabular-nums">Team {formatTeam(a.target_team_number)}</span>
                       </span>
                       <span className="block text-xs text-muted-foreground">
                         {timingShort(match ? matchTimeDisplay(match, { now }) : null)}
@@ -687,7 +688,7 @@ export function UpcomingMatches({
                             </span>
                           </td>
                           <td className="px-3 py-3.5">
-                            <span className="font-mono tabular-nums">{a.target_team_number}</span>{' '}
+                            <span className="font-mono tabular-nums">{formatTeam(a.target_team_number)}</span>{' '}
                             <span className="text-muted-foreground">
                               {nicknames.get(a.target_team_number) ?? ''}
                             </span>
@@ -857,7 +858,7 @@ export function UpcomingMatches({
                         a.alliance_color === 'red' ? 'text-red-200' : 'text-blue-200',
                       )}
                     >
-                      #{a.target_team_number}
+                      #{formatTeam(a.target_team_number)}
                     </span>
                     <span className="text-[10px] font-semibold uppercase tracking-wide opacity-90">
                       {isDone ? 'scouted' : `${a.alliance_color} ${a.station}`}

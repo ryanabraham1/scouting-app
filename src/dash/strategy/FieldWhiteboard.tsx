@@ -22,6 +22,7 @@
 // points stay NORMALIZED [0,1] (auto_path convention) so remote docs, eraser
 // hit-tests and auto-routine underlays all share one coordinate system.
 
+import { formatTeam } from '@/lib/teamKey';
 import {
   useCallback,
   useEffect,
@@ -1022,7 +1023,7 @@ export default function FieldWhiteboard({
                   fill="#0b0f1a"
                   style={{ userSelect: 'none' }}
                 >
-                  {seed.team}
+                  {formatTeam(seed.team)}
                 </text>
               </g>
             );

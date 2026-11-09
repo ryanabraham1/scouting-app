@@ -4,6 +4,7 @@
 // report on that match across stations / teams / scouters. Tap a report row to
 // open the FULL per-report detail in a Sheet. Field-Control Console styling.
 
+import { formatTeam } from '@/lib/teamKey';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -791,7 +792,7 @@ export default function MatchView(props: MatchViewProps): JSX.Element {
     return sorted.filter((m) => {
       if (formatMatchKeyRaw(m.match_key).toLowerCase().includes(q)) return true;
       const teams = [m.red1, m.red2, m.red3, m.blue1, m.blue2, m.blue3];
-      return teams.some((t) => t != null && String(t).includes(q));
+      return teams.some((t) => t != null && formatTeam(t).toLowerCase().includes(q));
     });
   }, [matches, search]);
 

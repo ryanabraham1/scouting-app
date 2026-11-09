@@ -22,6 +22,7 @@
 // Everything renders from the persisted query cache, and the field image is
 // precached by the service worker — the whole tab works with zero wifi.
 
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, Maximize2, Minimize2, Send, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -300,7 +301,7 @@ function MatchupNoteCard({
                     tabIndex={0}
                     data-testid="matchup-notes-btn"
                     data-team={target.team}
-                    aria-label={`Edit strategy note for team ${target.team}`}
+                    aria-label={`Edit strategy note for team ${formatTeam(target.team)}`}
                     onClick={() => setEditing(target)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -323,7 +324,7 @@ function MatchupNoteCard({
                     {hasNote ? (
                       <span
                         data-testid="matchup-note-badge"
-                        aria-label={`strategy note exists for team ${target.team}`}
+                        aria-label={`strategy note exists for team ${formatTeam(target.team)}`}
                         className="inline-block size-2 shrink-0 rounded-full bg-energy"
                       />
                     ) : null}
@@ -872,7 +873,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
                   Match to strategize
                 </label>
                 <span className="truncate text-[11px] tabular-nums text-muted-foreground">
-                  {baseTeam} schedule · {ourMatches.length}{' '}
+                  {formatTeam(baseTeam)} schedule · {ourMatches.length}{' '}
                   {ourMatches.length === 1 ? 'match' : 'matches'}
                 </span>
               </div>
@@ -1072,7 +1073,7 @@ export default function StrategyView({ eventKey }: StrategyViewProps): JSX.Eleme
                       <span
                         key={t.team}
                         role="group"
-                        aria-label={`Auto option for team ${t.team}`}
+                        aria-label={`Auto option for team ${formatTeam(t.team)}`}
                         className="inline-flex flex-wrap items-center gap-1"
                       >
                         <span

@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useRef, useState } from 'react';
 import { Shield, ShieldAlert, Undo2, Flag, Play, FastForward, Timer, MoveUpRight, MapPin, Route, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -271,7 +272,7 @@ export function CaptureScreen(props: {
             <span
               data-testid="capture-target"
               role="group"
-              aria-label={`Scouting Team ${s.targetTeamNumber}, ${
+              aria-label={`Scouting Team ${formatTeam(s.targetTeamNumber)}, ${
                 s.allianceColor === 'red' ? 'Red' : 'Blue'
               } alliance station ${s.station}. Tap the field where it starts.`}
               className="flex min-w-0 flex-1 items-center justify-end gap-1.5"
@@ -280,7 +281,7 @@ export function CaptureScreen(props: {
                 <strong className="max-w-full truncate text-base font-extrabold leading-tight text-foreground">
                   Team{' '}
                   <span className="font-mono text-xl font-black tracking-tight">
-                    {s.targetTeamNumber}
+                    {formatTeam(s.targetTeamNumber)}
                   </span>
                 </strong>
                 <span className="max-w-full truncate text-[11px] leading-tight text-muted-foreground">
@@ -457,7 +458,7 @@ export function CaptureScreen(props: {
   return (
     <div className="flex h-[100dvh] flex-col gap-2 overflow-hidden bg-background px-safe-tight pt-safe-tight pb-safe-tight text-foreground">
       <div className="flex shrink-0 items-center justify-between gap-2 text-sm">
-        <strong>Team {s.targetTeamNumber}</strong>
+        <strong>Team {formatTeam(s.targetTeamNumber)}</strong>
         <span className={s.allianceColor === 'red' ? 'text-red-300' : 'text-blue-300'}>{s.allianceColor === 'red' ? 'Red' : 'Blue'} · Station {s.station}</span>
       </div>
       {/* Keep navigation/correction in the top chrome so the bottom remains a

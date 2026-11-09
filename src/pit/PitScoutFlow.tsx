@@ -2,6 +2,7 @@
 // shared by the /scout?mode=pit toggle (ScoutHome) and the legacy PitRoute.
 // It takes an already-resolved scout identity + active event, so the user never
 // re-picks their name when switching into pit mode.
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useId, useState } from 'react';
 import {
   ClipboardCheck,
@@ -464,11 +465,11 @@ export default function PitScoutFlow({
               }`}
             >
               <span className="font-mono text-lg font-semibold text-brand md:w-12 md:shrink-0 md:text-base md:font-medium md:text-foreground">
-                {teamNumber}
+                {formatTeam(teamNumber)}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-muted-foreground">
-                  {option?.nickname ?? `Team ${teamNumber}`}
+                  {option?.nickname ?? `Team ${formatTeam(teamNumber)}`}
                 </span>
                 {assignment.crewSize > 1 ? (
                   <span className="block truncate text-xs text-brand">
@@ -566,7 +567,7 @@ export default function PitScoutFlow({
               >
                 <div className="min-w-0 flex-1 text-sm">
                   <p className="font-medium">
-                    {record.teamNumber ? `Team ${record.teamNumber}` : record.originalKey}
+                    {record.teamNumber ? `Team ${formatTeam(record.teamNumber)}` : record.originalKey}
                   </p>
                   <p className="text-xs text-destructive [overflow-wrap:anywhere]">
                     {record.reason}
@@ -616,7 +617,7 @@ export default function PitScoutFlow({
                   className="flex min-h-12 items-center justify-between rounded-xl border border-border bg-card px-3 text-left hover:border-warning/50 hover:bg-accent"
                 >
                   <span className="font-mono text-lg font-semibold text-warning">
-                    Team {draft.teamNumber}
+                    Team {formatTeam(draft.teamNumber)}
                   </span>
                   <span className="text-xs font-medium text-warning">Continue</span>
                 </button>
@@ -723,7 +724,7 @@ export default function PitScoutFlow({
                       }`}
                     >
                         <span className="w-14 shrink-0 font-mono text-base font-semibold tabular-nums text-brand">
-                          {t.team_number}
+                          {formatTeam(t.team_number)}
                         </span>
                         <span className="truncate text-sm text-muted-foreground">
                           {t.nickname ?? ''}
@@ -739,7 +740,7 @@ export default function PitScoutFlow({
             >
               {matched ? (
                 <span className="text-brand">
-                  {matched.nickname ?? `Team ${matched.team_number}`}
+                  {matched.nickname ?? `Team ${formatTeam(matched.team_number)}`}
                 </span>
               ) : valid && teamOptions.length > 0 ? (
                 'Not on this event’s roster — double-check the number.'
@@ -790,7 +791,7 @@ export default function PitScoutFlow({
         onClick={backToPicker}
       >
         <Hash className="size-5" />
-        Change team (Team {team})
+        Change team (Team {formatTeam(team)})
       </Button>
       {storageProtected ? (
         <p role="alert" className="text-sm text-destructive">

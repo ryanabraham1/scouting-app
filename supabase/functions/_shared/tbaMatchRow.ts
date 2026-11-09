@@ -5,8 +5,11 @@
 // one path could NULL a roster the other never would). Keeping one copy means a
 // webhook-landed row and a reconcile-landed row are always byte-identical.
 //
-// No imports on purpose: Deno loads this with a `.ts` specifier and the Vitest
-// contract test (tests/functions/tbaMatchRow.test.ts) loads it from Node.
+// Only pure, import-free siblings are imported: Deno loads this with a `.ts`
+// specifier and the Vitest contract test (tests/functions/tbaMatchRow.test.ts)
+// loads it from Node.
+
+import { parseTeamKey } from "./teamKey.ts";
 
 export const ALLOWED_LEVELS = new Set(["qm", "ef", "qf", "sf", "f"]);
 
@@ -33,11 +36,12 @@ export type MatchRow = Record<string, unknown>;
 
 export const TEAM_COLUMNS = ["red1", "red2", "red3", "blue1", "blue2", "blue3"] as const;
 
-/** `frcNNNN` -> NNNN; anything unparseable (or a non-positive number) -> null. */
+/**
+ * `frcNNNN` -> NNNN; an offseason lettered robot `frcNNNNB` -> its encoded int
+ * (see teamKey.ts); anything unparseable (or a non-positive number) -> null.
+ */
 export function teamNum(teamKey: unknown): number | null {
-  if (typeof teamKey !== "string" && typeof teamKey !== "number") return null;
-  const n = parseInt(String(teamKey).replace(/^frc/i, ""), 10);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return parseTeamKey(teamKey);
 }
 
 /** TBA epoch seconds -> ISO string; missing / zero / garbage -> null. */

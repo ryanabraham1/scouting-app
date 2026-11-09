@@ -2,6 +2,7 @@
 // Reads this device's local reports, matching by normalized scouter name so a
 // reconciled scout-row id does not hide that scouter's earlier captures, after
 // pulling the scouter's reports saved from other devices into the local store.
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Pencil } from "lucide-react";
@@ -207,7 +208,7 @@ export default function MyDataView(): JSX.Element {
                 <span className="text-base font-medium text-brand">
                   Team{" "}
                   <span className="font-mono font-semibold tabular-nums">
-                    #{r.targetTeamNumber}
+                    #{formatTeam(r.targetTeamNumber)}
                   </span>
                 </span>
               </div>

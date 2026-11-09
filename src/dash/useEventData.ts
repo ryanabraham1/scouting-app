@@ -55,6 +55,7 @@ import {
   RESULTS_RECONCILE_MS,
   EPA_RECENCY_BOOST,
 } from '@/dash/constants';
+import { baseTeamNumber, parseTeamKey, teamKeyOf } from '@/lib/teamKey';
 
 const STALE_TIME = 60_000;
 
@@ -539,7 +540,7 @@ export function useTbaEventAlliances(eventKey: string | null): UseQueryResult<nu
         return d.map((a) => {
           const picks = (a as { picks?: unknown })?.picks;
           return Array.isArray(picks)
-            ? picks.map((k) => Number(String(k).replace(/^frc/i, ''))).filter((n) => Number.isFinite(n) && n > 0)
+            ? picks.map(parseTeamKey).filter((n): n is number => n != null)
             : [];
         });
       } catch {
@@ -579,7 +580,10 @@ export function useTbaTeam(team: number | null): UseQueryResult<TbaTeamInfo | nu
     staleTime: STALE_TIME,
     queryFn: async (): Promise<TbaTeamInfo | null> => {
       try {
-        const d = await tbaGet<Record<string, unknown>>(`/team/frc${team}`);
+        const d = await tbaGet<Record<string, unknown>>(
+          // A lettered offseason robot (254B) has no TBA page: show its parent team.
+          `/team/frc${baseTeamNumber(team as number)}`,
+        );
         if (typeof d !== 'object' || d === null) return null;
         return {
           nickname: asString(d.nickname),
@@ -623,7 +627,7 @@ export function useTbaTeamEventStatus(
     queryFn: async (): Promise<TbaTeamEventStatus | null> => {
       try {
         const d = await tbaGet<Record<string, unknown>>(
-          `/team/frc${team}/event/${eventKey}/status`,
+          `/team/${teamKeyOf(team as number)}/event/${eventKey}/status`,
         );
         // TBA returns a bare `null` body when the team has no status at the event.
         if (typeof d !== 'object' || d === null) return null;

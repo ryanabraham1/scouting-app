@@ -1,6 +1,7 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { Link, useInRouterContext } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { formatTeam } from '@/lib/teamKey';
 
 /** Canonical URL of a team's page on the Analysis → Team tab. */
 export function teamPageHref(team: number): string {
@@ -40,7 +41,7 @@ export function TeamLink(props: TeamLinkProps): JSX.Element {
   // embeds a link ("Strategy note for team 254") still reads naturally.
   const shared = {
     'data-testid': props['data-testid'],
-    title: title ?? `Open team ${team} in Analysis`,
+    title: title ?? `Open team ${formatTeam(team)} in Analysis`,
     className: cn(
       'rounded tabular-nums text-brand underline-offset-2 hover:text-brand/80 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
       className,
@@ -50,7 +51,8 @@ export function TeamLink(props: TeamLinkProps): JSX.Element {
       onClick?.(event);
     },
   };
-  const content = children ?? team;
+  // formatTeam: an offseason lettered robot shows as "254B", not its encoded int.
+  const content = children ?? formatTeam(team);
   return inRouter ? (
     <Link to={href} {...shared}>
       {content}

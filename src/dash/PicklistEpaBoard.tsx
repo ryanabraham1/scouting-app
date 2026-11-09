@@ -10,6 +10,7 @@
 // width = epa / maxEpa across the field, tinted by rank tier. Respects reduced
 // motion (no animation). Dark theme, shadcn Card primitives, tabular-nums.
 
+import { formatTeam } from '@/lib/teamKey';
 import { useMemo, useState } from 'react';
 import { Plus, Check, Ban } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -162,8 +163,8 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                   aria-pressed={isDnp}
                   aria-label={
                     isDnp
-                      ? `Allow picking team ${r.teamNumber}`
-                      : `Mark team ${r.teamNumber} do not pick`
+                      ? `Allow picking team ${formatTeam(r.teamNumber)}`
+                      : `Mark team ${formatTeam(r.teamNumber)} do not pick`
                   }
                   title={isDnp ? 'Do not pick — tap to clear' : 'Mark do not pick'}
                   onClick={() => onToggleDnp(r.teamNumber)}
@@ -234,7 +235,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                     {added ? (
                       <span
                         data-testid={`epa-board-added-${r.teamNumber}`}
-                        aria-label={`Team ${r.teamNumber} already in picklist`}
+                        aria-label={`Team ${formatTeam(r.teamNumber)} already in picklist`}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md text-success"
                       >
                         <Check className="h-4 w-4" aria-hidden="true" />
@@ -249,7 +250,7 @@ export default function PicklistEpaBoard(props: PicklistEpaBoardProps): JSX.Elem
                           data-testid={`epa-board-add-${r.teamNumber}`}
                           onClick={() => onAdd(r.teamNumber)}
                           disabled={readOnly}
-                          aria-label={`Add team ${r.teamNumber} to picklist`}
+                          aria-label={`Add team ${formatTeam(r.teamNumber)} to picklist`}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         >
                           <Plus className="h-4 w-4" aria-hidden="true" />

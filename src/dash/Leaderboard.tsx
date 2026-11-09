@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { TeamLink } from '@/components/ui/TeamLink';
+import { parseTeamKey } from '@/lib/teamKey';
 
 const EM_DASH = '—';
 
@@ -60,9 +61,8 @@ export function parseTbaRankings(data: unknown): RankRow[] {
 
     if (typeof r.rank !== 'number' || !Number.isFinite(r.rank)) continue;
     if (typeof r.team_key !== 'string') continue;
-    const m = /^frc(\d+)$/.exec(r.team_key);
-    if (!m) continue;
-    const teamNumber = Number(m[1]);
+    const teamNumber = parseTeamKey(r.team_key);
+    if (teamNumber == null) continue;
 
     const sortOrders = Array.isArray(r.sort_orders) ? r.sort_orders : [];
     const rp = num(sortOrders[0], 0);

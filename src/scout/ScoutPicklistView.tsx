@@ -2,6 +2,7 @@
 // scouts in the stands. Shows the 1st-pick and 2nd-pick lists in order plus the
 // do-not-pick list. Editing stays on the Lead Dashboard; this screen never
 // writes. Offline it falls back to the last snapshot this device saw.
+import { formatTeam } from '@/lib/teamKey';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ban, RefreshCw } from 'lucide-react';
 import { useActiveEvent } from '@/dash/useActiveEvent';
@@ -112,7 +113,7 @@ function PickList({
                       dnp ? 'text-destructive' : 'text-brand',
                     )}
                   >
-                    {e.teamNumber}
+                    {formatTeam(e.teamNumber)}
                   </span>
                   {names.get(e.teamNumber) && (
                     <span className="truncate text-sm">{names.get(e.teamNumber)}</span>

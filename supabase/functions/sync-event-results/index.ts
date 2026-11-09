@@ -21,6 +21,7 @@ import {
   type TbaMatch,
 } from "../_shared/tbaMatchRow.ts";
 import { ensureEventTeams } from "../_shared/ensureEventTeams.ts";
+import { baseTeamNumber, formatTeam, isLetterTeam } from "../_shared/teamKey.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -36,6 +37,12 @@ const MAX_TBA_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /** Best-effort nickname for a team added mid-event (null on any failure). */
 async function tbaNickname(teamNumber: number): Promise<string | null> {
+  // A lettered offseason robot (254B) has no TBA team page: name it after its
+  // parent team.
+  if (isLetterTeam(teamNumber)) {
+    const parent = await tbaNickname(baseTeamNumber(teamNumber));
+    return parent ? `${parent} (${formatTeam(teamNumber)})` : `Team ${formatTeam(teamNumber)}`;
+  }
   const res = await fetch(`${TBA_BASE}/team/frc${teamNumber}/simple`, {
     headers: { "X-TBA-Auth-Key": TBA_API_KEY, Accept: "application/json" },
     signal: AbortSignal.timeout(TBA_TIMEOUT_MS),

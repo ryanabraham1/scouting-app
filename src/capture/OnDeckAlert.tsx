@@ -8,6 +8,7 @@
 // permission is ALREADY granted. We never call requestPermission() here, so the
 // scout is never nagged; they opt in elsewhere (or via the browser) if they want it.
 
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect } from 'react';
 import { Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -68,7 +69,7 @@ function useOnDeckNotification(assignment: OnDeckMatch) {
     if (!claimNotification(key)) return;
     const title = "You're on deck — scout now";
     const options: NotificationOptions = {
-      body: `${matchLabelFromKey(a.match_key)} · team #${a.target_team_number} · ${a.alliance_color} ${a.station}`,
+      body: `${matchLabelFromKey(a.match_key)} · team #${formatTeam(a.target_team_number)} · ${a.alliance_color} ${a.station}`,
       tag: 'frc-scout-on-deck',
     };
     void (async () => {
@@ -141,7 +142,7 @@ export function OnDeckAlert<A extends OnDeckMatch>({ result, timing, onStart }: 
         <div className="mt-0.5 truncate text-sm">
           <span className="font-semibold">{matchLabelFromKey(a.match_key)}</span>
           {' — scout '}
-          <span className="font-mono font-bold">#{a.target_team_number}</span>
+          <span className="font-mono font-bold">#{formatTeam(a.target_team_number)}</span>
           {' at '}
           <span className="font-semibold">
             {a.alliance_color} {a.station}

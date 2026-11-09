@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import {
   CartesianGrid,
   Line,
@@ -161,7 +162,7 @@ export default function TeamEpaHistoryChart({
             </ResponsiveContainer>
           </div>
         )}
-        <ol className="sr-only" aria-label={`Team ${teamNumber} BSR progression by match`}>
+        <ol className="sr-only" aria-label={`Team ${formatTeam(teamNumber)} BSR progression by match`}>
           {data.map((point) => (
             <li key={point.matchKey}>
               {point.eventKey}, {point.matchLabel}: {point.value.toFixed(1)} BSR

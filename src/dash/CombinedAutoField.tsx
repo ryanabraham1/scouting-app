@@ -11,6 +11,7 @@
 // staff can flip any team to a different routine they've been scouted running.
 // Read-only, 100% client-side.
 
+import { formatTeam } from '@/lib/teamKey';
 import { useMemo, useState } from 'react';
 import { FieldDiagram, type RoutineOverlay } from '@/components/FieldDiagram';
 import { hasAutoData } from '@/dash/AutoRoutines';
@@ -223,7 +224,7 @@ export default function CombinedAutoField(props: CombinedAutoFieldProps): JSX.El
             {t.groups.length > 1 ? (
               <span
                 role="group"
-                aria-label={`Auto option for team ${t.team}`}
+                aria-label={`Auto option for team ${formatTeam(t.team)}`}
                 className="flex flex-wrap items-center gap-1"
               >
                 {t.groups.map((g, i) => (

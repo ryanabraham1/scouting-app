@@ -9,6 +9,7 @@
 // drag-and-drop (grip handle) or the ↑/↓ buttons. JSON/CSV export via
 // exportDash. Dark theme, shadcn primitives, 44px min touch targets.
 
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, GripVertical, Printer } from 'lucide-react';
 import {
@@ -173,7 +174,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           {...listeners}
           disabled={!editable}
           data-testid={`pick-drag-${e.teamNumber}`}
-          aria-label={`Drag team ${e.teamNumber} to reorder`}
+          aria-label={`Drag team ${formatTeam(e.teamNumber)} to reorder`}
           className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <GripVertical className="size-4" />
@@ -222,7 +223,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         </span>
       ) : null}
 
-      <details className="lead-pick-row-menu"><summary aria-label={`Actions for team ${e.teamNumber}`}>•••</summary>
+      <details className="lead-pick-row-menu"><summary aria-label={`Actions for team ${formatTeam(e.teamNumber)}`}>•••</summary>
       {/* Move / remove controls: a contained group so on mobile they sit together
           on their own grid row instead of wrapping the destructive ✕ off alone. */}
       <div className="col-start-3 row-span-2 flex shrink-0 items-center gap-1 sm:row-span-1 sm:contents">
@@ -234,7 +235,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
             data-testid={`pick-up-${e.teamNumber}`}
             onClick={() => onMove(i, -1)}
             disabled={!editable || i === 0}
-            aria-label={`Move team ${e.teamNumber} up`}
+            aria-label={`Move team ${formatTeam(e.teamNumber)} up`}
             className="h-11 w-11"
           >
             ↑
@@ -246,7 +247,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
             data-testid={`pick-down-${e.teamNumber}`}
             onClick={() => onMove(i, 1)}
             disabled={!editable || i === total - 1}
-            aria-label={`Move team ${e.teamNumber} down`}
+            aria-label={`Move team ${formatTeam(e.teamNumber)} down`}
             className="h-11 w-11"
           >
             ↓
@@ -259,7 +260,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           data-testid={`pick-remove-${e.teamNumber}`}
           onClick={() => onRemove(e.teamNumber)}
           disabled={!editable}
-          aria-label={`Remove team ${e.teamNumber}`}
+          aria-label={`Remove team ${formatTeam(e.teamNumber)}`}
           className="h-11 w-11 shrink-0 sm:order-last"
         >
           ✕
@@ -283,7 +284,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
           data-testid={`pick-move-list-${e.teamNumber}`}
           onClick={() => onSendToOtherList(e.teamNumber)}
           disabled={!editable}
-          aria-label={`Move team ${e.teamNumber} to the ${moveTarget} pick list`}
+          aria-label={`Move team ${formatTeam(e.teamNumber)} to the ${moveTarget} pick list`}
           title={
             alsoOnOtherList
               ? `Already on the ${moveTarget} pick list — removes it from this one`
@@ -307,7 +308,7 @@ function SortablePickRow(props: PickRowProps): JSX.Element {
         onChange={(ev) => onUpdateField(e.teamNumber, 'note', ev.target.value)}
         disabled={!editable}
         placeholder="Note"
-        aria-label={`Note for team ${e.teamNumber}`}
+        aria-label={`Note for team ${formatTeam(e.teamNumber)}`}
         className="col-span-2 h-11 w-full min-w-0 sm:flex-1"
       />
 
@@ -445,7 +446,7 @@ export default function PicklistView(props: PicklistViewProps): JSX.Element {
   const addPreviewName = useMemo(() => {
     const result = validateAddTeam(addValue, activeListTeams, eventTeamSet);
     if (!result.ok) return null;
-    return nameByTeam.get(result.teamNumber) ?? `Team ${result.teamNumber}`;
+    return nameByTeam.get(result.teamNumber) ?? `Team ${formatTeam(result.teamNumber)}`;
   }, [addValue, activeListTeams, eventTeamSet, nameByTeam]);
 
   // Load the picklist on mount / event change.

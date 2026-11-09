@@ -4,6 +4,7 @@
 // from the shared pieces in ui.tsx so they match the rest of the board:
 // mono section labels, hairline key/value rows, tags, and compact icon links
 // (click pins the related card next to this one, drag places it).
+import { formatTeam } from '@/lib/teamKey';
 import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
 import {
   CalendarRange,
@@ -160,7 +161,7 @@ export function ReportsBody({ config }: { config: WidgetConfig }): JSX.Element {
           <li key={r.key} className="rounded-lg bg-white/[0.03] px-2.5 py-2">
             <div className="flex min-w-0 items-center gap-2">
               <MatchChip match={matchKey} team={team} />
-              <span className="tnum font-semibold">{team}</span>
+              <span className="tnum font-semibold">{formatTeam(team)}</span>
               <span className="min-w-0 truncate text-[11px] text-muted-foreground">{scout ?? ''}</span>
               <span className="tnum ml-auto text-base font-semibold">{row.fuel_points == null ? '—' : String(row.fuel_points)}</span>
               <span className="text-[11px] text-muted-foreground">pts</span>
@@ -256,7 +257,7 @@ export function PhotoBody({ config }: { config: WidgetConfig }): JSX.Element {
   const nav = 'inline-flex size-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur hover:bg-black/80';
   return (
     <div className="relative h-full bg-black/30">
-      <img src={urls[current]} alt={`Team ${team} robot`} className="h-full w-full object-contain" loading="lazy" draggable={false} />
+      <img src={urls[current]} alt={`Team ${formatTeam(team)} robot`} className="h-full w-full object-contain" loading="lazy" draggable={false} />
       <div className="absolute inset-x-0 bottom-2 flex items-center justify-center gap-2">
         {urls.length > 1 && (
           <button type="button" aria-label="Previous robot photo" className={nav} onClick={() => setIndex((v) => v + urls.length - 1)}>

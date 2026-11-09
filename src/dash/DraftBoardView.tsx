@@ -50,6 +50,7 @@ import {
   type DraftState,
   type DraftRow,
 } from '@/dash/draftBoard';
+import { formatTeam, parseTeamKey } from '@/lib/teamKey';
 
 /** Parse TBA `/event/{key}/rankings` into teamNumber → rank (mirrors RankingView). */
 function buildTbaRankMap(data: unknown): Map<number, number> {
@@ -59,8 +60,8 @@ function buildTbaRankMap(data: unknown): Map<number, number> {
   if (!Array.isArray(rankings)) return map;
   for (const r of rankings) {
     if (!r || typeof r.team_key !== 'string' || typeof r.rank !== 'number') continue;
-    const m = /^frc(\d+)$/.exec(r.team_key);
-    if (m) map.set(Number(m[1]), r.rank);
+    const team = parseTeamKey(r.team_key);
+    if (team != null) map.set(team, r.rank);
   }
   return map;
 }
@@ -711,7 +712,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
               <option value="">— we&apos;re the captain —</option>
               {pickedByCandidates.map((r) => (
                 <option key={r.teamNumber} value={r.teamNumber}>
-                  {r.teamNumber}
+                  {formatTeam(r.teamNumber)}
                   {r.nickname ? ` — ${r.nickname}` : ''}
                 </option>
               ))}
@@ -1073,8 +1074,8 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       aria-pressed={r.status === 'ours'}
                       aria-label={
                         r.status === 'ours'
-                          ? `Remove team ${r.teamNumber} from our alliance`
-                          : `Mark team ${r.teamNumber} as ours`
+                          ? `Remove team ${formatTeam(r.teamNumber)} from our alliance`
+                          : `Mark team ${formatTeam(r.teamNumber)} as ours`
                       }
                     >
                       <Star /> <span>Ours</span>
@@ -1091,8 +1092,8 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       aria-pressed={r.status === 'taken'}
                       aria-label={
                         r.status === 'taken'
-                          ? `Undo taken for team ${r.teamNumber}`
-                          : `Mark team ${r.teamNumber} as taken`
+                          ? `Undo taken for team ${formatTeam(r.teamNumber)}`
+                          : `Mark team ${formatTeam(r.teamNumber)} as taken`
                       }
                     >
                       {r.status === 'taken' ? <RotateCcw /> : <X />}

@@ -10,6 +10,7 @@ import {
   readJsonBody,
   readTextResponse,
 } from "../_shared/readJsonBody.ts";
+import { baseTeamNumber, formatTeam, isLetterTeam, parseTeamKey } from "../_shared/teamKey.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -52,11 +53,11 @@ function json(body: unknown, status: number): Response {
   });
 }
 
-// Parse 'frcNNNN' → NNNN (int). Missing/short alliances tolerated as null.
+// Parse 'frcNNNN' → NNNN (int), and an offseason lettered robot 'frcNNNNB' to
+// its own encoded int (_shared/teamKey.ts) instead of folding it into NNNN.
+// Missing/short alliances tolerated as null.
 function teamNum(teamKey: string | undefined): number | null {
-  if (!teamKey) return null;
-  const n = parseInt(teamKey.replace("frc", ""), 10);
-  return Number.isFinite(n) ? n : null;
+  return parseTeamKey(teamKey);
 }
 
 // GET with retry: TBA throws transient 429/5xx blips (observed live: two 502s a
@@ -122,6 +123,40 @@ Deno.serve(async (req) => {
   return await runImport(eventKey);
 });
 
+/**
+ * TBA's /event/{key}/teams lists only registered (plain) teams, but offseason
+ * schedules also name lettered B/C robots (`frc254B`). Every match team must be
+ * on the event roster (match -> event_team FK), so add each lettered robot as
+ * its own team, named after its parent team.
+ */
+function withLetterTeams(teams: TbaTeam[], qmMatches: TbaMatch[]) {
+  const rows = teams.map((t) => ({
+    team_number: t.team_number,
+    nickname: t.nickname,
+    city: t.city,
+    state_prov: t.state_prov,
+    rookie_year: t.rookie_year,
+  }));
+  const byNumber = new Map(teams.map((t) => [t.team_number, t]));
+  const seen = new Set(rows.map((r) => r.team_number));
+  for (const m of qmMatches) {
+    for (const key of [...(m.alliances?.red?.team_keys ?? []), ...(m.alliances?.blue?.team_keys ?? [])]) {
+      const n = parseTeamKey(key);
+      if (n == null || seen.has(n) || !isLetterTeam(n)) continue;
+      seen.add(n);
+      const parent = byNumber.get(baseTeamNumber(n));
+      rows.push({
+        team_number: n,
+        nickname: parent?.nickname ? `${parent.nickname} (${formatTeam(n)})` : `Team ${formatTeam(n)}`,
+        city: parent?.city ?? null,
+        state_prov: parent?.state_prov ?? null,
+        rookie_year: parent?.rookie_year ?? null,
+      });
+    }
+  }
+  return rows;
+}
+
 async function runImport(eventKey: string): Promise<Response> {
   // (2) Fetch TBA event/teams/matches.
   let ev: TbaEvent;
@@ -168,13 +203,7 @@ async function runImport(eventKey: string): Promise<Response> {
       city: ev.city,
       state_prov: ev.state_prov,
     },
-    p_teams: teams.map((t) => ({
-      team_number: t.team_number,
-      nickname: t.nickname,
-      city: t.city,
-      state_prov: t.state_prov,
-      rookie_year: t.rookie_year,
-    })),
+    p_teams: withLetterTeams(teams, qmMatches),
     p_matches: qmMatches.map((m) => ({
       match_key: m.key,
       match_number: m.match_number,

@@ -1,6 +1,7 @@
 // Multi-team comparison dashboard for RankingView. Every visual uses a fixed,
 // meaningful unit: points/match, percentages, or the 1–10 qualitative scale.
 
+import { formatTeam } from '@/lib/teamKey';
 import type { ReactNode } from 'react';
 import { CHART_COLORS, EmptyChart } from '@/dash/charts';
 import { aggregateTeamComponentSplit, type TeamAgg } from '@/dash/aggregate';
@@ -185,7 +186,7 @@ function ScoringChart({
             { key: 'auto', value: scoring.auto, opacity: 0.45 },
             { key: 'teleop', value: scoring.teleopEndgame, opacity: 1 },
           ];
-          const details = `Team ${team.teamNumber}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel${scoring.epa == null ? '; BSR unavailable' : `; ${scoring.epa.toFixed(1)} BSR`}`;
+          const details = `Team ${formatTeam(team.teamNumber)}: ${scoring.expected.toFixed(1)} expected points; ${scoring.auto.toFixed(1)} auto fuel, ${scoring.teleopEndgame.toFixed(1)} teleop and endgame fuel${scoring.epa == null ? '; BSR unavailable' : `; ${scoring.epa.toFixed(1)} BSR`}`;
           return (
             <div
               key={team.teamNumber}
@@ -286,7 +287,7 @@ function RateChart({
                 key={metric.label}
                 className="grid grid-cols-[5.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 text-xs"
                 role="img"
-                aria-label={`Team ${team.teamNumber} ${metric.label}: ${pct(metric.value)}`}
+                aria-label={`Team ${formatTeam(team.teamNumber)} ${metric.label}: ${pct(metric.value)}`}
               >
                 <span className="text-muted-foreground">{metric.label}</span>
                 <div className="h-2.5 overflow-hidden rounded-full bg-muted/40">
@@ -333,7 +334,7 @@ function DefenseRatingChart({
             key={team.teamNumber}
             className="grid grid-cols-[3.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 text-xs"
             role="img"
-            aria-label={`Team ${team.teamNumber} defense rating: ${team.defenseRating.toFixed(1)} out of 10`}
+            aria-label={`Team ${formatTeam(team.teamNumber)} defense rating: ${team.defenseRating.toFixed(1)} out of 10`}
           >
             <TeamLink
               team={team.teamNumber}
@@ -377,7 +378,7 @@ function SignedImpactRail({
     <div
       className="grid grid-cols-[6.6rem_minmax(0,1fr)_3rem] items-center gap-2 text-xs"
       role="img"
-      aria-label={`Team ${team.teamNumber} ${label}: ${value == null ? 'unavailable' : signedPct(value)}`}
+      aria-label={`Team ${formatTeam(team.teamNumber)} ${label}: ${value == null ? 'unavailable' : signedPct(value)}`}
     >
       <span className="text-muted-foreground">{label}</span>
       <div className="relative h-2.5 rounded-full bg-muted/40">

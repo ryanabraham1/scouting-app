@@ -9,6 +9,7 @@
 // Pure pieces (`boardHasContent`, `buildStrategyMessage`) are separate from the
 // canvas + fetch IO so they unit-test without a DOM.
 
+import { formatTeam } from '@/lib/teamKey';
 import { env } from '@/lib/env';
 import { timeoutFetch } from '@/lib/timeoutFetch';
 import { supabase } from '@/lib/supabase';
@@ -158,7 +159,7 @@ function drawBoard(
     ctx.font = `700 ${ROBOT_PX * 0.34}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(seed.team), cx, cy);
+    ctx.fillText(formatTeam(seed.team), cx, cy);
   }
 }
 
@@ -197,7 +198,7 @@ export async function renderBoardsPng(
     let kx = RENDER_W - 24;
     ctx.font = '600 24px system-ui, sans-serif';
     for (const seed of [...robotSeeds].reverse()) {
-      const label = String(seed.team);
+      const label = formatTeam(seed.team);
       const w = ctx.measureText(label).width;
       kx -= w;
       ctx.textAlign = 'left';
@@ -340,7 +341,7 @@ export function buildStrategyMessage(input: StrategyMessageInput): Record<string
       .slice(0, MAX_FLAGS_PER_TEAM);
     if (flags.length === 0) continue;
     const role = ourTeams.includes(team) ? 'partner' : 'opp';
-    flagLines.push(`**${team}** (${role}): ${flags.map((f) => (f.severity === 'high' ? `HIGH: ${f.text}` : f.text)).join('; ')}`);
+    flagLines.push(`**${formatTeam(team)}** (${role}): ${flags.map((f) => (f.severity === 'high' ? `HIGH: ${f.text}` : f.text)).join('; ')}`);
   }
   if (flagLines.length > 0) {
     fields.push({ name: 'Red flags', value: clip(flagLines.join('\n'), EMBED_FIELD_MAX), inline: false });
@@ -350,7 +351,7 @@ export function buildStrategyMessage(input: StrategyMessageInput): Record<string
   for (const team of [...ourTeams, ...oppTeams]) {
     if (team === baseTeam) continue;
     const note = resolveTeamNote(notes, eventKey, team, ourTeams, oppTeams).trim();
-    if (note) noteLines.push(`**${team}**: ${note}`);
+    if (note) noteLines.push(`**${formatTeam(team)}**: ${note}`);
   }
   if (noteLines.length > 0) {
     fields.push({ name: 'Matchup notes', value: clip(noteLines.join('\n'), EMBED_FIELD_MAX), inline: false });

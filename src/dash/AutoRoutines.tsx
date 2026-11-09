@@ -4,6 +4,7 @@
 // that team's MOST RECENT report (by server_received_at) that carries auto
 // data, color-coded, and OMITS our team (3256) from OUR alliance.
 
+import { formatTeam } from '@/lib/teamKey';
 import { FieldDiagram } from '@/components/FieldDiagram';
 import type { RoutineOverlay } from '@/components/FieldDiagram';
 import AutoHeatmap from '@/dash/AutoHeatmap';
@@ -199,7 +200,7 @@ export default function AutoRoutines(props: AutoRoutinesProps): JSX.Element {
                     background: r.color,
                   }}
                 />
-                <span>{r.teamNumber}</span>
+                <span>{formatTeam(r.teamNumber)}</span>
               </button>
             </li>
           ))}

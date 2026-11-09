@@ -14,6 +14,7 @@
 //   • Delete — permanently remove the name and ALL their reports, everywhere.
 // Roster management works with no active event; report counts/profiles appear
 // once an event is set.
+import { formatTeam } from '@/lib/teamKey';
 import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -222,7 +223,7 @@ function ScouterAccuracy(props: { agg: ScouterAccuracyAgg | null }): JSX.Element
 /** Short label for a missed seat: "Q12 · Team 254" (team omitted when unknown). */
 function missedLabel(m: MissedAssignment): string {
   const match = formatMatchKeyRaw(m.matchKey);
-  return m.targetTeamNumber != null ? `${match} · Team ${m.targetTeamNumber}` : match;
+  return m.targetTeamNumber != null ? `${match} · Team ${formatTeam(m.targetTeamNumber)}` : match;
 }
 
 /**

@@ -4,6 +4,7 @@
 // the current value called out at the end of each line, and a legend when
 // more than one team is plotted. Drawn in real pixels (measured with a
 // ResizeObserver) so text never stretches when the card is resized.
+import { formatTeam } from '@/lib/teamKey';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { LocalEpaHistoryPoint } from '@/dash/localEpa';
 
@@ -133,7 +134,7 @@ export function BsrChart({
           {series.map((s, i) => (
             <span key={s.team} className="tnum inline-flex items-center gap-1" style={{ color: SERIES_COLORS[i % SERIES_COLORS.length] }}>
               <span className="inline-block h-0.5 w-3 rounded" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }} />
-              {s.team}
+              {formatTeam(s.team)}
             </span>
           ))}
           <span className="ml-auto text-muted-foreground">BSR points per match</span>

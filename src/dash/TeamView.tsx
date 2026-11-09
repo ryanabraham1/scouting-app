@@ -6,6 +6,7 @@
 // (with match13 only as a fallback), and the team's scouted
 // matches. Dark theme, shadcn primitives, 44px touch targets.
 
+import { formatTeam } from '@/lib/teamKey';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Wrench,
@@ -707,7 +708,7 @@ function TeamPhotoThumb(props: {
       >
         <img
           src={url}
-          alt={`Robot for team ${teamNumber}`}
+          alt={`Robot for team ${formatTeam(teamNumber)}`}
           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         />
         <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-200 backdrop-blur-sm">
@@ -720,7 +721,7 @@ function TeamPhotoThumb(props: {
           data-testid="team-photo-lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label={`Robot photo for team ${teamNumber}`}
+          aria-label={`Robot photo for team ${formatTeam(teamNumber)}`}
           onClick={() => setOpen(false)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
         >
@@ -741,7 +742,7 @@ function TeamPhotoThumb(props: {
             </Button>
             <img
               src={activeUrl}
-              alt={`Robot for team ${teamNumber}, photo ${activeIndex + 1}`}
+              alt={`Robot for team ${formatTeam(teamNumber)}, photo ${activeIndex + 1}`}
               className="max-h-[78vh] max-w-full rounded-xl border border-border object-contain"
             />
             {urls.length > 1 ? (
@@ -1767,7 +1768,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
                             )}
                           >
                             <span className="font-mono font-semibold tabular-nums text-brand">
-                              {t.team_number}
+                              {formatTeam(t.team_number)}
                             </span>
                             {t.nickname ? (
                               <span className="truncate text-zinc-400">{t.nickname}</span>
@@ -1807,7 +1808,7 @@ export default function TeamView(props: TeamViewProps): JSX.Element {
                     .sort((a, b) => a.team_number - b.team_number)
                     .map((t) => (
                       <option key={t.team_number} value={t.team_number}>
-                        {t.team_number}
+                        {formatTeam(t.team_number)}
                         {t.nickname ? ` — ${t.nickname}` : ''}
                       </option>
                     ))}

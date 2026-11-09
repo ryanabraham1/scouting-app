@@ -514,7 +514,7 @@ describe('dead-letter correction routing', () => {
       /fix the match\/team/i,
     );
     expect(screen.getByLabelText('Match')).toHaveValue('2026demo_qm5');
-    expect(screen.getByLabelText('Target team')).toHaveValue(254);
+    expect(screen.getByLabelText('Target team')).toHaveValue('254');
   });
 });
 

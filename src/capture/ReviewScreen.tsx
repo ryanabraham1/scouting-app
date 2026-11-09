@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useRef, useState } from 'react';
 import {
   Shield,
@@ -170,7 +171,7 @@ export function ReviewScreen(props: {
             )}
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">Team {s.targetTeamNumber}</p>
+        <p className="text-sm text-muted-foreground">Team {formatTeam(s.targetTeamNumber)}</p>
         <p className="text-base font-semibold text-brand landscape:text-lg md:hidden">{STEP_TITLES[step]}</p>
       </header>
 

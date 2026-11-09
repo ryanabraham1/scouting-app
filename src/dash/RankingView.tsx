@@ -30,6 +30,7 @@ import {
   MAX_COMPARE_TEAMS,
   TEAM_COMPARE_COLORS,
 } from '@/dash/TeamCompare';
+import { formatTeam, parseTeamKey } from '@/lib/teamKey';
 
 export interface RankingViewProps {
   eventKey: string;
@@ -164,9 +165,9 @@ function buildTbaRankMap(data: unknown): Map<number, number> {
   if (!Array.isArray(rankings)) return map;
   for (const r of rankings) {
     if (!r || typeof r.team_key !== 'string' || typeof r.rank !== 'number') continue;
-    const m = /^frc(\d+)$/.exec(r.team_key);
-    if (!m) continue;
-    map.set(Number(m[1]), r.rank);
+    const team = parseTeamKey(r.team_key);
+    if (team == null) continue;
+    map.set(team, r.rank);
   }
   return map;
 }
@@ -937,7 +938,7 @@ export default function RankingView(props: RankingViewProps): JSX.Element {
                         className="px-2 py-2 text-left font-medium"
                         style={{ color: TEAM_COMPARE_COLORS[index] }}
                       >
-                        {r.agg.teamNumber}
+                        {formatTeam(r.agg.teamNumber)}
                       </th>
                     ))}
                   </tr>

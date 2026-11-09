@@ -7,6 +7,7 @@
 //
 // The data fetch is isolated in `fetchCoverage` (which only touches the
 // supabase client) so tests can drive it by mocking `@/lib/supabase`.
+import { formatTeam } from '@/lib/teamKey';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -92,13 +93,13 @@ function LocalOutbox(): JSX.Element {
     setDead([
       ...md.map((r) => ({
         id: r.id,
-        label: `${formatMatchKeyRaw(r.matchKey)} · Team ${r.targetTeamNumber}`,
+        label: `${formatMatchKeyRaw(r.matchKey)} · Team ${formatTeam(r.targetTeamNumber)}`,
         error: r.lastSyncError ?? null,
         kind: 'match' as const,
       })),
       ...pd.map((r) => ({
         id: r.draftKey,
-        label: `Pit · Team ${r.teamNumber}`,
+        label: `Pit · Team ${formatTeam(r.teamNumber)}`,
         error: r.lastSyncError ?? null,
         kind: 'pit' as const,
       })),
@@ -676,7 +677,7 @@ export default function SyncStatusScreen(): JSX.Element {
                       <div className="text-xs font-medium text-destructive [overflow-wrap:anywhere]">
                         Missing:{' '}
                         {m.missing
-                          .map((x) => `#${x.targetTeamNumber}`)
+                          .map((x) => `#${formatTeam(x.targetTeamNumber)}`)
                           .join(', ')}
                       </div>
                     ) : null}

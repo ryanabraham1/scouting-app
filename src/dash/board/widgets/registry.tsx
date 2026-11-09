@@ -3,6 +3,7 @@
 // sizes, default config, eyebrow title and body. Bodies read the shared
 // BoardData context, so they update whenever the dashboard's queries do.
 // Plan: docs/plans/ryans-board/README.md §10.
+import { formatTeam } from '@/lib/teamKey';
 import { AutoPathBody, DataBody, NotesBody, PhotoBody, PitBody, ReportsBody, StatsBody, VideoBody, TeamLinks, MatchLinks } from './Explorers';
 import { WidgetLink } from './interaction';
 import { BsrChart } from './BsrChart';
@@ -151,7 +152,7 @@ function TeamBody({ config }: { config: WidgetConfig }): JSX.Element {
   if (compact) {
     return (
       <div className="flex h-full items-center gap-2 px-3">
-        <span className="tnum font-bold">{team}</span>
+        <span className="tnum font-bold">{formatTeam(team)}</span>
         <span className="min-w-0 truncate text-muted-foreground">{nick}</span>
         <span className="tnum ml-auto">{fmt('bsr', bsr)}</span>
         {st && <Chip className="tnum bg-muted text-muted-foreground">#{st.rank}</Chip>}
@@ -167,7 +168,7 @@ function TeamBody({ config }: { config: WidgetConfig }): JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2.5 px-3 pb-2 pt-2.5">
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="tnum text-xl font-bold leading-none">{team}</span>
+        <span className="tnum text-xl font-bold leading-none">{formatTeam(team)}</span>
         <span className="min-w-0 truncate text-muted-foreground">{nick}</span>
         {st && (
           <span className="tnum ml-auto shrink-0 text-xs text-muted-foreground">
@@ -302,7 +303,7 @@ function ScheduleBody({ config }: { config: WidgetConfig }): JSX.Element {
   const team = resolveTeam(config.team, data);
   if (team == null) return <Empty>Pick a team in the widget settings.</Empty>;
   const ms = teamMatches(data.matches, team);
-  if (!ms.length) return <Empty>No matches scheduled for {team} yet.</Empty>;
+  if (!ms.length) return <Empty>No matches scheduled for {formatTeam(team)} yet.</Empty>;
   return (
     <div data-board-scroll className="tnum grid h-full auto-rows-min grid-cols-[auto_auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5 overflow-y-auto px-3 py-2 text-xs">
       {ms.map((m) => {
@@ -493,8 +494,8 @@ function OnFieldBody(): JSX.Element {
         <span className="size-1.5 rounded-full bg-success" />
         <span className="eyebrow">{st.onField.label}</span>
       </div>
-      <div className="tnum flex gap-2" style={{ color: RED }}>{st.onField.redTeams.map((team) => <WidgetLink key={team} kind="team" config={{ team }} label={`Pin team ${team}`}>{team}</WidgetLink>)}</div>
-      <div className="tnum flex gap-2" style={{ color: BLUE }}>{st.onField.blueTeams.map((team) => <WidgetLink key={team} kind="team" config={{ team }} label={`Pin team ${team}`}>{team}</WidgetLink>)}</div>
+      <div className="tnum flex gap-2" style={{ color: RED }}>{st.onField.redTeams.map((team) => <WidgetLink key={team} kind="team" config={{ team }} label={`Pin team ${formatTeam(team)}`}>{formatTeam(team)}</WidgetLink>)}</div>
+      <div className="tnum flex gap-2" style={{ color: BLUE }}>{st.onField.blueTeams.map((team) => <WidgetLink key={team} kind="team" config={{ team }} label={`Pin team ${formatTeam(team)}`}>{formatTeam(team)}</WidgetLink>)}</div>
       {st.queuing && <div className="mt-0.5 text-[11px] text-muted-foreground">Queuing: {st.queuing.label}</div>}
     </div>
   );
@@ -527,7 +528,7 @@ function PicklistBody(): JSX.Element {
         {rows.map((e, i) => (
           <div key={e.teamNumber} className="tnum flex items-center gap-2 border-b border-border py-1 last:border-0">
             <span className="text-muted-foreground">{i + 1}</span>
-            <WidgetLink kind="team" config={{ team: e.teamNumber }} label={`Pin team ${e.teamNumber}`} className="font-bold">{e.teamNumber}</WidgetLink>
+            <WidgetLink kind="team" config={{ team: e.teamNumber }} label={`Pin team ${formatTeam(e.teamNumber)}`} className="font-bold">{formatTeam(e.teamNumber)}</WidgetLink>
             <span className="ml-auto text-muted-foreground">{fmt('bsr', data.metric(e.teamNumber, 'bsr'))}</span>
           </div>
         ))}

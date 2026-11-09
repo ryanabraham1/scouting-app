@@ -9,6 +9,7 @@ import {
   type PitPhoto,
   type PitQuestionnaire,
 } from '@/pit/pitStore';
+import { baseTeamNumber } from '@/lib/teamKey';
 
 // Normalized pit report for dashboard consumption. The DB folds capability list
 // and intake sources into one jsonb `capabilities` column of the shape
@@ -309,7 +310,8 @@ export function useTeamPhoto(
       }
       // 2) Fall back to TBA team media for the season. Optional: never throws.
       const year = seasonYearFromEventKey(eventKey as string);
-      const path = `/team/frc${teamNumber}/media/${year}`;
+      // A lettered offseason robot (254B) shares its parent team's TBA media.
+      const path = `/team/frc${baseTeamNumber(teamNumber as number)}/media/${year}`;
       const body = await tbaGetOptional<TbaMedia[]>(path);
       if (isUnavailable(body) || !Array.isArray(body)) {
         return { url: null, urls: [], source: null };

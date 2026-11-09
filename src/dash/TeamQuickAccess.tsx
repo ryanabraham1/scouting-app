@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import { useEffect, useState } from 'react';
 import { Pin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -33,8 +34,8 @@ export default function TeamQuickAccess({ eventKey, selected, onSelect }: {
             {lists[kind].map((team) => <Button
               key={team} variant={selected === team ? 'default' : 'outline'} size="sm"
               className="min-h-11 min-w-14 font-mono" aria-pressed={selected === team}
-              aria-label={`Open team ${team}`} onClick={() => onSelect(team)}
-            >{team}</Button>)}
+              aria-label={`Open team ${formatTeam(team)}`} onClick={() => onSelect(team)}
+            >{formatTeam(team)}</Button>)}
             {lists[kind].length === 0 ? <span className="text-xs text-zinc-600">—</span> : null}
           </div>
         </div>

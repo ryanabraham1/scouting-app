@@ -1,3 +1,4 @@
+import { formatTeam } from '@/lib/teamKey';
 import * as React from 'react';
 import {
   ArrowLeft,
@@ -790,7 +791,7 @@ export default function PitScoutScreen(props: PitScoutScreenProps): JSX.Element 
           <h1 className="flex min-w-0 items-center gap-2 text-xl font-bold sm:text-2xl">
             <Wrench className="size-6 shrink-0 text-brand" />
             <span className="min-w-0 break-words">
-              Team <span className="font-mono text-brand tabular-nums">{props.teamNumber}</span>
+              Team <span className="font-mono text-brand tabular-nums">{formatTeam(props.teamNumber)}</span>
             </span>
           </h1>
           <span

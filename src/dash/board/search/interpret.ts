@@ -4,6 +4,7 @@
 // ranked, insertable results. Pure and synchronous (runs on every keystroke
 // against event data already in the query cache, so it works offline).
 // Plan: docs/plans/ryans-board/README.md §11.
+import { formatTeam } from '@/lib/teamKey';
 import type { MatchRow } from '@/dash/useEventData';
 import { METRICS, isPlayed, lastPlayedMatch, nextMatchOf, teamMatches, teamsOf, type MetricKey } from '@/dash/board/widgets/data';
 import type { WidgetConfig, WidgetKind } from '@/dash/board/widgets/registry';
@@ -329,7 +330,7 @@ export function search(query: string, ctx: SearchContext): { interpretation: Int
   const base = it.quality + (it.complete ? 0.35 : 0);
   const name = (t: number): string => {
     const n = idx.nick.get(t);
-    return n ? `${t} · ${n}` : String(t);
+    return n ? `${formatTeam(t)} · ${n}` : formatTeam(t);
   };
   const add = (r: SearchResult): void => {
     const prev = out.get(r.key);
@@ -348,7 +349,7 @@ export function search(query: string, ctx: SearchContext): { interpretation: Int
   const matchResult = (m: MatchRow, score: number, title?: string, group: ResultGroup = 'matches'): SearchResult => ({
     key: `match:${m.match_key}`,
     kind: 'match',
-    title: title ?? `${shortLabel(m)} · ${teamsOf(m).slice(0, 3).join(' ')} vs ${teamsOf(m).slice(3).join(' ')}`,
+    title: title ?? `${shortLabel(m)} · ${teamsOf(m).slice(0, 3).map(formatTeam).join(' ')} vs ${teamsOf(m).slice(3).map(formatTeam).join(' ')}`,
     subtitle: scoreLine(m),
     score,
     group,
@@ -426,8 +427,8 @@ export function search(query: string, ctx: SearchContext): { interpretation: Int
     add({
       key: `compare:${teams.join(',')}`,
       kind: 'compare',
-      title: `Compare ${teams.join(' and ')}`,
-      subtitle: teams.map((t) => idx.nick.get(t) ?? t).join(' · '),
+      title: `Compare ${teams.map(formatTeam).join(' and ')}`,
+      subtitle: teams.map((t) => idx.nick.get(t) ?? formatTeam(t)).join(' · '),
       score: base + 0.3,
       group: 'best',
       widget: { kind: 'compare', config: { teams, metrics: COMPARE_METRICS } },
@@ -580,7 +581,7 @@ export function suggestions(ctx: SearchContext): SearchResult[] {
     out.push({
       key: `team:${t}`,
       kind: 'team',
-      title: n ? `${t} · ${n}` : String(t),
+      title: n ? `${formatTeam(t)} · ${n}` : formatTeam(t),
       subtitle: 'On your watchlist',
       score: 0.8,
       group: 'team',

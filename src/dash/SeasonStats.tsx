@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { RankTile } from '@/dash/Leaderboard';
 import { computeLocalEpa } from '@/dash/localEpa';
 import type { MatchRow } from '@/dash/useEventData';
+import { teamKeyOf } from '@/lib/teamKey';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -59,7 +60,7 @@ function teamOnAlliance(alliance: Record<string, unknown>, teamKey: string): boo
  */
 export function seasonRecordFromTbaMatches(json: unknown, team: number): string | null {
   if (!Array.isArray(json)) return null;
-  const teamKey = `frc${team}`;
+  const teamKey = teamKeyOf(team);
   let wins = 0;
   let losses = 0;
   let ties = 0;
