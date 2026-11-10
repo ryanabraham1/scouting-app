@@ -60,7 +60,7 @@ export function ScoutTopNav({
         if (tab) navigate(tab.href);
       }}
       tabs={DESKTOP_TABS.map(({ id, label, icon: Icon }) => ({ value: id, label, icon: <Icon /> }))}
-      className={['hidden md:grid', className].filter(Boolean).join(' ')}
+      className={['hidden md:grid md:[&_button]:flex-col md:[&_button]:gap-1 md:[&_button]:py-2 lg:[&_button]:flex-row lg:[&_button]:gap-2 lg:[&_button]:py-0', className].filter(Boolean).join(' ')}
     />
   );
 }

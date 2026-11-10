@@ -1,3 +1,4 @@
+vi.mock('@/auth/useSession', () => ({ useSession: () => ({ scout: null, loading: false }), clearCachedScout: vi.fn() }));
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';

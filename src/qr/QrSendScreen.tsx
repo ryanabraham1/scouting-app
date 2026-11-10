@@ -8,7 +8,8 @@ import { FountainEncoder, frameToString, reportsToBytes } from '@/qr/envelope';
 import { compressForQr } from '@/qr/compress';
 import { QR_FRAME_MS } from '@/sync/constants';
 import { QrModeTabs } from '@/qr/QrModeTabs';
-import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
+import { ScoutHeader } from '@/scout/ScoutHeader';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
 import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { CheckCircle2 } from 'lucide-react';
 
@@ -111,9 +112,10 @@ export default function QrSendScreen() {
   return (
     <div
       data-testid="qr-send"
-      className={`flex min-h-screen flex-col items-center gap-5 bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
+      className="flex min-h-dvh flex-col bg-background text-foreground"
     >
-      <ScoutTopNav active="sync" className="max-w-3xl" />
+      <ScoutHeader active="sync" />
+      <main className={`mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-5 px-safe pt-4 ${BOTTOM_BAR_CLEARANCE}`}>
       <header className="flex w-full max-w-md flex-col gap-3">
         <h1 className="text-xl font-medium">Transfer by QR</h1>
         <QrModeTabs active="send" />
@@ -166,6 +168,7 @@ export default function QrSendScreen() {
           </Button>
         </>
       )}
+      </main>
       <ScoutBottomNav active="home" />
     </div>
   );

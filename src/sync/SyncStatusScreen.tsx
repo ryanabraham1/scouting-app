@@ -13,7 +13,8 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useActiveEvent } from '@/dash/useActiveEvent';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
+import { ScoutHeader } from '@/scout/ScoutHeader';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
 import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { QrCode, RefreshCw, ScanLine, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -565,11 +566,9 @@ export default function SyncStatusScreen(): JSX.Element {
   const noActiveEvent = data !== null && !data.eventKey;
 
   return (
-    <main
-      data-testid="sync-status"
-      className={`mx-auto flex max-w-3xl flex-col gap-4 px-safe py-safe sm:p-6 lg:max-w-6xl ${BOTTOM_BAR_CLEARANCE}`}
-    >
-      <ScoutTopNav active="sync" />
+    <div data-testid="sync-status" className="flex min-h-dvh flex-col">
+      <ScoutHeader active="sync" />
+      <main className={`mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-safe pt-4 ${BOTTOM_BAR_CLEARANCE}`}>
       {/* Desktop: this device on the left, server coverage on the right. */}
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start lg:gap-6">
       <div className="flex flex-col gap-4">
@@ -689,7 +688,8 @@ export default function SyncStatusScreen(): JSX.Element {
         </CardContent>
       </Card>
       </div>
+      </main>
       <ScoutBottomNav active="home" />
-    </main>
+    </div>
   );
 }

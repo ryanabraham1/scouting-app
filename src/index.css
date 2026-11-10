@@ -42,6 +42,7 @@
 
 @layer base {
   * { @apply border-border; }
+  html { scrollbar-gutter: stable; }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     text-rendering: optimizeLegibility;

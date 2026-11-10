@@ -83,7 +83,8 @@ async function seedOfflineSchedule(page: Page): Promise<void> {
 
 test('shows the saved match schedule and queues a full match report offline', async ({ page }) => {
   await seedOfflineSchedule(page);
-  await expect(page.getByRole('heading', { name: 'Offline Scout' })).toBeVisible();
+  await expect(page.getByTestId('station-menu-trigger')).toContainText('Hi, Offline');
+  await page.getByRole('tab', { name: 'Matches', exact: true }).click();
   await expect(page.getByTestId('offline-schedule-status')).toHaveText('Schedule saved');
   await expect(page.getByTestId('scout-assignment')).toContainText('Qualification 7');
   await expect(page.getByTestId('scout-assignment')).toContainText('#111');
@@ -103,6 +104,7 @@ test('shows the saved match schedule and queues a full match report offline', as
   }
   await save.click();
   await expect(page.getByTestId('scout-home')).toBeVisible();
+  await page.getByRole('tab', { name: 'Matches', exact: true }).click();
   await expect(page.getByTestId('sync-queued')).toContainText('1');
   const storedMatchReports = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -126,7 +128,7 @@ test('shows the saved match schedule and queues a full match report offline', as
 
 test('shows pit crews and queues a pit report offline', async ({ page }) => {
   await seedOfflineSchedule(page);
-  await page.getByRole('tab', { name: 'Pit', exact: true }).click();
+  await page.getByRole('tab', { name: 'Pit scouting', exact: true }).click();
   await expect(page.getByTestId('my-pit-assignments')).toContainText('222');
   await expect(page.getByTestId('my-pit-assignments')).toContainText('Pit Partner');
   await page.getByTestId('pit-assignment-222').click();
@@ -157,3 +159,79 @@ test('shows pit crews and queues a pit report offline', async ({ page }) => {
   expect(storedPitReports).toHaveLength(1);
   expect(storedPitReports[0]).toMatchObject({ syncState: 'dirty', lastSyncError: null });
 });
+
+for (const width of [360, 768, 1024, 1440]) {
+  test(`scout layout stays stable across sections at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: width >= 1024 ? 'dark' : 'light' });
+    await seedOfflineSchedule(page);
+    // A revised report with a long note reproduces the cramped list in the bug report.
+    await page.evaluate(async ({ eventKey, scoutId }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('scouting-db');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const tx = db.transaction('reports', 'readwrite');
+      for (const [index, syncState] of ['synced', 'dirty', 'error'].entries()) {
+        tx.objectStore('reports').put({
+          id: `layout-report-${index}`, eventKey, scoutId, scoutName: 'Offline Scout',
+          matchKey: `${eventKey}_qm${53 - index}`, targetTeamNumber: 5940,
+          createdAt: `2026-11-10T10:0${index}:00.000Z`, rowRevision: 2,
+          syncState, fuelPoints: 120, defenseDurationMs: 12000, defendedDurationMs: 4500,
+          notes: 'Great at intake, shooting, defending, and great agility. '.repeat(4) + 'LongNote'.repeat(30),
+        });
+      }
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    }, { eventKey: EVENT_KEY, scoutId: SCOUT_ID });
+
+    const header = page.getByTestId('scout-header');
+    const initialHeader = await header.boundingBox();
+    const nav = page.getByRole('tablist', { name: 'Scout sections' });
+    const initialNav = width >= 768 ? await nav.boundingBox() : null;
+    const destinations = [
+      ['Matches', '/scout?tab=matches'],
+      ['Pit scouting', '/scout?mode=pit'],
+      ['Picklist', '/scout/picklist'],
+      ['My data', '/my-data'],
+      ['Sync & transfer', '/sync'],
+      ['Home', '/scout'],
+    ];
+    for (const [label, path] of destinations) {
+      if (width >= 768) await nav.getByRole('tab', { name: label, exact: true }).click();
+      else await page.goto(path);
+      await expect(header).toBeVisible();
+      await expect(page.getByTestId('station-menu-trigger')).toContainText('Hi, Offline');
+      await expect(page.getByTestId('app-search-trigger')).toBeVisible();
+      await expect(page.getByTestId('scout-connection-pill')).toBeVisible();
+      await expect.poll(() => header.boundingBox()).toEqual(initialHeader);
+      if (initialNav) {
+        await expect.poll(() => nav.boundingBox()).toEqual(initialNav);
+        for (const label of await nav.locator('button span').all()) {
+          expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+        }
+      } else await expect(page.getByTestId('scout-bottom-nav')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      if (path === '/my-data') {
+        await expect(page.getByTestId('my-data-row')).toHaveCount(3);
+        const badge = page.getByTestId('my-data-rev-layout-report-0');
+        expect((await badge.boundingBox())!.height).toBeLessThan(30);
+        const edit = page.getByTestId('my-data-edit-layout-report-0');
+        await expect(edit).toBeVisible();
+        expect((await edit.boundingBox())!.x + (await edit.boundingBox())!.width).toBeLessThanOrEqual(width);
+        await page.screenshot({ path: `test-results/scout-my-data-${width}.png`, fullPage: true });
+      }
+    }
+    for (const path of ['/qr/send', '/qr/receive']) {
+      await page.goto(path);
+      await expect(header).toBeVisible();
+      await expect.poll(() => header.boundingBox()).toEqual(initialHeader);
+      if (initialNav) await expect.poll(() => nav.boundingBox()).toEqual(initialNav);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  });
+}

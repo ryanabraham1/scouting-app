@@ -1,3 +1,4 @@
+vi.mock('@/auth/useSession', () => ({ useSession: () => ({ scout: null, loading: false }), clearCachedScout: vi.fn() }));
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';

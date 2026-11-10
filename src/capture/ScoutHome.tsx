@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   UserRound,
-  LogOut,
   Search,
   Home,
   QrCode,
@@ -13,8 +12,6 @@ import {
   CheckCircle2,
   GraduationCap,
   ArrowLeft,
-  Wifi,
-  WifiOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import PitScoutFlow from '@/pit/PitScoutFlow';
@@ -56,12 +53,10 @@ import {
 import { OfflineReadyBadge } from '@/offline/OfflineReadyBadge';
 import { cn } from '@/lib/utils';
 import { reportMatchesScoutScope } from '@/scout/reportScope';
-import NotificationPermissionPrompt from '@/capture/NotificationPermissionPrompt';
 import { usePitBpsSuggestion } from '@/pit/usePitBpsSuggestion';
 import { pullScoutReports } from '@/sync/pullReports';
-import { useOnline } from '@/sync/useOnline';
-import { StationMenu } from '@/components/StationMenu';
-import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
+import { ScoutHeader } from '@/scout/ScoutHeader';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
 import { ScoutStatusCard } from '@/scout/ScoutStatusCard';
 import { ScoutDeviceCard } from '@/scout/ScoutDeviceCard';
 import { formatTeam, parseTeamKey } from '@/lib/teamKey';
@@ -315,7 +310,6 @@ type ScoutMode = 'match' | 'pit';
 
 export default function ScoutHome() {
   const { scout } = useSession();
-  const online = useOnline();
   const navigate = useNavigate();
   // Per-instance realtime topic suffix: a fixed topic reused across an effect
   // re-run returns the still-leaving old channel and the new subscribe no-ops.
@@ -929,16 +923,6 @@ export default function ScoutHome() {
   // Home and pit get the wide two-column desktop layout; the Matches tab keeps
   // its single reading column. Phones are max-w-2xl either way.
   const pageWidth = view === 'matches' ? 'max-w-2xl' : 'max-w-2xl md:max-w-6xl';
-  const displayName = effective.display_name || 'Scout';
-  const firstName = displayName.trim().split(/\s+/)[0] || displayName;
-  const initials =
-    displayName
-      .trim()
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join('') || 'S';
-
   const draftsSection =
     drafts.length > 0 ? (
       <section>
@@ -1123,47 +1107,7 @@ export default function ScoutHome() {
       data-testid="scout-home"
       className="flex min-h-dvh flex-col bg-background text-foreground"
     >
-      {/* Sticky header: tap the name for the scouter menu; the pill is a live
-          connection status that links to the full sync screen. */}
-      <header className="sticky top-0 z-20 bg-background/95 px-safe pt-safe pb-3 backdrop-blur">
-        <div className={cn('mx-auto flex w-full items-center justify-between gap-2', pageWidth)}>
-          <StationMenu
-            current="scout"
-            title={`Hi, ${firstName}`}
-            subtitle={eventKey || 'No active event'}
-            avatar={initials}
-          >
-            <Button
-              data-testid="scout-logout"
-              variant="outline"
-              aria-label={`Change scouter ${effective.display_name || ''}`.trim()}
-              className="min-h-[44px] rounded-xl px-3"
-              onClick={logOut}
-            >
-              <LogOut className="size-5 shrink-0" />
-              <span>Change scouter</span>
-            </Button>
-            <NotificationPermissionPrompt />
-          </StationMenu>
-          <Link
-            to="/sync"
-            data-testid="scout-connection-pill"
-            aria-label={online ? 'Online. View sync status' : 'Offline. View sync status'}
-            className={cn(
-              'inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs',
-              online ? 'bg-success/10 text-success' : 'bg-warning/15 text-warning',
-            )}
-          >
-            {online ? (
-              <Wifi aria-hidden="true" className="size-3.5" />
-            ) : (
-              <WifiOff aria-hidden="true" className="size-3.5" />
-            )}
-            {online ? 'Online' : 'Offline'}
-          </Link>
-        </div>
-        <ScoutTopNav active={view} className={cn('mx-auto mt-3', pageWidth)} />
-      </header>
+      <ScoutHeader active={view} scoutName={effective.display_name} eventKey={eventKey} onChangeScouter={logOut} />
 
       <main
         className={cn(

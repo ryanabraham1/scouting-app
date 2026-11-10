@@ -1,3 +1,4 @@
+vi.mock('@/dash/useActiveEvent', () => ({ useActiveEvent: () => ({ eventKey: '2026test', loading: false }) }));
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';

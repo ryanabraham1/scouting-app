@@ -12,7 +12,8 @@ import { useActiveEvent } from "@/dash/useActiveEvent";
 import { listReports } from "@/db/localStore";
 import { pullScoutReports } from "@/sync/pullReports";
 import type { LocalMatchReport } from "@/db/types";
-import { ScoutBottomNav, ScoutTopNav } from "@/scout/ScoutBottomNav";
+import { ScoutHeader } from '@/scout/ScoutHeader';
+import { ScoutBottomNav } from "@/scout/ScoutBottomNav";
 import {
   normalizeScouterName,
   reportMatchesScoutScope,
@@ -113,12 +114,12 @@ export default function MyDataView(): JSX.Element {
       data-testid="my-data"
       className="flex min-h-dvh flex-col bg-background pb-24 text-foreground md:pb-6"
     >
-      <header className="px-safe pt-safe pb-2 md:mx-auto md:w-full md:max-w-5xl">
-        <ScoutTopNav active="my-data" className="mb-4" />
+      <ScoutHeader active="my-data" />
+      <header className="mx-auto w-full max-w-6xl px-safe pt-4 pb-2">
         <h1 className="text-xl font-medium">My data</h1>
       </header>
 
-      <main className="flex flex-1 flex-col gap-3 px-safe pb-safe pt-4 md:mx-auto md:w-full md:max-w-5xl">
+      <main className="flex flex-1 flex-col gap-3 px-safe pb-safe pt-4 mx-auto w-full max-w-6xl">
         {showUpdated && (
           <div
             data-testid="my-data-updated-toast"
@@ -168,7 +169,7 @@ export default function MyDataView(): JSX.Element {
         {reports.length > 0 ? (
           <div
             aria-hidden="true"
-            className="hidden gap-4 border-b border-border pb-2 text-xs text-muted-foreground md:grid md:grid-cols-[8.5rem_9rem_minmax(0,1fr)_4.5rem_4.5rem_4.5rem_auto]"
+            className="hidden gap-4 border-b border-border pb-2 text-xs text-muted-foreground xl:grid xl:grid-cols-[minmax(13rem,1.4fr)_8rem_minmax(8rem,1fr)_4rem_4.5rem_4.5rem_auto]"
           >
             <span>Match</span>
             <span>Team</span>
@@ -179,33 +180,33 @@ export default function MyDataView(): JSX.Element {
             <span className="w-[4.5rem]" />
           </div>
         ) : null}
-        <ul className="flex flex-col">
+        <ul className="flex min-w-0 flex-col">
           {reports.map((r) => (
             <li
               key={r.id}
               data-testid="my-data-row"
-              className="border-t border-border py-3 first:border-t-0 md:grid md:items-center md:gap-4 md:py-2 md:grid-cols-[8.5rem_9rem_minmax(0,1fr)_4.5rem_4.5rem_4.5rem_auto]"
+              className="border-t border-border py-3 first:border-t-0 xl:grid xl:items-center xl:gap-4 xl:py-2 xl:grid-cols-[minmax(13rem,1.4fr)_8rem_minmax(8rem,1fr)_4rem_4.5rem_4.5rem_auto]"
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2 md:contents">
-                <span className="flex items-baseline gap-2">
-                  <span className="flex flex-col">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 xl:contents">
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="flex min-w-0 flex-col">
                     <span className="text-lg font-semibold leading-tight">
                       {matchLabelFromKey(r.matchKey)}
                     </span>
-                    <span className="font-mono text-[11px] leading-tight text-muted-foreground tabular-nums">
+                    <span className="break-all font-mono text-[11px] leading-tight text-muted-foreground tabular-nums">
                       {r.matchKey}
                     </span>
                   </span>
                   {r.rowRevision > 1 && (
                     <span
                       data-testid={`my-data-rev-${r.id}`}
-                      className="inline-flex rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning tabular-nums"
+                      className="inline-flex shrink-0 whitespace-nowrap rounded-md border border-warning/40 bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning tabular-nums"
                     >
                       rev {r.rowRevision}
                     </span>
                   )}
                 </span>
-                <span className="text-base font-medium text-brand">
+                <span className="shrink-0 whitespace-nowrap text-base font-medium text-brand">
                   Team{" "}
                   <span className="font-mono font-semibold tabular-nums">
                     #{formatTeam(r.targetTeamNumber)}
@@ -218,43 +219,43 @@ export default function MyDataView(): JSX.Element {
               {r.syncState === "error" ? (
                 <p
                   data-testid={`my-data-needs-sync-${r.id}`}
-                  className="mt-2 text-xs font-medium text-destructive md:mt-0"
+                  className="mt-2 text-xs font-medium text-destructive xl:mt-0"
                 >
                   failed to sync — fix &amp; re-save
                 </p>
               ) : r.syncState === "dirty" || r.syncState === "pending" ? (
                 <p
                   data-testid={`my-data-uploading-${r.id}`}
-                  className="mt-2 text-xs font-medium text-warning md:mt-0"
+                  className="mt-2 text-xs font-medium text-warning xl:mt-0"
                 >
                   saved on this device — queued to upload
                 </p>
               ) : (
-                <span className="hidden items-center gap-1.5 text-xs text-muted-foreground md:inline-flex">
+                <span className="hidden items-center gap-1.5 text-xs text-muted-foreground xl:inline-flex">
                   <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
                   Synced
                 </span>
               )}
-              <div className="mt-3 flex items-end justify-between gap-3 md:contents">
-                <dl className="grid flex-1 grid-cols-3 gap-x-3 md:contents">
-                  <div className="flex flex-col gap-0.5 md:items-end">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground md:sr-only">
+              <div className="mt-3 flex items-end justify-between gap-3 xl:contents">
+                <dl className="grid flex-1 grid-cols-3 gap-x-3 xl:contents">
+                  <div className="flex flex-col gap-0.5 xl:items-end">
+                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground xl:sr-only">
                       Fuel
                     </dt>
                     <dd className="font-mono text-base font-semibold text-energy tabular-nums">
                       {r.fuelPoints}
                     </dd>
                   </div>
-                  <div className="flex flex-col gap-0.5 md:items-end">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground md:sr-only">
+                  <div className="flex flex-col gap-0.5 xl:items-end">
+                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground xl:sr-only">
                       Defense
                     </dt>
                     <dd className="font-mono text-base font-semibold text-brand tabular-nums">
                       {fmtSeconds(r.defenseDurationMs)}
                     </dd>
                   </div>
-                  <div className="flex flex-col gap-0.5 md:items-end">
-                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground md:sr-only">
+                  <div className="flex flex-col gap-0.5 xl:items-end">
+                    <dt className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground xl:sr-only">
                       Defended
                     </dt>
                     <dd className="font-mono text-base font-semibold tabular-nums">
@@ -275,7 +276,7 @@ export default function MyDataView(): JSX.Element {
                 </button>
               </div>
               {r.notes && (
-                <p className="mt-2 text-sm md:col-span-full md:mt-0 md:text-muted-foreground">
+                <p className="min-w-0 [overflow-wrap:anywhere] mt-2 text-sm xl:col-span-full xl:mt-0 xl:text-muted-foreground">
                   <span className="text-muted-foreground">Notes: </span>
                   {r.notes}
                 </p>

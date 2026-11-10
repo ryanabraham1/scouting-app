@@ -13,7 +13,8 @@ import {
   type PicklistEntry,
 } from '@/dash/picklistClient';
 import { db } from '@/db/localStore';
-import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
+import { ScoutHeader } from '@/scout/ScoutHeader';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
 import { cn } from '@/lib/utils';
 
 /** How often the open screen re-reads the shared picklist while online. */
@@ -190,8 +191,8 @@ export default function ScoutPicklistView(): JSX.Element {
       data-testid="scout-picklist"
       className="flex min-h-dvh flex-col bg-background pb-24 text-foreground md:pb-6"
     >
-      <header className="px-safe pt-safe pb-2 md:mx-auto md:w-full md:max-w-5xl">
-        <ScoutTopNav active="picklist" className="mb-4" />
+      <ScoutHeader active="picklist" />
+      <header className="mx-auto w-full max-w-6xl px-safe pt-4 pb-2">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-medium">Picklist</h1>
@@ -215,7 +216,7 @@ export default function ScoutPicklistView(): JSX.Element {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col gap-5 px-safe pb-safe pt-4 md:mx-auto md:w-full md:max-w-5xl">
+      <main className="flex flex-1 flex-col gap-5 px-safe pb-safe pt-4 mx-auto w-full max-w-6xl">
         {!eventLoading && !eventKey ? (
           <p data-testid="scout-picklist-empty" className="text-muted-foreground">
             No active event selected.

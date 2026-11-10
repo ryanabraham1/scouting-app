@@ -7,7 +7,8 @@ import { decompressForQr, DecompressionUnsupportedError } from '@/qr/compress';
 import { postIngest } from '@/qr/ingestClient';
 import { QR_SCAN_DELAY_MS } from '@/sync/constants';
 import { QrModeTabs } from '@/qr/QrModeTabs';
-import { ScoutBottomNav, ScoutTopNav } from '@/scout/ScoutBottomNav';
+import { ScoutHeader } from '@/scout/ScoutHeader';
+import { ScoutBottomNav } from '@/scout/ScoutBottomNav';
 import { BOTTOM_BAR_CLEARANCE } from '@/components/BottomTabBar';
 import { useSession } from '@/auth/useSession';
 import { isScouterLoggedOut } from '@/roster/selectScouter';
@@ -80,33 +81,36 @@ export default function QrReceiveScreen() {
     return (
       <div
         data-testid="qr-receive"
-        className={`flex min-h-screen flex-col bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
+        className="flex min-h-dvh flex-col bg-background text-foreground"
       >
-        <ScoutTopNav active="sync" className="mb-4" />
-        <header className="mb-4 flex flex-col gap-3">
-          <h1 className="text-xl font-medium">Transfer by QR</h1>
-          <QrModeTabs active="receive" />
-        </header>
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-          <div
-            data-testid="qr-receive-needs-scouter"
-            className="flex max-w-md flex-col items-center gap-3 rounded-xl border border-brand/40 bg-brand/10 p-6"
-          >
-            <UserRound className="size-10 shrink-0 text-brand" aria-hidden />
-            <p className="text-base font-medium">Pick your name before receiving reports.</p>
-            <p className="text-sm text-muted-foreground">
-              This device needs a scouter selected so the reports you receive are uploaded under a
-              known identity.
-            </p>
-            <Link
-              data-testid="qr-receive-pick-name"
-              to="/scout"
-              className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground hover:bg-brand/90"
+        <ScoutHeader active="sync" />
+        <main className={`mx-auto flex w-full max-w-6xl flex-1 flex-col px-safe pt-4 ${BOTTOM_BAR_CLEARANCE}`}>
+          <header className="mb-4 flex flex-col gap-3">
+            <h1 className="text-xl font-medium">Transfer by QR</h1>
+            <QrModeTabs active="receive" />
+          </header>
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+            <div
+              data-testid="qr-receive-needs-scouter"
+              className="flex max-w-md flex-col items-center gap-3 rounded-xl border border-brand/40 bg-brand/10 p-6"
             >
-              <UserRound className="size-4" /> Choose your name
-            </Link>
+              <UserRound className="size-10 shrink-0 text-brand" aria-hidden />
+              <p className="text-base font-medium">Pick your name before receiving reports.</p>
+              <p className="text-sm text-muted-foreground">
+                This device needs a scouter selected so the reports you receive are uploaded under a
+                known identity.
+              </p>
+              <Link
+                data-testid="qr-receive-pick-name"
+                to="/scout"
+                className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground hover:bg-brand/90"
+              >
+                <UserRound className="size-4" /> Choose your name
+              </Link>
+            </div>
           </div>
-        </div>
+        </main>
+        <ScoutBottomNav active="home" />
       </div>
     );
   }
@@ -481,9 +485,10 @@ function QrReceiveScanner() {
   return (
     <div
       data-testid="qr-receive"
-      className={`flex min-h-screen flex-col bg-background px-safe py-safe text-foreground ${BOTTOM_BAR_CLEARANCE}`}
+      className="flex min-h-dvh flex-col bg-background text-foreground"
     >
-      <ScoutTopNav active="sync" className="mb-4" />
+      <ScoutHeader active="sync" />
+      <main className={`mx-auto flex w-full max-w-6xl flex-1 flex-col px-safe pt-4 ${BOTTOM_BAR_CLEARANCE}`}>
       <header className="mb-4 flex flex-col gap-3">
         <h1 className="text-xl font-medium">Transfer by QR</h1>
         <QrModeTabs active="receive" />
@@ -642,6 +647,7 @@ function QrReceiveScanner() {
           </>
         )}
       </div>
+      </main>
       <ScoutBottomNav active="home" />
     </div>
   );
