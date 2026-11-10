@@ -27,6 +27,12 @@ export interface DraftState {
   draftTurn?: number;
   taken: number[];
   /**
+   * Teams that DECLINED an invitation. Under FRC rules they can't be picked by
+   * any alliance afterward, but can still become an alliance captain by moving
+   * up. Declining doesn't use up the inviting alliance's turn.
+   */
+  declined?: number[];
+  /**
    * Set to the CAPTAIN team that picked US — when present, we joined another
    * alliance instead of building our own. Absent/undefined = we're the captain.
    */
@@ -47,6 +53,15 @@ export function draftStorageKey(eventKey: string): string {
 }
 
 /** Resolve a team's status from the state (default `available`). */
+/** Toggle a team's DECLINED mark (pure). */
+export function toggleDeclined(teamNumber: number, state: DraftState): DraftState {
+  const current = state.declined ?? [];
+  const declined = current.includes(teamNumber)
+    ? current.filter((t) => t !== teamNumber)
+    : [...current, teamNumber];
+  return { ...state, declined };
+}
+
 export function statusOf(teamNumber: number, state: DraftState): DraftStatus {
   if (state.ours.includes(teamNumber)) return 'ours';
   if (state.taken.includes(teamNumber)) return 'taken';
@@ -122,6 +137,8 @@ export function loadDraftState(eventKey: string): DraftState {
     const nums = (xs: unknown): number[] =>
       Array.isArray(xs) ? xs.filter((n): n is number => typeof n === 'number') : [];
     const out: DraftState = { ours: nums(parsed.ours), taken: nums(parsed.taken) };
+    const declined = nums(parsed.declined);
+    if (declined.length) out.declined = declined;
     // Only keep a real captain number; absent/null stays omitted (we're captain).
     if (typeof parsed.pickedBy === 'number') out.pickedBy = parsed.pickedBy;
     // Only keep a valid list id; anything else falls back to the default (first).
@@ -190,6 +207,10 @@ export interface DraftRow {
   blockedTop8: boolean;
   /** True for OUR OWN team — we're the captain, so we never "pick" ourselves. */
   isUs: boolean;
+  /** Declined an invitation: no alliance may pick it now (FRC rule). */
+  declined?: boolean;
+  /** 0-based alliance this team currently captains (and hasn't picked yet), if any. */
+  captainOf?: number | null;
   status: DraftStatus;
 }
 
@@ -230,6 +251,7 @@ export function bestRemaining(sortedRows: DraftRow[], n = 3): DraftRow[] {
     if (r.blockedByRank) continue;
     if (r.blockedTop8) continue; // top-8 team, gone by our 2nd pick
     if (r.isUs) continue; // we're the captain — never recommend picking ourselves
+    if (r.declined) continue; // declined an invitation — can't be picked again
     out.push(r);
     if (out.length >= n) break;
   }

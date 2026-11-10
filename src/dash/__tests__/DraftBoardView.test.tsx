@@ -100,10 +100,10 @@ describe('DraftBoardView team pool', () => {
     expect(metrics.className).toContain('grid-cols-3');
     expect(within(metrics).getByTestId('draft-epa-254').textContent).toBe('42');
     expect(within(metrics).getByTestId('draft-points-254').textContent).toBe('8.0');
-    expect(within(metrics).getByTestId('draft-auto-254').textContent).toBe('8.0scout');
+    expect(within(metrics).getByTestId('draft-auto-254').textContent).toBe('8.0scouted');
 
     const actions = within(row).getByTestId('draft-actions-254');
-    expect(actions.className).toContain('grid-cols-2');
+    expect(actions.className).toContain('grid-cols-3');
     expect(within(actions).getByTestId('draft-ours-254').className).toContain('h-11');
     expect(within(actions).getByTestId('draft-ours-254').className).toContain('lg:h-8');
     await waitFor(() =>
@@ -135,16 +135,16 @@ describe('DraftBoardView team pool', () => {
     const scoutedRow = await waitFor(() => getByTestId('draft-row-254'));
     const estimatedRow = getByTestId('draft-row-1678');
 
-    expect(within(scoutedRow).getByTestId('draft-auto-254').textContent).toBe('8.0scout');
-    expect(within(estimatedRow).getByTestId('draft-auto-1678').textContent).toBe('6.0est.');
+    expect(within(scoutedRow).getByTestId('draft-auto-254').textContent).toBe('8.0scouted');
+    expect(within(estimatedRow).getByTestId('draft-auto-1678').textContent).toBe('6.0BSR est.');
     // Captain 3256 contributes its one EPA auto estimate (14 × 0.15 / 0.70 = 3).
     expect(getByTestId('draft-alliance-auto').textContent).toBe('3.0');
-    expect(getByTestId('draft-alliance-auto-source').textContent).toBe('est.');
+    expect(getByTestId('draft-alliance-auto-source').textContent).toBe('BSR est.');
 
     fireEvent.click(within(scoutedRow).getByTestId('draft-ours-254'));
     // Captain 3 + pick 8 = 11; neither row is counted twice.
     expect(getByTestId('draft-alliance-auto').textContent).toBe('11.0');
-    expect(getByTestId('draft-alliance-auto-source').textContent).toBe('scout + est.');
+    expect(getByTestId('draft-alliance-auto-source').textContent).toBe('scouted + BSR est.');
   });
 
   it('uses the configured base team as our draft captain', async () => {

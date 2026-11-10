@@ -63,7 +63,8 @@ export function setAllianceSeat(
   if (team != null) for (const r of next) for (let s = 0; s < 3; s++) if (r[s] === team) r[s] = null;
   next[row][seat] = team;
   if (vacatedCaptainRow > row && ranks && ranks.size > 0) {
-    // Teams already crossed off elsewhere can't be promoted to captain.
+    // Teams already picked elsewhere can't be promoted to captain. A team that
+    // DECLINED can (it only loses the right to be picked).
     promoteCaptains(next, vacatedCaptainRow, ranks, new Set(state.taken));
   }
   const ourRow = next.find(r => r.includes(baseTeam));
@@ -71,7 +72,12 @@ export function setAllianceSeat(
   const captain = ourRow?.[0];
   const removed = new Set(grid.flat().filter((n): n is number => n != null));
   const taken = new Set(state.taken.filter(n => !removed.has(n)));
-  for (const r of next) if (r !== ourRow) for (const n of r) if (n != null && n !== baseTeam) taken.add(n);
+  // A captain whose alliance hasn't picked yet is still pickable by a higher
+  // alliance, so it stays in the pool; every other seated team is out.
+  for (const r of next) {
+    if (r === ourRow || (r[1] == null && r[2] == null)) continue;
+    for (const n of r) if (n != null && n !== baseTeam) taken.add(n);
+  }
   return { ...state, alliances: next, ours, taken: [...taken], pickedBy: captain != null && captain !== baseTeam ? captain : null };
 }
 
@@ -92,4 +98,16 @@ export function firstOpenTurn(grid: AllianceGrid): number {
 /** True when `team` sits in any alliance seat. */
 export function isSeated(grid: AllianceGrid, team: number): boolean {
   return grid.some(row => row.includes(team));
+}
+
+/**
+ * Captains whose alliance hasn't made a pick yet. Under FRC rules a higher
+ * alliance may still pick them (the alliances below then move up).
+ */
+export function pickableCaptains(grid: AllianceGrid): Map<number, number> {
+  const out = new Map<number, number>();
+  grid.forEach((row, i) => {
+    if (row[0] != null && row[1] == null && row[2] == null) out.set(row[0], i);
+  });
+  return out;
 }

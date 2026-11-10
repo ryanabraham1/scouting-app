@@ -139,10 +139,11 @@
   .lead-dashboard [data-testid="dash-draft"] > div:last-child { grid-column:1; grid-row:3; border-radius:16px; box-shadow:none; overflow:hidden; }
   .lead-dashboard [data-testid="draft-pool"] { gap:0; }
   .lead-dashboard [data-testid="draft-pool"] > li:first-child { display:none; }
-  .lead-dashboard [data-testid^="draft-row-"] { grid-template-columns:24px minmax(120px,1fr) 160px 140px; gap:12px; border:0; border-bottom:1px solid hsl(var(--border)/.5); border-radius:0; padding:10px 0; background:transparent; }
+  .lead-dashboard [data-testid^="draft-row-"] { grid-template-columns:24px minmax(120px,1fr) 210px 228px; gap:12px; border:0; border-bottom:1px solid hsl(var(--border)/.5); border-radius:0; padding:10px 0; background:transparent; }
   .lead-dashboard [data-testid^="draft-metrics-"] { grid-column:3; display:flex; justify-content:space-between; gap:10px; }
   .lead-dashboard [data-testid^="draft-metrics-"] > span { border:0; padding:0; }
-  .lead-dashboard [data-testid^="draft-metrics-"] > span > span:first-child { display:none; }
+  /* Keep the BSR / Exp. pts / Auto pts labels: bare numbers were unreadable. */
+  .lead-dashboard [data-testid^="draft-metrics-"] > span > span:first-child { font-size:10px; }
   .lead-dashboard [data-testid^="draft-epa-"] { color:hsl(var(--brand)); }
   .lead-dashboard [data-testid^="draft-points-"] { color:hsl(var(--energy)); }
   .lead-dashboard [data-testid^="draft-badges-"] { grid-column:2 / span 2; grid-row:2; }

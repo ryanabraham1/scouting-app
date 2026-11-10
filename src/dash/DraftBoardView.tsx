@@ -34,7 +34,7 @@ import {
 } from '@/dash/useEventData';
 import { resolveRowEpa } from '@/dash/sorting';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
-import { allianceGrid, setAllianceSeat, DRAFT_ORDER, firstOpenTurn, isSeated } from './allianceDraft';
+import { allianceGrid, setAllianceSeat, DRAFT_ORDER, firstOpenTurn, isSeated, pickableCaptains } from './allianceDraft';
 import { predictMatch } from '@/dash/predict';
 import { useQuery } from '@tanstack/react-query';
 import { getPicklist, entryList, type PicklistEntry, type PicklistId } from '@/dash/picklistClient';
@@ -42,6 +42,7 @@ import {
   loadDraftState,
   saveDraftState,
   statusOf,
+  toggleDeclined,
   toggleStatus,
   bestRemaining,
   compareDraftOrder,
@@ -204,9 +205,11 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   // Which picklist drives the ranking: the 1st-pick list until our alliance's
   // first pick lands (auto-switch below), manually switchable any time.
   const activeList = draftActiveList(state);
-  const grid = allianceGrid(state, tbaRankByTeam, baseTeam);
+  const grid = useMemo(() => allianceGrid(state, tbaRankByTeam, baseTeam), [state, tbaRankByTeam, baseTeam]);
   const ourAlliance = grid.findIndex(row => row.includes(baseTeam));
-  const captainSet = useMemo(() => new Set(grid.map(row => row[0]).filter((n): n is number => n != null)), [grid]);
+  // Captains whose alliance has already picked: seated for good, not undoable picks.
+  const captainSet = useMemo(() => new Set(grid.filter(row => row[1] != null || row[2] != null).map(row => row[0]).filter((n): n is number => n != null)), [grid]);
+  const openCaptains = useMemo(() => pickableCaptains(grid), [grid]);
   const turn = state.draftTurn ?? 0;
   const [history, setHistory] = useState<DraftState[]>([]);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -271,12 +274,21 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     // gone before our 2nd pick comes around (captains + their picks). `state.ours`
     // is read directly (not the derived `ourPicks`) to avoid a memo cycle.
     const madeFirstPick = (state.pickedBy ?? null) == null && state.ours.length >= 1;
+    // FRC rule: a captain whose alliance hasn't picked yet can still be picked
+    // by a HIGHER alliance. When we captain an alliance, that (not raw rank)
+    // decides who we can pick.
+    const openCaptains = pickableCaptains(grid);
+    const ourRow = grid.findIndex((row) => row[0] === baseTeam);
+    const declinedSet = new Set(state.declined ?? []);
     const rows: DraftRow[] = aggs.map((agg) => {
       const pl = picklistByTeam.get(agg.teamNumber);
       const rank = activeRankByTeam.get(agg.teamNumber) ?? null;
       const tbaRank = tbaRankByTeam.get(agg.teamNumber) ?? null;
+      const captainOf = openCaptains.get(agg.teamNumber) ?? null;
+      // Only an alliance captain picks, so this applies only once we captain
+      // one: we can't pick a captain at or above our own alliance.
       const blockedByRank =
-        ourRank != null && tbaRank != null && tbaRank < ourRank && agg.teamNumber !== baseTeam;
+        agg.teamNumber !== baseTeam && ourRow >= 0 && captainOf != null && captainOf <= ourRow;
       const blockedTop8 =
         madeFirstPick && tbaRank != null && tbaRank <= TOP8_CAPTAINS && agg.teamNumber !== baseTeam;
       return {
@@ -298,10 +310,14 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
         isUs: agg.teamNumber === baseTeam,
         // A captain that picked us is already committed to our alliance and
         // must not remain eligible in best-available recommendations.
+        declined: declinedSet.has(agg.teamNumber),
+        captainOf,
         status:
           state.pickedBy === agg.teamNumber
             ? 'taken'
-            : statusOf(agg.teamNumber, state),
+            : captainOf != null
+              ? 'available'
+              : statusOf(agg.teamNumber, state),
       };
     });
     rows.sort(compareDraftOrder);
@@ -318,6 +334,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     ourRank,
     baseTeam,
     state,
+    grid,
   ]);
 
   const hasPicklist = activeRankByTeam.size > 0;
@@ -427,7 +444,22 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
   // Marking our FIRST pick auto-switches the board to the 2nd-pick list (and
   // undoing it switches back); manual switching below always remains available.
   const toggle = (teamNumber: number, target: 'ours' | 'taken'): void => {
-    if (statusOf(teamNumber, state) === target) {
+    const captainRow = openCaptains.get(teamNumber);
+    const current = captainRow != null ? 'available' : statusOf(teamNumber, state);
+    if (current !== target) {
+      // FRC rules: a team that declined can't be picked by anyone afterward, and
+      // a captain can only be picked by a HIGHER alliance that hasn't picked yet.
+      if ((state.declined ?? []).includes(teamNumber)) {
+        setDraftError(`${formatTeam(teamNumber)} declined an invitation, so no alliance can pick it now.`);
+        return;
+      }
+      const pickingRow = target === 'ours' ? ourAlliance : DRAFT_ORDER[turn];
+      if (captainRow != null && pickingRow != null && pickingRow >= 0 && captainRow <= pickingRow) {
+        setDraftError(`${formatTeam(teamNumber)} captains Alliance ${captainRow + 1}; only a higher alliance can pick it.`);
+        return;
+      }
+    }
+    if (current === target) {
       // Captains count as "taken" for the pool, but un-taking one would delete
       // the captain from its alliance. Captains change in the Alliances table.
       if (captainSet.has(teamNumber)) {
@@ -457,6 +489,14 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
     const seat = grid[row][1] == null ? 1 : grid[row][2] == null ? 2 : -1;
     if (seat < 0) { setDraftError(`Alliance ${row + 1} is full. Select another alliance or edit a seat.`); return; }
     updateDraft({ ...setAllianceSeat(state, grid, row, seat, teamNumber, baseTeam, tbaRankByTeam), draftTurn: Math.min(16, turn + 1) });
+  };
+  // A decline doesn't use the inviting alliance's turn: it simply picks again.
+  const toggleDecline = (teamNumber: number): void => {
+    if (isSeated(grid, teamNumber) && !openCaptains.has(teamNumber)) {
+      setDraftError(`${formatTeam(teamNumber)} is already on an alliance. Undo that pick first.`);
+      return;
+    }
+    updateDraft(toggleDeclined(teamNumber, state));
   };
   const setActiveList = (list: PicklistId): void =>
     setState((s) => ({ ...s, activeList: list }));
@@ -786,10 +826,10 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         className="text-[9px] uppercase tracking-wide text-muted-foreground"
                       >
                         {allianceStats.autoSource === 'mixed'
-                          ? 'scout + est.'
+                          ? 'scouted + BSR est.'
                           : allianceStats.autoSource === 'scouting'
-                            ? 'scout'
-                            : 'est.'}
+                            ? 'scouted'
+                            : 'BSR est.'}
                       </span>
                     ) : null}
                   </span>
@@ -898,7 +938,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   at large widths; phones keep each row self-contained below. */}
               <li
                 aria-hidden="true"
-                className="hidden grid-cols-[2rem_minmax(10rem,1.4fr)_minmax(15rem,1fr)_minmax(8rem,0.75fr)_10.5rem] items-end gap-x-4 px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground lg:grid"
+                className="hidden grid-cols-[2rem_minmax(10rem,1.4fr)_minmax(15rem,1fr)_minmax(8rem,0.75fr)_15rem] items-end gap-x-4 px-3 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground lg:grid"
               >
                 <span className="text-right">Rank</span>
                 <span>Team</span>
@@ -912,11 +952,11 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                   data-testid={`draft-row-${r.teamNumber}`}
                   data-status={r.status}
                   className={cn(
-                    'relative grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 overflow-hidden rounded-xl border px-3 py-2 text-sm sm:grid-cols-[2rem_minmax(10rem,1fr)_auto] lg:grid-cols-[2rem_minmax(10rem,1.4fr)_minmax(15rem,1fr)_minmax(8rem,0.75fr)_10.5rem] lg:gap-x-4 lg:gap-y-0 lg:py-1.5',
+                    'relative grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 overflow-hidden rounded-xl border px-3 py-2 text-sm sm:grid-cols-[2rem_minmax(10rem,1fr)_auto] lg:grid-cols-[2rem_minmax(10rem,1.4fr)_minmax(15rem,1fr)_minmax(8rem,0.75fr)_15rem] lg:gap-x-4 lg:gap-y-0 lg:py-1.5',
                     rowTone(r.status),
                     // Teams we can't pick (ranked above us, or a top-8 seed after
                     // our first pick) read as taken — dimmed + struck through.
-                    (r.blockedByRank || r.blockedTop8) && r.status === 'available' && 'opacity-55',
+                    (r.blockedByRank || r.blockedTop8 || r.declined) && r.status === 'available' && 'opacity-55',
                   )}
                 >
                   <span className="col-start-1 row-start-1 self-center text-right font-mono text-xs tabular-nums text-muted-foreground">
@@ -948,7 +988,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     className="col-span-2 grid grid-cols-3 gap-1.5 sm:col-span-1 sm:col-start-2 lg:col-start-3 lg:row-start-1 lg:gap-3"
                   >
                     <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 first:border-l-0 first:pl-0 lg:items-end">
-                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         BSR
                       </span>
                       <span
@@ -959,7 +999,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       </span>
                     </span>
                     <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 lg:items-end">
-                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         Exp. pts
                       </span>
                       <span
@@ -970,7 +1010,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       </span>
                     </span>
                     <span className="flex min-w-0 flex-col border-l border-border/60 pl-2 lg:items-end">
-                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         Auto pts
                       </span>
                       <span
@@ -988,9 +1028,9 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         {r.autoSource !== 'none' ? (
                           <span
                             data-testid={`draft-auto-source-${r.teamNumber}`}
-                            className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground"
+                            className="text-[9px] font-medium tracking-wide text-muted-foreground"
                           >
-                            {r.autoSource === 'scouting' ? 'scout' : 'est.'}
+                            {r.autoSource === 'scouting' ? 'scouted' : 'BSR est.'}
                           </span>
                         ) : null}
                       </span>
@@ -1028,13 +1068,31 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                         <Trophy className="size-3" /> You
                       </span>
                     ) : null}
+                    {r.declined ? (
+                      <span
+                        data-testid={`draft-declined-badge-${r.teamNumber}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning"
+                        title="Declined an invitation: no alliance can pick it now"
+                      >
+                        <Ban className="size-3" /> declined
+                      </span>
+                    ) : null}
+                    {r.captainOf != null && !r.isUs ? (
+                      <span
+                        data-testid={`draft-captain-${r.teamNumber}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                        title={`Captain of Alliance ${r.captainOf + 1}. A higher alliance can still pick it.`}
+                      >
+                        A{r.captainOf + 1} captain
+                      </span>
+                    ) : null}
                     {r.blockedByRank ? (
                       <span
                         data-testid={`draft-blocked-${r.teamNumber}`}
                         className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                        title={`Ranked #${r.tbaRank} — above us (#${ourRank}); can't pick`}
+                        title={r.captainOf != null ? `Captain of Alliance ${r.captainOf + 1}, above us; can't pick` : `Ranked #${r.tbaRank} — above us (#${ourRank}); can't pick`}
                       >
-                        <Lock className="size-3" /> rank #{r.tbaRank}
+                        <Lock className="size-3" /> {r.captainOf != null ? 'above us' : `rank #${r.tbaRank}`}
                       </span>
                     ) : r.blockedTop8 ? (
                       <span
@@ -1064,7 +1122,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       on desktop. Labels stay visible at every breakpoint. */}
                   <div
                     data-testid={`draft-actions-${r.teamNumber}`}
-                    className="col-span-2 grid grid-cols-2 gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-[10.5rem] lg:col-start-5 lg:row-start-1"
+                    className="col-span-2 grid grid-cols-3 gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-[15rem] lg:col-start-5 lg:row-start-1"
                   >
                     <Button
                       type="button"
@@ -1075,13 +1133,18 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       // Can't add ourselves, a team ranked above us, or (after our
                       // first pick) a top-8 seed to our alliance.
                       disabled={
-                        r.isUs || ((r.blockedByRank || r.blockedTop8) && r.status !== 'ours')
+                        r.isUs ||
+                        ((r.blockedByRank || r.blockedTop8 || r.declined) && r.status !== 'ours')
                       }
                       title={
                         r.isUs
                           ? "That's us — you're the captain"
+                          : r.declined
+                            ? 'Declined an invitation — no alliance can pick it now'
                           : r.blockedByRank
-                            ? `Ranked above us (#${r.tbaRank}) — can't pick`
+                            ? r.captainOf != null
+                              ? `Captain of Alliance ${r.captainOf + 1} — only a higher alliance can pick it`
+                              : `Ranked above us (#${r.tbaRank}) — can't pick`
                             : r.blockedTop8
                               ? `Top-8 seed (#${r.tbaRank}) — unavailable by our 2nd pick`
                               : undefined
@@ -1104,7 +1167,7 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                       data-testid={`draft-taken-${r.teamNumber}`}
                       // We can't be "taken" by another alliance — we're a captain.
                       // Other captains are seated, not undoable picks.
-                      disabled={r.isUs || captainSet.has(r.teamNumber)}
+                      disabled={r.isUs || captainSet.has(r.teamNumber) || (!!r.declined && r.status !== 'taken')}
                       onClick={() => toggle(r.teamNumber, 'taken')}
                       aria-pressed={r.status === 'taken'}
                       aria-label={
@@ -1117,6 +1180,25 @@ export default function DraftBoardView(props: DraftBoardViewProps): JSX.Element 
                     >
                       {captainSet.has(r.teamNumber) ? null : r.status === 'taken' ? <RotateCcw /> : <X />}
                       <span>{captainSet.has(r.teamNumber) ? 'Captain' : r.status === 'taken' ? 'Undo' : 'Taken'}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={r.declined ? 'secondary' : 'ghost'}
+                      className="h-11 min-w-0 px-3 lg:h-8 lg:px-2.5"
+                      data-testid={`draft-declined-${r.teamNumber}`}
+                      disabled={r.isUs || (r.status !== 'available' && !r.declined)}
+                      onClick={() => toggleDecline(r.teamNumber)}
+                      aria-pressed={r.declined}
+                      title="Declined an invitation: no alliance can pick it now, but it can still become a captain"
+                      aria-label={
+                        r.declined
+                          ? `Undo decline for team ${formatTeam(r.teamNumber)}`
+                          : `Mark team ${formatTeam(r.teamNumber)} as declined`
+                      }
+                    >
+                      {r.declined ? <RotateCcw /> : <Ban />}
+                      <span>{r.declined ? 'Undo' : 'Decline'}</span>
                     </Button>
                   </div>
                 </li>
