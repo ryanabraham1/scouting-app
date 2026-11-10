@@ -39,6 +39,29 @@ export function isUnplayedMatch(m: MatchRow): boolean {
 }
 
 /**
+ * TBA can leave an unplayed F3 on the schedule after a best-of-three sweep.
+ * Keep actual results, but omit unused games once either color has two earlier
+ * wins in this event's finals set. Ties never count toward the series.
+ */
+export function relevantScheduledMatches(matches: MatchRow[]): MatchRow[] {
+  return matches.filter((m) => {
+    if (m.comp_level.toLowerCase() !== 'f' || !isUnplayedMatch(m)) return true;
+    const set = setGameOf(m.match_key).set;
+    const wins = { red: 0, blue: 0 };
+    for (const prior of matches) {
+      if (
+        prior.event_key !== m.event_key ||
+        prior.comp_level.toLowerCase() !== 'f' ||
+        setGameOf(prior.match_key).set !== set ||
+        byPlayOrder(prior, m) >= 0
+      ) continue;
+      if (prior.winner === 'red' || prior.winner === 'blue') wins[prior.winner]++;
+    }
+    return wins.red < 2 && wins.blue < 2;
+  });
+}
+
+/**
  * Is any of `teams` on either alliance? `teams` is our alliance's full playoff
  * roster (see `ourAllianceTeams`) — a 4th robot sitting a match out isn't in the
  * row, but the match is still ours.
@@ -70,7 +93,7 @@ export function nextMatchForTeam(
   teamNumber: number,
   allianceTeams: readonly number[] = [teamNumber],
 ): MatchRow | null {
-  const ordered = matches
+  const ordered = relevantScheduledMatches(matches)
     .filter((m) => isUnplayedMatch(m) && includesTeam(m, allianceTeams))
     .sort(byPlayOrder);
   return ordered[0] ?? null;
@@ -86,14 +109,14 @@ export function lastMatchForTeam(
   teamNumber: number,
   allianceTeams: readonly number[] = [teamNumber],
 ): MatchRow | null {
-  const ours = matches.filter((m) => includesTeam(m, allianceTeams)).sort(byPlayOrder);
+  const ours = relevantScheduledMatches(matches).filter((m) => includesTeam(m, allianceTeams)).sort(byPlayOrder);
   return ours.length ? ours[ours.length - 1] : null;
 }
 
 /** The event's last match by play order (any team) — final fallback when our team has none. */
 export function lastMatchOverall(matches: MatchRow[]): MatchRow | null {
-  if (matches.length === 0) return null;
-  return matches.slice().sort(byPlayOrder)[matches.length - 1];
+  const relevant = relevantScheduledMatches(matches);
+  return relevant.sort(byPlayOrder).at(-1) ?? null;
 }
 
 /** Does a Nexus match include `teamNumber` on either alliance? */
@@ -190,6 +213,7 @@ export function trackedNextMatch(
   status: NexusEventStatus | null,
   allianceTeams: readonly number[] = [teamNumber],
 ): MatchRow | null {
+  matches = relevantScheduledMatches(matches);
   if (status) {
     // Live frontier: the match currently ON FIELD (else the one queuing). Mirrors
     // the Upcoming rail (NextMatchView). Any upcoming entry AT OR BEFORE this in

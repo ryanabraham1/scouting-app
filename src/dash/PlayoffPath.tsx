@@ -13,6 +13,7 @@ import { useMemo } from 'react';
 import { ArrowUp, ArrowDown, Trophy, Flag, CircleSlash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TeamLink } from '@/components/ui/TeamLink';
+import { isUnplayedMatch, relevantScheduledMatches } from '@/dash/nextMatch';
 import type { MatchRow } from '@/dash/useEventData';
 import {
   type Feed,
@@ -244,7 +245,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
     const map = new Map<number, MatchRow>();
     const sf: { set: number; row: MatchRow }[] = [];
     const finals: MatchRow[] = [];
-    for (const m of matches) {
+    for (const m of relevantScheduledMatches(matches)) {
       const lvl = m.comp_level.toLowerCase();
       if (lvl === 'sf') {
         const set = sfSet(m);
@@ -266,7 +267,7 @@ export default function PlayoffPath(props: PlayoffPathProps): JSX.Element {
     return { bySet: map, ourOrdered: ours, projected: projectNextPlayoffMatch(matches, baseTeam, teams) };
   }, [matches, baseTeam, teams]);
 
-  const current = ourOrdered.find((o) => !isPlayed(o.row));
+  const current = ourOrdered.find((o) => isUnplayedMatch(o.row));
 
   // ── No scheduled match for us: project from the bracket, else a status line ──
   if (!current) {

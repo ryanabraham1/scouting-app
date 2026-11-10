@@ -132,3 +132,16 @@ describe('PlayoffPath with a 4-robot alliance roster', () => {
     expect(getByTestId('playoff-path-lose').textContent).toContain('M5');
   });
 });
+
+
+it.each(['red', 'blue'] as const)('shows the final event status after a %s sweep despite an unused F3', (winner) => {
+  const matches = [1, 2, 3].map((game) => m({
+    match_key: `2026evt_f1m${game}`, comp_level: 'f', match_number: game,
+    red1: 3256, blue1: 148, winner: game < 3 ? winner : null,
+  }));
+  const { getByTestId, queryByTestId } = render(<PlayoffPath matches={matches} baseTeam={3256} />);
+  expect(queryByTestId('playoff-path-current')).toBeNull();
+  expect(getByTestId('playoff-path-status').textContent).toContain(
+    winner === 'red' ? 'Champions' : 'Event over — finalists',
+  );
+});

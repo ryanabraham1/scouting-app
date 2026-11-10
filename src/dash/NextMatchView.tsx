@@ -37,6 +37,7 @@ import { EventRankSummary, parseTbaRankings } from '@/dash/Leaderboard';
 import SeasonStats from '@/dash/SeasonStats';
 import { getStoredBaseTeam } from '@/dash/baseTeamStore';
 import {
+  relevantScheduledMatches,
   trackedNextMatch,
   lastMatchForTeam,
   lastMatchOverall,
@@ -258,7 +259,7 @@ export default function NextMatchView({ eventKey }: NextMatchViewProps): JSX.Ele
       seasonRecord: null,
     };
 
-  const allMatches = useMemo(() => matchesQ.data ?? [], [matchesQ.data]);
+  const allMatches = useMemo(() => relevantScheduledMatches(matchesQ.data ?? []), [matchesQ.data]);
   // Playoffs have started once the schedule carries any non-qual match. Then the
   // flat "upcoming" list (which can't express bracket structure) is replaced by
   // the double-elim bracket.

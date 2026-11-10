@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isUnplayedMatch,
+  relevantScheduledMatches,
   nextMatchForTeam,
   matchRowForNexus,
   trackedNextMatch,
@@ -258,5 +259,44 @@ describe('alliance roster (4th robot sitting a match out)', () => {
     expect(nextMatchForTeam([sf2], 3256, roster)).toBe(sf2);
     expect(trackedNextMatch([sf2], 3256, null, roster)).toBe(sf2);
     expect(lastMatchForTeam([sf2], 3256, roster)).toBe(sf2);
+  });
+});
+
+
+describe('completed finals series', () => {
+  function finals(winners: MatchRow['winner'][]): MatchRow[] {
+    return winners.map((winner, i) => match({
+      match_key: `2026evt_f1m${i + 1}`, comp_level: 'f', match_number: i + 1,
+      red1: OURS, winner,
+    }));
+  }
+
+  it.each(['red', 'blue'] as const)('omits unused F3 after a %s sweep, including stale Nexus data and last-match fallbacks', (winner) => {
+    const matches = finals([winner, winner, null]);
+    const live = status([nexusMatch({ label: 'Final 3', redTeams: [OURS] })]);
+    expect(nextMatchForTeam(matches, OURS)).toBeNull();
+    expect(trackedNextMatch(matches, OURS, live)).toBeNull();
+    expect(lastMatchForTeam(matches, OURS)?.match_key).toBe('2026evt_f1m2');
+    expect(lastMatchOverall(matches)?.match_key).toBe('2026evt_f1m2');
+  });
+
+  it('keeps F3 when the series is split or a game is tied', () => {
+    for (const winners of [['red', 'blue', null], ['red', null, null]] as MatchRow['winner'][][]) {
+      const matches = finals(winners);
+      if (winners[1] == null) matches[1].result_synced_at = '2026-11-10T00:00:00Z';
+      expect(nextMatchForTeam(matches, OURS)?.match_key).toBe('2026evt_f1m3');
+    }
+  });
+
+  it('preserves played games and does not combine wins from different events or sets', () => {
+    const matches = finals(['red', 'red', null]);
+    matches[1].event_key = '2026other';
+    expect(relevantScheduledMatches(matches)).toHaveLength(3);
+    matches[1].event_key = '2026evt';
+    matches[1].match_key = '2026evt_f2m2';
+    expect(relevantScheduledMatches(matches)).toHaveLength(3);
+    matches[1].match_key = '2026evt_f1m2';
+    matches[2].winner = 'blue';
+    expect(relevantScheduledMatches(matches)).toHaveLength(3);
   });
 });

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MatchRow } from '@/dash/useEventData';
+import { relevantScheduledMatches } from '@/dash/nextMatch';
 import { isUnplayed, shortTime } from '@/dash/matchOrder';
 import { formatMatchKeyRaw, isQualMatchKey } from '@/lib/formatMatch';
 import { COVERAGE_STATION_CAP } from '@/dash/aggregate';
@@ -65,7 +66,7 @@ export default function MatchPicker({
     () => ({
       all: matches.length,
       ours: matches.filter((m) => hasTeam(m, ourTeam)).length,
-      upcoming: matches.filter(isUnplayed).length,
+      upcoming: relevantScheduledMatches(matches).filter(isUnplayed).length,
       playoffs: matches.filter((m) => !isQualMatchKey(m.match_key)).length,
     }),
     [matches, ourTeam],
@@ -76,7 +77,7 @@ export default function MatchPicker({
       case 'ours':
         return matches.filter((m) => hasTeam(m, ourTeam));
       case 'upcoming':
-        return matches.filter(isUnplayed);
+        return relevantScheduledMatches(matches).filter(isUnplayed);
       case 'playoffs':
         return matches.filter((m) => !isQualMatchKey(m.match_key));
       default:
